@@ -21,6 +21,8 @@ class NearbyState extends State<Nearby> {
   int _minPoints = 0;
   int _EIIR = 0;
   int _GR = 0;
+  int _GVR = 0;
+  int _GVIR = 0;
   int _VR = 0;
   int _EVIIR = 0;
   int _EVIIIR = 0;
@@ -66,6 +68,11 @@ class NearbyState extends State<Nearby> {
 
   @override
   Widget build(BuildContext context) {
+    var size = MediaQuery.of(context).size;
+
+    /*24 is for notification bar on Android*/
+    final double itemHeight = (size.height - kToolbarHeight - 2) / 2;
+    final double itemWidth = size.width / 2;
     return Scaffold(
         appBar: AppBar(
           title: Text("Postboxes nearby"),
@@ -75,6 +82,7 @@ class NearbyState extends State<Nearby> {
             return GridView.count(
               // Create a grid with 2 columns in portrait mode, or 3 columns in
               // landscape mode.
+              childAspectRatio: orientation == Orientation.portrait ? 1.5 : 1,
               crossAxisCount: orientation == Orientation.portrait ? 1 : 2,
               // Generate 100 Widgets that display their index in the List
               children: getCustomContainer(),
@@ -162,6 +170,13 @@ class NearbyState extends State<Nearby> {
                nw =  result.data['compass']['NW'] ?? 0;
                nnw =  result.data['compass']['NNW'] ?? 0;
                n =  result.data['compass']['N'] ?? 0;
+               _EIIR = result.data['counts']['EIIR'] ?? 0;
+               _GR = result.data['counts']['GR'] ?? 0;
+               _GVR = result.data['counts']['GVR'] ?? 0;
+               _GVIR = result.data['counts']['GVIR'] ?? 0;
+               _VR = result.data['counts']['VR'] ?? 0;
+               _EVIIR = result.data['counts']['EVIIR'] ?? 0;
+               _EVIIR = result.data['counts']['EVI_EVIIR'] ?? 0;
             });
           } on CloudFunctionsException catch (e) {
             print('caught firebase functions exception');
@@ -192,6 +207,41 @@ class NearbyState extends State<Nearby> {
     } else {
       list.add(
         _tile('Points Available', '$_maxPoints', Icons.arrow_upward),
+      );
+    }
+    if(_EIIR > 0){
+      list.add(
+        _tile('EIIR', '$_EIIR', Icons.arrow_upward),
+      );
+    }
+    if(_GVIR > 0){
+      list.add(
+        _tile('GVIR', '$_GVIR', Icons.arrow_upward),
+      );
+    }
+    if(_EVIIIR > 0){
+      list.add(
+        _tile('EVIIIR', '$_EVIIIR', Icons.arrow_upward),
+      );
+    }
+    if(_GVR > 0){
+      list.add(
+        _tile('GVR', '$_GVR', Icons.arrow_upward),
+      );
+    }
+    if(_GR > 0){
+      list.add(
+        _tile('GR', '$_GR', Icons.arrow_upward),
+      );
+    }
+    if(_EVIIR > 0){
+      list.add(
+        _tile('EVIIR', '$_EVIIR', Icons.arrow_upward),
+      );
+    }
+    if(_VR > 0){
+      list.add(
+        _tile('VR', '$_VR', Icons.arrow_upward),
       );
     }
     return ListView(

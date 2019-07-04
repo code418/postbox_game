@@ -31,11 +31,18 @@ class HomeMenu extends StatelessWidget {
           },
         ),
         HomeMenuButton(
+          text: 'Claim Postbox',
+          icon: Icon(Icons.location_searching),
+          onPressed: () {
+            Navigator.pushNamed(context, '/nearby');
+          },
+        ),
+        /*HomeMenuButton(
           text: 'Upload Photo',
           onPressed: () {
             Navigator.pushNamed(context, '/upload');
           },
-        ),
+        ),*/
         /*HomeMenuButton(
           text: 'Upload Photo',
           onPressed: () {
