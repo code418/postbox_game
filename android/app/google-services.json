@@ -1,0 +1,40 @@
+{
+  "project_info": {
+    "project_number": "176793005702",
+    "firebase_url": "https://the-postbox-game.firebaseio.com",
+    "project_id": "the-postbox-game",
+    "storage_bucket": "the-postbox-game.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:176793005702:android:fbdc8d42630c3ffd",
+        "android_client_info": {
+          "package_name": "com.code418.postbox_game"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "176793005702-7lgiqssuu8i9p5ijn031kbv0tqlptvfg.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCUikjM8sLH4RqgRfKR7a7CWLVAYPhXSr8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "176793005702-7lgiqssuu8i9p5ijn031kbv0tqlptvfg.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
