@@ -94,7 +94,8 @@ class _GoogleSignInSectionState extends State<_GoogleSignInSection> {
       accessToken: googleAuth.accessToken,
       idToken: googleAuth.idToken,
     );
-    final FirebaseUser user = await _auth.signInWithCredential(credential);
+    final AuthResult result = await _auth.signInWithCredential(credential);
+    final FirebaseUser user = result.user;
     assert(user.email != null);
     assert(user.displayName != null);
     assert(!user.isAnonymous);
