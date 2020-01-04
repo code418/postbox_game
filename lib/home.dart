@@ -22,6 +22,7 @@ class HomeMenu extends StatelessWidget {
       padding: const EdgeInsets.all(20.0),
       crossAxisSpacing: 10.0,
       crossAxisCount: 2,
+      
       children: <Widget>[
         HomeMenuButton(
           text: 'Nearby Postboxes',

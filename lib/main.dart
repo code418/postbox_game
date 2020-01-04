@@ -4,6 +4,7 @@ import 'package:postbox_game/home.dart';
 import 'package:postbox_game/login/login_screen.dart';
 import 'package:postbox_game/splash.dart';
 import 'package:postbox_game/nearby.dart';
+import 'package:postbox_game/claim.dart';
 import 'package:postbox_game/signin.dart';
 import 'package:postbox_game/upload.dart';
 import 'package:postbox_game/authentication_bloc/bloc.dart';
@@ -52,6 +53,7 @@ class _PostboxGameState extends State<PostboxGame> {
             '/login': (context) => SignInPage(),
             '/upload': (context) => Upload(),
             '/nearby': (context) => Nearby(),
+            '/Claim': (context) => Claim(),
           }),
     );
   }

@@ -44,12 +44,43 @@ const setPrecision = function(km) {
     // 9	≤ 4.77m	×	4.77m
 };
 
-exports.nearbyPostboxes = functions.https.onCall(async (data, context) => {
-    const {lat,lng,meters} = data;
+const getPoints = function(monarch){
+    /*
+                        EIIR: 2
+                        GR: 4
+                        GVR: 4
+                        GVIR: 4
+                        VR: 7
+                        EVIIR: 9
+                        EVIIIR: 12
+                        */
+    let points = 0;
+    switch (monarch){
+    case 'GR':
+    case 'GVR':
+    case 'GVIR':
+        points = 4;
+        break;
+    case 'VR':
+        points = 7;
+        break;
+    case 'EVIIR':
+        points = 9;
+        break;
+    case 'EVIIIR':
+        points = 12;
+        break;
+    default:
+        points = 2;
+        break;
+    }
+    return points;
+};
 
+const lookupPostboxes = async function(lat,lng,meters){
     const center = new geofirex.GeoFirePoint(admin, lat, lng);
 
-    const json = {'postboxes':[],'counts':{'total':0},'points':{'max':0,'min':0},'compass':{},'debug':data};
+    const json = {'postboxes':{},'counts':{'total':0},'points':{'max':0,'min':0},'compass':{}};
     if (meters && lat && lng){
         const queries = [];
         const radius = meters/1000;
@@ -81,39 +112,8 @@ exports.nearbyPostboxes = functions.https.onCall(async (data, context) => {
                 if (distance <= meters){
                     json.counts.total++;
                     if (typeof data.monarch !== 'undefined'){
-                        /*
-                        EIIR: 2
-                        GR: 4
-                        GVR: 4
-                        GVIR: 4
-                        VR: 7
-                        EVIIR: 9
-                        EVIIIR: 12
-                        */
-                        switch (data.monarch){
-                        case 'GR':
-                        case 'GVR':
-                        case 'GVIR':
-                            json.points.max += 4;
-                            json.points.min += 4;
-                            break;
-                        case 'VR':
-                            json.points.max += 7;
-                            json.points.min += 7;
-                            break;
-                        case 'EVIIR':
-                            json.points.max += 9;
-                            json.points.min += 9;
-                            break;
-                        case 'EVIIIR':
-                            json.points.max += 12;
-                            json.points.min += 12;
-                            break;
-                        default:
-                            json.points.max += 2;
-                            json.points.min += 2;
-                            break;
-                        }
+                        json.points.max += getPoints(data.monarch);
+                        json.points.min += getPoints(data.monarch);
                         if (typeof json.counts[data.monarch] !== 'undefined'){
                             json.counts[data.monarch]++;
                         } else {
@@ -140,11 +140,51 @@ exports.nearbyPostboxes = functions.https.onCall(async (data, context) => {
                             json.compass[compasspos] = 1;
                         }
                     }
-                    json.postboxes.push(data);
+                    json.postboxes[document_.id] = data;
                 }
             });
         });
     }
+    return json;
+};
+
+exports.startScoring = functions.https.onCall(async (data, context) => {
+    const {lat,lng,userid} = data;
+
+    const results = await lookupPostboxes(lat,lng,20);
+
+    const json = {found:false, claims: []};
+    const claims = [];
+    json.found = results.counts.total > 0;
+
+    if (json.found){
+        const keys = Object.keys(results.postboxes);
+        for (const key of keys){
+            const postbox = results.postboxes[key];
+            const data = {
+                userid,
+                timestamp: admin.firestore.Timestamp.now(),
+                validated:false,
+                postboxes: `/postboxes/${key}`,
+            };
+
+            if (typeof postbox.monarch !== 'undefined'){
+                data.monarch = postbox.monarch;
+                data.points = getPoints(data.monarch);
+            }
+            
+            claims.push(database.collection('claims').add(data));            
+        }
+        json.claims = await Promise.all(claims);
+    }
+    
+    return json;
+});
+
+exports.nearbyPostboxes = functions.https.onCall(async (data, context) => {
+    const {lat,lng,meters} = data;
+
+    const json = await lookupPostboxes(lat,lng,meters);
 
     return json;
 });

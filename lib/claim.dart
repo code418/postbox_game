@@ -6,14 +6,14 @@ import 'package:flutter_compass/flutter_compass.dart';
 import 'package:geolocator/geolocator.dart';
 import './compass.dart';
 
-enum NearbyStage { initial, searching, results }
+enum ClaimStage { searching, results }
 
-class Nearby extends StatefulWidget {
+class Claim extends StatefulWidget {
   @override
-  NearbyState createState() => NearbyState();
+  ClaimState createState() => ClaimState();
 }
 
-class NearbyState extends State<Nearby> {
+class ClaimState extends State<Claim> {
   double _lat = 0;
   double _lng = 0;
   int _count = 0;
@@ -45,7 +45,7 @@ class NearbyState extends State<Nearby> {
   int n = 0;
 
   double _direction;
-  NearbyStage currentStage = NearbyStage.initial;
+  ClaimStage currentStage = ClaimStage.searching;
 
   @override
   void initState() {
@@ -93,56 +93,31 @@ class NearbyState extends State<Nearby> {
 
   List<Widget> getCustomContainer() {
     switch (currentStage) {
-      case NearbyStage.initial:
-        return _initialList();
-      case NearbyStage.searching:
+      case ClaimStage.searching:
         return _loadingList();
-      case NearbyStage.results:
+      case ClaimStage.results:
         return _resultsList();
     }
   }
 
-  List<Widget> _initialList() => [_geolocateButton('Find nearby postboxes')];
-
   List<Widget> _loadingList() => [Text('Searching nearby location...')];
 
   List<Widget> _resultsList() => [
-        _buildList(),
-        new Transform.rotate(
-          angle: ((_direction ?? 0) * (pi / 180) * -1),
-          child: Compass(
-              n: n,
-              nne: nne,
-              ne: ne,
-              ene: ene,
-              e: e,
-              ese: ese,
-              se: se,
-              sse: ssw,
-              s: s,
-              ssw: ssw,
-              sw: sw,
-              wsw: wsw,
-              w: w,
-              wnw: wnw,
-              nw: nw,
-              nnw: nnw,
-              rotation: 0 - ((_direction ?? 0) * (pi / 180) * -1)),
-        )
+        _buildList(),        
       ];
 
   Widget _geolocateButton(String buttonLabel) => RaisedButton(
         onPressed: () async {
           try {
             setState(() {
-              currentStage = NearbyStage.searching;
+              currentStage = ClaimStage.searching;
             });
             Position position = await getPosition();
             final HttpsCallableResult result = await callable.call(
               <String, dynamic>{
                 'lat': position.latitude,
                 'lng': position.longitude,
-                'meters': 800,
+                'meters': 30,
               },
             );
             print(result.data);
@@ -153,7 +128,7 @@ class NearbyState extends State<Nearby> {
               _count = result.data['counts']['total'];
               _maxPoints = result.data['points']['max'];
               _minPoints = result.data['points']['min'];
-              currentStage = NearbyStage.results;
+              currentStage = ClaimStage.results;
               nne = result.data['compass']['NNE'] ?? 0;
                ne =  result.data['compass']['NE'] ?? 0;
                ene =  result.data['compass']['ENE'] ?? 0;
@@ -176,7 +151,7 @@ class NearbyState extends State<Nearby> {
                _GVIR = result.data['counts']['GVIR'] ?? 0;
                _VR = result.data['counts']['VR'] ?? 0;
                _EVIIR = result.data['counts']['EVIIR'] ?? 0;
-               _EVIIIR = result.data['counts']['EVIIIR'] ?? 0;
+               _EVIIR = result.data['counts']['EVI_EVIIR'] ?? 0;
             });
           } on CloudFunctionsException catch (e) {
             print('caught firebase functions exception');
@@ -185,7 +160,7 @@ class NearbyState extends State<Nearby> {
             print(e.details);
           } catch (e) { 
             setState(() {
-              currentStage = NearbyStage.initial;
+              currentStage = ClaimStage.searching;
             });
             print('caught generic exception');
             print(e);
