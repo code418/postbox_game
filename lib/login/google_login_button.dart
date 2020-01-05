@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:postbox_game/login/bloc/bloc.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:postbox_game/login/bloc/bloc.dart';
 
 class GoogleLoginButton extends StatelessWidget {
   @override
@@ -12,7 +12,7 @@ class GoogleLoginButton extends StatelessWidget {
       ),
       icon: Icon(FontAwesomeIcons.google, color: Colors.white),
       onPressed: () {
-        BlocProvider.of<LoginBloc>(context).dispatch(
+        BlocProvider.of<LoginBloc>(context).add(
           LoginWithGooglePressed(),
         );
       },

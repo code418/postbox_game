@@ -4,6 +4,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_compass/flutter_compass.dart';
 import 'package:geolocator/geolocator.dart';
+
 import './compass.dart';
 
 enum NearbyStage { initial, searching, results }
@@ -142,7 +143,7 @@ class NearbyState extends State<Nearby> {
               <String, dynamic>{
                 'lat': position.latitude,
                 'lng': position.longitude,
-                'meters': 800,
+                'meters': 540,
               },
             );
             print(result.data);
@@ -155,35 +156,35 @@ class NearbyState extends State<Nearby> {
               _minPoints = result.data['points']['min'];
               currentStage = NearbyStage.results;
               nne = result.data['compass']['NNE'] ?? 0;
-               ne =  result.data['compass']['NE'] ?? 0;
-               ene =  result.data['compass']['ENE'] ?? 0;
-               e =  result.data['compass']['E'] ?? 0;
-               ese =  result.data['compass']['ESE'] ?? 0;
-               se =  result.data['compass']['SE'] ?? 0;
-               sse =  result.data['compass']['SSE'] ?? 0;
-               s =  result.data['compass']['S'] ?? 0;
-               ssw =  result.data['compass']['SSW'] ?? 0;
-               sw =  result.data['compass']['SW'] ?? 0;
-               wsw =  result.data['compass']['WSW'] ?? 0;
-               w =  result.data['compass']['W'] ?? 0;
-               wnw =  result.data['compass']['WNW'] ?? 0;
-               nw =  result.data['compass']['NW'] ?? 0;
-               nnw =  result.data['compass']['NNW'] ?? 0;
-               n =  result.data['compass']['N'] ?? 0;
-               _EIIR = result.data['counts']['EIIR'] ?? 0;
-               _GR = result.data['counts']['GR'] ?? 0;
-               _GVR = result.data['counts']['GVR'] ?? 0;
-               _GVIR = result.data['counts']['GVIR'] ?? 0;
-               _VR = result.data['counts']['VR'] ?? 0;
-               _EVIIR = result.data['counts']['EVIIR'] ?? 0;
-               _EVIIIR = result.data['counts']['EVIIIR'] ?? 0;
+              ne = result.data['compass']['NE'] ?? 0;
+              ene = result.data['compass']['ENE'] ?? 0;
+              e = result.data['compass']['E'] ?? 0;
+              ese = result.data['compass']['ESE'] ?? 0;
+              se = result.data['compass']['SE'] ?? 0;
+              sse = result.data['compass']['SSE'] ?? 0;
+              s = result.data['compass']['S'] ?? 0;
+              ssw = result.data['compass']['SSW'] ?? 0;
+              sw = result.data['compass']['SW'] ?? 0;
+              wsw = result.data['compass']['WSW'] ?? 0;
+              w = result.data['compass']['W'] ?? 0;
+              wnw = result.data['compass']['WNW'] ?? 0;
+              nw = result.data['compass']['NW'] ?? 0;
+              nnw = result.data['compass']['NNW'] ?? 0;
+              n = result.data['compass']['N'] ?? 0;
+              _EIIR = result.data['counts']['EIIR'] ?? 0;
+              _GR = result.data['counts']['GR'] ?? 0;
+              _GVR = result.data['counts']['GVR'] ?? 0;
+              _GVIR = result.data['counts']['GVIR'] ?? 0;
+              _VR = result.data['counts']['VR'] ?? 0;
+              _EVIIR = result.data['counts']['EVIIR'] ?? 0;
+              _EVIIIR = result.data['counts']['EVIIIR'] ?? 0;
             });
           } on CloudFunctionsException catch (e) {
             print('caught firebase functions exception');
             print(e.code);
             print(e.message);
             print(e.details);
-          } catch (e) { 
+          } catch (e) {
             setState(() {
               currentStage = NearbyStage.initial;
             });
@@ -209,37 +210,37 @@ class NearbyState extends State<Nearby> {
         _tile('Points Available', '$_maxPoints', Icons.arrow_upward),
       );
     }
-    if(_EIIR > 0){
+    if (_EIIR > 0) {
       list.add(
         _tile('EIIR', '$_EIIR', Icons.arrow_upward),
       );
     }
-    if(_GVIR > 0){
+    if (_GVIR > 0) {
       list.add(
         _tile('GVIR', '$_GVIR', Icons.arrow_upward),
       );
     }
-    if(_EVIIIR > 0){
+    if (_EVIIIR > 0) {
       list.add(
         _tile('EVIIIR', '$_EVIIIR', Icons.arrow_upward),
       );
     }
-    if(_GVR > 0){
+    if (_GVR > 0) {
       list.add(
         _tile('GVR', '$_GVR', Icons.arrow_upward),
       );
     }
-    if(_GR > 0){
+    if (_GR > 0) {
       list.add(
         _tile('GR', '$_GR', Icons.arrow_upward),
       );
     }
-    if(_EVIIR > 0){
+    if (_EVIIR > 0) {
       list.add(
         _tile('EVIIR', '$_EVIIR', Icons.arrow_upward),
       );
     }
-    if(_VR > 0){
+    if (_VR > 0) {
       list.add(
         _tile('VR', '$_VR', Icons.arrow_upward),
       );

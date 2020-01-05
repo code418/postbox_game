@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:postbox_game/user_repository.dart';
 import 'package:postbox_game/authentication_bloc/bloc.dart';
 import 'package:postbox_game/login/bloc/bloc.dart';
+import 'package:postbox_game/login/create_account_button.dart';
 import 'package:postbox_game/login/google_login_button.dart';
 import 'package:postbox_game/login/login_button.dart';
-import 'package:postbox_game/login/create_account_button.dart';
+import 'package:postbox_game/user_repository.dart';
 
 class LoginForm extends StatefulWidget {
   final UserRepository _userRepository;
@@ -75,7 +75,7 @@ class _LoginFormState extends State<LoginForm> {
             );
         }
         if (state.isSuccess) {
-          BlocProvider.of<AuthenticationBloc>(context).dispatch(LoggedIn());
+          BlocProvider.of<AuthenticationBloc>(context).add(LoggedIn());
         }
       },
       child: BlocBuilder(
@@ -143,19 +143,19 @@ class _LoginFormState extends State<LoginForm> {
   }
 
   void _onEmailChanged() {
-    _loginBloc.dispatch(
+    _loginBloc.add(
       EmailChanged(email: _emailController.text),
     );
   }
 
   void _onPasswordChanged() {
-    _loginBloc.dispatch(
+    _loginBloc.add(
       PasswordChanged(password: _passwordController.text),
     );
   }
 
   void _onFormSubmitted() {
-    _loginBloc.dispatch(
+    _loginBloc.add(
       LoginWithCredentialsPressed(
         email: _emailController.text,
         password: _passwordController.text,

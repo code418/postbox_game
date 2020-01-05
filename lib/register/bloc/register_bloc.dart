@@ -1,10 +1,11 @@
 import 'dart:async';
+
 import 'package:bloc/bloc.dart';
 import 'package:meta/meta.dart';
-import 'package:rxdart/rxdart.dart';
-import 'package:postbox_game/user_repository.dart';
 import 'package:postbox_game/register/bloc/bloc.dart';
+import 'package:postbox_game/user_repository.dart';
 import 'package:postbox_game/validators.dart';
+import 'package:rxdart/rxdart.dart';
 
 class RegisterBloc extends Bloc<RegisterEvent, RegisterState> {
   final UserRepository _userRepository;
@@ -17,24 +18,27 @@ class RegisterBloc extends Bloc<RegisterEvent, RegisterState> {
   RegisterState get initialState => RegisterState.empty();
 
   @override
-  Stream<RegisterState> transform(
-      Stream<RegisterEvent> events,
-      Stream<RegisterState> Function(RegisterEvent event) next,
-      ) {
+  Stream<RegisterState> transformEvents(
+    Stream<RegisterEvent> events,
+    Stream<RegisterState> Function(RegisterEvent event) next,
+  ) {
     final observableStream = events as Observable<RegisterEvent>;
     final nonDebounceStream = observableStream.where((event) {
       return (event is! EmailChanged && event is! PasswordChanged);
     });
     final debounceStream = observableStream.where((event) {
       return (event is EmailChanged || event is PasswordChanged);
-    }).debounce(Duration(milliseconds: 300));
-    return super.transform(nonDebounceStream.mergeWith([debounceStream]), next);
+    }).debounceTime(Duration(milliseconds: 300));
+    return super.transformEvents(
+      nonDebounceStream.mergeWith([debounceStream]),
+      next,
+    );
   }
 
   @override
   Stream<RegisterState> mapEventToState(
-      RegisterEvent event,
-      ) async* {
+    RegisterEvent event,
+  ) async* {
     if (event is EmailChanged) {
       yield* _mapEmailChangedToState(event.email);
     } else if (event is PasswordChanged) {
@@ -45,21 +49,21 @@ class RegisterBloc extends Bloc<RegisterEvent, RegisterState> {
   }
 
   Stream<RegisterState> _mapEmailChangedToState(String email) async* {
-    yield currentState.update(
+    yield state.update(
       isEmailValid: Validators.isValidEmail(email),
     );
   }
 
   Stream<RegisterState> _mapPasswordChangedToState(String password) async* {
-    yield currentState.update(
+    yield state.update(
       isPasswordValid: Validators.isValidPassword(password),
     );
   }
 
   Stream<RegisterState> _mapFormSubmittedToState(
-      String email,
-      String password,
-      ) async* {
+    String email,
+    String password,
+  ) async* {
     yield RegisterState.loading();
     try {
       await _userRepository.signUp(
