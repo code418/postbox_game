@@ -9,17 +9,16 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "cli-progress": "~2.1.1",
-    "eslint": "^6.8.0",
-    "eslint-config-agilepixel": "^0.7.0",
+    "cli-progress": "^3.0.0",
+    "eslint": "^8.0.0",
+    "eslint-config-agilepixel": "^0.18.0",
     "firebase": "^9.9.4",
-    "geofirex": "^0.0.6",
-    "google-maps": "~3.3.0",
-    "rxjs": "~6.5.5"
+    "geofire-common": "^6.0.0",
+    "google-maps": "^4.0.0"
   },
   "devDependencies": {
     "firebase-tools": "^11.9.0",
-    "webpack": "~4.42.0",
-    "webpack-cli": "~3.3.11"
+    "webpack": "^5.0.0",
+    "webpack-cli": "^4.0.0"
   }
 }
