@@ -10,16 +10,16 @@
   "license": "ISC",
   "dependencies": {
     "cli-progress": "~2.1.1",
-    "eslint": "^6.0.1",
-    "eslint-config-agilepixel": "^0.2.0",
-    "firebase": "~6.2.4",
-    "geofirex": "~0.0.6",
+    "eslint": "^6.8.0",
+    "eslint-config-agilepixel": "^0.7.0",
+    "firebase": "~7.13.2",
+    "geofirex": "~0.1.0",
     "google-maps": "~3.3.0",
-    "rxjs": "~6.5.2"
+    "rxjs": "~6.5.5"
   },
   "devDependencies": {
-    "firebase-tools": "^7.0.2",
-    "webpack": "~4.35.2",
-    "webpack-cli": "~3.3.5"
+    "firebase-tools": "^8.0.1",
+    "webpack": "~4.42.0",
+    "webpack-cli": "~3.3.11"
   }
 }

@@ -1,4 +1,4 @@
-// The Cloud Functions for Firebase SDK to create Cloud Functions and setup triggers.
+/*! 🧮🧩 2020*/
 const functions = require('firebase-functions');
 
 // The Firebase Admin SDK to access the Firebase Realtime Database.
@@ -77,10 +77,14 @@ const getPoints = function(monarch){
     return points;
 };
 
-const lookupPostboxes = async function(lat,lng,meters){
+const lookupPostboxes = async function(lat, lng, meters){
     const center = new geofirex.GeoFirePoint(admin, lat, lng);
 
-    const json = {'postboxes':{},'counts':{'total':0},'points':{'max':0,'min':0},'compass':{}};
+    const json = {
+        'postboxes':{}, 'counts':{'total':0}, 'points':{
+            'max':0, 'min':0,
+        }, 'compass':{},
+    };
     if (meters && lat && lng){
         const queries = [];
         const radius = meters/1000;
@@ -89,7 +93,7 @@ const lookupPostboxes = async function(lat,lng,meters){
         const areas = geofirex.GeoFirePoint.neighbors(centerHash).concat(centerHash);
             
     
-        const postboxReference = database.collection('postboxes');
+        const postboxReference = database.query('postboxes');
         for (const geohash of areas) {
             const end = `${geohash}~`;
             const query = postboxReference
@@ -105,10 +109,12 @@ const lookupPostboxes = async function(lat,lng,meters){
         resultArray.forEach(results => {
             results.forEach(document_ => {
                 const data = document_.data();
-                const distance = geolib.getDistance(
-                    {latitude: lat, longitude: lng},
-                    {latitude: data.position.geopoint._latitude, longitude: data.position.geopoint._longitude}
-                );
+                const distance = geolib.getDistance({
+                    latitude: lat, longitude: lng,
+                },
+                {
+                    latitude: data.position.geopoint._latitude, longitude: data.position.geopoint._longitude,
+                });
                 if (distance <= meters){
                     json.counts.total++;
                     if (typeof data.monarch !== 'undefined'){
@@ -123,15 +129,19 @@ const lookupPostboxes = async function(lat,lng,meters){
                         json.points.max += 12;
                         json.points.min += 2;
                     }
-                    const distance = geolib.getDistance(
-                        {latitude: lat, longitude: lng},
-                        {latitude: data.position.geopoint._latitude, longitude: data.position.geopoint._longitude}
-                    );
+                    const distance = geolib.getDistance({
+                        latitude: lat, longitude: lng,
+                    },
+                    {
+                        latitude: data.position.geopoint._latitude, longitude: data.position.geopoint._longitude,
+                    });
                     data.distance = distance;
-                    data.compass = geolib.getCompassDirection(
-                        {latitude: lat, longitude: lng},
-                        {latitude: data.position.geopoint._latitude, longitude: data.position.geopoint._longitude}
-                    );
+                    data.compass = geolib.getCompassDirection({
+                        latitude: lat, longitude: lng,
+                    },
+                    {
+                        latitude: data.position.geopoint._latitude, longitude: data.position.geopoint._longitude,
+                    });
                     const compasspos = data.compass.exact;
                     if (typeof compasspos !== 'undefined'){
                         if (typeof json.compass[compasspos] !== 'undefined'){
@@ -149,11 +159,13 @@ const lookupPostboxes = async function(lat,lng,meters){
 };
 
 exports.startScoring = functions.https.onCall(async (data, context) => {
-    const {lat,lng,userid} = data;
+    const {lat, lng, userid} = data;
 
-    const results = await lookupPostboxes(lat,lng,20);
+    const results = await lookupPostboxes(lat, lng, 20);
 
-    const json = {found:false, claims: []};
+    const json = {
+        found:false, claims: [],
+    };
     const claims = [];
     json.found = results.counts.total > 0;
 
@@ -173,7 +185,7 @@ exports.startScoring = functions.https.onCall(async (data, context) => {
                 data.points = getPoints(data.monarch);
             }
             
-            claims.push(database.collection('claims').add(data));            
+            claims.push(database.query('claims').add(data));            
         }
         json.claims = await Promise.all(claims);
     }
@@ -182,9 +194,9 @@ exports.startScoring = functions.https.onCall(async (data, context) => {
 });
 
 exports.nearbyPostboxes = functions.https.onCall(async (data, context) => {
-    const {lat,lng,meters} = data;
+    const {lat, lng, meters} = data;
 
-    const json = await lookupPostboxes(lat,lng,meters);
+    const json = await lookupPostboxes(lat, lng, meters);
 
     return json;
 });
