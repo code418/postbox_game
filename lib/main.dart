@@ -2,8 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:postbox_game/authentication_bloc/bloc.dart';
 import 'package:postbox_game/claim.dart';
-import 'package:postbox_game/home.dart';
-import 'package:postbox_game/login/login_screen.dart';
+//import 'package:postbox_game/home.dart';
+import 'package:postbox_game/intro.dart';
+//import 'package:postbox_game/login/login_screen.dart';
 import 'package:postbox_game/nearby.dart';
 import 'package:postbox_game/signin.dart';
 import 'package:postbox_game/splash.dart';
@@ -21,7 +22,7 @@ class PostboxGame extends StatefulWidget {
 
 class _PostboxGameState extends State<PostboxGame> {
   final UserRepository _userRepository = UserRepository();
-  AuthenticationBloc _authenticationBloc;
+  //AuthenticationBloc _authenticationBloc;
 
   @override
   void initState() {
@@ -39,12 +40,13 @@ class _PostboxGameState extends State<PostboxGame> {
               if (state is Uninitialized) {
                 return Splash();
               }
-              if (state is Unauthenticated) {
+              /*if (state is Unauthenticated) {
                 return LoginScreen(userRepository: _userRepository);
               }
               if (state is Authenticated) {
                 return Home();
-              }
+              }*/
+              return Intro();
             },
           ),
           routes: {

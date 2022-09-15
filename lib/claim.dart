@@ -1,10 +1,10 @@
-import 'dart:math';
+//import 'dart:math';
 
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_compass/flutter_compass.dart';
 import 'package:geolocator/geolocator.dart';
-import './compass.dart';
+//import './compass.dart';
 
 enum ClaimStage { searching, results }
 
@@ -50,18 +50,17 @@ class ClaimState extends State<Claim> {
   @override
   void initState() {
     super.initState();
-    FlutterCompass.events.listen((double direction) {
+    FlutterCompass.events.listen((CompassEvent event) {
       setState(() {
-        _direction = direction;
+        _direction = event.heading;
       });
     });
   }
 
-  final HttpsCallable callable = CloudFunctions.instance
-      .getHttpsCallable(functionName: 'nearbyPostboxes')
-        ..timeout = const Duration(seconds: 30);
+  final HttpsCallable callable = FirebaseFunctions.instance
+      .httpsCallable('nearbyPostboxes');
   Future getPosition() async {
-    Position position = await Geolocator()
+    Position position = await Geolocator
         .getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
     return position;
   }
@@ -106,7 +105,7 @@ class ClaimState extends State<Claim> {
         _buildList(),        
       ];
 
-  Widget _geolocateButton(String buttonLabel) => RaisedButton(
+  Widget _geolocateButton(String buttonLabel) => ElevatedButton(
         onPressed: () async {
           try {
             setState(() {
@@ -153,7 +152,7 @@ class ClaimState extends State<Claim> {
                _EVIIR = result.data['counts']['EVIIR'] ?? 0;
                _EVIIR = result.data['counts']['EVI_EVIIR'] ?? 0;
             });
-          } on CloudFunctionsException catch (e) {
+          } on FirebaseFunctionsException catch (e) {
             print('caught firebase functions exception');
             print(e.code);
             print(e.message);

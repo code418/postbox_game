@@ -51,18 +51,17 @@ class NearbyState extends State<Nearby> {
   @override
   void initState() {
     super.initState();
-    FlutterCompass.events.listen((double direction) {
+    FlutterCompass.events.listen((CompassEvent event) {
       setState(() {
-        _direction = direction;
+        _direction = event.heading;
       });
     });
   }
 
-  final HttpsCallable callable = CloudFunctions.instance
-      .getHttpsCallable(functionName: 'nearbyPostboxes')
-        ..timeout = const Duration(seconds: 30);
+  final HttpsCallable callable = FirebaseFunctions.instance
+      .httpsCallable('nearbyPostboxes');
   Future getPosition() async {
-    Position position = await Geolocator()
+    Position position = await Geolocator
         .getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
     return position;
   }
@@ -132,7 +131,7 @@ class NearbyState extends State<Nearby> {
         )
       ];
 
-  Widget _geolocateButton(String buttonLabel) => RaisedButton(
+  Widget _geolocateButton(String buttonLabel) => ElevatedButton(
         onPressed: () async {
           try {
             setState(() {
@@ -179,7 +178,7 @@ class NearbyState extends State<Nearby> {
               _EVIIR = result.data['counts']['EVIIR'] ?? 0;
               _EVIIIR = result.data['counts']['EVIIIR'] ?? 0;
             });
-          } on CloudFunctionsException catch (e) {
+          } on FirebaseFunctionsException catch (e) {
             print('caught firebase functions exception');
             print(e.code);
             print(e.message);
