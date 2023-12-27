@@ -15,6 +15,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "176793005702-bm8k047sgolu4nt8iki6sj92sgm2971l.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.code418.postbox_game",
+            "certificate_hash": "f7a0f19c1ffaf54a483c3d6136cabd70d6cee1f1"
+          }
+        },
+        {
           "client_id": "176793005702-7lgiqssuu8i9p5ijn031kbv0tqlptvfg.apps.googleusercontent.com",
           "client_type": 3
         }

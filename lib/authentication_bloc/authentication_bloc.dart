@@ -1,16 +1,14 @@
 import 'dart:async';
 import 'package:bloc/bloc.dart';
-import 'package:meta/meta.dart';
 import 'package:postbox_game/authentication_bloc/bloc.dart';
 import 'package:postbox_game/user_repository.dart';
 
 class AuthenticationBloc
-    extends Bloc<AuthenticationEvent, AuthenticationState> {
+    extends Bloc<AuthenticationEvent, AuthenticationState?> {
   final UserRepository _userRepository;
 
-  AuthenticationBloc({@required UserRepository userRepository})
-      : assert(userRepository != null),
-        _userRepository = userRepository, super(null);
+  AuthenticationBloc({required UserRepository userRepository})
+      : _userRepository = userRepository, super(null);
 
   @override
   AuthenticationState get initialState => Uninitialized();
@@ -33,7 +31,7 @@ class AuthenticationBloc
       final isSignedIn = await _userRepository.isSignedIn();
       if (isSignedIn) {
         final name = await _userRepository.getUser();
-        yield Authenticated(name);
+        yield Authenticated(name!);
       } else {
         yield Unauthenticated();
       }
@@ -43,7 +41,7 @@ class AuthenticationBloc
   }
 
   Stream<AuthenticationState> _mapLoggedInToState() async* {
-    yield Authenticated(await _userRepository.getUser());
+    yield Authenticated(await _userRepository.getUser() ?? '');
   }
 
   Stream<AuthenticationState> _mapLoggedOutToState() async* {

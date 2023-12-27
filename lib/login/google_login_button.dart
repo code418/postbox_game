@@ -7,9 +7,9 @@ class GoogleLoginButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ElevatedButton.icon(
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(30.0),
-      ),
+      //shape: RoundedRectangleBorder(
+      //  borderRadius: BorderRadius.circular(30.0),
+      //),
       icon: Icon(FontAwesomeIcons.google, color: Colors.white),
       onPressed: () {
         BlocProvider.of<LoginBloc>(context).add(
@@ -17,7 +17,7 @@ class GoogleLoginButton extends StatelessWidget {
         );
       },
       label: Text('Sign in with Google', style: TextStyle(color: Colors.white)),
-      color: Colors.redAccent,
+      //color: Colors.redAccent,
     );
   }
 }

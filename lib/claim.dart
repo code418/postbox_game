@@ -44,13 +44,13 @@ class ClaimState extends State<Claim> {
   int nnw = 0;
   int n = 0;
 
-  double _direction;
+  double? _direction;
   ClaimStage currentStage = ClaimStage.searching;
 
   @override
   void initState() {
     super.initState();
-    FlutterCompass.events.listen((CompassEvent event) {
+    FlutterCompass.events!.listen((CompassEvent event) {
       setState(() {
         _direction = event.heading;
       });

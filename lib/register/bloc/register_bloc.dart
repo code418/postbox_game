@@ -5,14 +5,12 @@ import 'package:meta/meta.dart';
 import 'package:postbox_game/register/bloc/bloc.dart';
 import 'package:postbox_game/user_repository.dart';
 import 'package:postbox_game/validators.dart';
-import 'package:rxdart/rxdart.dart';
 
 class RegisterBloc extends Bloc<RegisterEvent, RegisterState> {
   final UserRepository _userRepository;
 
   RegisterBloc({@required UserRepository userRepository})
-      : assert(userRepository != null),
-        _userRepository = userRepository;
+      : _userRepository = userRepository;
 
   @override
   RegisterState get initialState => RegisterState.empty();

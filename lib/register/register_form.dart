@@ -79,26 +79,24 @@ class _RegisterFormState extends State<RegisterForm> {
               child: ListView(
                 children: <Widget>[
                   TextFormField(
-                    controller: _emailController,
+                    autovalidateMode: AutovalidateMode.always, controller: _emailController,
                     decoration: InputDecoration(
                       icon: Icon(Icons.email),
                       labelText: 'Email',
                     ),
                     autocorrect: false,
-                    autovalidate: true,
                     validator: (_) {
                       return !state.isEmailValid ? 'Invalid Email' : null;
                     },
                   ),
                   TextFormField(
-                    controller: _passwordController,
+                    autovalidateMode: AutovalidateMode.always, controller: _passwordController,
                     decoration: InputDecoration(
                       icon: Icon(Icons.lock),
                       labelText: 'Password',
                     ),
                     obscureText: true,
                     autocorrect: false,
-                    autovalidate: true,
                     validator: (_) {
                       return !state.isPasswordValid ? 'Invalid Password' : null;
                     },

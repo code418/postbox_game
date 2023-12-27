@@ -41,6 +41,6 @@ class ChatWindow extends StatelessWidget {
           textAlign: TextAlign.start,
           //alignment: AlignmentDirectional.topStart // or Alignment.topLeft
       ),
-    );;
+    );
   }
 }

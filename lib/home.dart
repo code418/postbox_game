@@ -76,7 +76,7 @@ class HomeMenu extends StatelessWidget {
 
 class HomeMenuButton extends StatelessWidget {
   const HomeMenuButton(
-      {Key key, this.text: 'Test', this.icon, this.child, this.onPressed})
+      {Key key, this.text = 'Test', this.icon, this.child, this.onPressed})
       : super(key: key);
 
   final String text;
@@ -87,7 +87,7 @@ class HomeMenuButton extends StatelessWidget {
   final VoidCallback onPressed;
   @override
   Widget build(BuildContext context) {
-    return FlatButton.icon(
+    return TextButton.icon(
       onPressed: this.onPressed,
       label: Text(this.text),
       icon: this.icon,

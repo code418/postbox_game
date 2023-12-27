@@ -10,9 +10,15 @@ import 'package:postbox_game/signin.dart';
 import 'package:postbox_game/splash.dart';
 import 'package:postbox_game/upload.dart';
 import 'package:postbox_game/user_repository.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
 
-void main() {
+void main() async{
   //BlocSupervisor.delegate = SimpleBlocDelegate();
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
   runApp(PostboxGame());
 }
 
@@ -35,8 +41,8 @@ class _PostboxGameState extends State<PostboxGame> {
       create: (context) => AuthenticationBloc(userRepository: _userRepository)
         ..add(AppStarted()),
       child: MaterialApp(
-          home: BlocBuilder<AuthenticationBloc, AuthenticationState>(
-            builder: (BuildContext context, AuthenticationState state) {
+          home: BlocBuilder<AuthenticationBloc, AuthenticationState?>(
+            builder: (BuildContext context, AuthenticationState? state) {
               if (state is Uninitialized) {
                 return Splash();
               }

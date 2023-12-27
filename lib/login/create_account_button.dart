@@ -6,13 +6,12 @@ class CreateAccountButton extends StatelessWidget {
   final UserRepository _userRepository;
 
   CreateAccountButton({Key key, @required UserRepository userRepository})
-      : assert(userRepository != null),
-        _userRepository = userRepository,
+      : _userRepository = userRepository,
         super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    return FlatButton(
+    return TextButton(
       child: Text(
         'Create an Account',
       ),

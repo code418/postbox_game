@@ -21,7 +21,7 @@ class Compass extends StatelessWidget {
   final double rotation;
 
   const Compass(
-      {Key key,
+      {Key? key,
       this.nne = 0,
       this.ne = 0,
       this.ene = 0,
@@ -141,7 +141,7 @@ class CircleButton extends StatelessWidget {
   final double size;
   final double rotation;
 
-  const CircleButton({Key key, this.content, this.size, this.rotation = 0})
+  const CircleButton({Key? key, required this.content, required this.size, this.rotation = 0})
       : super(key: key);
 
   @override

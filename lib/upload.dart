@@ -8,7 +8,7 @@ class Upload extends StatefulWidget {
 }
 
 class UploadState extends State<Upload> {
-  XFile _image;
+  XFile? _image;
 
   Future getImage() async {
 
@@ -33,7 +33,7 @@ class UploadState extends State<Upload> {
       body: Center(
         child: _image == null
             ? Text('No image selected.')
-            : Image.file(File(_image.path)),
+            : Image.file(File(_image!.path)),
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: getImage,

@@ -37,8 +37,8 @@ class _GoogleSignInSection extends StatefulWidget {
 }
 
 class _GoogleSignInSectionState extends State<_GoogleSignInSection> {
-  bool _success;
-  String _userID;
+  bool _success = false;
+  String _userID = '';
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -87,30 +87,26 @@ class _GoogleSignInSectionState extends State<_GoogleSignInSection> {
   // Example code of how to sign in with google.
   void _signInWithGoogle() async {
     try {
-      final GoogleSignInAccount googleUser = await _googleSignIn.signIn();
+      final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
     final GoogleSignInAuthentication googleAuth =
-        await googleUser.authentication;
+        await googleUser!.authentication;
     final AuthCredential credential = GoogleAuthProvider.credential(
       accessToken: googleAuth.accessToken,
       idToken: googleAuth.idToken,
     );
     final UserCredential result = await _auth.signInWithCredential(credential);
-    final User user = result.user;
-    assert(user.email != null);
-    assert(user.displayName != null);
-    assert(!user.isAnonymous);
-    assert(await user.getIdToken() != null);
+    final User? user = result.user;
+    assert(user!.email != null);
+    assert(user!.displayName != null);
+    assert(!user!.isAnonymous);
+    assert(await user!.getIdToken() != null);
 
-    final User currentUser = _auth.currentUser;
-    assert(user.uid == currentUser.uid);
+    final User? currentUser = _auth.currentUser;
+    assert(user!.uid == currentUser!.uid);
     setState(() {
-      if (user != null) {
-        _success = true;
-        _userID = user.uid;
-      } else {
-        _success = false;
-      }
-    });
+      _success = true;
+      _userID = user!.uid;
+        });
     } catch (e) {
       print(e);
     }
