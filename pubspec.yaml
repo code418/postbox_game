@@ -43,6 +43,7 @@ dependencies:
   font_awesome_flutter: ^10.2.1
   rxdart: ^0.27.5
   animated_text_kit: ^4.2.2
+  shared_preferences: ^2.2.2
 dev_dependencies:
   flutter_test:
     sdk: flutter

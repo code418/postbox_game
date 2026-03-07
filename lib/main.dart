@@ -5,8 +5,11 @@ import 'package:postbox_game/claim.dart';
 import 'package:postbox_game/friends_screen.dart';
 import 'package:postbox_game/home.dart';
 import 'package:postbox_game/leaderboard_screen.dart';
+import 'package:postbox_game/intro.dart';
+import 'package:postbox_game/intro_preferences.dart';
 import 'package:postbox_game/login/login_screen.dart';
 import 'package:postbox_game/nearby.dart';
+import 'package:postbox_game/settings_screen.dart';
 import 'package:postbox_game/signin.dart';
 import 'package:postbox_game/splash.dart';
 import 'package:postbox_game/upload.dart';
@@ -48,7 +51,7 @@ class _PostboxGameState extends State<PostboxGame> {
                 return Splash();
               }
               if (state is Unauthenticated) {
-                return LoginScreen(userRepository: _userRepository);
+                return _UnauthGate(userRepository: _userRepository);
               }
               if (state is Authenticated) {
                 return Home();
@@ -63,6 +66,7 @@ class _PostboxGameState extends State<PostboxGame> {
             '/Claim': (context) => Claim(),
             '/friends': (context) => const FriendsScreen(),
             '/leaderboard': (context) => const LeaderboardScreen(),
+            '/settings': (context) => const SettingsScreen(),
           }),
     );
   }
@@ -70,5 +74,43 @@ class _PostboxGameState extends State<PostboxGame> {
   @override
   void dispose() {
     super.dispose();
+  }
+}
+
+/// Shows intro on first run, then login. Subsequent launches go straight to login.
+class _UnauthGate extends StatefulWidget {
+  const _UnauthGate({required UserRepository userRepository})
+      : _userRepository = userRepository;
+
+  final UserRepository _userRepository;
+
+  @override
+  State<_UnauthGate> createState() => _UnauthGateState();
+}
+
+class _UnauthGateState extends State<_UnauthGate> {
+  bool? _introSeen;
+
+  @override
+  void initState() {
+    super.initState();
+    IntroPreferences.hasSeenIntro().then((seen) {
+      if (mounted) setState(() => _introSeen = seen);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_introSeen == null) return Splash();
+    if (_introSeen == false) {
+      return Intro(
+        replay: false,
+        onDone: () async {
+          await IntroPreferences.setIntroSeen();
+          if (mounted) setState(() => _introSeen = true);
+        },
+      );
+    }
+    return LoginScreen(userRepository: widget._userRepository);
   }
 }

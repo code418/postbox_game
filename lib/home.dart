@@ -52,6 +52,13 @@ class HomeMenu extends StatelessWidget {
             Navigator.pushNamed(context, '/leaderboard');
           },
         ),
+        HomeMenuButton(
+          text: 'Settings',
+          icon: Icon(Icons.settings),
+          onPressed: () {
+            Navigator.pushNamed(context, '/settings');
+          },
+        ),
         /*HomeMenuButton(
           text: 'Upload Photo',
           onPressed: () {
