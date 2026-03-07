@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:postbox_game/app_preferences.dart';
+import 'package:postbox_game/streak_service.dart';
 import 'package:postbox_game/james_controller.dart';
 import 'package:postbox_game/theme.dart';
 
@@ -77,6 +78,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
       FirebaseFunctions.instance.httpsCallable('nearbyPostboxes');
   final HttpsCallable _claimCallable =
       FirebaseFunctions.instance.httpsCallable('startScoring');
+  final StreakService _streakService = StreakService();
 
   Future<Position> _getPosition() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
@@ -147,6 +149,11 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
         currentStage = ClaimStage.claimed;
       });
       _successController.forward(from: 0);
+      try {
+        await _streakService.updateStreakAfterClaim();
+      } catch (e) {
+        debugPrint('Streak update failed (non-fatal): $e');
+      }
       if (mounted) {
         final msg = _pointsEarned >= 50
             ? "Oh ho — a rare one! That's a find. Well done."
@@ -291,6 +298,39 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            StreamBuilder<int?>(
+              stream: _streakService.streakStream(),
+              builder: (context, snapshot) {
+                final streak = snapshot.data;
+                if (streak == null || streak == 0) return const SizedBox.shrink();
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpacing.md),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.md, vertical: AppSpacing.sm),
+                    decoration: BoxDecoration(
+                      color: postalRed.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: postalRed.withValues(alpha: 0.25)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text('🔥', style: TextStyle(fontSize: 18)),
+                        const SizedBox(width: AppSpacing.xs),
+                        Text(
+                          '$streak-day streak',
+                          style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                                color: postalRed,
+                                fontWeight: FontWeight.w600,
+                              ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
             SvgPicture.asset(
               'assets/postbox.svg',
               height: 100,
@@ -646,6 +686,21 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
                   ),
             ),
             const SizedBox(height: AppSpacing.sm),
+            StreamBuilder<int?>(
+              stream: _streakService.streakStream(),
+              builder: (context, snap) {
+                final streak = snap.data ?? 0;
+                if (streak < 2) return const SizedBox.shrink();
+                return Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    '🔥 $streak-day streak!',
+                    style: Theme.of(context).textTheme.titleMedium,
+                    textAlign: TextAlign.center,
+                  ),
+                );
+              },
+            ),
             if (_pointsEarned > 0)
               Container(
                 padding: const EdgeInsets.symmetric(
