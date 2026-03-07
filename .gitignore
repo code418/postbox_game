@@ -1,3 +1,4 @@
+# Build & IDE
 **/android/captures/
 **/android/**/GeneratedPluginRegistrant.java
 **/android/.gradle
@@ -12,18 +13,33 @@ bower_components=
 build/Release
 *.class
 coverage
+**/coverage/
 .dart_tool/
 **/doc/api/
 .DS_Store
-.env
 .eslintcache
 .firebase/
 firebase-debug.log*
 .flutter-plugins
+.flutter-plugins-dependencies
 .grunt
 .history
 .idea/
 *.iml
+.vscode/
+.cursor/agent-transcripts/
+
+# Environment & secrets (never commit)
+.env
+.env.*
+.env.local
+.env.*.local
+*.jks
+*.keystore
+# Firebase service account key (client config like google-services.json is usually committed)
+**/*credentials*.json
+**/*secret*.json
+**/*-firebase-adminsdk-*.json
 !**/ios/**/default.mode1v3
 !**/ios/**/default.mode2v3
 !**/ios/**/default.pbxuser
@@ -72,10 +88,12 @@ pids
 .pub-cache/
 *.pyc
 *.seed
+*.zip
+*.apk
+*.aab
 .svn/
 *.swp
 *.tgz
-.vscode/
 yarn-debug.log*
 yarn-error.log*
 .yarn-integrity

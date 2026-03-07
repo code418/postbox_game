@@ -1,4 +1,5 @@
 import 'dart:math';
+// ignore_for_file: unused_field
 
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
@@ -6,6 +7,7 @@ import 'package:flutter_compass/flutter_compass.dart';
 import 'package:geolocator/geolocator.dart';
 
 import './compass.dart';
+import './fuzzy_compass.dart';
 
 enum NearbyStage { initial, searching, results }
 
@@ -51,28 +53,21 @@ class NearbyState extends State<Nearby> {
   @override
   void initState() {
     super.initState();
-    FlutterCompass.events!.listen((CompassEvent event) {
-      setState(() {
-        _direction = event.heading;
-      });
+    FlutterCompass.events?.listen((CompassEvent event) {
+      if (mounted) setState(() => _direction = event.heading);
     });
   }
 
   final HttpsCallable callable = FirebaseFunctions.instance
       .httpsCallable('nearbyPostboxes');
-  Future getPosition() async {
-    Position position = await Geolocator
-        .getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
-    return position;
+  Future<Position> getPosition() async {
+    return Geolocator.getCurrentPosition(
+      desiredAccuracy: LocationAccuracy.high,
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    var size = MediaQuery.of(context).size;
-
-    /*24 is for notification bar on Android*/
-    final double itemHeight = (size.height - kToolbarHeight - 2) / 2;
-    final double itemWidth = size.width / 2;
     return Scaffold(
         appBar: AppBar(
           title: Text("Postboxes nearby"),
@@ -106,8 +101,18 @@ class NearbyState extends State<Nearby> {
 
   List<Widget> _loadingList() => [Text('Searching nearby location...')];
 
-  List<Widget> _resultsList() => [
+  List<Widget> _resultsList() {
+    final compassMap = <String, int>{
+      'N': n, 'NNE': nne, 'NE': ne, 'ENE': ene, 'E': e, 'ESE': ese,
+      'SE': se, 'SSE': sse, 'S': s, 'SSW': ssw, 'SW': sw, 'WSW': wsw,
+      'W': w, 'WNW': wnw, 'NW': nw, 'NNW': nnw,
+    };
+    return [
         _buildList(),
+        FuzzyCompass(
+          compassCounts: compassMap,
+          headingDegrees: _direction,
+        ),
         new Transform.rotate(
           angle: ((_direction ?? 0) * (pi / 180) * -1),
           child: Compass(
@@ -130,6 +135,7 @@ class NearbyState extends State<Nearby> {
               rotation: 0 - ((_direction ?? 0) * (pi / 180) * -1)),
         )
       ];
+  }
 
   Widget _geolocateButton(String buttonLabel) => ElevatedButton(
         onPressed: () async {

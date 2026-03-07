@@ -2,9 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:postbox_game/authentication_bloc/bloc.dart';
 import 'package:postbox_game/claim.dart';
-//import 'package:postbox_game/home.dart';
-import 'package:postbox_game/intro.dart';
-//import 'package:postbox_game/login/login_screen.dart';
+import 'package:postbox_game/friends_screen.dart';
+import 'package:postbox_game/home.dart';
+import 'package:postbox_game/leaderboard_screen.dart';
+import 'package:postbox_game/login/login_screen.dart';
 import 'package:postbox_game/nearby.dart';
 import 'package:postbox_game/signin.dart';
 import 'package:postbox_game/splash.dart';
@@ -46,13 +47,13 @@ class _PostboxGameState extends State<PostboxGame> {
               if (state is Uninitialized) {
                 return Splash();
               }
-              /*if (state is Unauthenticated) {
+              if (state is Unauthenticated) {
                 return LoginScreen(userRepository: _userRepository);
               }
               if (state is Authenticated) {
                 return Home();
-              }*/
-              return Intro();
+              }
+              return Splash();
             },
           ),
           routes: {
@@ -60,6 +61,8 @@ class _PostboxGameState extends State<PostboxGame> {
             '/upload': (context) => Upload(),
             '/nearby': (context) => Nearby(),
             '/Claim': (context) => Claim(),
+            '/friends': (context) => const FriendsScreen(),
+            '/leaderboard': (context) => const LeaderboardScreen(),
           }),
     );
   }

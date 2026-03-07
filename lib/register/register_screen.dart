@@ -7,7 +7,7 @@ import 'package:postbox_game/user_repository.dart';
 class RegisterScreen extends StatelessWidget {
   final UserRepository _userRepository;
 
-  RegisterScreen({Key key, @required UserRepository userRepository})
+  RegisterScreen({Key? key, required UserRepository userRepository})
       : _userRepository = userRepository,
         super(key: key);
 

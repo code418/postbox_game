@@ -1,27 +1,18 @@
 buildscript {
-    ext.kotlin_version = '1.6.10'
     repositories {
         google()
-        jcenter()
-        maven {
-            url 'https://maven.fabric.io/public'
-        }
+        mavenCentral()
     }
-
     dependencies {
-        classpath 'com.android.tools.build:gradle:7.1.3'
-        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
-        classpath 'com.google.gms:google-services:4.3.13'
-        classpath 'com.google.firebase:perf-plugin:1.4.1'
-        classpath 'com.google.firebase:firebase-crashlytics-gradle:2.8.1'
-        classpath 'io.fabric.tools:gradle:1.28.0'
+        classpath 'com.google.firebase:firebase-crashlytics-gradle:2.9.9'
+        classpath 'com.google.firebase:perf-plugin:1.4.2'
     }
 }
 
 allprojects {
     repositories {
         google()
-        jcenter()
+        mavenCentral()
     }
 }
 
@@ -29,8 +20,38 @@ rootProject.buildDir = '../build'
 subprojects {
     project.buildDir = "${rootProject.buildDir}/${project.name}"
 }
+// Register afterEvaluate before any project evaluation (e.g. evaluationDependsOn)
+subprojects { subproject ->
+    subproject.afterEvaluate {
+        if (subproject.plugins.hasPlugin("com.android.library")) {
+            def android = subproject.extensions.findByName("android")
+            if (android != null) {
+                if (android.namespace == null) {
+                    def manifest = file("${subproject.projectDir}/src/main/AndroidManifest.xml")
+                    if (manifest.exists()) {
+                        def pkg = new XmlSlurper().parse(manifest).@package.text()
+                        if (pkg) android.namespace = pkg
+                    }
+                }
+                android.compileSdkVersion = 35
+            }
+        }
+    }
+}
 subprojects {
     project.evaluationDependsOn(':app')
+}
+subprojects { subproject ->
+    subproject.plugins.withId("com.android.library") {
+        def android = subproject.extensions.findByName("android")
+        if (android != null && android.namespace == null) {
+            def manifest = file("${subproject.projectDir}/src/main/AndroidManifest.xml")
+            if (manifest.exists()) {
+                def pkg = new XmlSlurper().parse(manifest).@package.text()
+                if (pkg) android.namespace = pkg
+            }
+        }
+    }
 }
 
 tasks.register("clean", Delete) {

@@ -37,7 +37,7 @@ class _GoogleSignInSection extends StatefulWidget {
 }
 
 class _GoogleSignInSectionState extends State<_GoogleSignInSection> {
-  bool _success = false;
+  bool? _success;
   String _userID = '';
   @override
   Widget build(BuildContext context) {
@@ -64,7 +64,7 @@ class _GoogleSignInSectionState extends State<_GoogleSignInSection> {
           child: Text(
             _success == null
                 ? ''
-                : (_success
+                : (_success!
                     ? 'Successfully signed in, uid: ' + _userID
                     : 'Sign in failed'),
             style: TextStyle(color: Colors.red),

@@ -1,0 +1,42 @@
+import assert from "assert";
+import test from "firebase-functions-test";
+import * as myFunctions from "../index";
+
+const testEnv = test();
+
+describe("Cloud Functions", function (this: Mocha.Suite) {
+  this.timeout(15000);
+
+  const wrappedNearby = testEnv.wrap(myFunctions.nearbyPostboxes) as (data: unknown, context?: unknown) => Promise<unknown>;
+  const wrappedStartScoring = testEnv.wrap(myFunctions.startScoring) as (data: unknown, context?: unknown) => Promise<unknown>;
+
+  after(() => {
+    testEnv.cleanup();
+  });
+
+  describe("nearbyPostboxes (onCall)", () => {
+    it("should return an object with postboxes and counts when given lat, lng, meters", async function (this: Mocha.Context) {
+      this.timeout(10000);
+      const data = { lat: 51.45, lng: -0.95, meters: 500 };
+      const context = { auth: { uid: "test-uid" } };
+      const result = (await wrappedNearby(data, context)) as Record<string, unknown>;
+      assert.strictEqual(typeof result, "object");
+      assert.ok("postboxes" in result);
+      assert.ok("counts" in result);
+      assert.ok(result.counts && typeof result.counts === "object" && "total" in result.counts);
+    });
+  });
+
+  describe("startScoring (onCall)", () => {
+    it("should return an object with found and claims when given lat, lng, userid", async function (this: Mocha.Context) {
+      this.timeout(10000);
+      const data = { lat: 51.45, lng: -0.95, userid: "test-user-id" };
+      const context = { auth: { uid: "test-uid" } };
+      const result = (await wrappedStartScoring(data, context)) as Record<string, unknown>;
+      assert.strictEqual(typeof result, "object");
+      assert.ok("found" in result);
+      assert.ok("claims" in result);
+      assert.ok(Array.isArray(result.claims));
+    });
+  });
+});

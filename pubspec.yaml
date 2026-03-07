@@ -14,7 +14,7 @@ description: Find postboxes for megapoints
 version: 1.0.0+1
 
 environment:
-  sdk: ">=2.12.0 <3.0.0"
+  sdk: ">=3.0.0 <4.0.0"
 
 dependencies:
   flutter:
@@ -25,15 +25,15 @@ dependencies:
   cupertino_icons: ^1.0.5
   cloud_functions: ^4.0.13
   firebase_core: ^2.8.0
+  cloud_firestore: ^4.5.0
   firebase_analytics: ^10.1.6
   firebase_crashlytics: ^3.0.17
   firebase_performance: ^0.9.0
   firebase_storage: ^11.0.16
-  file_picker: ^5.1.0
+  file_picker: ^8.0.0
   firebase_auth: ^4.3.0
-  geolocator: ^9.0.1
+  geolocator: ^10.0.0
   google_sign_in: ^6.0.2
-  firebase_dynamic_links: ^5.0.17
   flutter_compass: ^0.7.0
   image_picker: ^0.8.5
   bloc: ^8.1.0
@@ -42,7 +42,6 @@ dependencies:
   meta: ^1.8.0
   font_awesome_flutter: ^10.2.1
   rxdart: ^0.27.5
-  flare_flutter: ^3.0.2
   animated_text_kit: ^4.2.2
 dev_dependencies:
   flutter_test:

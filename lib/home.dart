@@ -33,9 +33,23 @@ class HomeMenu extends StatelessWidget {
         ),
         HomeMenuButton(
           text: 'Claim Postbox',
-          icon: Icon(Icons.location_searching),
+          icon: Icon(Icons.add_location),
           onPressed: () {
-            Navigator.pushNamed(context, '/nearby');
+            Navigator.pushNamed(context, '/Claim');
+          },
+        ),
+        HomeMenuButton(
+          text: 'Friends',
+          icon: Icon(Icons.people),
+          onPressed: () {
+            Navigator.pushNamed(context, '/friends');
+          },
+        ),
+        HomeMenuButton(
+          text: 'Leaderboard',
+          icon: Icon(Icons.leaderboard),
+          onPressed: () {
+            Navigator.pushNamed(context, '/leaderboard');
           },
         ),
         /*HomeMenuButton(
@@ -75,22 +89,25 @@ class HomeMenu extends StatelessWidget {
 }
 
 class HomeMenuButton extends StatelessWidget {
-  const HomeMenuButton(
-      {Key key, this.text = 'Test', this.icon, this.child, this.onPressed})
-      : super(key: key);
+  const HomeMenuButton({
+    Key? key,
+    this.text = 'Test',
+    this.icon,
+    this.child,
+    this.onPressed,
+  }) : super(key: key);
 
   final String text;
+  final Icon? icon;
+  final Widget? child;
+  final VoidCallback? onPressed;
 
-  final Icon icon;
-
-  final Widget child;
-  final VoidCallback onPressed;
   @override
   Widget build(BuildContext context) {
     return TextButton.icon(
-      onPressed: this.onPressed,
-      label: Text(this.text),
-      icon: this.icon,
+      onPressed: onPressed,
+      label: Text(text),
+      icon: icon ?? Icon(Icons.help_outline),
     );
   }
 }

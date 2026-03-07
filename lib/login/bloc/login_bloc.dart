@@ -1,69 +1,62 @@
 import 'dart:async';
 
 import 'package:bloc/bloc.dart';
-import 'package:meta/meta.dart';
 import 'package:postbox_game/login/bloc/bloc.dart';
 import 'package:postbox_game/user_repository.dart';
 import 'package:postbox_game/validators.dart';
-//import 'package:rxdart/rxdart.dart';
 
 class LoginBloc extends Bloc<LoginEvent, LoginState> {
-  UserRepository _userRepository;
+  final UserRepository _userRepository;
 
-  LoginBloc({
-    @required UserRepository userRepository,
-  })  : _userRepository = userRepository;
-
-  @override
-  LoginState get initialState => LoginState.empty();
-
-  @override
-  Stream<LoginState> mapEventToState(LoginEvent event) async* {
-    if (event is EmailChanged) {
-      yield* _mapEmailChangedToState(event.email);
-    } else if (event is PasswordChanged) {
-      yield* _mapPasswordChangedToState(event.password);
-    } else if (event is LoginWithGooglePressed) {
-      yield* _mapLoginWithGooglePressedToState();
-    } else if (event is LoginWithCredentialsPressed) {
-      yield* _mapLoginWithCredentialsPressedToState(
-        email: event.email,
-        password: event.password,
-      );
-    }
+  LoginBloc({required UserRepository userRepository})
+      : _userRepository = userRepository,
+        super(LoginState.empty()) {
+    on<EmailChanged>(_mapEmailChangedToState);
+    on<PasswordChanged>(_mapPasswordChangedToState);
+    on<LoginWithGooglePressed>(_mapLoginWithGooglePressedToState);
+    on<LoginWithCredentialsPressed>(_mapLoginWithCredentialsPressedToState);
   }
 
-  Stream<LoginState> _mapEmailChangedToState(String email) async* {
-    yield state.update(
-      isEmailValid: Validators.isValidEmail(email),
-    );
+  Future<void> _mapEmailChangedToState(
+    EmailChanged event,
+    Emitter<LoginState> emit,
+  ) async {
+    emit(state.update(
+      isEmailValid: Validators.isValidEmail(event.email),
+    ));
   }
 
-  Stream<LoginState> _mapPasswordChangedToState(String password) async* {
-    yield state.update(
-      isPasswordValid: Validators.isValidPassword(password),
-    );
+  Future<void> _mapPasswordChangedToState(
+    PasswordChanged event,
+    Emitter<LoginState> emit,
+  ) async {
+    emit(state.update(
+      isPasswordValid: Validators.isValidPassword(event.password),
+    ));
   }
 
-  Stream<LoginState> _mapLoginWithGooglePressedToState() async* {
+  Future<void> _mapLoginWithGooglePressedToState(
+    LoginWithGooglePressed event,
+    Emitter<LoginState> emit,
+  ) async {
     try {
       await _userRepository.signInWithGoogle();
-      yield LoginState.success();
+      emit(LoginState.success());
     } catch (_) {
-      yield LoginState.failure();
+      emit(LoginState.failure());
     }
   }
 
-  Stream<LoginState> _mapLoginWithCredentialsPressedToState({
-    String email,
-    String password,
-  }) async* {
-    yield LoginState.loading();
+  Future<void> _mapLoginWithCredentialsPressedToState(
+    LoginWithCredentialsPressed event,
+    Emitter<LoginState> emit,
+  ) async {
+    emit(LoginState.loading());
     try {
-      await _userRepository.signInWithCredentials(email, password);
-      yield LoginState.success();
+      await _userRepository.signInWithCredentials(event.email, event.password);
+      emit(LoginState.success());
     } catch (_) {
-      yield LoginState.failure();
+      emit(LoginState.failure());
     }
   }
 }

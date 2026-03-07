@@ -12,7 +12,7 @@ class _RegisterFormState extends State<RegisterForm> {
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
 
-  RegisterBloc _registerBloc;
+  late RegisterBloc _registerBloc;
 
   bool get isPopulated =>
       _emailController.text.isNotEmpty && _passwordController.text.isNotEmpty;
@@ -35,7 +35,7 @@ class _RegisterFormState extends State<RegisterForm> {
       bloc: _registerBloc,
       listener: (BuildContext context, RegisterState state) {
         if (state.isSubmitting) {
-          Scaffold.of(context)
+          ScaffoldMessenger.of(context)
             ..hideCurrentSnackBar()
             ..showSnackBar(
               SnackBar(
@@ -54,7 +54,7 @@ class _RegisterFormState extends State<RegisterForm> {
           Navigator.of(context).pop();
         }
         if (state.isFailure) {
-          Scaffold.of(context)
+          ScaffoldMessenger.of(context)
             ..hideCurrentSnackBar()
             ..showSnackBar(
               SnackBar(

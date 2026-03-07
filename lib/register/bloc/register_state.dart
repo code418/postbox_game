@@ -11,11 +11,11 @@ class RegisterState {
   bool get isFormValid => isEmailValid && isPasswordValid;
 
   RegisterState({
-    @required this.isEmailValid,
-    @required this.isPasswordValid,
-    @required this.isSubmitting,
-    @required this.isSuccess,
-    @required this.isFailure,
+    required this.isEmailValid,
+    required this.isPasswordValid,
+    required this.isSubmitting,
+    required this.isSuccess,
+    required this.isFailure,
   });
 
   factory RegisterState.empty() {
@@ -59,8 +59,8 @@ class RegisterState {
   }
 
   RegisterState update({
-    bool isEmailValid,
-    bool isPasswordValid,
+    bool? isEmailValid,
+    bool? isPasswordValid,
   }) {
     return copyWith(
       isEmailValid: isEmailValid,
@@ -72,12 +72,12 @@ class RegisterState {
   }
 
   RegisterState copyWith({
-    bool isEmailValid,
-    bool isPasswordValid,
-    bool isSubmitEnabled,
-    bool isSubmitting,
-    bool isSuccess,
-    bool isFailure,
+    bool? isEmailValid,
+    bool? isPasswordValid,
+    bool? isSubmitEnabled,
+    bool? isSubmitting,
+    bool? isSuccess,
+    bool? isFailure,
   }) {
     return RegisterState(
       isEmailValid: isEmailValid ?? this.isEmailValid,

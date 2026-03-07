@@ -5,7 +5,7 @@ import 'package:postbox_game/register/register_screen.dart';
 class CreateAccountButton extends StatelessWidget {
   final UserRepository _userRepository;
 
-  CreateAccountButton({Key key, @required UserRepository userRepository})
+  CreateAccountButton({Key? key, required UserRepository userRepository})
       : _userRepository = userRepository,
         super(key: key);
 

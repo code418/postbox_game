@@ -1,13 +1,16 @@
 {
+  "root": true,
+  "parser": "@typescript-eslint/parser",
   "parserOptions": {
-    // Required for certain syntax usages
-    "ecmaVersion": 2017
+    "ecmaVersion": 2020,
+    "sourceType": "module",
+    "project": "./tsconfig.json"
   },
-  "plugins": [
-    "promise"
-  ],
-  "extends": ["agilepixel"],
+  "plugins": ["@typescript-eslint", "promise"],
+  "extends": ["eslint:recommended", "plugin:@typescript-eslint/recommended"],
+  "ignorePatterns": ["lib/", "node_modules/", "*.js"],
   "rules": {
+    "@typescript-eslint/no-unused-vars": ["error", { "argsIgnorePattern": "^_" }],
     // Removed rule "disallow the use of console" from recommended eslint rules
     "no-console": "off",
 
