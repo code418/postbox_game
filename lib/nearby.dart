@@ -4,6 +4,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_compass/flutter_compass.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:postbox_game/james_strip.dart';
 import 'package:postbox_game/theme.dart';
 
 import './compass.dart';
@@ -374,6 +375,7 @@ class NearbyState extends State<Nearby> {
         ],
 
         const SizedBox(height: AppSpacing.lg),
+        const JamesStrip(message: JamesMessages.nearby),
       ],
     );
   }

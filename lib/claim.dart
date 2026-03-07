@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:postbox_game/james_strip.dart';
 import 'package:postbox_game/theme.dart';
 
 enum ClaimStage { initial, searching, results, empty, claimed }
@@ -224,6 +225,8 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
               icon: const Icon(Icons.radar),
               label: const Text('Scan for postboxes nearby'),
             ),
+            const SizedBox(height: AppSpacing.xl),
+            const JamesStrip(message: JamesMessages.claim),
           ],
         ),
       ),
@@ -321,6 +324,8 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
                 ),
               ),
             ),
+            const SizedBox(height: AppSpacing.sm),
+            const JamesStrip(message: JamesMessages.claim),
           ],
         ),
         Positioned(
