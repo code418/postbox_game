@@ -8,6 +8,9 @@ interface NearbyCallData {
 }
 
 export const nearbyPostboxes = functions.https.onCall(async (request) => {
+  if (!request.auth) {
+    throw new functions.https.HttpsError("unauthenticated", "Must be signed in to find nearby postboxes.");
+  }
   const data = request.data as NearbyCallData;
   const { lat, lng, meters } = data ?? {};
   if (lat === undefined || lat === null || lng === undefined || lng === null || meters === undefined || meters === null) {
