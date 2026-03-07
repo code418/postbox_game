@@ -59,6 +59,14 @@ class _PostboxGameState extends State<PostboxGame> {
     super.initState();
   }
 
+  /// Redirects to login when accessing protected routes while unauthenticated.
+  Widget _guardRoute(BuildContext context, Widget Function() page) {
+    final state = context.read<AuthenticationBloc>().state;
+    if (state is Authenticated) return page();
+    if (state is Unauthenticated) return LoginScreen(userRepository: _userRepository);
+    return Splash(); // Uninitialized or null
+  }
+
   @override
   Widget build(BuildContext context) {
     return BlocProvider(
@@ -86,8 +94,8 @@ class _PostboxGameState extends State<PostboxGame> {
           routes: {
             '/login': (context) => SignInPage(),
             '/upload': (context) => Upload(),
-            '/nearby': (context) => Nearby(),
-            '/Claim': (context) => Claim(),
+            '/nearby': (context) => _guardRoute(context, () => Nearby()),
+            '/Claim': (context) => _guardRoute(context, () => Claim()),
             '/friends': (context) => const FriendsScreen(),
             '/leaderboard': (context) => const LeaderboardScreen(),
             '/settings': (context) => const SettingsScreen(),
