@@ -1,0 +1,26 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Postboxes: read-only for authenticated users (ingested by backend/script)
+    match /postboxes/{postboxId} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+    // Claims: authenticated users can create; read only own claims
+    match /claims/{claimId} {
+      allow read: if request.auth != null && resource.data.userid == request.auth.uid;
+      allow create: if request.auth != null;
+      allow update, delete: if false;
+    }
+    // User profile/friends: authenticated users can read all; write only own
+    match /users/{userId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+    // Leaderboards: read-only for all (aggregated by backend)
+    match /leaderboards/{period} {
+      allow read: if true;
+      allow write: if false;
+    }
+  }
+}
