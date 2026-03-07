@@ -1,6 +1,8 @@
+import 'dart:typed_data';
+
+import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'dart:io';
 
 class Upload extends StatefulWidget {
   @override
@@ -9,13 +11,23 @@ class Upload extends StatefulWidget {
 
 class UploadState extends State<Upload> {
   XFile? _image;
+  Uint8List? _imageBytes;
 
-  Future getImage() async {
+  bool get _useGallery =>
+      kIsWeb ||
+      defaultTargetPlatform == TargetPlatform.windows ||
+      defaultTargetPlatform == TargetPlatform.linux ||
+      defaultTargetPlatform == TargetPlatform.macOS;
 
-    var image = await ImagePicker().pickImage(source: ImageSource.camera);
-
+  Future<void> getImage() async {
+    final source = _useGallery ? ImageSource.gallery : ImageSource.camera;
+    final image = await ImagePicker().pickImage(source: source);
+    if (image == null || !mounted) return;
+    final bytes = await image.readAsBytes();
+    if (!mounted) return;
     setState(() {
       _image = image;
+      _imageBytes = bytes;
     });
   }
 
@@ -31,9 +43,9 @@ class UploadState extends State<Upload> {
         title: Text('Image Picker Example'),
       ),
       body: Center(
-        child: _image == null
+        child: _imageBytes == null
             ? Text('No image selected.')
-            : Image.file(File(_image!.path)),
+            : Image.memory(_imageBytes!),
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: getImage,

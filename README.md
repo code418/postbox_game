@@ -39,19 +39,28 @@ The Postbox Game is a Flutter mobile app backed by Firebase. Players sign in, us
 
 ---
 
-## Getting started
+## Platforms
 
-### Prerequisites
+The app supports **mobile** (Android, iOS), **web**, and **desktop** (Windows, Linux, macOS).
 
-- [Flutter](https://flutter.dev/docs/get-started/install) (SDK >=3.0.0)
-- A Firebase project with Auth, Firestore, and Cloud Functions enabled
-- `firebase_options.dart` (or equivalent) configured for your project
+- **Android / iOS** — Full support; Firebase options are configured for Android; run `dart run flutterfire configure` to add iOS.
+- **Web** — Firebase is configured for web. Build with `flutter build web`; deploy to Firebase Hosting from `build/web` (see `firebase.json`). If the web build fails with `PromiseJsImpl` errors (Dart 3 / web interop), consider upgrading Firebase packages when compatible (e.g. `firebase_core`, `firebase_auth`) or run on Chrome with `flutter run -d chrome` to test.
+- **Desktop** — Windows, Linux, and macOS use the same Firebase config as web so the app runs without extra setup. Location and compass features depend on device support (e.g. browser/OS permissions on web, system location on desktop). Linux and Windows builds have been verified; run `flutter build linux` or `flutter build windows` on the respective host.
 
 ### Run the app
 
 ```bash
 flutter pub get
 flutter run
+```
+
+To run on a specific platform:
+
+```bash
+flutter run -d chrome          # Web
+flutter run -d windows         # Windows desktop
+flutter run -d linux           # Linux desktop
+flutter run -d macos           # macOS desktop
 ```
 
 ### Firebase
