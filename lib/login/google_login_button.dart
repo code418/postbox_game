@@ -6,18 +6,17 @@ import 'package:postbox_game/login/bloc/bloc.dart';
 class GoogleLoginButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return ElevatedButton.icon(
-      //shape: RoundedRectangleBorder(
-      //  borderRadius: BorderRadius.circular(30.0),
-      //),
-      icon: Icon(FontAwesomeIcons.google, color: Colors.white),
+    return OutlinedButton.icon(
+      icon: const Icon(FontAwesomeIcons.google, size: 18),
+      label: const Text('Continue with Google'),
       onPressed: () {
-        BlocProvider.of<LoginBloc>(context).add(
-          LoginWithGooglePressed(),
-        );
+        BlocProvider.of<LoginBloc>(context).add(LoginWithGooglePressed());
       },
-      label: Text('Sign in with Google', style: TextStyle(color: Colors.white)),
-      //color: Colors.redAccent,
+      style: OutlinedButton.styleFrom(
+        foregroundColor: const Color(0xFF444444),
+        side: const BorderSide(color: Color(0xFFDDDDDD)),
+        backgroundColor: Colors.white,
+      ),
     );
   }
 }

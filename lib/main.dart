@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:postbox_game/authentication_bloc/bloc.dart';
+import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/claim.dart';
 import 'package:postbox_game/friends_screen.dart';
 import 'package:postbox_game/home.dart';
@@ -45,6 +46,10 @@ class _PostboxGameState extends State<PostboxGame> {
       create: (context) => AuthenticationBloc(userRepository: _userRepository)
         ..add(AppStarted()),
       child: MaterialApp(
+          title: 'The Postbox Game',
+          theme: AppTheme.light,
+          darkTheme: AppTheme.dark,
+          themeMode: ThemeMode.system,
           home: BlocBuilder<AuthenticationBloc, AuthenticationState?>(
             builder: (BuildContext context, AuthenticationState? state) {
               if (state is Uninitialized) {

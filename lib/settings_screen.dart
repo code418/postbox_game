@@ -1,8 +1,10 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:postbox_game/app_preferences.dart';
 import 'package:postbox_game/authentication_bloc/bloc.dart';
 import 'package:postbox_game/intro.dart';
+import 'package:postbox_game/theme.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({Key? key}) : super(key: key);
@@ -32,6 +34,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.md, AppSpacing.md, AppSpacing.md, AppSpacing.xs),
+              child: Text('Distance units',
+                  style: Theme.of(context).textTheme.titleMedium),
+            ),
             ListTile(
               title: const Text('Meters'),
               leading: Radio<DistanceUnit>(
@@ -89,16 +97,65 @@ class _SettingsScreenState extends State<SettingsScreen> {
       applicationName: 'The Postbox Game',
       applicationVersion: '1.0.0',
       applicationLegalese: 'Find postboxes. Claim them. Score mega points.',
-      applicationIcon: Icon(Icons.mail, size: 48, color: Colors.red.shade700),
+      applicationIcon: const Icon(Icons.mail, size: 48, color: postalRed),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final user = FirebaseAuth.instance.currentUser;
+    final displayName = user?.displayName ?? 'Postbox Hunter';
+    final email = user?.email ?? '';
+
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
       body: ListView(
         children: [
+          // Profile header
+          Container(
+            color: postalRed,
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.md,
+              AppSpacing.lg,
+              AppSpacing.md,
+              AppSpacing.lg,
+            ),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  backgroundColor: Colors.white,
+                  radius: 28,
+                  child: Icon(Icons.person, color: postalRed, size: 32),
+                ),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        displayName,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      if (email.isNotEmpty)
+                        Text(
+                          email,
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 13,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+
           _sectionHeader('Account'),
           ListTile(
             leading: const Icon(Icons.logout),
@@ -115,10 +172,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onTap: () {
               Navigator.of(context).push(
                 MaterialPageRoute<void>(
-                  builder: (context) => Intro(
-                    replay: true,
-                    onDone: () {},
-                  ),
+                  builder: (context) => Intro(replay: true, onDone: () {}),
                 ),
               );
             },
@@ -126,7 +180,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ListTile(
             leading: const Icon(Icons.straighten),
             title: const Text('Distance units'),
-            subtitle: Text('Show distances in ${_distanceUnit.label.toLowerCase()}'),
+            subtitle:
+                Text('Show distances in ${_distanceUnit.label.toLowerCase()}'),
             onTap: _chooseDistanceUnit,
           ),
           const Divider(height: 24),
@@ -144,7 +199,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Widget _sectionHeader(String title) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
+      padding: const EdgeInsets.fromLTRB(
+          AppSpacing.md, AppSpacing.lg, AppSpacing.md, AppSpacing.xs),
       child: Text(
         title,
         style: Theme.of(context).textTheme.titleSmall?.copyWith(

@@ -1,10 +1,10 @@
 /** Firestore postbox document (with optional fields we attach at query time). */
 export interface PostboxDoc {
-  position?: {
-    geohash?: string;
-    geopoint?: { _latitude?: number; _longitude?: number; latitude?: number; longitude?: number };
-  };
+  geohash?: string;
+  geopoint?: { _latitude?: number; _longitude?: number; latitude?: number; longitude?: number };
   monarch?: string;
+  overpass_id?: number;
+  reference?: string;
   distance?: number;
   compass?: { exact?: string };
   [key: string]: unknown;

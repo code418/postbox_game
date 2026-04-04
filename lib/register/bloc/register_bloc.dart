@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:bloc/bloc.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:postbox_game/register/bloc/bloc.dart';
 import 'package:postbox_game/user_repository.dart';
 import 'package:postbox_game/validators.dart';
@@ -20,18 +21,14 @@ class RegisterBloc extends Bloc<RegisterEvent, RegisterState> {
     EmailChanged event,
     Emitter<RegisterState> emit,
   ) async {
-    emit(state.update(
-      isEmailValid: Validators.isValidEmail(event.email),
-    ));
+    emit(state.update(isEmailValid: Validators.isValidEmail(event.email)));
   }
 
   Future<void> _mapPasswordChangedToState(
     PasswordChanged event,
     Emitter<RegisterState> emit,
   ) async {
-    emit(state.update(
-      isPasswordValid: Validators.isValidPassword(event.password),
-    ));
+    emit(state.update(isPasswordValid: Validators.isValidPassword(event.password)));
   }
 
   Future<void> _mapFormSubmittedToState(
@@ -45,8 +42,27 @@ class RegisterBloc extends Bloc<RegisterEvent, RegisterState> {
         password: event.password,
       );
       emit(RegisterState.success());
+    } on FirebaseAuthException catch (e) {
+      emit(RegisterState.failure(message: _mapFirebaseError(e.code)));
     } catch (_) {
       emit(RegisterState.failure());
+    }
+  }
+
+  static String _mapFirebaseError(String code) {
+    switch (code) {
+      case 'email-already-in-use':
+        return 'An account already exists with that email.';
+      case 'invalid-email':
+        return 'That email address isn\'t valid.';
+      case 'weak-password':
+        return 'Password is too weak. Use at least 6 characters.';
+      case 'operation-not-allowed':
+        return 'Email sign-up is not enabled.';
+      case 'network-request-failed':
+        return 'No internet connection.';
+      default:
+        return 'Registration failed. Please try again.';
     }
   }
 }

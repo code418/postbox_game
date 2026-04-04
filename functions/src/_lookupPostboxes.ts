@@ -18,11 +18,10 @@ function setPrecision(km: number): number {
   return 1;
 }
 
-function getLatLng(geopoint: PostboxDoc["position"]): { lat: number; lng: number } | null {
-  if (!geopoint?.geopoint) return null;
-  const g = geopoint.geopoint as { _latitude?: number; _longitude?: number; latitude?: number; longitude?: number };
-  const lat = g._latitude ?? g.latitude;
-  const lng = g._longitude ?? g.longitude;
+function getLatLng(geopoint: PostboxDoc["geopoint"]): { lat: number; lng: number } | null {
+  if (!geopoint) return null;
+  const lat = geopoint._latitude ?? geopoint.latitude;
+  const lng = geopoint._longitude ?? geopoint.longitude;
   if (lat === undefined || lat === null || lng === undefined || lng === null) return null;
   return { lat, lng };
 }
@@ -43,11 +42,11 @@ export async function lookupPostboxes(lat: number, lng: number, meters: number):
   const neighborHashes = geohash.neighbors(centerHash);
   const areas = [centerHash, ...neighborHashes];
 
-  const postboxRef = database.collection("postboxes");
+  const postboxRef = database.collection("postbox");
   const queries = areas.map((geohashPrefix) => {
     const end = geohashPrefix + "\uf8ff";
     return postboxRef
-      .orderBy("position.geohash")
+      .orderBy("geohash")
       .startAt(geohashPrefix)
       .endAt(end)
       .get();
@@ -59,7 +58,7 @@ export async function lookupPostboxes(lat: number, lng: number, meters: number):
   for (const snapshot of snapshots) {
     for (const doc of snapshot.docs) {
       const data = doc.data() as PostboxDoc;
-      const pos = getLatLng(data.position);
+      const pos = getLatLng(data.geopoint);
       if (!pos) continue;
 
       const distance = geolib.getDistance(from, { latitude: pos.lat, longitude: pos.lng });
@@ -76,11 +75,10 @@ export async function lookupPostboxes(lat: number, lng: number, meters: number):
         result.points.min += 2;
       }
 
-      const docWithMeta: PostboxDoc = { ...data, distance };
-      docWithMeta.compass = geolib.getCompassDirection(from, { latitude: pos.lat, longitude: pos.lng }) as { exact?: string };
-      const compassPos = docWithMeta.compass?.exact;
-      if (compassPos) {
-        result.compass[compassPos] = (result.compass[compassPos] ?? 0) + 1;
+      const compassDir = geolib.getCompassDirection(from, { latitude: pos.lat, longitude: pos.lng });
+      const docWithMeta: PostboxDoc = { ...data, distance, compass: { exact: compassDir } };
+      if (compassDir) {
+        result.compass[compassDir] = (result.compass[compassDir] ?? 0) + 1;
       }
       result.postboxes[doc.id] = docWithMeta;
     }

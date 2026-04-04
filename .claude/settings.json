@@ -1,0 +1,15 @@
+{
+  "enabledPlugins": {
+    "firebase@claude-plugins-official": true,
+    "development@agile-pixel": true,
+    "branding@agile-pixel": true
+  },
+  "extraKnownMarketplaces": {
+    "agile-pixel": {
+      "source": {
+        "source": "git",
+        "url": "https://github.com/agilepixel/skills.git"
+      }
+    }
+  }
+}

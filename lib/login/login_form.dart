@@ -5,6 +5,7 @@ import 'package:postbox_game/login/bloc/bloc.dart';
 import 'package:postbox_game/login/create_account_button.dart';
 import 'package:postbox_game/login/google_login_button.dart';
 import 'package:postbox_game/login/login_button.dart';
+import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/user_repository.dart';
 
 class LoginForm extends StatefulWidget {
@@ -20,6 +21,7 @@ class LoginForm extends StatefulWidget {
 class _LoginFormState extends State<LoginForm> {
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
+  bool _obscurePassword = true;
 
   late LoginBloc _loginBloc;
 
@@ -50,26 +52,8 @@ class _LoginFormState extends State<LoginForm> {
             ..hideCurrentSnackBar()
             ..showSnackBar(
               SnackBar(
-                content: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [Text('Login Failure'), Icon(Icons.error)],
-                ),
-                backgroundColor: Colors.red,
-              ),
-            );
-        }
-        if (state.isSubmitting) {
-          ScaffoldMessenger.of(context)
-            ..hideCurrentSnackBar()
-            ..showSnackBar(
-              SnackBar(
-                content: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text('Logging In...'),
-                    CircularProgressIndicator(),
-                  ],
-                ),
+                content: Text(state.errorMessage),
+                backgroundColor: Colors.red.shade700,
               ),
             );
         }
@@ -80,52 +64,73 @@ class _LoginFormState extends State<LoginForm> {
       child: BlocBuilder(
         bloc: _loginBloc,
         builder: (BuildContext context, LoginState state) {
-          return Padding(
-            padding: EdgeInsets.all(20.0),
-            child: Form(
-              child: ListView(
-                children: <Widget>[
-                  TextFormField(
-                    autovalidateMode: AutovalidateMode.always, controller: _emailController,
-                    decoration: InputDecoration(
-                      icon: Icon(Icons.email),
-                      labelText: 'Email',
+          return Stack(
+            children: [
+              Form(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    TextFormField(
+                      autovalidateMode: AutovalidateMode.onUserInteraction,
+                      controller: _emailController,
+                      decoration: const InputDecoration(
+                        prefixIcon: Icon(Icons.email_outlined),
+                        labelText: 'Email',
+                      ),
+                      autocorrect: false,
+                      keyboardType: TextInputType.emailAddress,
+                      validator: (_) {
+                        return !state.isEmailValid ? 'Invalid email address' : null;
+                      },
                     ),
-                    autocorrect: false,
-                    validator: (_) {
-                      return !state.isEmailValid ? 'Invalid Email' : null;
-                    },
-                  ),
-                  TextFormField(
-                    autovalidateMode: AutovalidateMode.always, controller: _passwordController,
-                    decoration: InputDecoration(
-                      icon: Icon(Icons.lock),
-                      labelText: 'Password',
-                    ),
-                    obscureText: true,
-                    autocorrect: false,
-                    validator: (_) {
-                      return !state.isPasswordValid ? 'Invalid Password' : null;
-                    },
-                  ),
-                  Padding(
-                    padding: EdgeInsets.symmetric(vertical: 20),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: <Widget>[
-                        LoginButton(
-                          onPressed: isLoginButtonEnabled(state)
-                              ? _onFormSubmitted
-                              : null,
+                    const SizedBox(height: AppSpacing.md),
+                    TextFormField(
+                      autovalidateMode: AutovalidateMode.onUserInteraction,
+                      controller: _passwordController,
+                      decoration: InputDecoration(
+                        prefixIcon: const Icon(Icons.lock_outline),
+                        labelText: 'Password',
+                        suffixIcon: IconButton(
+                          icon: Icon(
+                            _obscurePassword
+                                ? Icons.visibility_outlined
+                                : Icons.visibility_off_outlined,
+                          ),
+                          onPressed: () => setState(
+                              () => _obscurePassword = !_obscurePassword),
                         ),
-                        GoogleLoginButton(),
-                        CreateAccountButton(userRepository: _userRepository),
-                      ],
+                      ),
+                      obscureText: _obscurePassword,
+                      autocorrect: false,
+                      validator: (_) {
+                        return !state.isPasswordValid
+                            ? 'Password must be at least 6 characters'
+                            : null;
+                      },
+                    ),
+                    const SizedBox(height: AppSpacing.lg),
+                    LoginButton(
+                      onPressed: isLoginButtonEnabled(state)
+                          ? _onFormSubmitted
+                          : null,
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    GoogleLoginButton(),
+                    const SizedBox(height: AppSpacing.xs),
+                    CreateAccountButton(userRepository: _userRepository),
+                  ],
+                ),
+              ),
+              if (state.isSubmitting)
+                Positioned.fill(
+                  child: Container(
+                    color: Colors.white.withValues(alpha:0.7),
+                    child: const Center(
+                      child: CircularProgressIndicator(color: postalRed),
                     ),
                   ),
-                ],
-              ),
-            ),
+                ),
+            ],
           );
         },
       ),
@@ -140,15 +145,11 @@ class _LoginFormState extends State<LoginForm> {
   }
 
   void _onEmailChanged() {
-    _loginBloc.add(
-      EmailChanged(email: _emailController.text),
-    );
+    _loginBloc.add(EmailChanged(email: _emailController.text));
   }
 
   void _onPasswordChanged() {
-    _loginBloc.add(
-      PasswordChanged(password: _passwordController.text),
-    );
+    _loginBloc.add(PasswordChanged(password: _passwordController.text));
   }
 
   void _onFormSubmitted() {

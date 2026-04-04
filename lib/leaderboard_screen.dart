@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:postbox_game/theme.dart';
 
 /// Leaderboard with Daily, Weekly, Monthly tabs.
 /// Reads from Firestore leaderboards/{period}; backend can aggregate via Cloud Function.
@@ -12,20 +14,24 @@ class LeaderboardScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return DefaultTabController(
       length: _periods.length,
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Leaderboard'),
-          bottom: TabBar(
-            tabs: _periods
-                .map((p) => Tab(text: p[0].toUpperCase() + p.substring(1)))
-                .toList(),
+      child: Column(
+        children: [
+          Container(
+            color: Theme.of(context).colorScheme.surface,
+            child: TabBar(
+              tabs: _periods
+                  .map((p) => Tab(text: p[0].toUpperCase() + p.substring(1)))
+                  .toList(),
+            ),
           ),
-        ),
-        body: TabBarView(
-          children: _periods
-              .map((period) => _LeaderboardList(period: period))
-              .toList(),
-        ),
+          Expanded(
+            child: TabBarView(
+              children: _periods
+                  .map((period) => _LeaderboardList(period: period))
+                  .toList(),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -38,6 +44,7 @@ class _LeaderboardList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final currentUid = FirebaseAuth.instance.currentUser?.uid;
     final ref = FirebaseFirestore.instance
         .collection('leaderboards')
         .doc(period)
@@ -47,41 +54,114 @@ class _LeaderboardList extends StatelessWidget {
       stream: ref,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          return Center(child: Text('Error: ${snapshot.error}'));
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.error_outline, size: 48, color: Colors.grey.shade400),
+                const SizedBox(height: AppSpacing.md),
+                Text('Could not load leaderboard',
+                    style: Theme.of(context).textTheme.titleMedium),
+              ],
+            ),
+          );
         }
         if (!snapshot.hasData) {
-          return const Center(child: CircularProgressIndicator());
+          return const Center(child: CircularProgressIndicator(color: postalRed));
         }
         final data = snapshot.data!.data();
         final entries = data?['entries'] as List<dynamic>? ?? [];
         if (entries.isEmpty) {
-          return const Center(
-            child: Text(
-              'No rankings yet. Leaderboard is updated by the backend.',
-              textAlign: TextAlign.center,
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.leaderboard_outlined,
+                    size: 72, color: Colors.grey.shade300),
+                const SizedBox(height: AppSpacing.md),
+                Text('No rankings yet',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        )),
+                const SizedBox(height: AppSpacing.xs),
+                Text(
+                  'Leaderboard is updated by the backend.',
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodySmall
+                      ?.copyWith(color: Colors.grey),
+                ),
+              ],
             ),
           );
         }
-        return ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: entries.length,
-          itemBuilder: (context, index) {
-            final e = entries[index] as Map<String, dynamic>? ?? {};
-            final rank = index + 1;
-            final displayName = e['displayName'] as String? ?? 'Unknown';
-            final points = (e['points'] is num) ? (e['points'] as num).toInt() : 0;
-            return Card(
-              child: ListTile(
-                leading: CircleAvatar(
-                  child: Text('$rank'),
-                ),
-                title: Text(displayName),
-                trailing: Text('$points pts'),
-              ),
-            );
+        return RefreshIndicator(
+          color: postalRed,
+          onRefresh: () async {
+            // Stream auto-refreshes; this gives user tactile feedback
+            await Future.delayed(const Duration(milliseconds: 400));
           },
+          child: ListView.builder(
+            padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+            itemCount: entries.length,
+            itemBuilder: (context, index) {
+              final e = entries[index] as Map<String, dynamic>? ?? {};
+              final rank = index + 1;
+              final displayName = e['displayName'] as String? ?? 'Unknown';
+              final entryUid = e['uid'] as String?;
+              final points =
+                  (e['points'] is num) ? (e['points'] as num).toInt() : 0;
+              final isCurrentUser = entryUid != null && entryUid == currentUid;
+
+              return Card(
+                color: isCurrentUser
+                    ? postalRed.withValues(alpha:0.08)
+                    : null,
+                child: ListTile(
+                  leading: _rankWidget(rank),
+                  title: Text(
+                    displayName,
+                    style: isCurrentUser
+                        ? const TextStyle(fontWeight: FontWeight.bold)
+                        : null,
+                  ),
+                  trailing: Text(
+                    '$points pts',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          color:
+                              isCurrentUser ? postalRed : Colors.grey.shade600,
+                          fontWeight: isCurrentUser
+                              ? FontWeight.bold
+                              : FontWeight.normal,
+                        ),
+                  ),
+                ),
+              );
+            },
+          ),
         );
       },
     );
+  }
+
+  Widget _rankWidget(int rank) {
+    switch (rank) {
+      case 1:
+        return const Icon(Icons.emoji_events, color: postalGold, size: 32);
+      case 2:
+        return Icon(Icons.emoji_events, color: Colors.grey.shade400, size: 32);
+      case 3:
+        return Icon(Icons.emoji_events, color: Colors.brown.shade300, size: 32);
+      default:
+        return CircleAvatar(
+          radius: 16,
+          backgroundColor: postalRed.withValues(alpha:0.1),
+          child: Text(
+            '$rank',
+            style: const TextStyle(
+                color: postalRed, fontSize: 13, fontWeight: FontWeight.w600),
+          ),
+        );
+    }
   }
 }

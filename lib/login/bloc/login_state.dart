@@ -7,19 +7,21 @@ class LoginState {
   final bool isSubmitting;
   final bool isSuccess;
   final bool isFailure;
+  final String errorMessage;
 
   bool get isFormValid => isEmailValid && isPasswordValid;
 
-  LoginState({
+  const LoginState({
     required this.isEmailValid,
     required this.isPasswordValid,
     required this.isSubmitting,
     required this.isSuccess,
     required this.isFailure,
+    this.errorMessage = '',
   });
 
   factory LoginState.empty() {
-    return LoginState(
+    return const LoginState(
       isEmailValid: true,
       isPasswordValid: true,
       isSubmitting: false,
@@ -29,7 +31,7 @@ class LoginState {
   }
 
   factory LoginState.loading() {
-    return LoginState(
+    return const LoginState(
       isEmailValid: true,
       isPasswordValid: true,
       isSubmitting: true,
@@ -38,18 +40,19 @@ class LoginState {
     );
   }
 
-  factory LoginState.failure() {
+  factory LoginState.failure({String message = 'Sign in failed. Please try again.'}) {
     return LoginState(
       isEmailValid: true,
       isPasswordValid: true,
       isSubmitting: false,
       isSuccess: false,
       isFailure: true,
+      errorMessage: message,
     );
   }
 
   factory LoginState.success() {
-    return LoginState(
+    return const LoginState(
       isEmailValid: true,
       isPasswordValid: true,
       isSubmitting: false,
@@ -74,10 +77,10 @@ class LoginState {
   LoginState copyWith({
     bool? isEmailValid,
     bool? isPasswordValid,
-    bool? isSubmitEnabled,
     bool? isSubmitting,
     bool? isSuccess,
     bool? isFailure,
+    String? errorMessage,
   }) {
     return LoginState(
       isEmailValid: isEmailValid ?? this.isEmailValid,
@@ -85,6 +88,7 @@ class LoginState {
       isSubmitting: isSubmitting ?? this.isSubmitting,
       isSuccess: isSuccess ?? this.isSuccess,
       isFailure: isFailure ?? this.isFailure,
+      errorMessage: errorMessage ?? this.errorMessage,
     );
   }
 
@@ -96,6 +100,7 @@ class LoginState {
       isSubmitting: $isSubmitting,
       isSuccess: $isSuccess,
       isFailure: $isFailure,
+      errorMessage: $errorMessage,
     }''';
   }
 }
