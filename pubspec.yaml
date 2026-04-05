@@ -39,7 +39,7 @@ dependencies:
   equatable: ^2.0.5
   meta: ^1.8.0
   font_awesome_flutter: ^10.2.1
-  rxdart: ^0.27.5
+  rxdart: ^0.28.0
   animated_text_kit: ^4.2.2
   shared_preferences: ^2.2.2
   google_fonts: ^6.2.1
@@ -48,6 +48,9 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  firebase_core_platform_interface: ^6.0.0
+  fake_cloud_firestore: ^4.0.0
+  firebase_auth_mocks: ^0.15.0
 
 
 # For information on the generic Dart part of this file, see the
