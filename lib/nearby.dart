@@ -110,9 +110,9 @@ class NearbyState extends State<Nearby> {
     return Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
   }
 
-  Future<void> _startSearch() async {
+  Future<void> _startSearch({bool isRefresh = false}) async {
     _distanceUnit = await AppPreferences.getDistanceUnit();
-    setState(() => currentStage = NearbyStage.searching);
+    if (!isRefresh) setState(() => currentStage = NearbyStage.searching);
     try {
       final position = await getPosition();
       final result = await callable.call(<String, dynamic>{
@@ -271,8 +271,9 @@ class NearbyState extends State<Nearby> {
 
     return RefreshIndicator(
       color: postalRed,
-      onRefresh: _startSearch,
+      onRefresh: () => _startSearch(isRefresh: true),
       child: ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
       children: [
         // Summary card
@@ -395,7 +396,7 @@ class NearbyState extends State<Nearby> {
             padding: const EdgeInsets.fromLTRB(
                 AppSpacing.md, AppSpacing.lg, AppSpacing.md, AppSpacing.xs),
             child: Text(
-              'Where to look',
+              'Rough directions',
               style: Theme.of(context).textTheme.titleSmall?.copyWith(
                     color: Theme.of(context).colorScheme.primary,
                     fontWeight: FontWeight.w600,

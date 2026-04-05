@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:postbox_game/authentication_bloc/bloc.dart';
@@ -11,12 +13,10 @@ import 'package:postbox_game/intro_preferences.dart';
 import 'package:postbox_game/login/login_screen.dart';
 import 'package:postbox_game/nearby.dart';
 import 'package:postbox_game/settings_screen.dart';
-import 'package:postbox_game/signin.dart';
 import 'package:postbox_game/splash.dart';
-import 'package:postbox_game/upload.dart';
 import 'package:postbox_game/user_repository.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_app_check/firebase_app_check.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'firebase_options.dart';
 
 void main() async{
@@ -25,24 +25,12 @@ void main() async{
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
-  await FirebaseAppCheck.instance.activate(
-    // You can also use a `ReCaptchaEnterpriseProvider` provider instance as an
-    // argument for `webProvider`
-    webProvider: ReCaptchaV3Provider('recaptcha-v3-site-key'),
-    // Default provider for Android is the Play Integrity provider. You can use the "AndroidProvider" enum to choose
-    // your preferred provider. Choose from:
-    // 1. Debug provider
-    // 2. Safety Net provider
-    // 3. Play Integrity provider
-    androidProvider: AndroidProvider.debug,
-    // Default provider for iOS/macOS is the Device Check provider. You can use the "AppleProvider" enum to choose
-    // your preferred provider. Choose from:
-    // 1. Debug provider
-    // 2. Device Check provider
-    // 3. App Attest provider
-    // 4. App Attest provider with fallback to Device Check provider (App Attest provider is only available on iOS 14.0+, macOS 14.0+)
-    appleProvider: AppleProvider.appAttest,
-  );
+  await FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(true);
+  FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
+  PlatformDispatcher.instance.onError = (error, stack) {
+    FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+    return true;
+  };
   runApp(PostboxGame());
 }
 
@@ -84,8 +72,6 @@ class _PostboxGameState extends State<PostboxGame> {
             },
           ),
           routes: {
-            '/login': (context) => SignInPage(),
-            '/upload': (context) => Upload(),
             '/nearby': (context) => Nearby(),
             '/Claim': (context) => Claim(),
             '/friends': (context) => const FriendsScreen(),
