@@ -1,0 +1,12 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "postbox",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "geohash", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}
