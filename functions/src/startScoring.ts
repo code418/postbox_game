@@ -16,13 +16,13 @@ interface StartScoringResult {
   points: number;
 }
 
-export const startScoring = functions.https.onCall(async (data: StartScoringCallData, context) => {
-  const userid = context.auth?.uid;
+export const startScoring = functions.https.onCall(async (request) => {
+  const userid = request.auth?.uid;
   if (!userid) {
     throw new functions.https.HttpsError("unauthenticated", "Must be signed in to claim a postbox");
   }
 
-  const { lat, lng } = data ?? {};
+  const { lat, lng } = (request.data as StartScoringCallData) ?? {};
   if (lat === undefined || lat === null || lng === undefined || lng === null) {
     throw new functions.https.HttpsError("invalid-argument", "lat and lng are required");
   }

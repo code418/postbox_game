@@ -7,7 +7,8 @@ interface NearbyCallData {
   meters?: number;
 }
 
-export const nearbyPostboxes = functions.https.onCall(async (data: NearbyCallData, _context) => {
+export const nearbyPostboxes = functions.https.onCall(async (request) => {
+  const data = request.data as NearbyCallData;
   const { lat, lng, meters } = data ?? {};
   if (lat === undefined || lat === null || lng === undefined || lng === null || meters === undefined || meters === null) {
     throw new functions.https.HttpsError("invalid-argument", "lat, lng, and meters are required");
