@@ -34,6 +34,8 @@ subprojects { subproject ->
                     }
                 }
                 android.compileSdkVersion = 35
+                android.compileOptions.sourceCompatibility = JavaVersion.VERSION_17
+                android.compileOptions.targetCompatibility = JavaVersion.VERSION_17
             }
         }
     }
