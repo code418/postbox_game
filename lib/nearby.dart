@@ -28,6 +28,7 @@ class NearbyState extends State<Nearby> {
   int _EVIIR = 0;
   int _EVIIIR = 0;
   int _CIIIR = 0;
+  int _claimedToday = 0;
   DistanceUnit _distanceUnit = DistanceUnit.meters;
   DateTime? _lastScanned;
 
@@ -147,6 +148,7 @@ class NearbyState extends State<Nearby> {
         _EVIIR = result.data['counts']['EVIIR'] ?? 0;
         _EVIIIR = result.data['counts']['EVIIIR'] ?? 0;
         _CIIIR = result.data['counts']['CIIIR'] ?? 0;
+        _claimedToday = result.data['counts']['claimedToday'] ?? 0;
         _lastScanned = DateTime.now();
       });
     } on FirebaseFunctionsException catch (e) {
@@ -304,6 +306,19 @@ class NearbyState extends State<Nearby> {
                               .textTheme
                               .bodySmall
                               ?.copyWith(color: Colors.grey.shade500),
+                        ),
+                      if (_claimedToday > 0)
+                        Row(
+                          children: [
+                            const Icon(Icons.lock_clock, size: 12, color: Colors.orange),
+                            const SizedBox(width: 4),
+                            Text(
+                              '$_claimedToday claimed today',
+                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: Colors.orange.shade700,
+                                  ),
+                            ),
+                          ],
                         ),
                     ],
                   ),

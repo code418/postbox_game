@@ -1,6 +1,7 @@
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions";
 import { getPoints } from "./_getPoints";
+import { getTodayLondon } from "./_dateUtils";
 import { lookupPostboxes } from "./_lookupPostboxes";
 
 const database = admin.firestore();
@@ -8,12 +9,6 @@ const database = admin.firestore();
 interface StartScoringCallData {
   lat?: number;
   lng?: number;
-}
-
-interface StartScoringResult {
-  found: boolean;
-  claimed: number;
-  points: number;
 }
 
 export const startScoring = functions.https.onCall(async (request) => {
@@ -28,28 +23,45 @@ export const startScoring = functions.https.onCall(async (request) => {
   }
 
   const results = await lookupPostboxes(lat, lng, 20);
-  const json: StartScoringResult = { found: results.counts.total > 0, claimed: 0, points: 0 };
 
-  if (json.found) {
-    const claimPromises = Object.entries(results.postboxes).map(async ([key, postbox]) => {
-      const pts = postbox.monarch !== undefined ? getPoints(postbox.monarch) : 2;
-      const claimData: Record<string, unknown> = {
-        userid,
-        timestamp: admin.firestore.Timestamp.now(),
-        validated: false,
-        postboxes: `/postbox/${key}`,
-        points: pts,
-      };
-      if (postbox.monarch !== undefined) {
-        claimData.monarch = postbox.monarch;
-      }
-      await database.collection("claims").add(claimData);
-      return pts;
-    });
-    const earnedPoints = await Promise.all(claimPromises);
-    json.claimed = earnedPoints.length;
-    json.points = earnedPoints.reduce((sum, p) => sum + p, 0);
+  if (results.counts.total === 0) {
+    return { found: false, claimed: 0, points: 0, allClaimedToday: false };
   }
 
-  return json;
+  const todayLondon = getTodayLondon();
+
+  const claimResults = await Promise.all(
+    Object.entries(results.postboxes).map(([key, postbox]) => {
+      const postboxRef = database.collection('postbox').doc(key);
+      const claimRef   = database.collection('claims').doc();
+      const pts = postbox.monarch !== undefined ? getPoints(postbox.monarch) : 2;
+
+      return database.runTransaction(async (tx) => {
+        const snap = await tx.get(postboxRef);
+        if (snap.data()?.dailyClaim?.date === todayLondon) return null;
+
+        tx.update(postboxRef, { dailyClaim: { date: todayLondon, by: userid } });
+        const claimData: Record<string, unknown> = {
+          userid,
+          timestamp: admin.firestore.Timestamp.now(),
+          validated: false,
+          postboxes: `/postbox/${key}`,
+          points: pts,
+          dailyDate: todayLondon,
+        };
+        if (postbox.monarch !== undefined) claimData.monarch = postbox.monarch;
+        tx.set(claimRef, claimData);
+        return pts;
+      });
+    })
+  );
+
+  const earnedPoints = claimResults.filter((pts): pts is number => pts !== null);
+
+  return {
+    found: true,
+    claimed: earnedPoints.length,
+    points: earnedPoints.reduce((s, p) => s + p, 0),
+    allClaimedToday: earnedPoints.length === 0,
+  };
 });

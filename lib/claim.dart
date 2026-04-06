@@ -29,6 +29,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
   int _EVIIR = 0;
   int _EVIIIR = 0;
   int _CIIIR = 0;
+  int _claimedToday = 0;
   DistanceUnit _distanceUnit = DistanceUnit.meters;
   int _pointsEarned = 0;
   bool _isClaiming = false;
@@ -130,6 +131,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
         _EVIIR = result.data['counts']['EVIIR'] ?? 0;
         _EVIIIR = result.data['counts']['EVIIIR'] ?? 0;
         _CIIIR = result.data['counts']['CIIIR'] ?? 0;
+        _claimedToday = result.data['counts']['claimedToday'] ?? 0;
         currentStage = _count > 0 ? ClaimStage.results : ClaimStage.empty;
       });
     } on FirebaseFunctionsException catch (e) {
@@ -152,6 +154,12 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
         'lat': position.latitude,
         'lng': position.longitude,
       });
+      if (result.data?['allClaimedToday'] == true) {
+        setState(() => _isClaiming = false);
+        _showErrorSnackBar('Just claimed by someone else — refreshing...');
+        await _startSearch();
+        return;
+      }
       final points = result.data?['points'] ?? 0;
       setState(() {
         _pointsEarned = points is int ? points : (points as num).toInt();
@@ -168,6 +176,45 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
       _showErrorSnackBar('Could not claim postbox. Please try again.');
       setState(() => _isClaiming = false);
     }
+  }
+
+  Widget _buildAllClaimedBanner(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.md, vertical: AppSpacing.sm),
+      decoration: BoxDecoration(
+        color: Colors.orange.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.orange.shade200),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.lock_clock, color: Colors.orange.shade700),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Already claimed today',
+                  style: TextStyle(
+                      color: Colors.orange.shade800,
+                      fontWeight: FontWeight.w600),
+                ),
+                Text(
+                  'Resets at midnight · London time',
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodySmall
+                      ?.copyWith(color: Colors.orange.shade600),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showErrorSnackBar(String message) {
@@ -338,23 +385,25 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
           left: AppSpacing.md,
           right: AppSpacing.md,
           bottom: AppSpacing.md,
-          child: AbsorbPointer(
-            absorbing: _isClaiming,
-            child: FilledButton.icon(
-              onPressed: _isClaiming ? null : _claimPostbox,
-              icon: _isClaiming
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        color: Colors.white,
-                        strokeWidth: 2,
-                      ),
-                    )
-                  : const Icon(Icons.check_circle_outline),
-              label: Text(_isClaiming ? 'Claiming...' : 'Claim this postbox!'),
-            ),
-          ),
+          child: _claimedToday == _count
+              ? _buildAllClaimedBanner(context)
+              : AbsorbPointer(
+                  absorbing: _isClaiming,
+                  child: FilledButton.icon(
+                    onPressed: _isClaiming ? null : _claimPostbox,
+                    icon: _isClaiming
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : const Icon(Icons.check_circle_outline),
+                    label: Text(_isClaiming ? 'Claiming...' : 'Claim this postbox!'),
+                  ),
+                ),
         ),
       ],
     );
@@ -383,7 +432,11 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '$_count postbox${_count == 1 ? '' : 'es'} within ${AppPreferences.formatShortDistance(30.0, _distanceUnit)}',
+                    _claimedToday == _count
+                        ? 'All $_count postbox${_count == 1 ? '' : 'es'} claimed today'
+                        : _claimedToday > 0
+                            ? '${_count - _claimedToday} of $_count available · $_claimedToday claimed today'
+                            : '$_count postbox${_count == 1 ? '' : 'es'} within ${AppPreferences.formatShortDistance(30.0, _distanceUnit)}',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.bold,
                         ),
