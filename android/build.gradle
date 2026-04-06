@@ -4,8 +4,8 @@ buildscript {
         mavenCentral()
     }
     dependencies {
-        classpath 'com.google.firebase:firebase-crashlytics-gradle:2.9.9'
-        classpath 'com.google.firebase:perf-plugin:1.4.2'
+        // firebase-crashlytics-gradle and perf-plugin removed — neither SDK is used in Dart code
+        // and perf-plugin:1.4.2 is incompatible with AGP 8.x
     }
 }
 

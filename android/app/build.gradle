@@ -63,7 +63,6 @@ flutter {
 
 dependencies {
     implementation "androidx.multidex:multidex:2.0.1"
-    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.9.22"
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'androidx.test:runner:1.4.0'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.4.0'
@@ -75,5 +74,5 @@ tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
     }
 }
 
-apply plugin: 'com.google.firebase.firebase-perf'
-apply plugin: 'com.google.firebase.crashlytics'
+// firebase-perf and crashlytics Gradle plugins removed — SDKs not used in Dart code
+// and perf-plugin:1.4.2 is incompatible with AGP 8.x
