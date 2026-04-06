@@ -3,7 +3,7 @@
     "project_number": "176793005702",
     "firebase_url": "https://the-postbox-game.firebaseio.com",
     "project_id": "the-postbox-game",
-    "storage_bucket": "the-postbox-game.appspot.com"
+    "storage_bucket": "the-postbox-game.firebasestorage.app"
   },
   "client": [
     {

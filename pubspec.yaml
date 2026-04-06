@@ -23,13 +23,13 @@ dependencies:
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.5
-  cloud_functions: ^5.0.0
-  firebase_core: "3.12.1"  # 3.13+ native code uses new Pigeon channel prefix but pubspec still pins platform_interface ^5.x — mismatch breaks initializeApp
-  cloud_firestore: ^5.0.0
-  firebase_analytics: ^11.0.0
-  firebase_storage: ^12.0.0
+  cloud_functions: ^6.1.0
+  firebase_core: ^4.6.0  # 3.13+ native code uses new Pigeon channel prefix but pubspec still pins platform_interface ^5.x — mismatch breaks initializeApp
+  cloud_firestore: ^6.2.0
+  firebase_analytics: ^12.2.0
+  firebase_storage: ^13.2.0
   file_picker: ^8.0.0
-  firebase_auth: ^5.0.0
+  firebase_auth: ^6.3.0
   geolocator: ^10.0.0
   google_sign_in: ^6.0.2
   flutter_compass: ^0.7.0
@@ -44,6 +44,7 @@ dependencies:
   shared_preferences: ^2.2.2
   google_fonts: ^6.2.1
   flutter_svg: ^2.0.10+1
+  firebase_app_check: ^0.4.2
 dev_dependencies:
   flutter_test:
     sdk: flutter
