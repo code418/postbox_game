@@ -362,13 +362,17 @@ class NearbyState extends State<Nearby> {
           ),
           Padding(
             padding: const EdgeInsets.all(AppSpacing.md),
-            child: Transform.rotate(
-              angle: ((_direction ?? 0) * (pi / 180) * -1),
-              child: Compass(
-                n: n, nne: nne, ne: ne, ene: ene, e: e, ese: ese,
-                se: se, sse: sse, s: s, ssw: ssw, sw: sw, wsw: wsw,
-                w: w, wnw: wnw, nw: nw, nnw: nnw,
-                rotation: 0 - ((_direction ?? 0) * (pi / 180) * -1),
+            child: SizedBox(
+              width: 220,
+              height: 220,
+              child: Transform.rotate(
+                angle: ((_direction ?? 0) * (pi / 180) * -1),
+                child: Compass(
+                  n: n, nne: nne, ne: ne, ene: ene, e: e, ese: ese,
+                  se: se, sse: sse, s: s, ssw: ssw, sw: sw, wsw: wsw,
+                  w: w, wnw: wnw, nw: nw, nnw: nnw,
+                  rotation: 0 - ((_direction ?? 0) * (pi / 180) * -1),
+                ),
               ),
             ),
           ),

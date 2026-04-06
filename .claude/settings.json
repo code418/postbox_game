@@ -1,14 +1,30 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(adb logcat:*)",
+      "Bash(adb devices:*)",
+      "Bash(./gradlew clean:*)",
+      "Read(//usr/lib/jvm/**)",
+      "Bash(java -version)"
+    ]
+  },
   "enabledPlugins": {
     "firebase@claude-plugins-official": true,
     "development@agile-pixel": true,
-    "branding@agile-pixel": true
+    "branding@agile-pixel": true,
+    "fullstack-dev-skills@fullstack-dev-skills": true
   },
   "extraKnownMarketplaces": {
     "agile-pixel": {
       "source": {
         "source": "git",
         "url": "https://github.com/agilepixel/skills.git"
+      }
+    },
+    "jeffallan": {
+      "source": {
+        "source": "git",
+        "url": "https://github.com/jeffallan/claude-skills.git"
       }
     }
   }
