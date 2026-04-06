@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:postbox_game/app_preferences.dart';
 import 'package:postbox_game/theme.dart';
 
 enum ClaimStage { initial, searching, results, empty, claimed }
@@ -27,6 +28,8 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
   int _VR = 0;
   int _EVIIR = 0;
   int _EVIIIR = 0;
+  int _CIIIR = 0;
+  DistanceUnit _distanceUnit = DistanceUnit.meters;
   int _pointsEarned = 0;
   bool _isClaiming = false;
 
@@ -45,6 +48,9 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
     'VR': 'Victoria (1840–1901)',
     'GR': 'George (generic)',
   };
+
+  static const Set<String> _rareMonarchs = {'EVIIIR', 'CIIIR'};
+  static const Set<String> _historicMonarchs = {'VR', 'EVIIR'};
 
   static const Map<String, Color> _monarchColors = {
     'EIIR': postalRed,
@@ -68,6 +74,9 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
       parent: _successController,
       curve: Curves.elasticOut,
     );
+    AppPreferences.getDistanceUnit().then((unit) {
+      if (mounted) setState(() => _distanceUnit = unit);
+    });
   }
 
   @override
@@ -100,6 +109,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
   }
 
   Future<void> _startSearch() async {
+    _distanceUnit = await AppPreferences.getDistanceUnit();
     setState(() => currentStage = ClaimStage.searching);
     try {
       final position = await _getPosition();
@@ -119,6 +129,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
         _VR = result.data['counts']['VR'] ?? 0;
         _EVIIR = result.data['counts']['EVIIR'] ?? 0;
         _EVIIIR = result.data['counts']['EVIIIR'] ?? 0;
+        _CIIIR = result.data['counts']['CIIIR'] ?? 0;
         currentStage = _count > 0 ? ClaimStage.results : ClaimStage.empty;
       });
     } on FirebaseFunctionsException catch (e) {
@@ -211,7 +222,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
             ),
             const SizedBox(height: AppSpacing.sm),
             Text(
-              'Stand within 30m of a postbox, then tap below to check if you can claim it.',
+              'Stand within ${AppPreferences.formatShortDistance(30.0, _distanceUnit)} of a postbox, then tap below to check if you can claim it.',
               style: Theme.of(context)
                   .textTheme
                   .bodyMedium
@@ -231,13 +242,13 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
   }
 
   Widget _buildSearching(BuildContext context) {
-    return const Center(
+    return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          CircularProgressIndicator(color: postalRed),
-          SizedBox(height: AppSpacing.md),
-          Text('Scanning within 30m...'),
+          const CircularProgressIndicator(color: postalRed),
+          const SizedBox(height: AppSpacing.md),
+          Text('Scanning within ${AppPreferences.formatShortDistance(30.0, _distanceUnit)}...'),
         ],
       ),
     );
@@ -253,7 +264,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
             Icon(Icons.location_off, size: 80, color: Colors.grey.shade400),
             const SizedBox(height: AppSpacing.md),
             Text(
-              'No postboxes found within 30m',
+              'No postboxes found within ${AppPreferences.formatShortDistance(30.0, _distanceUnit)}',
               style: Theme.of(context)
                   .textTheme
                   .titleLarge
@@ -289,7 +300,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
   Widget _buildResults(BuildContext context) {
     final monarchEntries = <MapEntry<String, int>>[
       MapEntry('EIIR', _EIIR),
-      MapEntry('CIIIR', 0),
+      MapEntry('CIIIR', _CIIIR),
       MapEntry('GVIR', _GVIR),
       MapEntry('GVR', _GVR),
       MapEntry('EVIIIR', _EVIIIR),
@@ -372,7 +383,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '$_count postbox${_count == 1 ? '' : 'es'} within 30m',
+                    '$_count postbox${_count == 1 ? '' : 'es'} within ${AppPreferences.formatShortDistance(30.0, _distanceUnit)}',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.bold,
                         ),
@@ -396,10 +407,31 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
   Widget _monarchCard(BuildContext context, String code, int count) {
     final label = _monarchLabels[code] ?? code;
     final color = _monarchColors[code] ?? postalRed;
+
+    Widget? trailing;
+    if (_rareMonarchs.contains(code)) {
+      trailing = Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.star, size: 14, color: postalGold),
+          const SizedBox(width: 2),
+          Text('Rare',
+              style: TextStyle(
+                  color: postalGold, fontSize: 12, fontWeight: FontWeight.w600)),
+        ],
+      );
+    } else if (_historicMonarchs.contains(code)) {
+      trailing = Text('Historic',
+          style: TextStyle(
+              color: Colors.brown.shade400,
+              fontSize: 12,
+              fontWeight: FontWeight.w500));
+    }
+
     return Card(
       child: ListTile(
         leading: CircleAvatar(
-          backgroundColor: color.withValues(alpha:0.12),
+          backgroundColor: color.withValues(alpha: 0.12),
           child: Text(
             '$count',
             style: TextStyle(color: color, fontWeight: FontWeight.bold),
@@ -407,18 +439,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
         ),
         title: Text(label),
         subtitle: Text(code),
-        trailing: code == 'VR' || code == 'EVIIR' || code == 'EVIIIR'
-            ? Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.star, size: 14, color: postalGold),
-                  const SizedBox(width: 2),
-                  Text('Rare',
-                      style: TextStyle(
-                          color: postalGold, fontSize: 12)),
-                ],
-              )
-            : null,
+        trailing: trailing,
       ),
     );
   }
