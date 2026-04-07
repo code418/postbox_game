@@ -3,6 +3,7 @@ import * as functions from "firebase-functions";
 import { getPoints } from "./_getPoints";
 import { getTodayLondon } from "./_dateUtils";
 import { lookupPostboxes } from "./_lookupPostboxes";
+import { updateUserLeaderboards } from "./_leaderboardUtils";
 
 const database = admin.firestore();
 
@@ -57,6 +58,16 @@ export const startScoring = functions.https.onCall(async (request) => {
   );
 
   const earnedPoints = claimResults.filter((pts): pts is number => pts !== null);
+
+  if (earnedPoints.length > 0) {
+    const authUser = await admin.auth().getUser(userid);
+    const displayName =
+      authUser.displayName ||
+      (authUser.email
+        ? authUser.email.split("@")[0]
+        : `Player_${userid.slice(0, 6)}`);
+    await updateUserLeaderboards(userid, displayName, todayLondon, database);
+  }
 
   return {
     found: true,
