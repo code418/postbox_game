@@ -5,10 +5,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:postbox_game/app_preferences.dart';
 import 'package:postbox_game/james_strip.dart';
 import 'package:postbox_game/theme.dart';
 
-enum ClaimStage { initial, searching, results, empty, claimed }
+enum ClaimStage { initial, searching, results, empty, quiz, quizFailed, claimed }
 
 class Claim extends StatefulWidget {
   const Claim({super.key});
@@ -21,13 +22,12 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
   int _count = 0;
   int _maxPoints = 0;
   int _minPoints = 0;
-  int _EIIR = 0;
-  int _GR = 0;
-  int _GVR = 0;
-  int _GVIR = 0;
-  int _VR = 0;
-  int _EVIIR = 0;
-  int _EVIIIR = 0;
+  int _claimedToday = 0;
+  Map<String, dynamic> _postboxes = {};
+  String? _quizCipher;
+  String? _selectedAnswer;
+  List<String> _quizOptions = [];
+  DistanceUnit _distanceUnit = DistanceUnit.meters;
   int _pointsEarned = 0;
   bool _isClaiming = false;
 
@@ -47,16 +47,9 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
     'GR': 'George (generic)',
   };
 
-  static const Map<String, Color> _monarchColors = {
-    'EIIR': postalRed,
-    'CIIIR': postalRed,
-    'GVIR': Colors.indigo,
-    'GVR': Colors.teal,
-    'EVIIIR': postalGold,
-    'EVIIR': Colors.deepPurple,
-    'VR': Colors.amber,
-    'GR': Colors.blueGrey,
-  };
+  static const List<String> _allCiphers = [
+    'EIIR', 'CIIIR', 'GR', 'GVR', 'GVIR', 'VR', 'EVIIR', 'EVIIIR',
+  ];
 
   @override
   void initState() {
@@ -69,6 +62,9 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
       parent: _successController,
       curve: Curves.elasticOut,
     );
+    AppPreferences.getDistanceUnit().then((unit) {
+      if (mounted) setState(() => _distanceUnit = unit);
+    });
   }
 
   @override
@@ -101,6 +97,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
   }
 
   Future<void> _startSearch() async {
+    _distanceUnit = await AppPreferences.getDistanceUnit();
     setState(() => currentStage = ClaimStage.searching);
     try {
       final position = await _getPosition();
@@ -113,13 +110,8 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
         _count = result.data['counts']['total'] ?? 0;
         _maxPoints = result.data['points']['max'] ?? 0;
         _minPoints = result.data['points']['min'] ?? 0;
-        _EIIR = result.data['counts']['EIIR'] ?? 0;
-        _GR = result.data['counts']['GR'] ?? 0;
-        _GVR = result.data['counts']['GVR'] ?? 0;
-        _GVIR = result.data['counts']['GVIR'] ?? 0;
-        _VR = result.data['counts']['VR'] ?? 0;
-        _EVIIR = result.data['counts']['EVIIR'] ?? 0;
-        _EVIIIR = result.data['counts']['EVIIIR'] ?? 0;
+        _claimedToday = result.data['counts']['claimedToday'] ?? 0;
+        _postboxes = Map<String, dynamic>.from(result.data['postboxes'] ?? {});
         currentStage = _count > 0 ? ClaimStage.results : ClaimStage.empty;
       });
     } on FirebaseFunctionsException catch (e) {
@@ -142,6 +134,12 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
         'lat': position.latitude,
         'lng': position.longitude,
       });
+      if (result.data?['allClaimedToday'] == true) {
+        setState(() => _isClaiming = false);
+        _showErrorSnackBar('Just claimed by someone else — refreshing...');
+        await _startSearch();
+        return;
+      }
       final points = result.data?['points'] ?? 0;
       setState(() {
         _pointsEarned = points is int ? points : (points as num).toInt();
@@ -158,6 +156,84 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
       _showErrorSnackBar('Could not claim postbox. Please try again.');
       setState(() => _isClaiming = false);
     }
+  }
+
+  String? _pickQuizCipher() {
+    for (final p in _postboxes.values) {
+      final map = p as Map<dynamic, dynamic>;
+      final monarch = map['monarch'];
+      if (monarch != null && monarch is String && monarch.isNotEmpty) return monarch;
+    }
+    return null;
+  }
+
+  List<String> _buildQuizOptions(String correct) {
+    final pool = List<String>.from(_allCiphers)..remove(correct)..shuffle();
+    return ([correct, ...pool.take(3)]..shuffle());
+  }
+
+  void _startQuiz() {
+    final cipher = _pickQuizCipher();
+    if (cipher == null) {
+      _claimPostbox();
+      return;
+    }
+    setState(() {
+      _quizCipher = cipher;
+      _quizOptions = _buildQuizOptions(cipher);
+      _selectedAnswer = null;
+      currentStage = ClaimStage.quiz;
+    });
+  }
+
+  void _onQuizAnswer(String answer) {
+    setState(() => _selectedAnswer = answer);
+    if (answer == _quizCipher) {
+      HapticFeedback.lightImpact();
+      _claimPostbox();
+    } else {
+      HapticFeedback.heavyImpact();
+      setState(() => currentStage = ClaimStage.quizFailed);
+    }
+  }
+
+  Widget _buildAllClaimedBanner(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.md, vertical: AppSpacing.sm),
+      decoration: BoxDecoration(
+        color: Colors.orange.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.orange.shade200),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.lock_clock, color: Colors.orange.shade700),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Already claimed today',
+                  style: TextStyle(
+                      color: Colors.orange.shade800,
+                      fontWeight: FontWeight.w600),
+                ),
+                Text(
+                  'Resets at midnight · London time',
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodySmall
+                      ?.copyWith(color: Colors.orange.shade600),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showErrorSnackBar(String message) {
@@ -185,6 +261,10 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
         return _buildResults(context);
       case ClaimStage.empty:
         return _buildEmpty(context);
+      case ClaimStage.quiz:
+        return _buildQuiz(context);
+      case ClaimStage.quizFailed:
+        return _buildQuizFailed(context);
       case ClaimStage.claimed:
         return _buildClaimed(context);
     }
@@ -212,7 +292,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
             ),
             const SizedBox(height: AppSpacing.sm),
             Text(
-              'Stand within 30m of a postbox, then tap below to check if you can claim it.',
+              'Stand within ${AppPreferences.formatShortDistance(30.0, _distanceUnit)} of a postbox, then tap below to check if you can claim it.',
               style: Theme.of(context)
                   .textTheme
                   .bodyMedium
@@ -234,13 +314,13 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
   }
 
   Widget _buildSearching(BuildContext context) {
-    return const Center(
+    return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          CircularProgressIndicator(color: postalRed),
-          SizedBox(height: AppSpacing.md),
-          Text('Scanning within 30m...'),
+          const CircularProgressIndicator(color: postalRed),
+          const SizedBox(height: AppSpacing.md),
+          Text('Scanning within ${AppPreferences.formatShortDistance(30.0, _distanceUnit)}...'),
         ],
       ),
     );
@@ -256,7 +336,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
             Icon(Icons.location_off, size: 80, color: Colors.grey.shade400),
             const SizedBox(height: AppSpacing.md),
             Text(
-              'No postboxes found within 30m',
+              'No postboxes found within ${AppPreferences.formatShortDistance(30.0, _distanceUnit)}',
               style: Theme.of(context)
                   .textTheme
                   .titleLarge
@@ -290,17 +370,6 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
   }
 
   Widget _buildResults(BuildContext context) {
-    final monarchEntries = <MapEntry<String, int>>[
-      MapEntry('EIIR', _EIIR),
-      MapEntry('CIIIR', 0),
-      MapEntry('GVIR', _GVIR),
-      MapEntry('GVR', _GVR),
-      MapEntry('EVIIIR', _EVIIIR),
-      MapEntry('EVIIR', _EVIIR),
-      MapEntry('VR', _VR),
-      MapEntry('GR', _GR),
-    ].where((e) => e.value > 0).toList();
-
     return Stack(
       children: [
         ListView(
@@ -310,8 +379,6 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
           ),
           children: [
             _summaryCard(context),
-            const SizedBox(height: AppSpacing.sm),
-            ...monarchEntries.map((e) => _monarchCard(context, e.key, e.value)),
             const SizedBox(height: AppSpacing.sm),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
@@ -332,23 +399,25 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
           left: AppSpacing.md,
           right: AppSpacing.md,
           bottom: AppSpacing.md,
-          child: AbsorbPointer(
-            absorbing: _isClaiming,
-            child: FilledButton.icon(
-              onPressed: _isClaiming ? null : _claimPostbox,
-              icon: _isClaiming
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        color: Colors.white,
-                        strokeWidth: 2,
-                      ),
-                    )
-                  : const Icon(Icons.check_circle_outline),
-              label: Text(_isClaiming ? 'Claiming...' : 'Claim this postbox!'),
-            ),
-          ),
+          child: _claimedToday == _count
+              ? _buildAllClaimedBanner(context)
+              : AbsorbPointer(
+                  absorbing: _isClaiming,
+                  child: FilledButton.icon(
+                    onPressed: _isClaiming ? null : _startQuiz,
+                    icon: _isClaiming
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : const Icon(Icons.check_circle_outline),
+                    label: Text(_isClaiming ? 'Claiming...' : 'Claim this postbox!'),
+                  ),
+                ),
         ),
       ],
     );
@@ -377,18 +446,25 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '$_count postbox${_count == 1 ? '' : 'es'} within 30m',
+                    _claimedToday == _count
+                        ? (_count == 1
+                            ? 'This postbox was claimed today'
+                            : 'All $_count postboxes claimed today')
+                        : _claimedToday > 0
+                            ? '${_count - _claimedToday} of $_count available · $_claimedToday claimed today'
+                            : '$_count postbox${_count == 1 ? '' : 'es'} within ${AppPreferences.formatShortDistance(30.0, _distanceUnit)}',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.bold,
                         ),
                   ),
-                  Text(
-                    'Worth $pointsText',
-                    style: Theme.of(context)
-                        .textTheme
-                        .bodySmall
-                        ?.copyWith(color: Colors.grey.shade600),
-                  ),
+                  if (_claimedToday == _count)
+                    Text(
+                      'Worth $pointsText',
+                      style: Theme.of(context)
+                          .textTheme
+                          .bodySmall
+                          ?.copyWith(color: Colors.grey.shade600),
+                    ),
                 ],
               ),
             ),
@@ -398,32 +474,141 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
     );
   }
 
-  Widget _monarchCard(BuildContext context, String code, int count) {
-    final label = _monarchLabels[code] ?? code;
-    final color = _monarchColors[code] ?? postalRed;
-    return Card(
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: color.withValues(alpha:0.12),
-          child: Text(
-            '$count',
-            style: TextStyle(color: color, fontWeight: FontWeight.bold),
+  Widget _buildQuiz(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(AppSpacing.xl),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.help_outline, size: 64, color: postalRed),
+          const SizedBox(height: AppSpacing.md),
+          Text(
+            'What\'s the cipher on this postbox?',
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+            textAlign: TextAlign.center,
           ),
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            'Look at the postbox and pick the correct royal cipher.',
+            style: Theme.of(context)
+                .textTheme
+                .bodyMedium
+                ?.copyWith(color: Colors.grey.shade600),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: AppSpacing.xl),
+          ..._quizOptions.map((code) {
+                final isSelected = _selectedAnswer == code;
+                final isCorrectSelected = isSelected && _isClaiming;
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    decoration: BoxDecoration(
+                      color: isCorrectSelected
+                          ? const Color(0xFF2E7D32).withValues(alpha: 0.08)
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: OutlinedButton(
+                      onPressed: _isClaiming ? null : () => _onQuizAnswer(code),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size(double.infinity, 56),
+                        side: BorderSide(
+                          color: isCorrectSelected
+                              ? const Color(0xFF2E7D32)
+                              : postalRed,
+                          width: isCorrectSelected ? 2 : 1,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          if (isCorrectSelected) ...[
+                            const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Color(0xFF2E7D32),
+                              ),
+                            ),
+                            const SizedBox(width: AppSpacing.sm),
+                          ],
+                          Column(
+                            children: [
+                              Text(
+                                isCorrectSelected ? 'Correct! Claiming…' : code,
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                  color: isCorrectSelected
+                                      ? const Color(0xFF2E7D32)
+                                      : null,
+                                ),
+                              ),
+                              if (!isCorrectSelected)
+                                Text(
+                                  _monarchLabels[code] ?? code,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
+                                      ?.copyWith(color: Colors.grey.shade600),
+                                ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              }),
+          const SizedBox(height: AppSpacing.md),
+          TextButton(
+            onPressed: _isClaiming
+                ? null
+                : () => setState(() => currentStage = ClaimStage.results),
+            child: const Text('Back'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQuizFailed(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.xl),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.cancel_outlined, size: 80, color: Colors.red.shade400),
+            const SizedBox(height: AppSpacing.lg),
+            Text(
+              'Not quite!',
+              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            Text(
+              'Take another look at the postbox and try scanning again.',
+              style: Theme.of(context)
+                  .textTheme
+                  .bodyMedium
+                  ?.copyWith(color: Colors.grey.shade600),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: AppSpacing.xl),
+            FilledButton.icon(
+              onPressed: _startSearch,
+              icon: const Icon(Icons.radar),
+              label: const Text('Scan again'),
+            ),
+          ],
         ),
-        title: Text(label),
-        subtitle: Text(code),
-        trailing: code == 'VR' || code == 'EVIIR' || code == 'EVIIIR'
-            ? Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.star, size: 14, color: postalGold),
-                  const SizedBox(width: 2),
-                  Text('Rare',
-                      style: TextStyle(
-                          color: postalGold, fontSize: 12)),
-                ],
-              )
-            : null,
       ),
     );
   }

@@ -1,13 +1,11 @@
-import 'dart:math';
-
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_compass/flutter_compass.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:postbox_game/app_preferences.dart';
 import 'package:postbox_game/james_strip.dart';
 import 'package:postbox_game/theme.dart';
 
-import './compass.dart';
 import './fuzzy_compass.dart';
 
 enum NearbyStage { initial, searching, results }
@@ -30,6 +28,10 @@ class NearbyState extends State<Nearby> {
   int _VR = 0;
   int _EVIIR = 0;
   int _EVIIIR = 0;
+  int _CIIIR = 0;
+  int _claimedToday = 0;
+  DistanceUnit _distanceUnit = DistanceUnit.meters;
+  DateTime? _lastScanned;
 
   int nne = 0;
   int ne = 0;
@@ -73,13 +75,17 @@ class NearbyState extends State<Nearby> {
     'GR': Colors.blueGrey,
   };
 
-  static const Set<String> _rareMonarchs = {'VR', 'EVIIR', 'EVIIIR'};
+  static const Set<String> _rareMonarchs = {'EVIIIR', 'CIIIR'};
+  static const Set<String> _historicMonarchs = {'VR', 'EVIIR'};
 
   @override
   void initState() {
     super.initState();
     FlutterCompass.events?.listen((CompassEvent event) {
       if (mounted) setState(() => _direction = event.heading);
+    });
+    AppPreferences.getDistanceUnit().then((unit) {
+      if (mounted) setState(() => _distanceUnit = unit);
     });
   }
 
@@ -105,6 +111,7 @@ class NearbyState extends State<Nearby> {
   }
 
   Future<void> _startSearch() async {
+    _distanceUnit = await AppPreferences.getDistanceUnit();
     setState(() => currentStage = NearbyStage.searching);
     try {
       final position = await getPosition();
@@ -141,6 +148,9 @@ class NearbyState extends State<Nearby> {
         _VR = result.data['counts']['VR'] ?? 0;
         _EVIIR = result.data['counts']['EVIIR'] ?? 0;
         _EVIIIR = result.data['counts']['EVIIIR'] ?? 0;
+        _CIIIR = result.data['counts']['CIIIR'] ?? 0;
+        _claimedToday = result.data['counts']['claimedToday'] ?? 0;
+        _lastScanned = DateTime.now();
       });
     } on FirebaseFunctionsException catch (e) {
       debugPrint('Firebase functions error: ${e.code} ${e.message}');
@@ -198,7 +208,7 @@ class NearbyState extends State<Nearby> {
             ),
             const SizedBox(height: AppSpacing.sm),
             Text(
-              'Scan within 540m to see which postboxes are around you.',
+              'Scan within ${AppPreferences.formatDistance(540.0, _distanceUnit)} to see which postboxes are around you.',
               style: Theme.of(context)
                   .textTheme
                   .bodyMedium
@@ -218,13 +228,13 @@ class NearbyState extends State<Nearby> {
   }
 
   Widget _buildSearching(BuildContext context) {
-    return const Center(
+    return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          CircularProgressIndicator(color: postalRed),
-          SizedBox(height: AppSpacing.md),
-          Text('Scanning 540m radius...'),
+          const CircularProgressIndicator(color: postalRed),
+          const SizedBox(height: AppSpacing.md),
+          Text('Scanning ${AppPreferences.formatDistance(540.0, _distanceUnit)} radius...'),
         ],
       ),
     );
@@ -239,6 +249,7 @@ class NearbyState extends State<Nearby> {
 
     final monarchEntries = <MapEntry<String, int>>[
       MapEntry('EIIR', _EIIR),
+      MapEntry('CIIIR', _CIIIR),
       MapEntry('GVIR', _GVIR),
       MapEntry('GVR', _GVR),
       MapEntry('EVIIIR', _EVIIIR),
@@ -247,7 +258,10 @@ class NearbyState extends State<Nearby> {
       MapEntry('GR', _GR),
     ].where((e) => e.value > 0).toList();
 
-    return ListView(
+    return RefreshIndicator(
+      color: postalRed,
+      onRefresh: _startSearch,
+      child: ListView(
       padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
       children: [
         // Summary card
@@ -286,6 +300,27 @@ class NearbyState extends State<Nearby> {
                               .bodySmall
                               ?.copyWith(color: Colors.grey.shade600),
                         ),
+                      if (_lastScanned != null)
+                        Text(
+                          'Scanned at ${TimeOfDay.fromDateTime(_lastScanned!).format(context)}',
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodySmall
+                              ?.copyWith(color: Colors.grey.shade500),
+                        ),
+                      if (_claimedToday > 0)
+                        Row(
+                          children: [
+                            const Icon(Icons.lock_clock, size: 12, color: Colors.orange),
+                            const SizedBox(width: 4),
+                            Text(
+                              '$_claimedToday claimed today',
+                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: Colors.orange.shade700,
+                                  ),
+                            ),
+                          ],
+                        ),
                     ],
                   ),
                 ),
@@ -311,7 +346,7 @@ class NearbyState extends State<Nearby> {
                 Icon(Icons.location_off, size: 60, color: Colors.grey.shade300),
                 const SizedBox(height: AppSpacing.md),
                 Text(
-                  'No postboxes found within 540m',
+                  'No postboxes found within ${AppPreferences.formatDistance(540.0, _distanceUnit)}',
                   style: Theme.of(context).textTheme.titleMedium,
                   textAlign: TextAlign.center,
                 ),
@@ -349,7 +384,7 @@ class NearbyState extends State<Nearby> {
             padding: const EdgeInsets.fromLTRB(
                 AppSpacing.md, AppSpacing.lg, AppSpacing.md, AppSpacing.xs),
             child: Text(
-              'Rough directions',
+              'Where to look',
               style: Theme.of(context).textTheme.titleSmall?.copyWith(
                     color: Theme.of(context).colorScheme.primary,
                     fontWeight: FontWeight.w600,
@@ -360,38 +395,47 @@ class NearbyState extends State<Nearby> {
             compassCounts: compassMap,
             headingDegrees: _direction,
           ),
-          Padding(
-            padding: const EdgeInsets.all(AppSpacing.md),
-            child: SizedBox(
-              width: 220,
-              height: 220,
-              child: Transform.rotate(
-                angle: ((_direction ?? 0) * (pi / 180) * -1),
-                child: Compass(
-                  n: n, nne: nne, ne: ne, ene: ene, e: e, ese: ese,
-                  se: se, sse: sse, s: s, ssw: ssw, sw: sw, wsw: wsw,
-                  w: w, wnw: wnw, nw: nw, nnw: nnw,
-                  rotation: 0 - ((_direction ?? 0) * (pi / 180) * -1),
-                ),
-              ),
-            ),
-          ),
         ],
 
         const SizedBox(height: AppSpacing.lg),
         const JamesStrip(message: JamesMessages.nearby),
       ],
+    ),
     );
   }
 
   Widget _monarchCard(BuildContext context, String code, int count) {
     final label = _monarchLabels[code] ?? code;
     final color = _monarchColors[code] ?? postalRed;
-    final isRare = _rareMonarchs.contains(code);
+
+    Widget? trailing;
+    if (_rareMonarchs.contains(code)) {
+      trailing = Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.star, size: 14, color: postalGold),
+          const SizedBox(width: 2),
+          Text(
+            'Rare',
+            style: TextStyle(
+                color: postalGold, fontSize: 12, fontWeight: FontWeight.w600),
+          ),
+        ],
+      );
+    } else if (_historicMonarchs.contains(code)) {
+      trailing = Text(
+        'Historic',
+        style: TextStyle(
+            color: Colors.brown.shade400,
+            fontSize: 12,
+            fontWeight: FontWeight.w500),
+      );
+    }
+
     return Card(
       child: ListTile(
         leading: CircleAvatar(
-          backgroundColor: color.withValues(alpha:0.12),
+          backgroundColor: color.withValues(alpha: 0.12),
           child: Text(
             '$count',
             style: TextStyle(color: color, fontWeight: FontWeight.bold),
@@ -399,22 +443,7 @@ class NearbyState extends State<Nearby> {
         ),
         title: Text(label),
         subtitle: Text(code),
-        trailing: isRare
-            ? Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.star, size: 14, color: postalGold),
-                  const SizedBox(width: 2),
-                  Text(
-                    'Rare',
-                    style: TextStyle(
-                        color: postalGold,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600),
-                  ),
-                ],
-              )
-            : null,
+        trailing: trailing,
       ),
     );
   }
