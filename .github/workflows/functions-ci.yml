@@ -1,0 +1,24 @@
+name: Functions CI
+
+on:
+  pull_request:
+
+jobs:
+  lint-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: functions/package-lock.json
+      - name: Install dependencies
+        working-directory: functions
+        run: npm ci
+      - name: Build TypeScript
+        working-directory: functions
+        run: npm run build
+      - name: Lint
+        working-directory: functions
+        run: npm run lint
