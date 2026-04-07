@@ -1,53 +1,226 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:postbox_game/james_controller.dart';
 import 'package:postbox_game/theme.dart';
 
-/// Persistent advisor strip at the bottom of the screen (Postman James).
-/// Shows contextual, light British-humour copy per screen.
-class JamesStrip extends StatelessWidget {
-  const JamesStrip({
-    Key? key,
-    required this.message,
-    this.icon = Icons.mail,
-  }) : super(key: key);
+class JamesStrip extends StatefulWidget {
+  const JamesStrip({super.key, required this.controller});
 
-  final String message;
-  final IconData icon;
+  final JamesController controller;
+
+  @override
+  State<JamesStrip> createState() => _JamesStripState();
+}
+
+class _JamesStripState extends State<JamesStrip> with SingleTickerProviderStateMixin {
+  late final AnimationController _slideCtrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 350),
+  );
+  late final Animation<Offset> _slideAnim = Tween<Offset>(
+    begin: const Offset(0, 1),
+    end: Offset.zero,
+  ).animate(CurvedAnimation(parent: _slideCtrl, curve: Curves.easeOut));
+
+  String _currentMessage = '';
+  int _charIndex = 0;
+  Timer? _typeTimer;
+  Timer? _dismissTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_onControllerUpdate);
+  }
+
+  @override
+  void didUpdateWidget(JamesStrip old) {
+    super.didUpdateWidget(old);
+    if (old.controller != widget.controller) {
+      old.controller.removeListener(_onControllerUpdate);
+      widget.controller.addListener(_onControllerUpdate);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onControllerUpdate);
+    _typeTimer?.cancel();
+    _dismissTimer?.cancel();
+    _slideCtrl.dispose();
+    super.dispose();
+  }
+
+  void _onControllerUpdate() {
+    final msg = widget.controller.pendingMessage;
+    if (msg != null && msg != _currentMessage) {
+      _handleNewMessage(msg);
+    }
+  }
+
+  void _handleNewMessage(String msg) {
+    _typeTimer?.cancel();
+    _dismissTimer?.cancel();
+    setState(() {
+      _currentMessage = msg;
+      _charIndex = 0;
+    });
+    if (_slideCtrl.isCompleted) {
+      _startTyping(msg);
+    } else {
+      _slideCtrl.forward().then((_) {
+        if (mounted && _currentMessage == msg) _startTyping(msg);
+      });
+    }
+  }
+
+  void _startTyping(String msg) {
+    _typeTimer = Timer.periodic(const Duration(milliseconds: 28), (t) {
+      if (!mounted) {
+        t.cancel();
+        return;
+      }
+      if (_charIndex >= msg.length) {
+        t.cancel();
+        _startDismissTimer();
+      } else {
+        setState(() => _charIndex++);
+      }
+    });
+  }
+
+  void _startDismissTimer() {
+    _dismissTimer = Timer(const Duration(seconds: 3), () {
+      if (!mounted) return;
+      _slideCtrl.reverse().then((_) {
+        if (mounted) {
+          widget.controller.clear();
+          setState(() {
+            _currentMessage = '';
+            _charIndex = 0;
+          });
+        }
+      });
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        border: Border(
-          top: BorderSide(color: Theme.of(context).dividerColor),
-        ),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Icon(icon, size: 28, color: postalRed),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                message,
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
+    final colorScheme = Theme.of(context).colorScheme;
+    return SlideTransition(
+      position: _slideAnim,
+      child: Container(
+        decoration: BoxDecoration(
+          color: colorScheme.surfaceContainerHighest,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+          boxShadow: const [
+            BoxShadow(
+              color: Colors.black26,
+              blurRadius: 12,
+              offset: Offset(0, -4),
             ),
           ],
+        ),
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+        child: SafeArea(
+          top: false,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: 44,
+                height: 44,
+                child: CustomPaint(painter: _JamesMiniPainter()),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  _charIndex > 0 ? _currentMessage.substring(0, _charIndex) : '',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
-/// Predefined messages for each screen (placeholder copy).
-class JamesMessages {
-  static const String home = "Ready for a spot of postbox hunting? Tap Nearby or Claim when you\'re out and about.";
-  static const String nearby = "Nothing like a good wander. The compass shows roughly where postboxes might be—no exact locations, mind.";
-  static const String claim = "Found one? Claim it for the day. Rarer cyphers are worth more points.";
-  static const String friends = "Add friends by UID to see them here. More the merrier.";
-  static const String leaderboard = "Daily, weekly, monthly—see how you stack up.";
+/// Scaled-down version of the Postman James CustomPainter from intro.dart.
+class _JamesMiniPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+
+    // Body — navy rectangle
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(w * 0.25, h * 0.48, w * 0.5, h * 0.42),
+        Radius.circular(w * 0.08),
+      ),
+      Paint()..color = royalNavy,
+    );
+
+    // Post bag — red rectangle on left hip
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(w * 0.12, h * 0.58, w * 0.16, h * 0.2),
+        Radius.circular(w * 0.04),
+      ),
+      Paint()..color = postalRed,
+    );
+
+    // Cap brim — red rectangle
+    canvas.drawRect(
+      Rect.fromLTWH(w * 0.18, h * 0.17, w * 0.64, h * 0.07),
+      Paint()..color = postalRed,
+    );
+
+    // Cap top — red rounded top
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(w * 0.22, h * 0.04, w * 0.56, h * 0.16),
+        Radius.circular(w * 0.1),
+      ),
+      Paint()..color = postalRed,
+    );
+
+    // Face — skin-tone circle
+    canvas.drawCircle(
+      Offset(w * 0.5, h * 0.38),
+      w * 0.18,
+      Paint()..color = const Color(0xFFFFDDB4),
+    );
+
+    // Dot eyes
+    canvas.drawCircle(
+      Offset(w * 0.43, h * 0.37),
+      w * 0.028,
+      Paint()..color = const Color(0xFF333333),
+    );
+    canvas.drawCircle(
+      Offset(w * 0.57, h * 0.37),
+      w * 0.028,
+      Paint()..color = const Color(0xFF333333),
+    );
+
+    // Smile
+    final smilePath = Path()
+      ..moveTo(w * 0.42, h * 0.44)
+      ..quadraticBezierTo(w * 0.5, h * 0.49, w * 0.58, h * 0.44);
+    canvas.drawPath(
+      smilePath,
+      Paint()
+        ..color = const Color(0xFF8B4513)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = w * 0.02
+        ..strokeCap = StrokeCap.round,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter old) => false;
 }
