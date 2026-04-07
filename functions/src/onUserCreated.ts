@@ -9,9 +9,8 @@ export const onUserCreated = functions.auth.user().onCreate(async (user) => {
       ? user.email.split("@")[0]
       : `Player_${user.uid.slice(0, 6)}`);
 
-  await admin.firestore().collection("users").doc(user.uid).set({
-    displayName,
-    email: user.email ?? null,
-    createdAt: admin.firestore.Timestamp.now(),
-  });
+  await admin.firestore().collection("users").doc(user.uid).set(
+    { displayName, email: user.email ?? null, createdAt: admin.firestore.Timestamp.now() },
+    { merge: true }
+  );
 });

@@ -60,12 +60,10 @@ export const startScoring = functions.https.onCall(async (request) => {
   const earnedPoints = claimResults.filter((pts): pts is number => pts !== null);
 
   if (earnedPoints.length > 0) {
-    const authUser = await admin.auth().getUser(userid);
+    const userDoc = await database.collection('users').doc(userid).get();
     const displayName =
-      authUser.displayName ||
-      (authUser.email
-        ? authUser.email.split("@")[0]
-        : `Player_${userid.slice(0, 6)}`);
+      (userDoc.data()?.displayName as string | undefined) ||
+      `Player_${userid.slice(0, 6)}`;
     await updateUserLeaderboards(userid, displayName, todayLondon, database);
   }
 
