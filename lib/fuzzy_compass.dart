@@ -41,8 +41,8 @@ class FuzzyCompass extends StatelessWidget {
 
   static String _vagueLabel(int count) {
     if (count <= 0) return 'None';
-    if (count <= 2) return 'A few';
-    if (count <= 5) return 'Some';
+    if (count <= 1) return 'One';
+    if (count <= 3) return 'A few';
     return 'Several';
   }
 

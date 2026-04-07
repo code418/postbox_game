@@ -34,4 +34,14 @@ class AppPreferences {
     if (unit == DistanceUnit.miles) return '${v.toStringAsFixed(1)} mi';
     return '${v.toStringAsFixed(0)} m';
   }
+
+  /// For short distances (e.g. 30 m claim radius), uses yards in miles mode
+  /// rather than an unreadable decimal like "0.02 mi".
+  static String formatShortDistance(double meters, DistanceUnit unit) {
+    if (unit == DistanceUnit.miles) {
+      final yards = (meters * 1.09361).round();
+      return '$yards yd';
+    }
+    return '${meters.toStringAsFixed(0)} m';
+  }
 }

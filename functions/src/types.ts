@@ -7,13 +7,15 @@ export interface PostboxDoc {
   reference?: string;
   distance?: number;
   compass?: { exact?: string };
+  dailyClaim?: { date: string; by: string };
+  claimedToday?: boolean;  // attached at query time by lookupPostboxes
   [key: string]: unknown;
 }
 
 /** Result of lookupPostboxes: postboxes by id, counts, points, compass sectors. */
 export interface LookupResult {
   postboxes: Record<string, PostboxDoc>;
-  counts: { total: number; [monarch: string]: number };
+  counts: { total: number; claimedToday: number; [monarch: string]: number };
   points: { max: number; min: number };
   compass: Record<string, number>;
 }

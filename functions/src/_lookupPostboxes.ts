@@ -2,6 +2,7 @@ import * as admin from "firebase-admin";
 import * as geohash from "ngeohash";
 import * as geolib from "geolib";
 import { getPoints } from "./_getPoints";
+import { getTodayLondon } from "./_dateUtils";
 import type { LookupResult, PostboxDoc } from "./types";
 
 const database = admin.firestore();
@@ -29,7 +30,7 @@ function getLatLng(geopoint: PostboxDoc["geopoint"]): { lat: number; lng: number
 export async function lookupPostboxes(lat: number, lng: number, meters: number): Promise<LookupResult> {
   const result: LookupResult = {
     postboxes: {},
-    counts: { total: 0 },
+    counts: { total: 0, claimedToday: 0 },
     points: { max: 0, min: 0 },
     compass: {},
   };
@@ -54,6 +55,7 @@ export async function lookupPostboxes(lat: number, lng: number, meters: number):
 
   const snapshots = await Promise.all(queries);
   const from = { latitude: lat, longitude: lng };
+  const todayLondon = getTodayLondon();
 
   for (const snapshot of snapshots) {
     for (const doc of snapshot.docs) {
@@ -76,11 +78,14 @@ export async function lookupPostboxes(lat: number, lng: number, meters: number):
       }
 
       const compassDir = geolib.getCompassDirection(from, { latitude: pos.lat, longitude: pos.lng });
-      const docWithMeta: PostboxDoc = { ...data, distance, compass: { exact: compassDir } };
       if (compassDir) {
         result.compass[compassDir] = (result.compass[compassDir] ?? 0) + 1;
       }
-      result.postboxes[doc.id] = docWithMeta;
+
+      const isClaimedToday = data.dailyClaim?.date === todayLondon;
+      if (isClaimedToday) result.counts.claimedToday++;
+
+      result.postboxes[doc.id] = { ...data, distance, compass: { exact: compassDir }, claimedToday: isClaimedToday };
     }
   }
 
