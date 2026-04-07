@@ -210,34 +210,44 @@ class _FriendsScreenState extends State<FriendsScreen> {
                 padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
                 itemBuilder: (context, index) {
                   final friendUid = list[index] as String;
-                  final initials = friendUid.length >= 2
-                      ? friendUid.substring(0, 2).toUpperCase()
-                      : friendUid.toUpperCase();
-                  return Card(
-                    child: ListTile(
-                      leading: CircleAvatar(
-                        backgroundColor: postalRed,
-                        child: Text(
-                          initials,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 13,
+                  return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                    future: _firestore.collection('users').doc(friendUid).get(),
+                    builder: (context, nameSnap) {
+                      final displayName = nameSnap.data?.data()?['displayName'] as String?;
+                      final label = displayName ?? friendUid;
+                      final initials = label.length >= 2
+                          ? label.substring(0, 2).toUpperCase()
+                          : label.toUpperCase();
+                      return Card(
+                        child: ListTile(
+                          leading: CircleAvatar(
+                            backgroundColor: postalRed,
+                            child: Text(
+                              initials,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                          title: Text(label, overflow: TextOverflow.ellipsis),
+                          subtitle: Text(
+                            displayName != null ? friendUid : 'UID',
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                  color: Colors.grey.shade500,
+                                ),
+                          ),
+                          trailing: IconButton(
+                            icon: Icon(Icons.person_remove_outlined,
+                                color: Colors.grey.shade500),
+                            tooltip: 'Remove friend',
+                            onPressed: () => _removeFriend(friendUid),
                           ),
                         ),
-                      ),
-                      title: Text(
-                        friendUid,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      subtitle: const Text('Tap to view profile'),
-                      trailing: IconButton(
-                        icon: Icon(Icons.person_remove_outlined,
-                            color: Colors.grey.shade500),
-                        tooltip: 'Remove friend',
-                        onPressed: () => _removeFriend(friendUid),
-                      ),
-                    ),
+                      );
+                    },
                   );
                 },
               );
