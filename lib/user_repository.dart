@@ -23,7 +23,7 @@ class UserRepository {
     final userCredential = await _firebaseAuth.signInWithCredential(credential);
     final user = userCredential.user;
     if (user != null) {
-      await _saveUserProfile(user.uid, user.displayName ?? user.email ?? '');
+      await _saveUserProfile(user.uid, user.displayName ?? user.email ?? '', user.email ?? '');
     }
     return user;
   }
@@ -44,15 +44,15 @@ class UserRepository {
     if (user != null) {
       // Use the part of the email before @ as the initial display name.
       final name = email.split('@').first;
-      await _saveUserProfile(user.uid, name);
+      await _saveUserProfile(user.uid, name, email);
     }
     return credential;
   }
 
-  /// Persists uid + displayName to Firestore so friends can resolve names.
-  Future<void> _saveUserProfile(String uid, String displayName) async {
+  /// Persists uid + displayName + email to Firestore so friends can resolve names.
+  Future<void> _saveUserProfile(String uid, String displayName, String email) async {
     await _firestore.collection('users').doc(uid).set(
-      {'displayName': displayName},
+      {'displayName': displayName, 'email': email},
       SetOptions(merge: true),
     );
   }
