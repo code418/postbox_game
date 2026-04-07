@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:postbox_game/app_preferences.dart';
+import 'package:postbox_game/james_controller.dart';
 import 'package:postbox_game/theme.dart';
 
 enum ClaimStage { initial, searching, results, empty, quiz, quizFailed, claimed }
@@ -146,10 +147,24 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
         currentStage = ClaimStage.claimed;
       });
       _successController.forward(from: 0);
+      if (mounted) {
+        final msg = _pointsEarned >= 50
+            ? "Oh ho — a rare one! That's a find. Well done."
+            : "Claimed! Every one counts. Keep going.";
+        JamesController.of(context).show(msg);
+      }
     } on FirebaseFunctionsException catch (e) {
       debugPrint('Claim error: ${e.code} ${e.message}');
       _showErrorSnackBar(e.message ?? 'Could not claim postbox.');
       setState(() => _isClaiming = false);
+      if (mounted) {
+        final msg = (e.code == 'already-claimed')
+            ? "You've already had that one today. It'll reset tomorrow — patience is a virtue."
+            : (e.code == 'out-of-range')
+                ? "You're not quite close enough. A few steps closer should do it."
+                : "Hmm, something went wrong there. Give it another go.";
+        JamesController.of(context).show(msg);
+      }
     } catch (e) {
       debugPrint('Claim error: $e');
       _showErrorSnackBar('Could not claim postbox. Please try again.');

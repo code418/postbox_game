@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_compass/flutter_compass.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:postbox_game/app_preferences.dart';
+import 'package:postbox_game/james_controller.dart';
 import 'package:postbox_game/theme.dart';
 
 import './fuzzy_compass.dart';
@@ -151,6 +152,13 @@ class NearbyState extends State<Nearby> {
         _claimedToday = result.data['counts']['claimedToday'] ?? 0;
         _lastScanned = DateTime.now();
       });
+      if (mounted) {
+        final box = _count == 1 ? 'postbox' : 'postboxes';
+        final msg = _count > 0
+            ? "Right then — $_count $box in your area. Off you go."
+            : "Blimey, nothing nearby. Try a different area — postboxes are everywhere if you know where to look.";
+        JamesController.of(context).show(msg);
+      }
     } on FirebaseFunctionsException catch (e) {
       debugPrint('Firebase functions error: ${e.code} ${e.message}');
       if (mounted) {
@@ -165,6 +173,10 @@ class NearbyState extends State<Nearby> {
     } catch (e) {
       debugPrint('Error: $e');
       if (mounted) {
+        final msg = e.toString().contains('permission')
+            ? "I'll need your location for this bit, I'm afraid. Worth it, I promise."
+            : "Something went wrong there. Give it another go.";
+        JamesController.of(context).show(msg);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(e.toString().replaceFirst('Exception: ', '')),
@@ -396,7 +408,6 @@ class NearbyState extends State<Nearby> {
           ),
         ],
 
-        const SizedBox(height: AppSpacing.lg),
       ],
     ),
     );
