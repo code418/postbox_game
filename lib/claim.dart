@@ -500,7 +500,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
                           fontWeight: FontWeight.bold,
                         ),
                   ),
-                  if (_claimedToday == _count)
+                  if (_claimedToday < _count)
                     Text(
                       'Worth $pointsText',
                       style: Theme.of(context)

@@ -312,7 +312,7 @@ class NearbyState extends State<Nearby> {
                                   fontWeight: FontWeight.bold,
                                 ),
                       ),
-                      if (_count > 0)
+                      if (_count > 0 && _claimedToday < _count)
                         Text(
                           _maxPoints == _minPoints
                               ? 'Worth $_maxPoints pts'

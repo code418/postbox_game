@@ -71,14 +71,7 @@ export async function lookupPostboxes(lat: number, lng: number, meters: number):
 
       result.counts.total++;
       if (data.monarch !== undefined) {
-        const pts = getPoints(data.monarch);
-        result.points.max += pts;
-        result.points.min += pts;
         result.counts[data.monarch] = (result.counts[data.monarch] ?? 0) + 1;
-      } else {
-        // Unknown monarch: worth 2 pts when claimed (matches startScoring default)
-        result.points.max += 2;
-        result.points.min += 2;
       }
 
       const compassDir = geolib.getCompassDirection(from, { latitude: pos.lat, longitude: pos.lng });
@@ -87,7 +80,20 @@ export async function lookupPostboxes(lat: number, lng: number, meters: number):
       }
 
       const isClaimedToday = data.dailyClaim?.date === todayLondon;
-      if (isClaimedToday) result.counts.claimedToday++;
+      if (isClaimedToday) {
+        result.counts.claimedToday++;
+      } else {
+        // Only accumulate earnable points for unclaimed postboxes.
+        if (data.monarch !== undefined) {
+          const pts = getPoints(data.monarch);
+          result.points.max += pts;
+          result.points.min += pts;
+        } else {
+          // Unknown monarch: worth 2 pts (matches startScoring default)
+          result.points.max += 2;
+          result.points.min += 2;
+        }
+      }
 
       result.postboxes[doc.id] = { ...data, distance, compass: { exact: compassDir }, claimedToday: isClaimedToday };
     }
