@@ -5,6 +5,7 @@ import 'package:firebase_core_platform_interface/test.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:postbox_game/app_preferences.dart';
+import 'package:postbox_game/james_messages.dart';
 import 'package:postbox_game/main.dart';
 import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/streak_service.dart';
@@ -366,6 +367,95 @@ void main() {
         expect(entry.value, greaterThan(0),
             reason: '${entry.key} has non-positive point value');
       }
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // JamesMessages unit tests
+  // ---------------------------------------------------------------------------
+
+  group('JamesMessages', () {
+    test('all JamesMessage constants have non-empty keys', () {
+      final messages = [
+        JamesMessages.navNearby,
+        JamesMessages.navClaim,
+        JamesMessages.navScores,
+        JamesMessages.navFriends,
+        JamesMessages.idle,
+        JamesMessages.nearbyNoneFound,
+        JamesMessages.nearbyErrorPermission,
+        JamesMessages.nearbyErrorGeneral,
+        JamesMessages.claimOutOfRange,
+        JamesMessages.claimSuccessRare,
+        JamesMessages.claimSuccessStandard,
+        JamesMessages.claimErrorAlreadyClaimed,
+        JamesMessages.claimErrorOutOfRange,
+        JamesMessages.claimErrorGeneral,
+        JamesMessages.introStep2,
+        JamesMessages.introStep3,
+      ];
+      for (final msg in messages) {
+        expect(msg.key, isNotEmpty, reason: 'key must be non-empty');
+      }
+    });
+
+    test('all JamesMessage constants resolve to non-empty strings', () {
+      final messages = [
+        JamesMessages.navNearby,
+        JamesMessages.navClaim,
+        JamesMessages.navScores,
+        JamesMessages.navFriends,
+        JamesMessages.idle,
+        JamesMessages.nearbyNoneFound,
+        JamesMessages.nearbyErrorPermission,
+        JamesMessages.nearbyErrorGeneral,
+        JamesMessages.claimOutOfRange,
+        JamesMessages.claimSuccessRare,
+        JamesMessages.claimSuccessStandard,
+        JamesMessages.claimErrorAlreadyClaimed,
+        JamesMessages.claimErrorOutOfRange,
+        JamesMessages.claimErrorGeneral,
+        JamesMessages.introStep2,
+        JamesMessages.introStep3,
+      ];
+      for (final msg in messages) {
+        expect(msg.resolve(), isNotEmpty, reason: '${msg.key} must resolve to non-empty string');
+      }
+    });
+
+    test('forTabIndex returns correct nav messages', () {
+      expect(JamesMessages.forTabIndex(0), equals(JamesMessages.navNearby));
+      expect(JamesMessages.forTabIndex(1), equals(JamesMessages.navClaim));
+      expect(JamesMessages.forTabIndex(2), equals(JamesMessages.navScores));
+      expect(JamesMessages.forTabIndex(3), equals(JamesMessages.navFriends));
+    });
+
+    test('forTabIndex returns null for out-of-range index', () {
+      expect(JamesMessages.forTabIndex(-1), isNull);
+      expect(JamesMessages.forTabIndex(4), isNull);
+      expect(JamesMessages.forTabIndex(99), isNull);
+    });
+
+    test('dynamic nearbyFound includes count and box word', () {
+      final msg = JamesMessages.nearbyFound(3, 'postboxes');
+      expect(msg, contains('3'));
+      expect(msg, contains('postboxes'));
+    });
+
+    test('dynamic claimSuccessMulti includes count and points', () {
+      final msg = JamesMessages.claimSuccessMulti(2, 8);
+      expect(msg, contains('2'));
+      expect(msg, contains('8'));
+    });
+
+    test('idle pool has at least 5 variants for variety', () {
+      // Sampling: resolve 50 times and collect unique messages.
+      final seen = <String>{};
+      for (var i = 0; i < 50; i++) {
+        seen.add(JamesMessages.idle.resolve());
+      }
+      expect(seen.length, greaterThanOrEqualTo(2),
+          reason: 'idle pool should have multiple variants');
     });
   });
 }
