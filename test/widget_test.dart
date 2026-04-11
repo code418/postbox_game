@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:postbox_game/main.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/user_repository.dart';
+import 'package:postbox_game/validators.dart';
 
 // ---------------------------------------------------------------------------
 // Firebase mock setup
@@ -109,6 +110,61 @@ void main() {
       final auth = MockFirebaseAuth(signedIn: true);
       final signedInRepo = UserRepository(firebaseAuth: auth, firestore: fakeFirestore);
       expect(await signedInRepo.isSignedIn(), isTrue);
+    });
+
+    test('signUp uses Player_ fallback for profane email prefix', () async {
+      // Email prefix "cunt" fails the profanity filter.
+      await repo.signUp(email: 'cunt@example.com', password: 'password123');
+      final uid = mockAuth.currentUser?.uid;
+      expect(uid, isNotNull);
+      final doc = await fakeFirestore.collection('users').doc(uid).get();
+      final name = doc.data()?['displayName'] as String?;
+      expect(name, isNotNull);
+      expect(name!.startsWith('Player_'), isTrue,
+          reason: 'Profane email prefix should fall back to Player_<uid>');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Validators unit tests
+  // ---------------------------------------------------------------------------
+
+  group('Validators', () {
+    group('isValidEmail', () {
+      test('accepts valid emails', () {
+        expect(Validators.isValidEmail('alice@example.com'), isTrue);
+        expect(Validators.isValidEmail('user+tag@sub.domain.org'), isTrue);
+      });
+
+      test('rejects invalid emails', () {
+        expect(Validators.isValidEmail(''), isFalse);
+        expect(Validators.isValidEmail('notanemail'), isFalse);
+        expect(Validators.isValidEmail('@nodomain'), isFalse);
+      });
+    });
+
+    group('isValidDisplayName', () {
+      test('accepts normal names', () {
+        expect(Validators.isValidDisplayName('Alice'), isTrue);
+        expect(Validators.isValidDisplayName('Postbox Pete'), isTrue);
+        expect(Validators.isValidDisplayName('ab'), isTrue);
+      });
+
+      test('rejects names that are too short or too long', () {
+        expect(Validators.isValidDisplayName('a'), isFalse);
+        expect(Validators.isValidDisplayName(''), isFalse);
+        expect(Validators.isValidDisplayName('a' * 31), isFalse);
+      });
+
+      test('rejects profane names', () {
+        expect(Validators.isValidDisplayName('cunt'), isFalse);
+        expect(Validators.isValidDisplayName('MyBellend'), isFalse);
+        expect(Validators.isValidDisplayName('WANKER'), isFalse);
+      });
+
+      test('allows 30-char names', () {
+        expect(Validators.isValidDisplayName('a' * 30), isTrue);
+      });
     });
   });
 }

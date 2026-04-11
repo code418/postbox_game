@@ -193,8 +193,12 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
       }
     } catch (e) {
       debugPrint('Claim error: $e');
+      final msg = e.toString().contains('permission')
+          ? JamesMessages.nearbyErrorPermission.resolve()
+          : JamesMessages.claimErrorGeneral.resolve();
       _showErrorSnackBar('Could not claim postbox. Please try again.');
       setState(() => _isClaiming = false);
+      if (mounted) JamesController.of(context).show(msg);
     }
   }
 
