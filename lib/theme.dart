@@ -186,6 +186,7 @@ class AppTheme {
       ),
     );
 
+    const darkRed = Color(0xFFFF4D4D);
     return base.copyWith(
       textTheme: GoogleFonts.plusJakartaSansTextTheme(base.textTheme),
       appBarTheme: AppBarTheme(
@@ -198,6 +199,8 @@ class AppTheme {
           fontWeight: FontWeight.w700,
           color: Colors.white,
         ),
+        iconTheme: const IconThemeData(color: Colors.white),
+        actionsIconTheme: const IconThemeData(color: Colors.white),
       ),
       cardTheme: CardThemeData(
         elevation: 2,
@@ -212,23 +215,87 @@ class AppTheme {
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
-          backgroundColor: const Color(0xFFFF4D4D),
+          backgroundColor: darkRed,
           foregroundColor: Colors.white,
           minimumSize: const Size(double.infinity, 52),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
+          textStyle: GoogleFonts.plusJakartaSans(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: darkRed,
+          side: const BorderSide(color: darkRed),
+          minimumSize: const Size(double.infinity, 52),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          textStyle: GoogleFonts.plusJakartaSans(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          foregroundColor: darkRed,
+          textStyle: GoogleFonts.plusJakartaSans(
+            fontSize: 15,
+            fontWeight: FontWeight.w500,
+          ),
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFF444444)),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: darkRed, width: 2),
+        ),
         filled: true,
         fillColor: const Color(0xFF2C2C2E),
-        prefixIconColor: const Color(0xFFFF4D4D),
+        prefixIconColor: darkRed,
+        labelStyle: const TextStyle(color: Color(0xFF999999)),
+      ),
+      tabBarTheme: const TabBarThemeData(
+        indicatorColor: darkRed,
+        labelColor: darkRed,
+        unselectedLabelColor: Colors.grey,
+        dividerColor: Colors.transparent,
+      ),
+      chipTheme: ChipThemeData(
+        backgroundColor: const Color(0xFF3A1A1A),
+        labelStyle: GoogleFonts.plusJakartaSans(color: darkRed, fontSize: 12),
+        side: BorderSide.none,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       ),
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: const Color(0xFF1C1C1E),
-        indicatorColor: const Color(0xFFFF4D4D).withValues(alpha:0.2),
+        indicatorColor: darkRed.withValues(alpha: 0.2),
+        iconTheme: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return const IconThemeData(color: darkRed);
+          }
+          return const IconThemeData(color: Colors.grey);
+        }),
+      ),
+      dividerTheme: const DividerThemeData(
+        color: Color(0xFF333333),
+        thickness: 1,
+      ),
+      snackBarTheme: SnackBarThemeData(
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        backgroundColor: const Color(0xFF2C2C2E),
+        contentTextStyle: GoogleFonts.plusJakartaSans(color: Colors.white),
       ),
     );
   }
