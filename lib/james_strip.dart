@@ -91,10 +91,12 @@ class _JamesStripState extends State<JamesStrip> with SingleTickerProviderStateM
   }
 
   void _startDismissTimer() {
+    final messageToDismiss = _currentMessage;
     _dismissTimer = Timer(const Duration(seconds: 3), () {
       if (!mounted) return;
       _slideCtrl.reverse().then((_) {
-        if (mounted) {
+        // Only clear if no new message arrived while sliding out.
+        if (mounted && _currentMessage == messageToDismiss) {
           widget.controller.clear();
           setState(() {
             _currentMessage = '';
