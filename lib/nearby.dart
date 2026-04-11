@@ -26,15 +26,10 @@ class NearbyState extends State<Nearby> {
   int _count = 0;
   int _maxPoints = 0;
   int _minPoints = 0;
-  int _eiir = 0;
-  int _gr = 0;
-  int _gvr = 0;
-  int _gvir = 0;
-  int _vr = 0;
-  int _eviir = 0;
-  int _eviiir = 0;
-  int _ciiir = 0;
   int _claimedToday = 0;
+  // Per-cipher totals and claimed-today counts; populated from the server response.
+  final Map<String, int> _cipherTotals = {};
+  final Map<String, int> _cipherClaimed = {};
   DistanceUnit _distanceUnit = DistanceUnit.meters;
   DateTime? _lastScanned;
 
@@ -146,15 +141,11 @@ class NearbyState extends State<Nearby> {
         nw = result.data['compass']['NW'] ?? 0;
         nnw = result.data['compass']['NNW'] ?? 0;
         n = result.data['compass']['N'] ?? 0;
-        _eiir = result.data['counts']['EIIR'] ?? 0;
-        _gr = result.data['counts']['GR'] ?? 0;
-        _gvr = result.data['counts']['GVR'] ?? 0;
-        _gvir = result.data['counts']['GVIR'] ?? 0;
-        _vr = result.data['counts']['VR'] ?? 0;
-        _eviir = result.data['counts']['EVIIR'] ?? 0;
-        _eviiir = result.data['counts']['EVIIIR'] ?? 0;
-        _ciiir = result.data['counts']['CIIIR'] ?? 0;
         _claimedToday = result.data['counts']['claimedToday'] ?? 0;
+        for (final cipher in MonarchInfo.all) {
+          _cipherTotals[cipher] = result.data['counts'][cipher] ?? 0;
+          _cipherClaimed[cipher] = result.data['counts']['${cipher}_claimed'] ?? 0;
+        }
         _lastScanned = DateTime.now();
       });
       if (mounted) {
@@ -264,16 +255,11 @@ class NearbyState extends State<Nearby> {
       'W': w, 'WNW': wnw, 'NW': nw, 'NNW': nnw,
     };
 
-    final monarchEntries = <MapEntry<String, int>>[
-      MapEntry('EIIR', _eiir),
-      MapEntry('CIIIR', _ciiir),
-      MapEntry('GVIR', _gvir),
-      MapEntry('GVR', _gvr),
-      MapEntry('EVIIIR', _eviiir),
-      MapEntry('EVIIR', _eviir),
-      MapEntry('VR', _vr),
-      MapEntry('GR', _gr),
-    ].where((e) => e.value > 0).toList();
+    // Show ciphers present in the area, in display order, total count > 0.
+    final monarchEntries = MonarchInfo.all
+        .map((c) => MapEntry(c, _cipherTotals[c] ?? 0))
+        .where((e) => e.value > 0)
+        .toList();
 
     return RefreshIndicator(
       color: postalRed,
@@ -394,17 +380,21 @@ class NearbyState extends State<Nearby> {
                   ),
             ),
           ),
-          ...monarchEntries.asMap().entries.map((entry) =>
-            AnimationConfiguration.staggeredList(
+          ...monarchEntries.asMap().entries.map((entry) {
+            final cipher = entry.value.key;
+            final total = entry.value.value;
+            final claimed = _cipherClaimed[cipher] ?? 0;
+            return AnimationConfiguration.staggeredList(
               position: entry.key,
               duration: const Duration(milliseconds: 375),
               child: SlideAnimation(
                 verticalOffset: 50,
                 child: FadeInAnimation(
-                  child: _monarchCard(context, entry.value.key, entry.value.value),
+                  child: _monarchCard(context, cipher, total, claimed),
                 ),
               ),
-            )),
+            );
+          }),
         ],
 
         // Compasses
@@ -435,9 +425,10 @@ class NearbyState extends State<Nearby> {
     );
   }
 
-  Widget _monarchCard(BuildContext context, String code, int count) {
+  Widget _monarchCard(BuildContext context, String code, int count, int claimed) {
     final label = MonarchInfo.labels[code] ?? code;
     final color = MonarchInfo.colors[code] ?? postalRed;
+    final available = count - claimed;
 
     Widget? trailing;
     if (MonarchInfo.rareCiphers.contains(code)) {
@@ -463,18 +454,38 @@ class NearbyState extends State<Nearby> {
       );
     }
 
+    // Dim the avatar when all are claimed today; show remaining count.
+    final allClaimed = available <= 0;
     return Card(
       child: ListTile(
         leading: CircleAvatar(
-          backgroundColor: color.withValues(alpha: 0.12),
+          backgroundColor:
+              color.withValues(alpha: allClaimed ? 0.06 : 0.12),
           child: Text(
-            '$count',
-            style: TextStyle(color: color, fontWeight: FontWeight.bold),
+            allClaimed ? '✓' : '$available',
+            style: TextStyle(
+              color: allClaimed ? Colors.grey.shade400 : color,
+              fontWeight: FontWeight.bold,
+            ),
           ),
         ),
-        title: Text(label),
-        subtitle: Text('$code · ${MonarchInfo.getPoints(code)} pts each'),
-        trailing: trailing,
+        title: Text(
+          label,
+          style: allClaimed
+              ? TextStyle(color: Colors.grey.shade400)
+              : null,
+        ),
+        subtitle: Text(
+          allClaimed
+              ? '$code · claimed today'
+              : claimed > 0
+                  ? '$code · ${MonarchInfo.getPoints(code)} pts · $available of $count available'
+                  : '$code · ${MonarchInfo.getPoints(code)} pts each',
+          style: allClaimed
+              ? TextStyle(color: Colors.grey.shade400)
+              : null,
+        ),
+        trailing: allClaimed ? null : trailing,
       ),
     );
   }

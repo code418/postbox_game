@@ -85,6 +85,12 @@ export async function lookupPostboxes(lat: number, lng: number, meters: number):
       const isClaimedToday = data.dailyClaim?.date === todayLondon;
       if (isClaimedToday) {
         result.counts.claimedToday++;
+        // Per-cipher claimed count (e.g. EIIR_claimed) lets the client show
+        // "2 of 3 available" in the monarch breakdown without a second query.
+        if (data.monarch !== undefined) {
+          const claimedKey = `${data.monarch}_claimed`;
+          result.counts[claimedKey] = (result.counts[claimedKey] ?? 0) + 1;
+        }
       } else {
         // Track the per-postbox point value for min/max range display.
         const pts = data.monarch !== undefined ? getPoints(data.monarch) : 2;
