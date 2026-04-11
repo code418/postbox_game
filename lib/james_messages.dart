@@ -130,6 +130,10 @@ abstract final class JamesMessages {
     ["Oh ho — a rare one! That's a find. Well done."],
   );
 
+  /// Dynamic: multiple postboxes claimed in a single scan.
+  static String claimSuccessMulti(int count, int pts) =>
+      "Blimey — $count at once! That's $pts points in one go. Impressive.";
+
   /// Variant pool — keeps repeated standard claims feeling fresh.
   static const claimSuccessStandard = JamesMessage(
     'jamesClaimSuccessStandard',

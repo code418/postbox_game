@@ -174,12 +174,17 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
         debugPrint('Streak update failed (non-fatal): $e');
       }
       if (mounted) {
-        // Fire the rare message when the average per-box score indicates a
-        // rare cipher (VR=7, EVIIR/CIIIR=9, EVIIIR=12 all score ≥ 7).
-        final avgPts = _claimedCount > 0 ? _pointsEarned / _claimedCount : 0;
-        final msg = avgPts >= 7
-            ? JamesMessages.claimSuccessRare.resolve()
-            : JamesMessages.claimSuccessStandard.resolve();
+        final String msg;
+        if (_claimedCount > 1) {
+          msg = JamesMessages.claimSuccessMulti(_claimedCount, _pointsEarned);
+        } else {
+          // Fire the rare message when the per-box score indicates a rare cipher
+          // (VR=7, EVIIR/CIIIR=9, EVIIIR=12 all score ≥ 7).
+          final avgPts = _claimedCount > 0 ? _pointsEarned / _claimedCount : 0;
+          msg = avgPts >= 7
+              ? JamesMessages.claimSuccessRare.resolve()
+              : JamesMessages.claimSuccessStandard.resolve();
+        }
         JamesController.of(context).show(msg);
       }
     } on FirebaseFunctionsException catch (e) {
@@ -640,7 +645,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
             ),
             const SizedBox(height: AppSpacing.sm),
             Text(
-              'Take another look at the postbox and try scanning again.',
+              'Take another look at the cipher on the postbox and try again.',
               style: Theme.of(context)
                   .textTheme
                   .bodyMedium
@@ -648,10 +653,16 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: AppSpacing.xl),
+            // Return to results (no rescan needed — the postbox hasn't moved).
             FilledButton.icon(
+              onPressed: () => setState(() => currentStage = ClaimStage.results),
+              icon: const Icon(Icons.arrow_back),
+              label: const Text('Try again'),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            TextButton(
               onPressed: _startSearch,
-              icon: const Icon(Icons.radar),
-              label: const Text('Scan again'),
+              child: const Text('Rescan location'),
             ),
           ],
         ),
