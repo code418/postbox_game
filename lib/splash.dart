@@ -4,6 +4,8 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:postbox_game/theme.dart';
 
 class Splash extends StatelessWidget {
+  const Splash({super.key});
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(

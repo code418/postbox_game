@@ -8,10 +8,10 @@ import 'package:postbox_game/theme.dart';
 /// [onDone] called when user completes the intro on first run (optional).
 class Intro extends StatefulWidget {
   const Intro({
-    Key? key,
+    super.key,
     this.replay = false,
     this.onDone,
-  }) : super(key: key);
+  });
 
   final bool replay;
   final VoidCallback? onDone;

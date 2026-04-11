@@ -23,7 +23,7 @@ class Compass extends StatelessWidget {
   final double rotation;
 
   const Compass({
-    Key? key,
+    super.key,
     this.nne = 0,
     this.ne = 0,
     this.ene = 0,
@@ -41,7 +41,7 @@ class Compass extends StatelessWidget {
     this.nnw = 0,
     this.n = 0,
     this.rotation = 0,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -147,11 +147,11 @@ class CircleButton extends StatelessWidget {
   final double rotation;
 
   const CircleButton({
-    Key? key,
+    super.key,
     required this.content,
     required this.size,
     this.rotation = 0,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

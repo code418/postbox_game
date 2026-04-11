@@ -10,9 +10,8 @@ import 'package:postbox_game/user_repository.dart';
 class LoginScreen extends StatelessWidget {
   final UserRepository _userRepository;
 
-  LoginScreen({Key? key, required UserRepository userRepository})
-      : _userRepository = userRepository,
-        super(key: key);
+  LoginScreen({super.key, required UserRepository userRepository})
+      : _userRepository = userRepository;
 
   @override
   Widget build(BuildContext context) {

@@ -16,10 +16,10 @@ class FuzzyCompass extends StatelessWidget {
   final double? headingDegrees;
 
   const FuzzyCompass({
-    Key? key,
+    super.key,
     required this.compassCounts,
     this.headingDegrees,
-  }) : super(key: key);
+  });
 
   /// Merge 16-wind into 8-wind.
   static Map<String, int> _to8Sectors(Map<String, int> counts) {

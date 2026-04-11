@@ -7,7 +7,7 @@ import 'package:postbox_game/intro.dart';
 import 'package:postbox_game/theme.dart';
 
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({Key? key}) : super(key: key);
+  const SettingsScreen({super.key});
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -68,7 +68,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  void _signOut() async {
+  Future<void> _signOut() async {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(

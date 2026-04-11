@@ -4,6 +4,8 @@ import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:postbox_game/login/bloc/bloc.dart';
 
 class GoogleLoginButton extends StatelessWidget {
+  const GoogleLoginButton({super.key});
+
   @override
   Widget build(BuildContext context) {
     return OutlinedButton.icon(

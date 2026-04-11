@@ -5,16 +5,13 @@ import 'package:postbox_game/register/register_screen.dart';
 class CreateAccountButton extends StatelessWidget {
   final UserRepository _userRepository;
 
-  CreateAccountButton({Key? key, required UserRepository userRepository})
-      : _userRepository = userRepository,
-        super(key: key);
+  CreateAccountButton({super.key, required UserRepository userRepository})
+      : _userRepository = userRepository;
 
   @override
   Widget build(BuildContext context) {
     return TextButton(
-      child: Text(
-        'Create an Account',
-      ),
+      child: const Text('Create an Account'),
       onPressed: () {
         Navigator.of(context).push(
           MaterialPageRoute(builder: (context) {
