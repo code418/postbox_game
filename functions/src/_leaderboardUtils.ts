@@ -58,10 +58,11 @@ export async function updateUserLeaderboards(
   await Promise.all(
     periods.map(async ({ name, startDate, exact }) => {
       // Sum points from claims for this user in the period.
-      // Daily uses an equality query; weekly/monthly use a range query.
+      // Daily: equality query. Weekly/monthly: range query with an upper bound
+      // of today to exclude any claims that somehow carry a future dailyDate.
       const claimsSnap = await (exact
         ? db.collection("claims").where("userid", "==", uid).where("dailyDate", "==", startDate)
-        : db.collection("claims").where("userid", "==", uid).where("dailyDate", ">=", startDate)
+        : db.collection("claims").where("userid", "==", uid).where("dailyDate", ">=", startDate).where("dailyDate", "<=", today)
       ).get();
 
       const claimsForPeriod = claimsSnap.docs;

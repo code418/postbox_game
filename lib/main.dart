@@ -45,7 +45,7 @@ class _PostboxGameState extends State<PostboxGame> {
     final state = context.read<AuthenticationBloc>().state;
     if (state is Authenticated) return page();
     if (state is Unauthenticated) return LoginScreen(userRepository: _userRepository);
-    return Splash();
+    return const Splash();
   }
 
   @override
@@ -61,20 +61,20 @@ class _PostboxGameState extends State<PostboxGame> {
           home: BlocBuilder<AuthenticationBloc, AuthenticationState?>(
             builder: (BuildContext context, AuthenticationState? state) {
               if (state is Uninitialized) {
-                return Splash();
+                return const Splash();
               }
               if (state is Unauthenticated) {
                 return _UnauthGate(userRepository: _userRepository);
               }
               if (state is Authenticated) {
-                return Home();
+                return const Home();
               }
-              return Splash();
+              return const Splash();
             },
           ),
           routes: {
-            '/nearby': (context) => _guardRoute(context, () => Nearby()),
-            '/Claim': (context) => _guardRoute(context, () => Claim()),
+            '/nearby': (context) => _guardRoute(context, () => const Nearby()),
+            '/Claim': (context) => _guardRoute(context, () => const Claim()),
             '/friends': (context) => _guardRoute(context, () => const FriendsScreen()),
             '/leaderboard': (context) => _guardRoute(context, () => const LeaderboardScreen()),
             '/settings': (context) => _guardRoute(context, () => const SettingsScreen()),
@@ -108,7 +108,7 @@ class _UnauthGateState extends State<_UnauthGate> {
 
   @override
   Widget build(BuildContext context) {
-    if (_introSeen == null) return Splash();
+    if (_introSeen == null) return const Splash();
     if (_introSeen == false) {
       return Intro(
         replay: false,
