@@ -238,6 +238,7 @@ class NearbyState extends State<Nearby> {
       onRefresh: _startSearch,
       child: AnimationLimiter(
       child: ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.only(
           top: AppSpacing.md, bottom: 100, left: 0, right: 0),
       children: [
