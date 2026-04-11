@@ -99,7 +99,7 @@ abstract final class JamesMessages {
   static const nearbyNoneFound = JamesMessage(
     'jamesNearbyNoneFound',
     [
-      "Blimey, nothing nearby. Try a different area — postboxes are everywhere "
+      "Arse... nothing nearby. Try a different area — postboxes are everywhere "
           "if you know where to look.",
     ],
   );
