@@ -115,5 +115,6 @@ export const startScoring = functions.https.onCall(async (request) => {
     claimed: earnedPoints.length,
     points: earnedPoints.reduce((s, p) => s + p, 0),
     allClaimedToday: earnedPoints.length === 0,
+    dailyDate: todayLondon,
   };
 });

@@ -169,7 +169,8 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
       _successController.forward(from: 0);
       _confettiController.play();
       try {
-        await _streakService.updateStreakAfterClaim();
+        final claimDate = result.data?['dailyDate'] as String?;
+        await _streakService.updateStreakAfterClaim(claimDate: claimDate);
       } catch (e) {
         debugPrint('Streak update failed (non-fatal): $e');
       }

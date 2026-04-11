@@ -22,11 +22,15 @@ class StreakService {
   }
 
   /// Call after user successfully claims (e.g. startScoring returned found with claims).
-  Future<void> updateStreakAfterClaim() async {
+  ///
+  /// Pass [claimDate] (the `dailyDate` returned by the Cloud Function) so the
+  /// streak uses the server-side London date rather than device local time.
+  /// Falls back to device time if [claimDate] is null (e.g. older clients).
+  Future<void> updateStreakAfterClaim({String? claimDate}) async {
     final user = _auth.currentUser;
     if (user == null) return;
 
-    final today = _today;
+    final today = claimDate ?? _today;
     final todayDate = DateTime.parse(today);
     final yesterday = todayDate
         .subtract(const Duration(days: 1))
