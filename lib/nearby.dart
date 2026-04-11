@@ -103,7 +103,7 @@ class NearbyState extends State<Nearby> {
       final result = await callable.call(<String, dynamic>{
         'lat': position.latitude,
         'lng': position.longitude,
-        'meters': 540,
+        'meters': AppPreferences.nearbyRadiusMeters,
       });
       setState(() {
         _count = result.data['counts']['total'] ?? 0;
@@ -192,7 +192,7 @@ class NearbyState extends State<Nearby> {
             ),
             const SizedBox(height: AppSpacing.sm),
             Text(
-              'Scan within ${AppPreferences.formatDistance(540.0, _distanceUnit)} to see which postboxes are around you.',
+              'Scan within ${AppPreferences.formatDistance(AppPreferences.nearbyRadiusMeters, _distanceUnit)} to see which postboxes are around you.',
               style: Theme.of(context)
                   .textTheme
                   .bodyMedium
@@ -218,7 +218,7 @@ class NearbyState extends State<Nearby> {
         children: [
           const CircularProgressIndicator(color: postalRed),
           const SizedBox(height: AppSpacing.md),
-          Text('Scanning ${AppPreferences.formatDistance(540.0, _distanceUnit)} radius...'),
+          Text('Scanning ${AppPreferences.formatDistance(AppPreferences.nearbyRadiusMeters, _distanceUnit)} radius...'),
         ],
       ),
     );
@@ -324,7 +324,7 @@ class NearbyState extends State<Nearby> {
                 Icon(Icons.location_off, size: 60, color: Colors.grey.shade300),
                 const SizedBox(height: AppSpacing.md),
                 Text(
-                  'No postboxes found within ${AppPreferences.formatDistance(540.0, _distanceUnit)}',
+                  'No postboxes found within ${AppPreferences.formatDistance(AppPreferences.nearbyRadiusMeters, _distanceUnit)}',
                   style: Theme.of(context).textTheme.titleMedium,
                   textAlign: TextAlign.center,
                 ),

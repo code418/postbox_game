@@ -103,7 +103,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
       final result = await _callable.call(<String, dynamic>{
         'lat': position.latitude,
         'lng': position.longitude,
-        'meters': 30,
+        'meters': AppPreferences.claimRadiusMeters,
       });
       setState(() {
         _count = result.data['counts']['total'] ?? 0;
@@ -360,7 +360,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
             ),
             const SizedBox(height: AppSpacing.sm),
             Text(
-              'Stand within ${AppPreferences.formatShortDistance(30.0, _distanceUnit)} of a postbox, then tap below to check if you can claim it.',
+              'Stand within ${AppPreferences.formatShortDistance(AppPreferences.claimRadiusMeters, _distanceUnit)} of a postbox, then tap below to check if you can claim it.',
               style: Theme.of(context)
                   .textTheme
                   .bodyMedium
@@ -386,7 +386,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
         children: [
           const CircularProgressIndicator(color: postalRed),
           const SizedBox(height: AppSpacing.md),
-          Text('Scanning within ${AppPreferences.formatShortDistance(30.0, _distanceUnit)}...'),
+          Text('Scanning within ${AppPreferences.formatShortDistance(AppPreferences.claimRadiusMeters, _distanceUnit)}...'),
         ],
       ),
     );
@@ -402,7 +402,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
             Icon(Icons.location_off, size: 80, color: Colors.grey.shade400),
             const SizedBox(height: AppSpacing.md),
             Text(
-              'No postboxes found within ${AppPreferences.formatShortDistance(30.0, _distanceUnit)}',
+              'No postboxes found within ${AppPreferences.formatShortDistance(AppPreferences.claimRadiusMeters, _distanceUnit)}',
               style: Theme.of(context)
                   .textTheme
                   .titleLarge
@@ -519,7 +519,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
                             : 'All $_count postboxes claimed today')
                         : _claimedToday > 0
                             ? '${_count - _claimedToday} of $_count available · $_claimedToday claimed today'
-                            : '$_count postbox${_count == 1 ? '' : 'es'} within ${AppPreferences.formatShortDistance(30.0, _distanceUnit)}',
+                            : '$_count postbox${_count == 1 ? '' : 'es'} within ${AppPreferences.formatShortDistance(AppPreferences.claimRadiusMeters, _distanceUnit)}',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.bold,
                         ),

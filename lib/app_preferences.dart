@@ -11,6 +11,12 @@ extension DistanceUnitX on DistanceUnit {
 
 /// User preferences (distance display, etc.).
 class AppPreferences {
+  /// Radius used by the Claim screen to look for claimable postboxes.
+  static const double claimRadiusMeters = 30.0;
+
+  /// Radius used by the Nearby screen to list all postboxes in the area.
+  static const double nearbyRadiusMeters = 540.0;
+
   static Future<DistanceUnit> getDistanceUnit() async {
     final prefs = await SharedPreferences.getInstance();
     final v = prefs.getString(_keyDistanceUnit);
