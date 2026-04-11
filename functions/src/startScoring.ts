@@ -75,6 +75,7 @@ export const startScoring = functions.https.onCall(async (request) => {
     })
   );
 
+  const rejectedCount = claimSettled.filter(r => r.status === "rejected").length;
   for (const result of claimSettled) {
     if (result.status === "rejected") {
       console.error("claim transaction failed:", result.reason);
@@ -84,6 +85,13 @@ export const startScoring = functions.https.onCall(async (request) => {
   const earnedPoints = claimSettled
     .filter((r): r is PromiseFulfilledResult<number> => r.status === "fulfilled" && typeof r.value === "number")
     .map((r) => r.value);
+
+  // If no points were earned but at least one transaction was rejected (as
+  // opposed to being skipped because already claimed today), surface an error
+  // so the client shows a retry prompt rather than "Already claimed today".
+  if (earnedPoints.length === 0 && rejectedCount > 0) {
+    throw new functions.https.HttpsError("internal", "Claim failed due to a server error. Please try again.");
+  }
 
   if (earnedPoints.length > 0) {
     const userDoc = await database.collection('users').doc(userid).get();
