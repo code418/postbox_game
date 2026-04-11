@@ -44,8 +44,10 @@ export const startScoring = functions.https.onCall(async (request) => {
 
   const claimResults = await Promise.all(
     Object.entries(results.postboxes).map(([key, postbox]) => {
-      // Skip transaction if lookup already confirmed it's claimed today.
-      if (postbox.claimedToday) return Promise.resolve(null);
+      // Use our own todayLondon (not the derived claimedToday flag from
+      // lookupPostboxes) to guard against a rare midnight rollover between
+      // the two getTodayLondon() calls.
+      if (postbox.dailyClaim?.date === todayLondon) return Promise.resolve(null);
 
       const postboxRef = database.collection('postbox').doc(key);
       const claimRef   = database.collection('claims').doc();

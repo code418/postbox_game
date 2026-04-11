@@ -94,7 +94,7 @@ abstract final class JamesMessages {
 
   /// Dynamic: [count] postboxes found. Pass pluralised [box] ("postbox" / "postboxes").
   static String nearbyFound(int count, String box) =>
-      "Right then — $count $box in your area. Off you go.";
+      "Right then — $count $box in your area. Crack on!";
 
   static const nearbyNoneFound = JamesMessage(
     'jamesNearbyNoneFound',
