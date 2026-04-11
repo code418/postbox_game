@@ -42,7 +42,9 @@ export const startScoring = functions.https.onCall(async (request) => {
 
   const todayLondon = getTodayLondon();
 
-  const claimResults = await Promise.all(
+  // Use allSettled so a single transient transaction failure does not discard
+  // points from postboxes whose transactions already committed successfully.
+  const claimSettled = await Promise.allSettled(
     Object.entries(results.postboxes).map(([key, postbox]) => {
       // Use our own todayLondon (not the derived claimedToday flag from
       // lookupPostboxes) to guard against a rare midnight rollover between
@@ -73,7 +75,15 @@ export const startScoring = functions.https.onCall(async (request) => {
     })
   );
 
-  const earnedPoints = claimResults.filter((pts): pts is number => pts !== null);
+  for (const result of claimSettled) {
+    if (result.status === "rejected") {
+      console.error("claim transaction failed:", result.reason);
+    }
+  }
+
+  const earnedPoints = claimSettled
+    .filter((r): r is PromiseFulfilledResult<number> => r.status === "fulfilled" && typeof r.value === "number")
+    .map((r) => r.value);
 
   if (earnedPoints.length > 0) {
     const userDoc = await database.collection('users').doc(userid).get();

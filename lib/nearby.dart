@@ -59,12 +59,24 @@ class NearbyState extends State<Nearby> {
   StreamSubscription<CompassEvent>? _compassSubscription;
   NearbyStage currentStage = NearbyStage.initial;
 
+  // Throttle compass setState calls: only rebuild when heading changes by ≥5°.
+  // IndexedStack keeps Nearby mounted even when offstage, so without this the
+  // magnetometer would trigger ~60 rebuilds/second on a hidden widget.
+  static double _headingDelta(double a, double b) {
+    final d = (a - b).abs() % 360;
+    return d > 180 ? 360 - d : d;
+  }
+
 
   @override
   void initState() {
     super.initState();
     _compassSubscription = FlutterCompass.events?.listen((CompassEvent event) {
-      if (mounted) setState(() => _direction = event.heading);
+      final heading = event.heading;
+      if (!mounted || heading == null) return;
+      if (_direction == null || _headingDelta(_direction!, heading) >= 5) {
+        setState(() => _direction = heading);
+      }
     });
     AppPreferences.getDistanceUnit().then((unit) {
       if (mounted) setState(() => _distanceUnit = unit);
