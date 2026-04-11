@@ -113,6 +113,9 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
     } on FirebaseFunctionsException catch (e) {
       debugPrint('Firebase functions error: ${e.code} ${e.message}');
       _showErrorSnackBar('Could not scan for postboxes. Please try again.');
+      if (mounted) {
+        JamesController.of(context).show(JamesMessages.claimErrorGeneral.resolve());
+      }
       setState(() => currentStage = ClaimStage.initial);
     } catch (e) {
       debugPrint('Error scanning: $e');

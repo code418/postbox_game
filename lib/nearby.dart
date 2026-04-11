@@ -150,6 +150,7 @@ class NearbyState extends State<Nearby> {
     } on FirebaseFunctionsException catch (e) {
       debugPrint('Firebase functions error: ${e.code} ${e.message}');
       if (mounted) {
+        JamesController.of(context).show(JamesMessages.nearbyErrorGeneral.resolve());
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: const Text('Could not fetch postboxes. Please try again.'),
