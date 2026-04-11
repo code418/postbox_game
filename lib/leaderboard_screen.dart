@@ -106,6 +106,10 @@ class _LeaderboardListState extends State<_LeaderboardList> {
             ),
           );
         }
+        final currentUserInList = _currentUid != null &&
+            entries.any((e) =>
+                (e as Map<String, dynamic>?)?['uid'] == _currentUid);
+
         return RefreshIndicator(
           color: postalRed,
           onRefresh: () async {
@@ -114,8 +118,24 @@ class _LeaderboardListState extends State<_LeaderboardList> {
           },
           child: ListView.builder(
             padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
-            itemCount: entries.length,
+            // Extra item at the end when current user is outside the top 100.
+            itemCount: entries.length + (currentUserInList ? 0 : 1),
             itemBuilder: (context, index) {
+              // Footer row: current user is outside the displayed top 100.
+              if (index == entries.length) {
+                return Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                      AppSpacing.md, AppSpacing.sm, AppSpacing.md, AppSpacing.lg),
+                  child: Text(
+                    'You\'re outside the top ${entries.length} — keep claiming to climb!',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Colors.grey.shade500,
+                        ),
+                  ),
+                );
+              }
+
               final e = entries[index] as Map<String, dynamic>? ?? {};
               final rank = index + 1;
               final displayName = e['displayName'] as String? ?? 'Unknown';
