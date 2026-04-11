@@ -218,7 +218,14 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
       final map = p as Map<dynamic, dynamic>;
       if (map['claimedToday'] == true) continue;
       final monarch = map['monarch'];
-      if (monarch != null && monarch is String && monarch.isNotEmpty) {
+      // Only include ciphers in MonarchInfo.all so the quiz can always build
+      // a valid answer pool. An unknown OSM cipher would appear as the
+      // "correct" answer but never be in the options list, making the quiz
+      // unpassable. Postboxes with unknown ciphers are still claimed directly.
+      if (monarch != null &&
+          monarch is String &&
+          monarch.isNotEmpty &&
+          MonarchInfo.all.contains(monarch)) {
         ciphers.add(monarch);
       }
     }
