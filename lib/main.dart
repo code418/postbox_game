@@ -11,16 +11,13 @@ import 'package:postbox_game/intro_preferences.dart';
 import 'package:postbox_game/login/login_screen.dart';
 import 'package:postbox_game/nearby.dart';
 import 'package:postbox_game/settings_screen.dart';
-import 'package:postbox_game/signin.dart';
 import 'package:postbox_game/splash.dart';
-import 'package:postbox_game/upload.dart';
 import 'package:postbox_game/user_repository.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'firebase_options.dart';
 
-void main() async{
-  //BlocSupervisor.delegate = SimpleBlocDelegate();
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
@@ -30,21 +27,18 @@ void main() async{
     providerAndroid: const AndroidDebugProvider(),
     providerApple: const AppleAppAttestProvider(),
   );
-  runApp(PostboxGame());
+  runApp(const PostboxGame());
 }
 
 class PostboxGame extends StatefulWidget {
+  const PostboxGame({super.key});
+
+  @override
   State<PostboxGame> createState() => _PostboxGameState();
 }
 
 class _PostboxGameState extends State<PostboxGame> {
   final UserRepository _userRepository = UserRepository();
-  //AuthenticationBloc _authenticationBloc;
-
-  @override
-  void initState() {
-    super.initState();
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -71,8 +65,6 @@ class _PostboxGameState extends State<PostboxGame> {
             },
           ),
           routes: {
-            '/login': (context) => SignInPage(),
-            '/upload': (context) => Upload(),
             '/nearby': (context) => Nearby(),
             '/Claim': (context) => Claim(),
             '/friends': (context) => const FriendsScreen(),
@@ -82,10 +74,6 @@ class _PostboxGameState extends State<PostboxGame> {
     );
   }
 
-  @override
-  void dispose() {
-    super.dispose();
-  }
 }
 
 /// Shows intro on first run, then login. Subsequent launches go straight to login.
