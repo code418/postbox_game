@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:postbox_game/validators.dart';
 
 class UserRepository {
   final FirebaseAuth _firebaseAuth;
@@ -55,8 +56,12 @@ class UserRepository {
     );
     final user = credential.user;
     if (user != null) {
-      // Use the part of the email before @ as the initial display name.
-      final name = email.split('@').first;
+      // Use the part of the email before @ as the initial display name,
+      // but fall back to Player_<uid> if the prefix fails the profanity filter.
+      final prefix = email.split('@').first;
+      final name = Validators.isValidDisplayName(prefix)
+          ? prefix
+          : 'Player_${user.uid.substring(0, 6)}';
       await user.updateDisplayName(name);
       await _saveUserProfile(user.uid, name, email);
     }
