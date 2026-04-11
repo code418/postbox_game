@@ -4,7 +4,10 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_core_platform_interface/test.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:postbox_game/app_preferences.dart';
 import 'package:postbox_game/main.dart';
+import 'package:postbox_game/monarch_info.dart';
+import 'package:postbox_game/streak_service.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/user_repository.dart';
 import 'package:postbox_game/validators.dart';
@@ -165,6 +168,179 @@ void main() {
       test('allows 30-char names', () {
         expect(Validators.isValidDisplayName('a' * 30), isTrue);
       });
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // StreakService unit tests
+  // ---------------------------------------------------------------------------
+
+  group('StreakService', () {
+    late FakeFirebaseFirestore fakeFirestore;
+    late MockFirebaseAuth mockAuth;
+    late StreakService streakService;
+    late String uid;
+
+    /// Returns today's date string in YYYY-MM-DD using local time, matching the
+    /// logic inside StreakService._today.
+    String localDateString(DateTime d) {
+      return '${d.year.toString().padLeft(4, '0')}-'
+          '${d.month.toString().padLeft(2, '0')}-'
+          '${d.day.toString().padLeft(2, '0')}';
+    }
+
+    setUp(() {
+      fakeFirestore = FakeFirebaseFirestore();
+      mockAuth = MockFirebaseAuth(signedIn: true);
+      streakService = StreakService(firestore: fakeFirestore, auth: mockAuth);
+      uid = mockAuth.currentUser!.uid;
+    });
+
+    test('first claim sets streak to 1 and records today', () async {
+      await streakService.updateStreakAfterClaim();
+      final doc = await fakeFirestore.collection('users').doc(uid).get();
+      expect(doc.data()?['streak'], equals(1));
+      expect(doc.data()?['lastClaimDate'],
+          equals(localDateString(DateTime.now())));
+    });
+
+    test('claiming again today leaves streak unchanged', () async {
+      final today = localDateString(DateTime.now());
+      await fakeFirestore
+          .collection('users')
+          .doc(uid)
+          .set({'streak': 5, 'lastClaimDate': today});
+
+      await streakService.updateStreakAfterClaim();
+
+      final doc = await fakeFirestore.collection('users').doc(uid).get();
+      expect(doc.data()?['streak'], equals(5),
+          reason: 'Same-day re-claim must not increment streak');
+    });
+
+    test('claiming on consecutive day increments streak', () async {
+      final yesterday =
+          localDateString(DateTime.now().subtract(const Duration(days: 1)));
+      await fakeFirestore
+          .collection('users')
+          .doc(uid)
+          .set({'streak': 3, 'lastClaimDate': yesterday});
+
+      await streakService.updateStreakAfterClaim();
+
+      final doc = await fakeFirestore.collection('users').doc(uid).get();
+      expect(doc.data()?['streak'], equals(4));
+    });
+
+    test('claiming after a gap resets streak to 1', () async {
+      final twoDaysAgo =
+          localDateString(DateTime.now().subtract(const Duration(days: 2)));
+      await fakeFirestore
+          .collection('users')
+          .doc(uid)
+          .set({'streak': 10, 'lastClaimDate': twoDaysAgo});
+
+      await streakService.updateStreakAfterClaim();
+
+      final doc = await fakeFirestore.collection('users').doc(uid).get();
+      expect(doc.data()?['streak'], equals(1));
+    });
+
+    test('streakStream emits null when document has no streak field', () async {
+      await fakeFirestore
+          .collection('users')
+          .doc(uid)
+          .set({'displayName': 'Test'});
+
+      final value = await streakService.streakStream().first;
+      expect(value, isNull);
+    });
+
+    test('streakStream emits current streak value', () async {
+      await fakeFirestore
+          .collection('users')
+          .doc(uid)
+          .set({'streak': 7, 'lastClaimDate': '2026-01-01'});
+
+      final value = await streakService.streakStream().first;
+      expect(value, equals(7));
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // AppPreferences unit tests
+  // ---------------------------------------------------------------------------
+
+  group('AppPreferences.formatDistance', () {
+    test('formats meters correctly', () {
+      expect(AppPreferences.formatDistance(540.0, DistanceUnit.meters),
+          equals('540 m'));
+      expect(AppPreferences.formatDistance(30.0, DistanceUnit.meters),
+          equals('30 m'));
+    });
+
+    test('formats miles to 1 decimal place', () {
+      // 1000m ≈ 0.621371 mi
+      final result =
+          AppPreferences.formatDistance(1000.0, DistanceUnit.miles);
+      expect(result, endsWith(' mi'));
+      expect(result, contains('.'));
+    });
+
+    test('formatShortDistance uses yards for miles mode', () {
+      // 30m ≈ 32 yards
+      final result =
+          AppPreferences.formatShortDistance(30.0, DistanceUnit.miles);
+      expect(result, endsWith(' yd'));
+      final yards = int.parse(result.split(' ').first);
+      expect(yards, greaterThan(30));
+      expect(yards, lessThan(35));
+    });
+
+    test('formatShortDistance uses meters in metric mode', () {
+      expect(AppPreferences.formatShortDistance(30.0, DistanceUnit.meters),
+          equals('30 m'));
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // MonarchInfo consistency tests
+  // ---------------------------------------------------------------------------
+
+  group('MonarchInfo', () {
+    test('all ciphers in "all" have a label', () {
+      for (final cipher in MonarchInfo.all) {
+        expect(MonarchInfo.labels.containsKey(cipher), isTrue,
+            reason: '$cipher missing from labels');
+      }
+    });
+
+    test('all ciphers in "all" have a color', () {
+      for (final cipher in MonarchInfo.all) {
+        expect(MonarchInfo.colors.containsKey(cipher), isTrue,
+            reason: '$cipher missing from colors');
+      }
+    });
+
+    test('rareCiphers is a subset of "all"', () {
+      for (final cipher in MonarchInfo.rareCiphers) {
+        expect(MonarchInfo.all.contains(cipher), isTrue,
+            reason: '$cipher in rareCiphers but not in all');
+      }
+    });
+
+    test('historicCiphers is a subset of "all"', () {
+      for (final cipher in MonarchInfo.historicCiphers) {
+        expect(MonarchInfo.all.contains(cipher), isTrue,
+            reason: '$cipher in historicCiphers but not in all');
+      }
+    });
+
+    test('rareCiphers and historicCiphers are disjoint', () {
+      final overlap =
+          MonarchInfo.rareCiphers.intersection(MonarchInfo.historicCiphers);
+      expect(overlap, isEmpty,
+          reason: 'A cipher should not be both rare and historic');
     });
   });
 }
