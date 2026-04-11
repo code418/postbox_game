@@ -280,7 +280,8 @@ class NearbyState extends State<Nearby> {
       onRefresh: _startSearch,
       child: AnimationLimiter(
       child: ListView(
-      padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
+      padding: const EdgeInsets.only(
+          top: AppSpacing.md, bottom: 100, left: 0, right: 0),
       children: [
         // Summary card
         Card(
