@@ -367,7 +367,40 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
                   ?.copyWith(color: Colors.grey.shade600),
               textAlign: TextAlign.center,
             ),
-            const SizedBox(height: AppSpacing.xl),
+            const SizedBox(height: AppSpacing.lg),
+            // Streak badge — only shown when the user has an active streak.
+            StreamBuilder<int?>(
+              stream: _streakStream,
+              builder: (context, snapshot) {
+                final streak = snapshot.data ?? 0;
+                if (streak <= 0) return const SizedBox.shrink();
+                return Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.md, vertical: AppSpacing.xs),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.shade50,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.orange.shade200),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text('🔥', style: TextStyle(fontSize: 16)),
+                      const SizedBox(width: 6),
+                      Text(
+                        '$streak-day streak',
+                        style: TextStyle(
+                          color: Colors.orange.shade800,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: AppSpacing.lg),
             FilledButton.icon(
               onPressed: _startSearch,
               icon: const Icon(Icons.radar),
