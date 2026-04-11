@@ -12,7 +12,8 @@
     "firebase@claude-plugins-official": true,
     "development@agile-pixel": true,
     "branding@agile-pixel": true,
-    "fullstack-dev-skills@fullstack-dev-skills": true
+    "fullstack-dev-skills@fullstack-dev-skills": true,
+    "frontend-mobile-security@claude-code-workflows": true
   },
   "extraKnownMarketplaces": {
     "agile-pixel": {

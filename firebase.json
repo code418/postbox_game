@@ -5,9 +5,10 @@
     "rewrites": [{ "source": "**", "destination": "/index.html" }]
   },
   "functions": {
+    "source": "functions",
     "predeploy": [
-      "npm --prefix \"$RESOURCE_DIR\" run lint",
-      "npm --prefix \"$RESOURCE_DIR\" run build"
+      "(cd functions && node_modules/.bin/eslint src --ext .ts)",
+      "(cd functions && node_modules/.bin/tsc)"
     ]
   },
   "firestore": {
