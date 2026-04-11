@@ -103,7 +103,7 @@ class NearbyState extends State<Nearby> {
   final HttpsCallable callable =
       FirebaseFunctions.instance.httpsCallable('nearbyPostboxes');
 
-  Future<Position> getPosition() async {
+  Future<Position> _getPosition() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
       throw Exception('Location services are disabled.');
@@ -125,7 +125,7 @@ class NearbyState extends State<Nearby> {
     _distanceUnit = await AppPreferences.getDistanceUnit();
     setState(() => currentStage = NearbyStage.searching);
     try {
-      final position = await getPosition();
+      final position = await _getPosition();
       final result = await callable.call(<String, dynamic>{
         'lat': position.latitude,
         'lng': position.longitude,

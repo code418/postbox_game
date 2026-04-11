@@ -160,6 +160,9 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
       if (allClaimedToday || claimedCount == 0) {
         setState(() => _isClaiming = false);
         _showErrorSnackBar('Already claimed today — come back tomorrow!');
+        if (mounted) {
+          JamesController.of(context).show(JamesMessages.claimErrorAlreadyClaimed.resolve());
+        }
         await _startSearch();
         return;
       }

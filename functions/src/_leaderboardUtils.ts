@@ -16,6 +16,20 @@ function getMonthStart(today: string): string {
   return today.slice(0, 7) + "-01";
 }
 
+/**
+ * Returns a stable key string for the given period — used to detect when the
+ * period has rolled over so stale entries from the previous period can be
+ * discarded.
+ *   daily   → "2026-04-11"
+ *   weekly  → "week:2026-04-06"  (Monday of the week)
+ *   monthly → "month:2026-04"
+ */
+function getPeriodKey(name: string, startDate: string): string {
+  if (name === "daily") return startDate;
+  if (name === "weekly") return `week:${startDate}`;
+  return `month:${startDate.slice(0, 7)}`;
+}
+
 interface LeaderboardEntry {
   uid: string;
   displayName: string;
@@ -58,11 +72,20 @@ export async function updateUserLeaderboards(
       );
 
       const leaderboardRef = db.collection("leaderboards").doc(name);
+      const currentPeriodKey = getPeriodKey(name, startDate);
 
       await db.runTransaction(async (tx) => {
         const leaderboardSnap = await tx.get(leaderboardRef);
+        const data = leaderboardSnap.data();
+
+        // If the stored periodKey differs from the current period, the leaderboard
+        // belongs to a previous period — discard all stale entries so users who
+        // haven't played this period don't carry over old scores.
+        const storedPeriodKey = data?.periodKey as string | undefined;
         const existing: LeaderboardEntry[] =
-          (leaderboardSnap.data()?.entries as LeaderboardEntry[]) ?? [];
+          storedPeriodKey === currentPeriodKey
+            ? ((data?.entries as LeaderboardEntry[]) ?? [])
+            : [];
 
         // Upsert this user's entry
         const otherEntries = existing.filter((e) => e.uid !== uid);
@@ -73,7 +96,7 @@ export async function updateUserLeaderboards(
           .sort((a, b) => b.points - a.points)
           .slice(0, 100); // keep top 100
 
-        tx.set(leaderboardRef, { entries: updatedEntries }, { merge: false });
+        tx.set(leaderboardRef, { periodKey: currentPeriodKey, entries: updatedEntries }, { merge: false });
       });
     })
   );

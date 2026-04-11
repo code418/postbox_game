@@ -11,17 +11,14 @@ class StreakService {
   final FirebaseAuth _auth;
 
   static String get _today {
-    final now = DateTime.now().toUtc();
-    // Approximate BST: last Sunday March → last Sunday October
-    // BST = UTC+1, GMT = UTC+0
-    final month = now.month;
-    final isDstCandidate = month > 3 && month < 10 ||
-        (month == 3 && now.day > 24) || // last week of March (rough)
-        (month == 10 && now.day <= 24); // first 3 weeks of October (rough)
-    final london = isDstCandidate
-        ? now.add(const Duration(hours: 1))
-        : now;
-    return london.toIso8601String().split('T').first;
+    // Use device local date. For this UK-only app the device is expected to be
+    // set to a UK timezone (Europe/London), which matches what Cloud Functions
+    // record as dailyDate. Manual DST arithmetic here is error-prone and
+    // incorrect around actual switchover days.
+    final now = DateTime.now();
+    return '${now.year.toString().padLeft(4, '0')}-'
+        '${now.month.toString().padLeft(2, '0')}-'
+        '${now.day.toString().padLeft(2, '0')}';
   }
 
   /// Call after user successfully claims (e.g. startScoring returned found with claims).
