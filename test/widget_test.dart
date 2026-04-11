@@ -266,6 +266,34 @@ void main() {
       final value = await streakService.streakStream().first;
       expect(value, equals(7));
     });
+
+    test('claimDate param overrides device time for lastClaimDate', () async {
+      // Simulates a server-returned dailyDate that differs from device local
+      // date (e.g. user near midnight, device ticked over but server recorded
+      // yesterday). The streak should use the provided date, not today.
+      const serverDate = '2026-04-10';
+      await streakService.updateStreakAfterClaim(claimDate: serverDate);
+
+      final doc = await fakeFirestore.collection('users').doc(uid).get();
+      expect(doc.data()?['lastClaimDate'], equals(serverDate),
+          reason: 'lastClaimDate must match the server-provided claimDate');
+      expect(doc.data()?['streak'], equals(1));
+    });
+
+    test('claimDate yesterday increments streak', () async {
+      const yesterday = '2026-04-09';
+      const today = '2026-04-10';
+      await fakeFirestore
+          .collection('users')
+          .doc(uid)
+          .set({'streak': 4, 'lastClaimDate': yesterday});
+
+      await streakService.updateStreakAfterClaim(claimDate: today);
+
+      final doc = await fakeFirestore.collection('users').doc(uid).get();
+      expect(doc.data()?['streak'], equals(5));
+      expect(doc.data()?['lastClaimDate'], equals(today));
+    });
   });
 
   // ---------------------------------------------------------------------------
