@@ -5,6 +5,7 @@ import { getPoints } from "../_getPoints";
 import { getTodayLondon } from "../_dateUtils";
 import { getWeekStart, getMonthStart } from "../_leaderboardUtils";
 import { setPrecision } from "../_lookupPostboxes";
+import { computeNewStreak } from "../_streakUtils";
 
 // ── Pure utility unit tests (no Firebase required) ────────────────────────────
 
@@ -74,6 +75,33 @@ describe("setPrecision", () => {
   it("returns 4 for 10 km radius", () => assert.strictEqual(setPrecision(10), 4));
   it("returns 2 for 1000 km radius", () => assert.strictEqual(setPrecision(1000), 2));
   it("returns 1 for very large radius (>1250 km)", () => assert.strictEqual(setPrecision(2000), 1));
+});
+
+describe("computeNewStreak", () => {
+  const today = "2026-04-12";
+  const yesterday = "2026-04-11";
+  const twoDaysAgo = "2026-04-10";
+
+  it("returns 1 when no previous claim (undefined lastClaimDate)", () =>
+    assert.strictEqual(computeNewStreak(undefined, 0, today, yesterday), 1));
+
+  it("returns null when already claimed today (no-op)", () =>
+    assert.strictEqual(computeNewStreak(today, 5, today, yesterday), null));
+
+  it("increments streak when last claim was yesterday", () =>
+    assert.strictEqual(computeNewStreak(yesterday, 3, today, yesterday), 4));
+
+  it("resets streak to 1 when last claim was two days ago (gap)", () =>
+    assert.strictEqual(computeNewStreak(twoDaysAgo, 10, today, yesterday), 1));
+
+  it("resets streak to 1 when last claim was long ago", () =>
+    assert.strictEqual(computeNewStreak("2025-01-01", 42, today, yesterday), 1));
+
+  it("handles first-ever claim (currentStreak 0, no prior date)", () =>
+    assert.strictEqual(computeNewStreak(undefined, 0, today, yesterday), 1));
+
+  it("streak increment from 1 to 2 on consecutive day", () =>
+    assert.strictEqual(computeNewStreak(yesterday, 1, today, yesterday), 2));
 });
 
 // ── Cloud Function integration tests (require Firebase emulator) ─────────────

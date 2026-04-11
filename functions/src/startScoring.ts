@@ -4,6 +4,7 @@ import { getPoints } from "./_getPoints";
 import { getTodayLondon } from "./_dateUtils";
 import { lookupPostboxes } from "./_lookupPostboxes";
 import { updateUserLeaderboards } from "./_leaderboardUtils";
+import { computeNewStreak } from "./_streakUtils";
 
 const database = admin.firestore();
 
@@ -115,9 +116,9 @@ export const startScoring = functions.https.onCall(async (request) => {
         const snap = await tx.get(userRef);
         const d = snap.data() ?? {};
         const lastClaimDate = d.lastClaimDate as string | undefined;
-        if (lastClaimDate === todayLondon) return; // already updated today
         const currentStreak = (d.streak as number | undefined) ?? 0;
-        const newStreak = lastClaimDate === yesterday ? currentStreak + 1 : 1;
+        const newStreak = computeNewStreak(lastClaimDate, currentStreak, todayLondon, yesterday);
+        if (newStreak === null) return; // already updated today
         tx.set(userRef, { lastClaimDate: todayLondon, streak: newStreak }, { merge: true });
       });
     } catch (streakErr) {
