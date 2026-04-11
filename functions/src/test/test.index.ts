@@ -4,6 +4,7 @@ import * as myFunctions from "../index";
 import { getPoints } from "../_getPoints";
 import { getTodayLondon } from "../_dateUtils";
 import { getWeekStart, getMonthStart } from "../_leaderboardUtils";
+import { setPrecision } from "../_lookupPostboxes";
 
 // ── Pure utility unit tests (no Firebase required) ────────────────────────────
 
@@ -54,6 +55,25 @@ describe("getMonthStart", () => {
   it("first day returns itself", () => assert.strictEqual(getMonthStart("2026-04-01"), "2026-04-01"));
   it("last day of month returns 1st", () => assert.strictEqual(getMonthStart("2026-04-30"), "2026-04-01"));
   it("preserves year and month digits", () => assert.strictEqual(getMonthStart("2026-12-25"), "2026-12-01"));
+});
+
+describe("setPrecision", () => {
+  // Verify geohash precision thresholds used for postbox proximity queries.
+  // Lower precision = larger cells = more documents fetched but guaranteed coverage.
+  it("returns 9 at exact upper boundary (0.00477 km)", () => assert.strictEqual(setPrecision(0.00477), 9));
+  it("returns 8 just above precision-9 boundary", () => assert.strictEqual(setPrecision(0.005), 8));
+  it("returns 8 for 30 m radius (0.030 km, used by Claim screen)", () => assert.strictEqual(setPrecision(0.030), 8));
+  it("returns 8 at exact upper boundary (0.0382 km)", () => assert.strictEqual(setPrecision(0.0382), 8));
+  it("returns 7 just above precision-8 boundary", () => assert.strictEqual(setPrecision(0.039), 7));
+  it("returns 7 at exact upper boundary (0.153 km)", () => assert.strictEqual(setPrecision(0.153), 7));
+  it("returns 6 just above precision-7 boundary", () => assert.strictEqual(setPrecision(0.154), 6));
+  it("returns 6 for 540 m radius (0.540 km, used by Nearby screen)", () => assert.strictEqual(setPrecision(0.540), 6));
+  it("returns 6 at exact upper boundary (1.22 km)", () => assert.strictEqual(setPrecision(1.22), 6));
+  it("returns 5 just above precision-6 boundary", () => assert.strictEqual(setPrecision(1.23), 5));
+  it("returns 5 at exact upper boundary (4.89 km)", () => assert.strictEqual(setPrecision(4.89), 5));
+  it("returns 4 for 10 km radius", () => assert.strictEqual(setPrecision(10), 4));
+  it("returns 2 for 1000 km radius", () => assert.strictEqual(setPrecision(1000), 2));
+  it("returns 1 for very large radius (>1250 km)", () => assert.strictEqual(setPrecision(2000), 1));
 });
 
 // ── Cloud Function integration tests (require Firebase emulator) ─────────────

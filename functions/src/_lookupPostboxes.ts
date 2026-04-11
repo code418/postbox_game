@@ -7,7 +7,7 @@ import type { LookupResult, PostboxDoc } from "./types";
 
 const database = admin.firestore();
 
-function setPrecision(km: number): number {
+export function setPrecision(km: number): number {
   if (km <= 0.00477) return 9;
   if (km <= 0.0382) return 8;
   if (km <= 0.153) return 7;
