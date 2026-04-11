@@ -27,5 +27,18 @@ export const nearbyPostboxes = functions.https.onCall(async (request) => {
   }
   // Cap radius at 2km to prevent runaway Firestore queries.
   const clampedMeters = Math.min(meters, 2000);
-  return lookupPostboxes(lat, lng, clampedMeters);
+  const full = await lookupPostboxes(lat, lng, clampedMeters);
+
+  // Strip precise location fields (geopoint, geohash, dailyClaim) before
+  // sending to the client. The client only needs monarch (for the quiz) and
+  // claimedToday (for UI state); all other fields are internal.
+  const slimPostboxes: Record<string, { monarch?: string; claimedToday: boolean }> = {};
+  for (const [id, pb] of Object.entries(full.postboxes)) {
+    slimPostboxes[id] = {
+      ...(pb.monarch !== undefined ? { monarch: pb.monarch } : {}),
+      claimedToday: pb.claimedToday ?? false,
+    };
+  }
+
+  return { ...full, postboxes: slimPostboxes };
 });
