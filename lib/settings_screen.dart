@@ -276,7 +276,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onTap: () {
               Navigator.of(context).push(
                 MaterialPageRoute<void>(
-                  builder: (context) => Intro(replay: true, onDone: () {}),
+                  builder: (context) => const Intro(replay: true),
                 ),
               );
             },

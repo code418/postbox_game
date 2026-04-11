@@ -8,6 +8,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:postbox_game/app_preferences.dart';
 import 'package:postbox_game/james_controller.dart';
 import 'package:postbox_game/james_messages.dart';
+import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/theme.dart';
 
 import './fuzzy_compass.dart';
@@ -58,30 +59,6 @@ class NearbyState extends State<Nearby> {
   StreamSubscription<CompassEvent>? _compassSubscription;
   NearbyStage currentStage = NearbyStage.initial;
 
-  static const Map<String, String> _monarchLabels = {
-    'EIIR': 'Elizabeth II (1952–2022)',
-    'CIIIR': 'Charles III (2022–)',
-    'GVIR': 'George VI (1936–1952)',
-    'GVR': 'George V (1910–1936)',
-    'EVIIIR': 'Edward VIII (1936)',
-    'EVIIR': 'Edward VII (1901–1910)',
-    'VR': 'Victoria (1840–1901)',
-    'GR': 'George (generic)',
-  };
-
-  static const Map<String, Color> _monarchColors = {
-    'EIIR': postalRed,
-    'CIIIR': postalRed,
-    'GVIR': Colors.indigo,
-    'GVR': Colors.teal,
-    'EVIIIR': postalGold,
-    'EVIIR': Colors.deepPurple,
-    'VR': Colors.amber,
-    'GR': Colors.blueGrey,
-  };
-
-  static const Set<String> _rareMonarchs = {'EVIIIR', 'CIIIR'};
-  static const Set<String> _historicMonarchs = {'VR', 'EVIIR'};
 
   @override
   void initState() {
@@ -437,11 +414,11 @@ class NearbyState extends State<Nearby> {
   }
 
   Widget _monarchCard(BuildContext context, String code, int count) {
-    final label = _monarchLabels[code] ?? code;
-    final color = _monarchColors[code] ?? postalRed;
+    final label = MonarchInfo.labels[code] ?? code;
+    final color = MonarchInfo.colors[code] ?? postalRed;
 
     Widget? trailing;
-    if (_rareMonarchs.contains(code)) {
+    if (MonarchInfo.rareCiphers.contains(code)) {
       trailing = Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -454,7 +431,7 @@ class NearbyState extends State<Nearby> {
           ),
         ],
       );
-    } else if (_historicMonarchs.contains(code)) {
+    } else if (MonarchInfo.historicCiphers.contains(code)) {
       trailing = Text(
         'Historic',
         style: TextStyle(

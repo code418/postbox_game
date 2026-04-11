@@ -10,6 +10,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:postbox_game/app_preferences.dart';
 import 'package:postbox_game/james_controller.dart';
 import 'package:postbox_game/james_messages.dart';
+import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/streak_service.dart';
 import 'package:postbox_game/theme.dart';
 
@@ -42,20 +43,6 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
   late Animation<double> _successScale;
   late ConfettiController _confettiController;
 
-  static const Map<String, String> _monarchLabels = {
-    'EIIR': 'Elizabeth II (1952–2022)',
-    'CIIIR': 'Charles III (2022–)',
-    'GVIR': 'George VI (1936–1952)',
-    'GVR': 'George V (1910–1936)',
-    'EVIIIR': 'Edward VIII (1936)',
-    'EVIIR': 'Edward VII (1901–1910)',
-    'VR': 'Victoria (1840–1901)',
-    'GR': 'George (generic)',
-  };
-
-  static const List<String> _allCiphers = [
-    'EIIR', 'CIIIR', 'GR', 'GVR', 'GVIR', 'VR', 'EVIIR', 'EVIIIR',
-  ];
 
   @override
   void initState() {
@@ -215,7 +202,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
   }
 
   List<String> _buildQuizOptions(String correct) {
-    final pool = List<String>.from(_allCiphers)..remove(correct)..shuffle();
+    final pool = List<String>.from(MonarchInfo.all)..remove(correct)..shuffle();
     return ([correct, ...pool.take(3)]..shuffle());
   }
 
@@ -594,7 +581,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
                               ),
                               if (!isCorrectSelected)
                                 Text(
-                                  _monarchLabels[code] ?? code,
+                                  MonarchInfo.labels[code] ?? code,
                                   style: Theme.of(context)
                                       .textTheme
                                       .bodySmall
