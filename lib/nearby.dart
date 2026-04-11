@@ -30,25 +30,10 @@ class NearbyState extends State<Nearby> {
   // Per-cipher totals and claimed-today counts; populated from the server response.
   final Map<String, int> _cipherTotals = {};
   final Map<String, int> _cipherClaimed = {};
+  // 16-wind compass counts (N, NNE, NE, …); populated from the server response.
+  final Map<String, int> _compassCounts = {};
   DistanceUnit _distanceUnit = DistanceUnit.meters;
   DateTime? _lastScanned;
-
-  int nne = 0;
-  int ne = 0;
-  int ene = 0;
-  int e = 0;
-  int ese = 0;
-  int se = 0;
-  int sse = 0;
-  int s = 0;
-  int ssw = 0;
-  int sw = 0;
-  int wsw = 0;
-  int w = 0;
-  int wnw = 0;
-  int nw = 0;
-  int nnw = 0;
-  int n = 0;
 
   // ValueNotifier so compass heading changes only rebuild FuzzyCompass, not the
   // entire results tree. Previously a setState here rebuilt all staggered cards.
@@ -125,22 +110,13 @@ class NearbyState extends State<Nearby> {
         _maxPoints = result.data['points']['max'] ?? 0;
         _minPoints = result.data['points']['min'] ?? 0;
         currentStage = NearbyStage.results;
-        nne = result.data['compass']['NNE'] ?? 0;
-        ne = result.data['compass']['NE'] ?? 0;
-        ene = result.data['compass']['ENE'] ?? 0;
-        e = result.data['compass']['E'] ?? 0;
-        ese = result.data['compass']['ESE'] ?? 0;
-        se = result.data['compass']['SE'] ?? 0;
-        sse = result.data['compass']['SSE'] ?? 0;
-        s = result.data['compass']['S'] ?? 0;
-        ssw = result.data['compass']['SSW'] ?? 0;
-        sw = result.data['compass']['SW'] ?? 0;
-        wsw = result.data['compass']['WSW'] ?? 0;
-        w = result.data['compass']['W'] ?? 0;
-        wnw = result.data['compass']['WNW'] ?? 0;
-        nw = result.data['compass']['NW'] ?? 0;
-        nnw = result.data['compass']['NNW'] ?? 0;
-        n = result.data['compass']['N'] ?? 0;
+        for (final dir in const [
+          'N', 'NNE', 'NE', 'ENE', 'E', 'ESE',
+          'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW',
+          'W', 'WNW', 'NW', 'NNW',
+        ]) {
+          _compassCounts[dir] = result.data['compass'][dir] ?? 0;
+        }
         _claimedToday = result.data['counts']['claimedToday'] ?? 0;
         for (final cipher in MonarchInfo.all) {
           _cipherTotals[cipher] = result.data['counts'][cipher] ?? 0;
@@ -249,11 +225,7 @@ class NearbyState extends State<Nearby> {
   }
 
   Widget _buildResults(BuildContext context) {
-    final compassMap = <String, int>{
-      'N': n, 'NNE': nne, 'NE': ne, 'ENE': ene, 'E': e, 'ESE': ese,
-      'SE': se, 'SSE': sse, 'S': s, 'SSW': ssw, 'SW': sw, 'WSW': wsw,
-      'W': w, 'WNW': wnw, 'NW': nw, 'NNW': nnw,
-    };
+    final compassMap = _compassCounts;
 
     // Show ciphers present in the area, in display order, total count > 0.
     final monarchEntries = MonarchInfo.all
