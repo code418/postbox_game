@@ -49,11 +49,26 @@ class _FriendsScreenState extends State<FriendsScreen> {
       return;
     }
     try {
-      final userDoc = await _firestore.collection('users').doc(friendUid).get();
-      if (!userDoc.exists) {
+      // Check the friend exists AND whether they're already in the list.
+      final results = await Future.wait([
+        _firestore.collection('users').doc(friendUid).get(),
+        _firestore.collection('users').doc(uid).get(),
+      ]);
+      final friendDoc = results[0];
+      final myDoc = results[1];
+      if (!friendDoc.exists) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('No player found with that UID')),
+          );
+        }
+        return;
+      }
+      final existingFriends = (myDoc.data()?['friends'] as List<dynamic>?) ?? [];
+      if (existingFriends.contains(friendUid)) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Already in your friends list')),
           );
         }
         return;

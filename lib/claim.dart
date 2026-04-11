@@ -211,15 +211,20 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
   }
 
   String? _pickQuizCipher() {
-    // Only consider unclaimed postboxes so the quiz cipher always matches
-    // a box the user can actually claim right now.
+    // Collect all ciphers from unclaimed postboxes and pick randomly so the
+    // quiz varies when multiple postboxes with different ciphers are nearby.
+    final ciphers = <String>[];
     for (final p in _postboxes.values) {
       final map = p as Map<dynamic, dynamic>;
       if (map['claimedToday'] == true) continue;
       final monarch = map['monarch'];
-      if (monarch != null && monarch is String && monarch.isNotEmpty) return monarch;
+      if (monarch != null && monarch is String && monarch.isNotEmpty) {
+        ciphers.add(monarch);
+      }
     }
-    return null;
+    if (ciphers.isEmpty) return null;
+    ciphers.shuffle();
+    return ciphers.first;
   }
 
   List<String> _buildQuizOptions(String correct) {
