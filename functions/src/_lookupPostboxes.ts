@@ -34,6 +34,9 @@ export async function lookupPostboxes(lat: number, lng: number, meters: number):
     points: { max: 0, min: 0 },
     compass: {},
   };
+  // Track min/max across individual unclaimed postboxes (not accumulated total).
+  let unclaimedMin = Infinity;
+  let unclaimedMax = 0;
 
   if (meters === null || meters === undefined || lat === null || lat === undefined || lng === null || lng === undefined) return result;
 
@@ -83,21 +86,18 @@ export async function lookupPostboxes(lat: number, lng: number, meters: number):
       if (isClaimedToday) {
         result.counts.claimedToday++;
       } else {
-        // Only accumulate earnable points for unclaimed postboxes.
-        if (data.monarch !== undefined) {
-          const pts = getPoints(data.monarch);
-          result.points.max += pts;
-          result.points.min += pts;
-        } else {
-          // Unknown monarch: worth 2 pts (matches startScoring default)
-          result.points.max += 2;
-          result.points.min += 2;
-        }
+        // Track the per-postbox point value for min/max range display.
+        const pts = data.monarch !== undefined ? getPoints(data.monarch) : 2;
+        if (pts < unclaimedMin) unclaimedMin = pts;
+        if (pts > unclaimedMax) unclaimedMax = pts;
       }
 
       result.postboxes[doc.id] = { ...data, distance, compass: { exact: compassDir }, claimedToday: isClaimedToday };
     }
   }
 
+  // Resolve the per-postbox min/max (stays 0/0 when all postboxes are already claimed today).
+  result.points.min = isFinite(unclaimedMin) ? unclaimedMin : 0;
+  result.points.max = unclaimedMax;
   return result;
 }
