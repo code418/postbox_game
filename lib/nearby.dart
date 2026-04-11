@@ -24,14 +24,14 @@ class NearbyState extends State<Nearby> {
   int _count = 0;
   int _maxPoints = 0;
   int _minPoints = 0;
-  int _EIIR = 0;
-  int _GR = 0;
-  int _GVR = 0;
-  int _GVIR = 0;
-  int _VR = 0;
-  int _EVIIR = 0;
-  int _EVIIIR = 0;
-  int _CIIIR = 0;
+  int _eiir = 0;
+  int _gr = 0;
+  int _gvr = 0;
+  int _gvir = 0;
+  int _vr = 0;
+  int _eviir = 0;
+  int _eviiir = 0;
+  int _ciiir = 0;
   int _claimedToday = 0;
   DistanceUnit _distanceUnit = DistanceUnit.meters;
   DateTime? _lastScanned;
@@ -151,14 +151,14 @@ class NearbyState extends State<Nearby> {
         nw = result.data['compass']['NW'] ?? 0;
         nnw = result.data['compass']['NNW'] ?? 0;
         n = result.data['compass']['N'] ?? 0;
-        _EIIR = result.data['counts']['EIIR'] ?? 0;
-        _GR = result.data['counts']['GR'] ?? 0;
-        _GVR = result.data['counts']['GVR'] ?? 0;
-        _GVIR = result.data['counts']['GVIR'] ?? 0;
-        _VR = result.data['counts']['VR'] ?? 0;
-        _EVIIR = result.data['counts']['EVIIR'] ?? 0;
-        _EVIIIR = result.data['counts']['EVIIIR'] ?? 0;
-        _CIIIR = result.data['counts']['CIIIR'] ?? 0;
+        _eiir = result.data['counts']['EIIR'] ?? 0;
+        _gr = result.data['counts']['GR'] ?? 0;
+        _gvr = result.data['counts']['GVR'] ?? 0;
+        _gvir = result.data['counts']['GVIR'] ?? 0;
+        _vr = result.data['counts']['VR'] ?? 0;
+        _eviir = result.data['counts']['EVIIR'] ?? 0;
+        _eviiir = result.data['counts']['EVIIIR'] ?? 0;
+        _ciiir = result.data['counts']['CIIIR'] ?? 0;
         _claimedToday = result.data['counts']['claimedToday'] ?? 0;
         _lastScanned = DateTime.now();
       });
@@ -269,14 +269,14 @@ class NearbyState extends State<Nearby> {
     };
 
     final monarchEntries = <MapEntry<String, int>>[
-      MapEntry('EIIR', _EIIR),
-      MapEntry('CIIIR', _CIIIR),
-      MapEntry('GVIR', _GVIR),
-      MapEntry('GVR', _GVR),
-      MapEntry('EVIIIR', _EVIIIR),
-      MapEntry('EVIIR', _EVIIR),
-      MapEntry('VR', _VR),
-      MapEntry('GR', _GR),
+      MapEntry('EIIR', _eiir),
+      MapEntry('CIIIR', _ciiir),
+      MapEntry('GVIR', _gvir),
+      MapEntry('GVR', _gvr),
+      MapEntry('EVIIIR', _eviiir),
+      MapEntry('EVIIR', _eviir),
+      MapEntry('VR', _vr),
+      MapEntry('GR', _gr),
     ].where((e) => e.value > 0).toList();
 
     return RefreshIndicator(

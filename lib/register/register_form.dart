@@ -6,6 +6,9 @@ import 'package:postbox_game/register/register_button.dart';
 import 'package:postbox_game/theme.dart';
 
 class RegisterForm extends StatefulWidget {
+  const RegisterForm({super.key});
+
+  @override
   State<RegisterForm> createState() => _RegisterFormState();
 }
 

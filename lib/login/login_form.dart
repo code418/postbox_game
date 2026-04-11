@@ -11,10 +11,10 @@ import 'package:postbox_game/user_repository.dart';
 class LoginForm extends StatefulWidget {
   final UserRepository _userRepository;
 
-  LoginForm({Key? key, required UserRepository userRepository})
-      : _userRepository = userRepository,
-        super(key: key);
+  LoginForm({super.key, required UserRepository userRepository})
+      : _userRepository = userRepository;
 
+  @override
   State<LoginForm> createState() => _LoginFormState();
 }
 

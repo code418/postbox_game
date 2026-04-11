@@ -10,6 +10,8 @@ import 'package:postbox_game/nearby.dart';
 import 'package:postbox_game/theme.dart';
 
 class Home extends StatefulWidget {
+  const Home({super.key});
+
   @override
   State<Home> createState() => _HomeState();
 }
