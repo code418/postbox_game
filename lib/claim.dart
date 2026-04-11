@@ -32,6 +32,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
   List<String> _quizOptions = [];
   DistanceUnit _distanceUnit = DistanceUnit.meters;
   int _pointsEarned = 0;
+  int _claimedCount = 0;
   bool _isClaiming = false;
 
   ClaimStage currentStage = ClaimStage.initial;
@@ -141,15 +142,32 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
         'lat': position.latitude,
         'lng': position.longitude,
       });
-      if (result.data?['allClaimedToday'] == true) {
+      final found = result.data?['found'] == true;
+      final allClaimedToday = result.data?['allClaimedToday'] == true;
+      final rawClaimed = result.data?['claimed'] ?? 0;
+      final claimedCount = rawClaimed is int ? rawClaimed : (rawClaimed as num).toInt();
+
+      if (!found) {
+        // User moved out of range between scan and claim.
         setState(() => _isClaiming = false);
-        _showErrorSnackBar('Just claimed by someone else — refreshing...');
+        if (mounted) {
+          JamesController.of(context).show(
+            "Hmm, I can't see a postbox at your location. Move closer and try again.",
+          );
+        }
+        await _startSearch();
+        return;
+      }
+      if (allClaimedToday || claimedCount == 0) {
+        setState(() => _isClaiming = false);
+        _showErrorSnackBar('Already claimed today — come back tomorrow!');
         await _startSearch();
         return;
       }
       final points = result.data?['points'] ?? 0;
       setState(() {
         _pointsEarned = points is int ? points : (points as num).toInt();
+        _claimedCount = claimedCount;
         _isClaiming = false;
         currentStage = ClaimStage.claimed;
       });
@@ -161,9 +179,11 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
         debugPrint('Streak update failed (non-fatal): $e');
       }
       if (mounted) {
-        final msg = _pointsEarned >= 50
-            ? "Oh ho — a rare one! That's a find. Well done."
-            : "Claimed! Every one counts. Keep going.";
+        final msg = claimedCount > 1
+            ? "Good spot — $claimedCount at once! $_pointsEarned points and counting."
+            : _pointsEarned >= 50
+                ? "Oh ho — a rare one! That's a find. Well done."
+                : "Claimed! Every one counts. Keep going.";
         JamesController.of(context).show(msg);
       }
     } on FirebaseFunctionsException catch (e) {
@@ -670,7 +690,9 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
             ),
             const SizedBox(height: AppSpacing.lg),
             Text(
-              'Postbox claimed!',
+              _claimedCount > 1
+                  ? '$_claimedCount postboxes claimed!'
+                  : 'Postbox claimed!',
               style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                     fontWeight: FontWeight.bold,
                   ),
