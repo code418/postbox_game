@@ -286,6 +286,19 @@ class AppTheme {
           }
           return const IconThemeData(color: Colors.grey);
         }),
+        labelTextStyle: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return GoogleFonts.plusJakartaSans(
+              color: darkRed,
+              fontWeight: FontWeight.w600,
+              fontSize: 12,
+            );
+          }
+          return GoogleFonts.plusJakartaSans(
+            color: Colors.grey,
+            fontSize: 12,
+          );
+        }),
       ),
       dividerTheme: const DividerThemeData(
         color: Color(0xFF333333),
