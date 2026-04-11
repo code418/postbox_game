@@ -4,6 +4,7 @@ import 'package:postbox_game/claim.dart';
 import 'package:postbox_game/friends_screen.dart';
 import 'package:postbox_game/intro.dart';
 import 'package:postbox_game/james_controller.dart';
+import 'package:postbox_game/james_messages.dart';
 import 'package:postbox_game/james_strip.dart';
 import 'package:postbox_game/leaderboard_screen.dart';
 import 'package:postbox_game/nearby.dart';
@@ -133,8 +134,8 @@ class _HomeState extends State<Home> {
           selectedIndex: _selectedIndex,
           onDestinationSelected: (i) {
             setState(() => _selectedIndex = i);
-            final msg = JamesMessages.forIndex(i);
-            if (msg.isNotEmpty) _jamesController.show(msg);
+            final msg = JamesMessages.forTabIndex(i);
+            if (msg != null) _jamesController.show(msg.resolve());
           },
           destinations: _destinations,
           labelBehavior: NavigationDestinationLabelBehavior.onlyShowSelected,

@@ -9,6 +9,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:postbox_game/app_preferences.dart';
 import 'package:postbox_game/james_controller.dart';
+import 'package:postbox_game/james_messages.dart';
 import 'package:postbox_game/streak_service.dart';
 import 'package:postbox_game/theme.dart';
 
@@ -151,9 +152,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
         // User moved out of range between scan and claim.
         setState(() => _isClaiming = false);
         if (mounted) {
-          JamesController.of(context).show(
-            "Hmm, I can't see a postbox at your location. Move closer and try again.",
-          );
+          JamesController.of(context).show(JamesMessages.claimOutOfRange.resolve());
         }
         await _startSearch();
         return;
@@ -179,11 +178,9 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
         debugPrint('Streak update failed (non-fatal): $e');
       }
       if (mounted) {
-        final msg = claimedCount > 1
-            ? "Good spot — $claimedCount at once! $_pointsEarned points and counting."
-            : _pointsEarned >= 50
-                ? "Oh ho — a rare one! That's a find. Well done."
-                : "Claimed! Every one counts. Keep going.";
+        final msg = _pointsEarned >= 50
+            ? JamesMessages.claimSuccessRare.resolve()
+            : JamesMessages.claimSuccessStandard.resolve();
         JamesController.of(context).show(msg);
       }
     } on FirebaseFunctionsException catch (e) {
@@ -192,10 +189,10 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
       setState(() => _isClaiming = false);
       if (mounted) {
         final msg = (e.code == 'already-claimed')
-            ? "You've already had that one today. It'll reset tomorrow — patience is a virtue."
+            ? JamesMessages.claimErrorAlreadyClaimed.resolve()
             : (e.code == 'out-of-range')
-                ? "You're not quite close enough. A few steps closer should do it."
-                : "Hmm, something went wrong there. Give it another go.";
+                ? JamesMessages.claimErrorOutOfRange.resolve()
+                : JamesMessages.claimErrorGeneral.resolve();
         JamesController.of(context).show(msg);
       }
     } catch (e) {

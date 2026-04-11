@@ -1,5 +1,6 @@
 import 'package:animated_text_kit/animated_text_kit.dart';
 import 'package:flutter/material.dart';
+import 'package:postbox_game/james_messages.dart';
 import 'package:postbox_game/postman_james_svg.dart';
 import 'package:postbox_game/theme.dart';
 
@@ -107,11 +108,9 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
       case 1:
         return _buildJamesWalksIn();
       case 2:
-        return _buildDialogue(
-          'Hi, my name is Postman James.\nWhat you see here is a normal postbox.',
-        );
+        return _buildDialogue(JamesMessages.introStep2.resolve());
       case 3:
-        return _buildDialogue('Do you know what I see?');
+        return _buildDialogue(JamesMessages.introStep3.resolve());
       case 4:
         return _buildMegaPoints();
       case 5:

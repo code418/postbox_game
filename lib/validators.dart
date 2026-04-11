@@ -28,7 +28,7 @@ class Validators {
     'bugger', 'arse', 'pillock', 'plonker', 'numpty', 'muppet',
     // Slurs
     'nigger', 'nigga', 'chink', 'spic', 'kike', 'faggot', 'retard',
-    'paki', 'spaz', 'mong',
+    'paki', 'spaz', 'mong', 'nonce'
   ];
 
   static bool isValidDisplayName(String name) {
