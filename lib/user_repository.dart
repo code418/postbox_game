@@ -24,7 +24,19 @@ class UserRepository {
     final userCredential = await _firebaseAuth.signInWithCredential(credential);
     final user = userCredential.user;
     if (user != null) {
-      await _saveUserProfile(user.uid, user.displayName ?? user.email ?? '', user.email ?? '');
+      if (userCredential.additionalUserInfo?.isNewUser == true) {
+        // First sign-in: seed the profile. Subsequent sign-ins must not
+        // overwrite a custom display name the user may have set.
+        await _saveUserProfile(
+            user.uid, user.displayName ?? user.email ?? '', user.email ?? '');
+      } else {
+        // Returning user: keep existing displayName, but update email in case
+        // it changed on the Google account.
+        await _firestore.collection('users').doc(user.uid).set(
+          {'email': user.email ?? ''},
+          SetOptions(merge: true),
+        );
+      }
     }
     return user;
   }
