@@ -473,7 +473,7 @@ class NearbyState extends State<Nearby> {
           ),
         ),
         title: Text(label),
-        subtitle: Text(code),
+        subtitle: Text('$code · ${MonarchInfo.getPoints(code)} pts each'),
         trailing: trailing,
       ),
     );

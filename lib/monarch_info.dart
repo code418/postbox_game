@@ -39,4 +39,19 @@ abstract final class MonarchInfo {
   static const List<String> all = [
     'EIIR', 'CIIIR', 'GR', 'GVR', 'GVIR', 'VR', 'EVIIR', 'EVIIIR',
   ];
+
+  /// Point values per cipher — must stay in sync with _getPoints.ts.
+  static const Map<String, int> points = {
+    'EIIR': 2,
+    'CIIIR': 9,
+    'GR': 4,
+    'GVR': 4,
+    'GVIR': 4,
+    'VR': 7,
+    'EVIIR': 9,
+    'EVIIIR': 12,
+  };
+
+  /// Returns the point value for [cipher], or 2 if unknown (matches server default).
+  static int getPoints(String cipher) => points[cipher] ?? 2;
 }
