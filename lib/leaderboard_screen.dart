@@ -117,6 +117,7 @@ class _LeaderboardListState extends State<_LeaderboardList> {
             await Future.delayed(const Duration(milliseconds: 400));
           },
           child: ListView.builder(
+            physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
             // Extra item at the end when current user is outside the top 100.
             itemCount: entries.length + (currentUserInList ? 0 : 1),
