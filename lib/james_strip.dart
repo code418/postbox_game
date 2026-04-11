@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:postbox_game/james_controller.dart';
-import 'package:postbox_game/theme.dart';
+import 'package:postbox_game/postman_james_svg.dart';
 
 class JamesStrip extends StatefulWidget {
   const JamesStrip({super.key, required this.controller});
@@ -128,10 +128,12 @@ class _JamesStripState extends State<JamesStrip> with SingleTickerProviderStateM
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              SizedBox(
-                width: 44,
-                height: 44,
-                child: CustomPaint(painter: _JamesMiniPainter()),
+              ListenableBuilder(
+                listenable: widget.controller,
+                builder: (_, __) => PostmanJamesSvg(
+                  size: 44,
+                  isTalking: widget.controller.isTalking,
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -148,79 +150,3 @@ class _JamesStripState extends State<JamesStrip> with SingleTickerProviderStateM
   }
 }
 
-/// Scaled-down version of the Postman James CustomPainter from intro.dart.
-class _JamesMiniPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final w = size.width;
-    final h = size.height;
-
-    // Body — navy rectangle
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(w * 0.25, h * 0.48, w * 0.5, h * 0.42),
-        Radius.circular(w * 0.08),
-      ),
-      Paint()..color = royalNavy,
-    );
-
-    // Post bag — red rectangle on left hip
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(w * 0.12, h * 0.58, w * 0.16, h * 0.2),
-        Radius.circular(w * 0.04),
-      ),
-      Paint()..color = postalRed,
-    );
-
-    // Cap brim — red rectangle
-    canvas.drawRect(
-      Rect.fromLTWH(w * 0.18, h * 0.17, w * 0.64, h * 0.07),
-      Paint()..color = postalRed,
-    );
-
-    // Cap top — red rounded top
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(w * 0.22, h * 0.04, w * 0.56, h * 0.16),
-        Radius.circular(w * 0.1),
-      ),
-      Paint()..color = postalRed,
-    );
-
-    // Face — skin-tone circle
-    canvas.drawCircle(
-      Offset(w * 0.5, h * 0.38),
-      w * 0.18,
-      Paint()..color = const Color(0xFFFFDDB4),
-    );
-
-    // Dot eyes
-    canvas.drawCircle(
-      Offset(w * 0.43, h * 0.37),
-      w * 0.028,
-      Paint()..color = const Color(0xFF333333),
-    );
-    canvas.drawCircle(
-      Offset(w * 0.57, h * 0.37),
-      w * 0.028,
-      Paint()..color = const Color(0xFF333333),
-    );
-
-    // Smile
-    final smilePath = Path()
-      ..moveTo(w * 0.42, h * 0.44)
-      ..quadraticBezierTo(w * 0.5, h * 0.49, w * 0.58, h * 0.44);
-    canvas.drawPath(
-      smilePath,
-      Paint()
-        ..color = const Color(0xFF8B4513)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = w * 0.02
-        ..strokeCap = StrokeCap.round,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter old) => false;
-}
