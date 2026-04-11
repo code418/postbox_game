@@ -26,14 +26,10 @@ dependencies:
   cloud_functions: ^6.1.0
   firebase_core: ^4.6.0  # 3.13+ native code uses new Pigeon channel prefix but pubspec still pins platform_interface ^5.x — mismatch breaks initializeApp
   cloud_firestore: ^6.2.0
-  firebase_analytics: ^12.2.0
-  firebase_storage: ^13.2.0
-  file_picker: ^8.0.0
   firebase_auth: ^6.3.0
   geolocator: ^10.0.0
   google_sign_in: ^6.0.2
   flutter_compass: ^0.7.0
-  image_picker: ^0.8.5
   bloc: ^8.1.0
   flutter_bloc: ^8.1.1
   equatable: ^2.0.5
