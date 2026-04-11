@@ -3,7 +3,7 @@ import * as admin from "firebase-admin";
 type Firestore = admin.firestore.Firestore;
 
 /** Returns YYYY-MM-DD of the Monday of the week containing the given date string. */
-function getWeekStart(today: string): string {
+export function getWeekStart(today: string): string {
   const d = new Date(today + "T00:00:00Z");
   const day = d.getUTCDay(); // 0=Sun, 1=Mon...
   const diff = day === 0 ? -6 : 1 - day; // shift to Monday
@@ -12,7 +12,7 @@ function getWeekStart(today: string): string {
 }
 
 /** Returns YYYY-MM-DD of the 1st of the month containing the given date string. */
-function getMonthStart(today: string): string {
+export function getMonthStart(today: string): string {
   return today.slice(0, 7) + "-01";
 }
 

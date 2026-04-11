@@ -3,6 +3,7 @@ import test from "firebase-functions-test";
 import * as myFunctions from "../index";
 import { getPoints } from "../_getPoints";
 import { getTodayLondon } from "../_dateUtils";
+import { getWeekStart, getMonthStart } from "../_leaderboardUtils";
 
 // ── Pure utility unit tests (no Firebase required) ────────────────────────────
 
@@ -36,6 +37,23 @@ describe("getTodayLondon", () => {
     const b = getTodayLondon();
     assert.strictEqual(a, b);
   });
+});
+
+describe("getWeekStart", () => {
+  // Weeks start on Monday (ISO 8601).
+  it("Monday returns itself", () => assert.strictEqual(getWeekStart("2026-04-06"), "2026-04-06"));
+  it("Tuesday goes back 1 day", () => assert.strictEqual(getWeekStart("2026-04-07"), "2026-04-06"));
+  it("Saturday goes back 5 days", () => assert.strictEqual(getWeekStart("2026-04-11"), "2026-04-06"));
+  it("Sunday goes back to previous Monday (-6 days)", () => assert.strictEqual(getWeekStart("2026-04-12"), "2026-04-06"));
+  it("handles month boundary (March Sunday → February Monday)", () => assert.strictEqual(getWeekStart("2026-03-01"), "2026-02-23"));
+  it("handles year boundary (Jan 1 2026 is Thursday → Dec 29 2025)", () => assert.strictEqual(getWeekStart("2026-01-01"), "2025-12-29"));
+});
+
+describe("getMonthStart", () => {
+  it("mid-month returns 1st", () => assert.strictEqual(getMonthStart("2026-04-11"), "2026-04-01"));
+  it("first day returns itself", () => assert.strictEqual(getMonthStart("2026-04-01"), "2026-04-01"));
+  it("last day of month returns 1st", () => assert.strictEqual(getMonthStart("2026-04-30"), "2026-04-01"));
+  it("preserves year and month digits", () => assert.strictEqual(getMonthStart("2026-12-25"), "2026-12-01"));
 });
 
 // ── Cloud Function integration tests (require Firebase emulator) ─────────────
