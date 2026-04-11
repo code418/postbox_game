@@ -88,11 +88,12 @@ export async function updateUserLeaderboards(
             ? ((data?.entries as LeaderboardEntry[]) ?? [])
             : [];
 
-        // Upsert this user's entry
+        // Upsert this user's entry, or remove it if they have 0 points (e.g.
+        // updateDisplayName called before any claim in this period).
         const otherEntries = existing.filter((e) => e.uid !== uid);
         const updatedEntries: LeaderboardEntry[] = [
           ...otherEntries,
-          { uid, displayName, points: userPoints },
+          ...(userPoints > 0 ? [{ uid, displayName, points: userPoints }] : []),
         ]
           .sort((a, b) => b.points - a.points)
           .slice(0, 100); // keep top 100

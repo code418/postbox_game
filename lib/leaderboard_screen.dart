@@ -109,6 +109,9 @@ class _LeaderboardListState extends State<_LeaderboardList> {
         final currentUserInList = _currentUid != null &&
             entries.any((e) =>
                 (e as Map<String, dynamic>?)?['uid'] == _currentUid);
+        // Only show the "outside the top N" footer when authenticated but not
+        // in the list; omit it for unauthenticated viewers.
+        final showFooter = _currentUid != null && !currentUserInList;
 
         return RefreshIndicator(
           color: postalRed,
@@ -119,10 +122,10 @@ class _LeaderboardListState extends State<_LeaderboardList> {
           child: ListView.builder(
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
-            // Extra item at the end when current user is outside the top 100.
-            itemCount: entries.length + (currentUserInList ? 0 : 1),
+            // Extra item at the end when authenticated user is outside the list.
+            itemCount: entries.length + (showFooter ? 1 : 0),
             itemBuilder: (context, index) {
-              // Footer row: current user is outside the displayed top 100.
+              // Footer row: authenticated user is outside the displayed entries.
               if (index == entries.length) {
                 return Padding(
                   padding: const EdgeInsets.fromLTRB(
