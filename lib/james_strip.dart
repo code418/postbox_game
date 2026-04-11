@@ -92,7 +92,10 @@ class _JamesStripState extends State<JamesStrip> with SingleTickerProviderStateM
 
   void _startDismissTimer() {
     final messageToDismiss = _currentMessage;
-    _dismissTimer = Timer(const Duration(seconds: 3), () {
+    // Give at least 3 s, plus ~40 ms per character so longer messages stay
+    // readable. Cap at 8 s to avoid James overstaying his welcome.
+    final readMs = (_currentMessage.length * 40).clamp(3000, 8000);
+    _dismissTimer = Timer(Duration(milliseconds: readMs), () {
       if (!mounted) return;
       _slideCtrl.reverse().then((_) {
         // Only clear if no new message arrived while sliding out.

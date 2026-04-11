@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:postbox_game/authentication_bloc/bloc.dart';
@@ -24,7 +25,11 @@ void main() async {
   );
   await FirebaseAppCheck.instance.activate(
     providerWeb: ReCaptchaV3Provider('recaptcha-v3-site-key'),
-    providerAndroid: const AndroidDebugProvider(),
+    // Debug provider is only safe for local development; release builds must use
+    // Play Integrity to actually enforce App Check.
+    providerAndroid: kDebugMode
+        ? const AndroidDebugProvider()
+        : const AndroidPlayIntegrityProvider(),
     providerApple: const AppleAppAttestProvider(),
   );
   runApp(const PostboxGame());
