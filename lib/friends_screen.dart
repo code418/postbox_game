@@ -22,6 +22,17 @@ class _FriendsScreenState extends State<FriendsScreen> {
 
   String? get _currentUid => FirebaseAuth.instance.currentUser?.uid;
 
+  Stream<DocumentSnapshot<Map<String, dynamic>>>? _friendsStream;
+
+  @override
+  void initState() {
+    super.initState();
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid != null) {
+      _friendsStream = _firestore.collection('users').doc(uid).snapshots();
+    }
+  }
+
   @override
   void dispose() {
     _uidController.dispose();
@@ -99,11 +110,9 @@ class _FriendsScreenState extends State<FriendsScreen> {
   @override
   Widget build(BuildContext context) {
     final uid = _currentUid;
-    if (uid == null) {
+    if (uid == null || _friendsStream == null) {
       return const Center(child: Text('Sign in to manage friends'));
     }
-
-    final friendsRef = _firestore.collection('users').doc(uid).snapshots();
 
     return Column(
       children: [
@@ -183,7 +192,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
         // Friends list
         Expanded(
           child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-            stream: friendsRef,
+            stream: _friendsStream,
             builder: (context, snapshot) {
               if (snapshot.hasError) {
                 return Center(child: Text('Error: ${snapshot.error}'));
