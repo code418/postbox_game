@@ -65,6 +65,18 @@ class UserRepository {
     return doc.data()?['displayName'] as String?;
   }
 
+  /// Updates the current user's display name in both Firebase Auth and Firestore.
+  Future<void> updateDisplayName(String newName) async {
+    final user = _firebaseAuth.currentUser;
+    if (user == null) return;
+    await Future.wait([
+      user.updateDisplayName(newName),
+      _firestore.collection('users').doc(user.uid).update(
+        {'displayName': newName},
+      ),
+    ]);
+  }
+
   Future<void> signOut() async {
     await Future.wait([
       _firebaseAuth.signOut(),

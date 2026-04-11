@@ -5,6 +5,8 @@ import 'package:postbox_game/app_preferences.dart';
 import 'package:postbox_game/authentication_bloc/bloc.dart';
 import 'package:postbox_game/intro.dart';
 import 'package:postbox_game/theme.dart';
+import 'package:postbox_game/user_repository.dart';
+import 'package:postbox_game/validators.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -15,6 +17,8 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   DistanceUnit _distanceUnit = DistanceUnit.meters;
+  bool _isSaving = false;
+  final _userRepository = UserRepository();
 
   @override
   void initState() {
@@ -25,6 +29,83 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _loadPrefs() async {
     final unit = await AppPreferences.getDistanceUnit();
     if (mounted) setState(() => _distanceUnit = unit);
+  }
+
+  Future<void> _editDisplayName() async {
+    final controller = TextEditingController(
+      text: FirebaseAuth.instance.currentUser?.displayName ?? '',
+    );
+    final formKey = GlobalKey<FormState>();
+
+    final newName = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(ctx).viewInsets.bottom,
+        ),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.md),
+            child: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text('Display name',
+                      style: Theme.of(ctx).textTheme.titleMedium),
+                  const SizedBox(height: AppSpacing.md),
+                  TextFormField(
+                    controller: controller,
+                    autofocus: true,
+                    maxLength: 30,
+                    decoration: const InputDecoration(labelText: 'Name'),
+                    validator: (v) => Validators.displayNameError(v ?? ''),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        child: const Text('Cancel'),
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                      FilledButton(
+                        onPressed: () {
+                          if (formKey.currentState?.validate() ?? false) {
+                            Navigator.pop(ctx, controller.text.trim());
+                          }
+                        },
+                        child: const Text('Save'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    controller.dispose();
+    if (newName == null || !mounted) return;
+
+    setState(() => _isSaving = true);
+    try {
+      await _userRepository.updateDisplayName(newName);
+      if (mounted) setState(() {}); // re-reads Auth displayName in build()
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to update name: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
   }
 
   Future<void> _chooseDistanceUnit() async {
@@ -132,13 +213,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        displayName,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              displayName,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            icon: _isSaving
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      color: Colors.white70,
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(Icons.edit,
+                                    color: Colors.white70, size: 18),
+                            tooltip: 'Edit display name',
+                            onPressed: _isSaving ? null : _editDisplayName,
+                            visualDensity: VisualDensity.compact,
+                            padding: EdgeInsets.zero,
+                          ),
+                        ],
                       ),
                       if (email.isNotEmpty)
                         Text(
