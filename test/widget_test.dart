@@ -84,12 +84,16 @@ void main() {
       expect(doc.data()?['displayName'], equals('test'));
     });
 
-    test('signUp writes email to Firestore', () async {
+    test('signUp does not write email to Firestore (privacy)', () async {
+      // Email must NOT be stored in the public-readable users document.
+      // It is only accessible via Firebase Auth to prevent other authenticated
+      // users from reading it through friend/leaderboard name lookups.
       await repo.signUp(email: 'alice@example.com', password: 'password');
       final uid = mockAuth.currentUser?.uid;
       expect(uid, isNotNull);
       final doc = await fakeFirestore.collection('users').doc(uid).get();
-      expect(doc.data()?['email'], equals('alice@example.com'));
+      expect(doc.data()?.containsKey('email'), isFalse,
+          reason: 'email must not be stored in the public users document');
     });
 
     test('getDisplayName returns stored name', () async {
