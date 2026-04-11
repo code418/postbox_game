@@ -30,15 +30,10 @@ class UserRepository {
         // First sign-in: seed the profile. Subsequent sign-ins must not
         // overwrite a custom display name the user may have set.
         await _saveUserProfile(
-            user.uid, user.displayName ?? user.email ?? '', user.email ?? '');
-      } else {
-        // Returning user: keep existing displayName, but update email in case
-        // it changed on the Google account.
-        await _firestore.collection('users').doc(user.uid).set(
-          {'email': user.email ?? ''},
-          SetOptions(merge: true),
-        );
+            user.uid, user.displayName ?? user.email ?? '');
       }
+      // Returning user: no Firestore update needed — displayName is managed
+      // via updateDisplayName and email lives in Firebase Auth only.
     }
     return user;
   }
@@ -64,15 +59,17 @@ class UserRepository {
           ? prefix
           : 'Player_${user.uid.substring(0, 6)}';
       await user.updateDisplayName(name);
-      await _saveUserProfile(user.uid, name, email);
+      await _saveUserProfile(user.uid, name);
     }
     return credential;
   }
 
-  /// Persists uid + displayName + email to Firestore so friends can resolve names.
-  Future<void> _saveUserProfile(String uid, String displayName, String email) async {
+  /// Persists displayName to Firestore so friends can resolve names.
+  /// Email is intentionally not stored here — it is only accessible via
+  /// Firebase Auth to avoid exposing it to other authenticated users.
+  Future<void> _saveUserProfile(String uid, String displayName) async {
     await _firestore.collection('users').doc(uid).set(
-      {'displayName': displayName, 'email': email},
+      {'displayName': displayName},
       SetOptions(merge: true),
     );
   }

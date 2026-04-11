@@ -30,8 +30,11 @@ export const onUserCreated = functions.auth.user().onCreate(async (user) => {
       : `Player_${user.uid.slice(0, 6)}`);
   const displayName = sanitiseName(raw, user.uid);
 
+  // Email is intentionally not stored in the public-readable users document;
+  // it is only accessible via Firebase Auth to prevent other authenticated
+  // users from reading it through friend/leaderboard name lookups.
   await admin.firestore().collection("users").doc(user.uid).set(
-    { displayName, email: user.email ?? null, createdAt: admin.firestore.Timestamp.now() },
+    { displayName, createdAt: admin.firestore.Timestamp.now() },
     { merge: true }
   );
 });
