@@ -428,7 +428,10 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
               child: OutlinedButton.icon(
-                onPressed: _startSearch,
+                // Disable rescan while a claim is in flight: the in-flight
+                // _claimPostbox call still holds setState callbacks that would
+                // overwrite whatever state _startSearch transitions to.
+                onPressed: _isClaiming ? null : _startSearch,
                 icon: const Icon(Icons.refresh),
                 label: const Text('Rescan location'),
                 style: OutlinedButton.styleFrom(
