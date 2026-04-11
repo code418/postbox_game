@@ -35,26 +35,22 @@ export async function updateUserLeaderboards(
   const weekStart = getWeekStart(today);
   const monthStart = getMonthStart(today);
 
-  const periods: Array<{ name: string; startDate: string }> = [
-    { name: "daily", startDate: today },
+  const periods: Array<{ name: string; startDate: string; exact?: boolean }> = [
+    { name: "daily", startDate: today, exact: true },
     { name: "weekly", startDate: weekStart },
     { name: "monthly", startDate: monthStart },
   ];
 
   await Promise.all(
-    periods.map(async ({ name, startDate }) => {
-      // Sum points from claims for this user in the period
-      const claimsSnap = await db
-        .collection("claims")
-        .where("userid", "==", uid)
-        .where("dailyDate", ">=", startDate)
-        .get();
+    periods.map(async ({ name, startDate, exact }) => {
+      // Sum points from claims for this user in the period.
+      // Daily uses an equality query; weekly/monthly use a range query.
+      const claimsSnap = await (exact
+        ? db.collection("claims").where("userid", "==", uid).where("dailyDate", "==", startDate)
+        : db.collection("claims").where("userid", "==", uid).where("dailyDate", ">=", startDate)
+      ).get();
 
-      // For daily we also need an upper bound to avoid bleeding into future days
-      const claimsForPeriod =
-        name === "daily"
-          ? claimsSnap.docs.filter((d) => d.data().dailyDate === today)
-          : claimsSnap.docs;
+      const claimsForPeriod = claimsSnap.docs;
 
       const userPoints = claimsForPeriod.reduce(
         (sum, d) => sum + ((d.data().points as number) ?? 0),

@@ -6,7 +6,7 @@ import 'package:postbox_game/theme.dart';
 /// Leaderboard with Daily, Weekly, Monthly tabs.
 /// Reads from Firestore leaderboards/{period}; backend can aggregate via Cloud Function.
 class LeaderboardScreen extends StatelessWidget {
-  const LeaderboardScreen({Key? key}) : super(key: key);
+  const LeaderboardScreen({super.key});
 
   static const List<String> _periods = ['daily', 'weekly', 'monthly'];
 
@@ -37,21 +37,32 @@ class LeaderboardScreen extends StatelessWidget {
   }
 }
 
-class _LeaderboardList extends StatelessWidget {
+class _LeaderboardList extends StatefulWidget {
   final String period;
 
-  const _LeaderboardList({Key? key, required this.period}) : super(key: key);
+  const _LeaderboardList({required this.period});
+
+  @override
+  State<_LeaderboardList> createState() => _LeaderboardListState();
+}
+
+class _LeaderboardListState extends State<_LeaderboardList> {
+  late final Stream<DocumentSnapshot<Map<String, dynamic>>> _stream;
+  final String? _currentUid = FirebaseAuth.instance.currentUser?.uid;
+
+  @override
+  void initState() {
+    super.initState();
+    _stream = FirebaseFirestore.instance
+        .collection('leaderboards')
+        .doc(widget.period)
+        .snapshots();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final currentUid = FirebaseAuth.instance.currentUser?.uid;
-    final ref = FirebaseFirestore.instance
-        .collection('leaderboards')
-        .doc(period)
-        .snapshots();
-
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: ref,
+      stream: _stream,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return Center(
@@ -111,7 +122,7 @@ class _LeaderboardList extends StatelessWidget {
               final entryUid = e['uid'] as String?;
               final points =
                   (e['points'] is num) ? (e['points'] as num).toInt() : 0;
-              final isCurrentUser = entryUid != null && entryUid == currentUid;
+              final isCurrentUser = entryUid != null && entryUid == _currentUid;
 
               return Card(
                 color: isCurrentUser
