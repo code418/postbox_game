@@ -98,3 +98,8 @@ yarn-debug.log*
 yarn-error.log*
 .yarn-integrity
 dist/
+# Flutter DevTools config (auto-generated, not project config)
+devtools_options.yaml
+
+# Accidental Overpass API query downloads
+interpreter?data=*
