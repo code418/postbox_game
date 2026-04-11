@@ -10,7 +10,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 /// - Head-bob (sine wave) while [isTalking]
 /// - Mouth open/close while [isTalking] (only at size >= 60)
 /// - Periodic blink every 3–6 seconds
-/// - Gold star-eyes when [showStarEyes]
+/// - Gold spinning star-eyes when [showStarEyes]
 class PostmanJamesSvg extends StatefulWidget {
   const PostmanJamesSvg({
     super.key,
@@ -32,6 +32,7 @@ class _PostmanJamesSvgState extends State<PostmanJamesSvg>
   late final AnimationController _bobController;
   late final AnimationController _mouthController;
   late final AnimationController _blinkController;
+  late final AnimationController _starController;
   late final Animation<double> _mouthAnim;
   Timer? _blinkTimer;
 
@@ -58,7 +59,13 @@ class _PostmanJamesSvgState extends State<PostmanJamesSvg>
       duration: const Duration(milliseconds: 120),
     );
 
+    _starController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1800),
+    );
+
     if (widget.isTalking) _startTalkingAnimations();
+    if (widget.showStarEyes) _starController.repeat();
     _scheduleBlink();
   }
 
@@ -81,6 +88,14 @@ class _PostmanJamesSvgState extends State<PostmanJamesSvg>
       await _blinkController.forward();
       if (!mounted) return;
       await _blinkController.reverse();
+      // Occasionally double-blink.
+      if (mounted && math.Random().nextDouble() < 0.2) {
+        await Future<void>.delayed(const Duration(milliseconds: 80));
+        if (!mounted) return;
+        await _blinkController.forward();
+        if (!mounted) return;
+        await _blinkController.reverse();
+      }
       if (mounted) _scheduleBlink();
     });
   }
@@ -93,6 +108,12 @@ class _PostmanJamesSvgState extends State<PostmanJamesSvg>
     } else if (!widget.isTalking && old.isTalking) {
       _stopTalkingAnimations();
     }
+    if (widget.showStarEyes && !old.showStarEyes) {
+      _starController.repeat();
+    } else if (!widget.showStarEyes && old.showStarEyes) {
+      _starController.stop();
+      _starController.value = 0;
+    }
   }
 
   @override
@@ -101,6 +122,7 @@ class _PostmanJamesSvgState extends State<PostmanJamesSvg>
     _bobController.dispose();
     _mouthController.dispose();
     _blinkController.dispose();
+    _starController.dispose();
     super.dispose();
   }
 
@@ -142,9 +164,18 @@ class _PostmanJamesSvgState extends State<PostmanJamesSvg>
                   ),
                 ),
                 if (widget.showStarEyes)
-                  CustomPaint(
-                    size: Size(widget.size, widget.size),
-                    painter: const _StarEyesOverlayPainter(),
+                  AnimatedBuilder(
+                    animation: _starController,
+                    builder: (_, __) => CustomPaint(
+                      size: Size(widget.size, widget.size),
+                      painter: _StarEyesOverlayPainter(
+                        rotation: _starController.value * 2 * math.pi,
+                        pulse: 0.85 +
+                            0.15 *
+                                math.sin(
+                                    _starController.value * 2 * math.pi * 2),
+                      ),
+                    ),
                   ),
               ],
             ),
@@ -159,16 +190,20 @@ class _PostmanJamesSvgState extends State<PostmanJamesSvg>
 
 /// Hides the static SVG smile and draws an animated open/close mouth.
 ///
-/// Proportional coordinates are based on SVG path analysis (viewBox 10 15 192 243).
-/// Tune [_cx], [_cy], [_skinR] after first visual run if needed.
+/// Proportional coordinates are derived from SVG path analysis
+/// (viewBox 10 15 192 243, layer1 matrix(1.0819613,0,0,1.0819613,-6.6485319,-2.8901256)).
+/// Mouth path8 spans SVG-local x≈63–97, y≈163–177 → normalised cx≈0.37, cy≈0.68.
 class _MouthOverlayPainter extends CustomPainter {
   const _MouthOverlayPainter({required this.openFraction});
   final double openFraction;
 
-  static const double _cx = 0.36;
-  static const double _cy = 0.64;
-  static const double _halfW = 0.085;
-  static const double _skinR = 0.09;
+  // SVG skin fill is #ffaaaa.
+  static const Color _skinColour = Color(0xFFFFAAAA);
+
+  static const double _cx = 0.37;
+  static const double _cy = 0.68;
+  static const double _halfW = 0.095;
+  static const double _skinR = 0.095;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -176,9 +211,16 @@ class _MouthOverlayPainter extends CustomPainter {
     final cy = size.height * _cy;
     final hw = size.width * _halfW;
 
-    // Erase the SVG's static smile with a skin-coloured circle.
-    final eraser = Paint()..color = const Color(0xFFFFD5B0);
-    canvas.drawCircle(Offset(cx, cy), size.width * _skinR, eraser);
+    // Erase the SVG's static smile with a skin-coloured oval.
+    final eraser = Paint()..color = _skinColour;
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: Offset(cx, cy),
+        width: size.width * _skinR * 2.2,
+        height: size.height * _skinR * 0.7,
+      ),
+      eraser,
+    );
 
     final openH = size.height * 0.03 * openFraction;
     if (openH < 0.5) return;
@@ -209,27 +251,39 @@ class _MouthOverlayPainter extends CustomPainter {
 }
 
 /// Paints skin-coloured lids over both eyes to simulate a blink.
+///
+/// Eye centres derived from SVG eyeball bounds:
+/// - Left eye (path3): SVG-local x≈62–88, y≈80–116 → normalised (0.33, 0.36)
+/// - Right eye (path4): SVG-local x≈97–136, y≈83–118 → normalised (0.57, 0.37)
 class _BlinkOverlayPainter extends CustomPainter {
   const _BlinkOverlayPainter({required this.closeFraction});
   final double closeFraction;
 
+  // SVG skin fill is #ffaaaa.
+  static const Color _skinColour = Color(0xFFFFAAAA);
+
   static const List<Offset> _eyeCentres = [
-    Offset(0.33, 0.34), // left eye
-    Offset(0.56, 0.34), // right eye
+    Offset(0.33, 0.36), // left eye
+    Offset(0.57, 0.37), // right eye
   ];
-  static const double _eyeHalfW = 0.11;
-  static const double _eyeHalfH = 0.07;
+  static const double _eyeHalfW = 0.115;
+  static const double _eyeHalfH = 0.085;
 
   @override
   void paint(Canvas canvas, Size size) {
     if (closeFraction < 0.05) return;
-    final paint = Paint()..color = const Color(0xFFFFD5B0);
+    final paint = Paint()..color = _skinColour;
     for (final centre in _eyeCentres) {
+      final cx = size.width * centre.dx;
+      final eyeTop = size.height * (centre.dy - _eyeHalfH);
+      final lidH = size.height * _eyeHalfH * 2 * closeFraction;
+      // Lid descends from the top of the eye downward.
       canvas.drawOval(
-        Rect.fromCenter(
-          center: Offset(size.width * centre.dx, size.height * centre.dy),
-          width: size.width * _eyeHalfW * 2,
-          height: size.height * _eyeHalfH * 2 * closeFraction,
+        Rect.fromLTRB(
+          cx - size.width * _eyeHalfW,
+          eyeTop,
+          cx + size.width * _eyeHalfW,
+          eyeTop + lidH,
         ),
         paint,
       );
@@ -241,13 +295,21 @@ class _BlinkOverlayPainter extends CustomPainter {
       old.closeFraction != closeFraction;
 }
 
-/// Draws gold 4-point star overlays over both eyes.
+/// Draws animated gold 4-point star overlays over both eyes.
+///
+/// Stars rotate and pulse at 1 revolution per 1.8 seconds.
 class _StarEyesOverlayPainter extends CustomPainter {
-  const _StarEyesOverlayPainter();
+  const _StarEyesOverlayPainter({
+    required this.rotation,
+    required this.pulse,
+  });
+
+  final double rotation;
+  final double pulse;
 
   static const List<Offset> _eyeCentres = [
-    Offset(0.33, 0.34),
-    Offset(0.56, 0.34),
+    Offset(0.33, 0.36),
+    Offset(0.57, 0.37),
   ];
   static const double _starR = 0.065;
 
@@ -256,21 +318,21 @@ class _StarEyesOverlayPainter extends CustomPainter {
     final eraser = Paint()..color = Colors.white;
     final gold = Paint()
       ..color = const Color(0xFFFFB400)
-      ..strokeWidth = size.width * 0.012
+      ..strokeWidth = size.width * 0.013
       ..strokeCap = StrokeCap.round;
     final goldFill = Paint()..color = const Color(0xFFFFB400);
 
     for (final centre in _eyeCentres) {
       final cx = size.width * centre.dx;
       final cy = size.height * centre.dy;
-      final r = size.width * _starR;
+      final r = size.width * _starR * pulse;
 
       // Erase iris.
-      canvas.drawCircle(Offset(cx, cy), r, eraser);
+      canvas.drawCircle(Offset(cx, cy), r * 1.05, eraser);
 
-      // 4-point star.
+      // 4-point star, rotated.
       for (int i = 0; i < 4; i++) {
-        final angle = math.pi / 4 * i;
+        final angle = rotation + math.pi / 4 * i;
         canvas.drawLine(
           Offset(cx + math.cos(angle) * r, cy + math.sin(angle) * r),
           Offset(cx - math.cos(angle) * r, cy - math.sin(angle) * r),
@@ -284,5 +346,6 @@ class _StarEyesOverlayPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_StarEyesOverlayPainter _) => false;
+  bool shouldRepaint(_StarEyesOverlayPainter old) =>
+      old.rotation != rotation || old.pulse != pulse;
 }
