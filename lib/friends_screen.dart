@@ -6,7 +6,7 @@ import 'package:postbox_game/theme.dart';
 
 /// Friends list and add-friend by UID.
 class FriendsScreen extends StatefulWidget {
-  const FriendsScreen({Key? key}) : super(key: key);
+  const FriendsScreen({super.key});
 
   @override
   State<FriendsScreen> createState() => _FriendsScreenState();
@@ -16,6 +16,9 @@ class _FriendsScreenState extends State<FriendsScreen> {
   final _formKey = GlobalKey<FormState>();
   final _uidController = TextEditingController();
   final _firestore = FirebaseFirestore.instance;
+
+  // Cache name lookups so FutureBuilder doesn't re-fetch on every rebuild.
+  final Map<String, Future<DocumentSnapshot<Map<String, dynamic>>>> _nameCache = {};
 
   String? get _currentUid => FirebaseAuth.instance.currentUser?.uid;
 
@@ -47,6 +50,8 @@ class _FriendsScreenState extends State<FriendsScreen> {
       await _firestore.collection('users').doc(uid).set({
         'friends': FieldValue.arrayUnion([friendUid]),
       }, SetOptions(merge: true));
+      // Bust the name cache so a re-add shows fresh data.
+      _nameCache.remove(friendUid);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Friend added')),
@@ -226,7 +231,8 @@ class _FriendsScreenState extends State<FriendsScreen> {
                 itemBuilder: (context, index) {
                   final friendUid = list[index] as String;
                   return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                    future: _firestore.collection('users').doc(friendUid).get(),
+                    future: _nameCache[friendUid] ??=
+                        _firestore.collection('users').doc(friendUid).get(),
                     builder: (context, nameSnap) {
                       final displayName = nameSnap.data?.data()?['displayName'] as String?;
                       final label = displayName ?? friendUid;
