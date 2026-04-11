@@ -42,7 +42,8 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
   late AnimationController _successController;
   late Animation<double> _successScale;
   late ConfettiController _confettiController;
-
+  // Cached so StreamBuilder doesn't re-subscribe on every rebuild.
+  late final Stream<int?> _streakStream = _streakService.streakStream();
 
   @override
   void initState() {
@@ -714,7 +715,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
                 ),
               ),
             StreamBuilder<int?>(
-              stream: _streakService.streakStream(),
+              stream: _streakStream,
               builder: (context, snap) {
                 final streak = snap.data ?? 0;
                 if (streak < 2) return const SizedBox.shrink();
