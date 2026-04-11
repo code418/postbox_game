@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:postbox_game/validators.dart';
@@ -82,19 +83,18 @@ class UserRepository {
     return doc.data()?['displayName'] as String?;
   }
 
-  /// Updates the current user's display name in both Firebase Auth and Firestore.
+  /// Updates the current user's display name via a server-side Cloud Function
+  /// that enforces the profanity filter and updates both Firebase Auth and
+  /// Firestore atomically. After success, reloads the Auth profile so
+  /// [FirebaseAuth.currentUser.displayName] reflects the change immediately.
   Future<void> updateDisplayName(String newName) async {
     final user = _firebaseAuth.currentUser;
     if (user == null) return;
-    // Use set+merge rather than update() so this never throws 'not-found' if
-    // the users/{uid} document was not yet created by the onUserCreated trigger.
-    await Future.wait([
-      user.updateDisplayName(newName),
-      _firestore.collection('users').doc(user.uid).set(
-        {'displayName': newName},
-        SetOptions(merge: true),
-      ),
-    ]);
+    final callable = FirebaseFunctions.instance.httpsCallable('updateDisplayName');
+    await callable.call({'name': newName});
+    // Reload so the in-memory Auth profile picks up the name set by the
+    // Admin SDK on the server.
+    await user.reload();
   }
 
   Future<void> signOut() async {
