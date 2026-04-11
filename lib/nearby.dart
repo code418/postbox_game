@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_compass/flutter_compass.dart';
+import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:postbox_game/app_preferences.dart';
 import 'package:postbox_game/james_controller.dart';
@@ -281,6 +282,7 @@ class NearbyState extends State<Nearby> {
     return RefreshIndicator(
       color: postalRed,
       onRefresh: _startSearch,
+      child: AnimationLimiter(
       child: ListView(
       padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
       children: [
@@ -395,7 +397,17 @@ class NearbyState extends State<Nearby> {
                   ),
             ),
           ),
-          ...monarchEntries.map((e) => _monarchCard(context, e.key, e.value)),
+          ...monarchEntries.asMap().entries.map((entry) =>
+            AnimationConfiguration.staggeredList(
+              position: entry.key,
+              duration: const Duration(milliseconds: 375),
+              child: SlideAnimation(
+                verticalOffset: 50,
+                child: FadeInAnimation(
+                  child: _monarchCard(context, entry.value.key, entry.value.value),
+                ),
+              ),
+            )),
         ],
 
         // Compasses
@@ -419,6 +431,7 @@ class NearbyState extends State<Nearby> {
 
       ],
     ),
+      ),
     );
   }
 

@@ -72,7 +72,16 @@ export const startScoring = functions.https.onCall(async (request) => {
     const displayName =
       (userDoc.data()?.displayName as string | undefined) ||
       `Player_${userid.slice(0, 6)}`;
-    await updateUserLeaderboards(userid, displayName, todayLondon, database);
+    // Retry leaderboard update once on transient Firestore errors.
+    try {
+      await updateUserLeaderboards(userid, displayName, todayLondon, database);
+    } catch (err) {
+      try {
+        await updateUserLeaderboards(userid, displayName, todayLondon, database);
+      } catch (retryErr) {
+        console.error("updateUserLeaderboards failed after retry:", retryErr);
+      }
+    }
   }
 
   return {

@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:math' show pi;
 
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:confetti/confetti.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -35,6 +37,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
 
   late AnimationController _successController;
   late Animation<double> _successScale;
+  late ConfettiController _confettiController;
 
   static const Map<String, String> _monarchLabels = {
     'EIIR': 'Elizabeth II (1952–2022)',
@@ -62,6 +65,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
       parent: _successController,
       curve: Curves.elasticOut,
     );
+    _confettiController = ConfettiController(duration: const Duration(seconds: 3));
     AppPreferences.getDistanceUnit().then((unit) {
       if (mounted) setState(() => _distanceUnit = unit);
     });
@@ -70,6 +74,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
   @override
   void dispose() {
     _successController.dispose();
+    _confettiController.dispose();
     super.dispose();
   }
 
@@ -147,6 +152,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
         currentStage = ClaimStage.claimed;
       });
       _successController.forward(from: 0);
+      _confettiController.play();
       if (mounted) {
         final msg = _pointsEarned >= 50
             ? "Oh ho — a rare one! That's a find. Well done."
@@ -624,7 +630,24 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
   }
 
   Widget _buildClaimed(BuildContext context) {
-    return Center(
+    return Stack(
+      children: [
+        Align(
+          alignment: Alignment.topCenter,
+          child: ConfettiWidget(
+            confettiController: _confettiController,
+            blastDirection: pi / 2,
+            blastDirectionality: BlastDirectionality.explosive,
+            particleDrag: 0.05,
+            emissionFrequency: 0.07,
+            numberOfParticles: 20,
+            maxBlastForce: 20,
+            minBlastForce: 8,
+            gravity: 0.3,
+            colors: const [postalRed, postalGold, Colors.white, royalNavy],
+          ),
+        ),
+        Center(
       child: Padding(
         padding: const EdgeInsets.all(AppSpacing.xl),
         child: Column(
@@ -673,6 +696,8 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
           ],
         ),
       ),
+        ),
+      ],
     );
   }
 }
