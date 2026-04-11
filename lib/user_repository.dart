@@ -86,10 +86,13 @@ class UserRepository {
   Future<void> updateDisplayName(String newName) async {
     final user = _firebaseAuth.currentUser;
     if (user == null) return;
+    // Use set+merge rather than update() so this never throws 'not-found' if
+    // the users/{uid} document was not yet created by the onUserCreated trigger.
     await Future.wait([
       user.updateDisplayName(newName),
-      _firestore.collection('users').doc(user.uid).update(
+      _firestore.collection('users').doc(user.uid).set(
         {'displayName': newName},
+        SetOptions(merge: true),
       ),
     ]);
   }
