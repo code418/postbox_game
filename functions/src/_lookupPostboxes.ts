@@ -35,7 +35,7 @@ export async function lookupPostboxes(lat: number, lng: number, meters: number):
     compass: {},
   };
 
-  if (meters == null || lat == null || lng == null) return result;
+  if (meters === null || meters === undefined || lat === null || lat === undefined || lng === null || lng === undefined) return result;
 
   const radius = meters / 1000;
   const precision = setPrecision(radius);
