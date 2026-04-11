@@ -115,7 +115,10 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
       });
     } on FirebaseFunctionsException catch (e) {
       debugPrint('Firebase functions error: ${e.code} ${e.message}');
-      _showErrorSnackBar('Could not scan for postboxes. Please try again.');
+      final isOffline = e.code == 'unavailable';
+      _showErrorSnackBar(isOffline
+          ? 'No internet connection. Please try again.'
+          : 'Could not scan for postboxes. Please try again.');
       if (mounted) {
         JamesController.of(context).show(JamesMessages.claimErrorGeneral.resolve());
       }
@@ -190,7 +193,10 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
       }
     } on FirebaseFunctionsException catch (e) {
       debugPrint('Claim error: ${e.code} ${e.message}');
-      _showErrorSnackBar(e.message ?? 'Could not claim postbox.');
+      final snackMsg = e.code == 'unavailable'
+          ? 'No internet connection. Please try again.'
+          : (e.message ?? 'Could not claim postbox.');
+      _showErrorSnackBar(snackMsg);
       setState(() => _isClaiming = false);
       if (mounted) {
         final msg = (e.code == 'already-claimed')

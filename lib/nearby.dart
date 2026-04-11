@@ -134,10 +134,13 @@ class NearbyState extends State<Nearby> {
     } on FirebaseFunctionsException catch (e) {
       debugPrint('Firebase functions error: ${e.code} ${e.message}');
       if (mounted) {
+        final isOffline = e.code == 'unavailable';
         JamesController.of(context).show(JamesMessages.nearbyErrorGeneral.resolve());
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text('Could not fetch postboxes. Please try again.'),
+            content: Text(isOffline
+                ? 'No internet connection. Please try again.'
+                : 'Could not fetch postboxes. Please try again.'),
             backgroundColor: Colors.red.shade700,
           ),
         );
