@@ -73,9 +73,9 @@ class _FriendsScreenState extends State<FriendsScreen> {
         }
         return;
       }
-      await _firestore.collection('users').doc(uid).set({
+      await _firestore.collection('users').doc(uid).update({
         'friends': FieldValue.arrayUnion([friendUid]),
-      }, SetOptions(merge: true));
+      });
       // Bust the name cache so a re-add shows fresh data.
       _nameCache.remove(friendUid);
       if (mounted) {
