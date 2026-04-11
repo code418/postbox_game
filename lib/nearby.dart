@@ -99,8 +99,10 @@ class NearbyState extends State<Nearby> {
   }
 
   Future<void> _startSearch() async {
-    _distanceUnit = await AppPreferences.getDistanceUnit();
+    // Set searching state synchronously before any awaits so rapid
+    // double-taps cannot fire two concurrent Firebase requests.
     setState(() => currentStage = NearbyStage.searching);
+    _distanceUnit = await AppPreferences.getDistanceUnit();
     try {
       final position = await _getPosition();
       final result = await callable.call(<String, dynamic>{
