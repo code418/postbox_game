@@ -19,9 +19,16 @@ class Validators {
   // Extend this list as needed; the check is intentionally not exhaustive —
   // it catches obvious cases without being an arms race.
   static const _blockedWords = <String>[
+    // General English profanity
     'fuck', 'shit', 'cunt', 'bitch', 'bastard', 'asshole', 'arsehole',
     'twat', 'prick', 'cock', 'dick', 'pussy', 'wank', 'wanker',
+    // British swear words & insults
+    'bollocks', 'bellend', 'tosser', 'shite', 'knobhead', 'knobend',
+    'gobshite', 'minge', 'slag', 'slapper', 'slut', 'whore',
+    'bugger', 'arse', 'pillock', 'plonker', 'numpty', 'muppet',
+    // Slurs
     'nigger', 'nigga', 'chink', 'spic', 'kike', 'faggot', 'retard',
+    'paki', 'spaz', 'mong',
   ];
 
   static bool isValidDisplayName(String name) {
