@@ -44,6 +44,6 @@ class AuthenticationBloc
     Emitter<AuthenticationState?> emit,
   ) async {
     emit(Unauthenticated());
-    _userRepository.signOut();
+    await _userRepository.signOut();
   }
 }

@@ -1,0 +1,40 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── postbox collection ──────────────────────────────────────────────────
+    // Authenticated users may read postbox data. Only server-side (Cloud
+    // Functions admin SDK) may write postbox documents.
+    match /postbox/{postboxId} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
+    // ── claims collection ───────────────────────────────────────────────────
+    // Claims are written exclusively by Cloud Functions (admin SDK).
+    // Authenticated users may read their own claims only.
+    match /claims/{claimId} {
+      allow read: if request.auth != null && resource.data.userid == request.auth.uid;
+      allow write: if false;
+    }
+
+    // ── users collection ────────────────────────────────────────────────────
+    // Users may read/write their own document.
+    // For friend lookups, displayName on other users' docs is readable by
+    // any authenticated user (needed to resolve friend names in the UI).
+    match /users/{uid} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // ── leaderboards collection ─────────────────────────────────────────────
+    // Leaderboard documents are written by Cloud Functions only.
+    // Authenticated users may read them.
+    match /leaderboards/{period} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
+  }
+}

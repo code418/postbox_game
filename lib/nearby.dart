@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_compass/flutter_compass.dart';
@@ -51,6 +53,7 @@ class NearbyState extends State<Nearby> {
   int n = 0;
 
   double? _direction;
+  StreamSubscription<CompassEvent>? _compassSubscription;
   NearbyStage currentStage = NearbyStage.initial;
 
   static const Map<String, String> _monarchLabels = {
@@ -81,12 +84,18 @@ class NearbyState extends State<Nearby> {
   @override
   void initState() {
     super.initState();
-    FlutterCompass.events?.listen((CompassEvent event) {
+    _compassSubscription = FlutterCompass.events?.listen((CompassEvent event) {
       if (mounted) setState(() => _direction = event.heading);
     });
     AppPreferences.getDistanceUnit().then((unit) {
       if (mounted) setState(() => _distanceUnit = unit);
     });
+  }
+
+  @override
+  void dispose() {
+    _compassSubscription?.cancel();
+    super.dispose();
   }
 
   final HttpsCallable callable =

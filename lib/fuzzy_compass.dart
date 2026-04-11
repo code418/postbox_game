@@ -1,6 +1,7 @@
 import 'dart:math';
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:postbox_game/theme.dart';
 
@@ -190,5 +191,5 @@ class _FuzzyCompassPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _FuzzyCompassPainter old) =>
-      old.sectors != sectors;
+      !listEquals(old.sectors, sectors);
 }

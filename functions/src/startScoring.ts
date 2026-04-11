@@ -23,16 +23,24 @@ export const startScoring = functions.https.onCall(async (request) => {
     throw new functions.https.HttpsError("invalid-argument", "lat and lng are required");
   }
 
-  const results = await lookupPostboxes(lat, lng, 20);
+  const results = await lookupPostboxes(lat, lng, 30);
 
   if (results.counts.total === 0) {
     return { found: false, claimed: 0, points: 0, allClaimedToday: false };
+  }
+
+  // Fast-path: if every postbox in range was already claimed today, skip transactions.
+  if (results.counts.claimedToday === results.counts.total) {
+    return { found: true, claimed: 0, points: 0, allClaimedToday: true };
   }
 
   const todayLondon = getTodayLondon();
 
   const claimResults = await Promise.all(
     Object.entries(results.postboxes).map(([key, postbox]) => {
+      // Skip transaction if lookup already confirmed it's claimed today.
+      if (postbox.claimedToday) return Promise.resolve(null);
+
       const postboxRef = database.collection('postbox').doc(key);
       const claimRef   = database.collection('claims').doc();
       const pts = postbox.monarch !== undefined ? getPoints(postbox.monarch) : 2;
@@ -41,7 +49,7 @@ export const startScoring = functions.https.onCall(async (request) => {
         const snap = await tx.get(postboxRef);
         if (snap.data()?.dailyClaim?.date === todayLondon) return null;
 
-        tx.update(postboxRef, { dailyClaim: { date: todayLondon, by: userid } });
+        tx.set(postboxRef, { dailyClaim: { date: todayLondon, by: userid } }, { merge: true });
         const claimData: Record<string, unknown> = {
           userid,
           timestamp: admin.firestore.Timestamp.now(),

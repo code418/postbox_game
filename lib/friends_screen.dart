@@ -27,8 +27,23 @@ class _FriendsScreenState extends State<FriendsScreen> {
 
   Future<void> _addFriendByUid(String friendUid) async {
     final uid = _currentUid;
-    if (uid == null || uid == friendUid) return;
+    if (uid == null) return;
+    if (uid == friendUid) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('You can\'t add yourself')),
+      );
+      return;
+    }
     try {
+      final userDoc = await _firestore.collection('users').doc(friendUid).get();
+      if (!userDoc.exists) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('No player found with that UID')),
+          );
+        }
+        return;
+      }
       await _firestore.collection('users').doc(uid).set({
         'friends': FieldValue.arrayUnion([friendUid]),
       }, SetOptions(merge: true));

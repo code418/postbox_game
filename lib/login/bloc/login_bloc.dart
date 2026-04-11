@@ -42,7 +42,12 @@ class LoginBloc extends Bloc<LoginEvent, LoginState> {
   ) async {
     emit(LoginState.loading());
     try {
-      await _userRepository.signInWithGoogle();
+      final user = await _userRepository.signInWithGoogle();
+      if (user == null) {
+        // User cancelled the Google sign-in dialog
+        emit(LoginState.empty());
+        return;
+      }
       emit(LoginState.success());
     } on FirebaseAuthException catch (e) {
       emit(LoginState.failure(message: _mapFirebaseError(e.code)));

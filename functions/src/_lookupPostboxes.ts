@@ -35,7 +35,7 @@ export async function lookupPostboxes(lat: number, lng: number, meters: number):
     compass: {},
   };
 
-  if (!meters || !lat || !lng) return result;
+  if (meters == null || lat == null || lng == null) return result;
 
   const radius = meters / 1000;
   const precision = setPrecision(radius);
@@ -56,9 +56,12 @@ export async function lookupPostboxes(lat: number, lng: number, meters: number):
   const snapshots = await Promise.all(queries);
   const from = { latitude: lat, longitude: lng };
   const todayLondon = getTodayLondon();
+  const seen = new Set<string>();
 
   for (const snapshot of snapshots) {
     for (const doc of snapshot.docs) {
+      if (seen.has(doc.id)) continue;
+      seen.add(doc.id);
       const data = doc.data() as PostboxDoc;
       const pos = getLatLng(data.geopoint);
       if (!pos) continue;
@@ -73,7 +76,8 @@ export async function lookupPostboxes(lat: number, lng: number, meters: number):
         result.points.min += pts;
         result.counts[data.monarch] = (result.counts[data.monarch] ?? 0) + 1;
       } else {
-        result.points.max += 12;
+        // Unknown monarch: worth 2 pts when claimed (matches startScoring default)
+        result.points.max += 2;
         result.points.min += 2;
       }
 

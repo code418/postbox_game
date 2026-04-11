@@ -14,8 +14,9 @@ class UserRepository {
 
   Future<User?> signInWithGoogle() async {
     final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
+    if (googleUser == null) return null; // user cancelled
     final GoogleSignInAuthentication googleAuth =
-        await googleUser!.authentication;
+        await googleUser.authentication;
     final AuthCredential credential = GoogleAuthProvider.credential(
       accessToken: googleAuth.accessToken,
       idToken: googleAuth.idToken,
@@ -44,6 +45,7 @@ class UserRepository {
     if (user != null) {
       // Use the part of the email before @ as the initial display name.
       final name = email.split('@').first;
+      await user.updateDisplayName(name);
       await _saveUserProfile(user.uid, name, email);
     }
     return credential;
@@ -63,8 +65,8 @@ class UserRepository {
     return doc.data()?['displayName'] as String?;
   }
 
-  Future<Future<List<void>>> signOut() async {
-    return Future.wait([
+  Future<void> signOut() async {
+    await Future.wait([
       _firebaseAuth.signOut(),
       _googleSignIn.signOut(),
     ]);
@@ -76,6 +78,6 @@ class UserRepository {
   }
 
   Future<String?> getUser() async {
-    return _firebaseAuth.currentUser!.email;
+    return _firebaseAuth.currentUser?.email;
   }
 }

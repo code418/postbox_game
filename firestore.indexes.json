@@ -6,6 +6,14 @@
       "fields": [
         { "fieldPath": "geohash", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "claims",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userid", "order": "ASCENDING" },
+        { "fieldPath": "dailyDate", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []
