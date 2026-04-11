@@ -7,6 +7,10 @@ import { updateUserLeaderboards } from "./_leaderboardUtils";
 
 const database = admin.firestore();
 
+/** Radius (metres) within which a user must stand to claim a postbox.
+ *  Must match AppPreferences.claimRadiusMeters in lib/app_preferences.dart. */
+const CLAIM_RADIUS_METERS = 30;
+
 interface StartScoringCallData {
   lat?: number;
   lng?: number;
@@ -29,7 +33,7 @@ export const startScoring = functions.https.onCall(async (request) => {
     throw new functions.https.HttpsError("invalid-argument", "lng must be a finite number between -180 and 180");
   }
 
-  const results = await lookupPostboxes(lat, lng, 30);
+  const results = await lookupPostboxes(lat, lng, CLAIM_RADIUS_METERS);
 
   if (results.counts.total === 0) {
     return { found: false, claimed: 0, points: 0, allClaimedToday: false };
