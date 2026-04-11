@@ -55,27 +55,29 @@ class NearbyState extends State<Nearby> {
   int nnw = 0;
   int n = 0;
 
-  double? _direction;
+  // ValueNotifier so compass heading changes only rebuild FuzzyCompass, not the
+  // entire results tree. Previously a setState here rebuilt all staggered cards.
+  final ValueNotifier<double?> _headingNotifier = ValueNotifier(null);
   StreamSubscription<CompassEvent>? _compassSubscription;
   NearbyStage currentStage = NearbyStage.initial;
 
-  // Throttle compass setState calls: only rebuild when heading changes by ≥5°.
-  // IndexedStack keeps Nearby mounted even when offstage, so without this the
-  // magnetometer would trigger ~60 rebuilds/second on a hidden widget.
+  // Throttle heading updates: skip if the delta is <5° to avoid redundant repaints.
+  // IndexedStack keeps Nearby mounted even offstage; without this the magnetometer
+  // would fire continuously even when the tab is hidden.
   static double _headingDelta(double a, double b) {
     final d = (a - b).abs() % 360;
     return d > 180 ? 360 - d : d;
   }
-
 
   @override
   void initState() {
     super.initState();
     _compassSubscription = FlutterCompass.events?.listen((CompassEvent event) {
       final heading = event.heading;
-      if (!mounted || heading == null) return;
-      if (_direction == null || _headingDelta(_direction!, heading) >= 5) {
-        setState(() => _direction = heading);
+      if (heading == null) return;
+      final prev = _headingNotifier.value;
+      if (prev == null || _headingDelta(prev, heading) >= 5) {
+        _headingNotifier.value = heading;
       }
     });
     AppPreferences.getDistanceUnit().then((unit) {
@@ -86,6 +88,7 @@ class NearbyState extends State<Nearby> {
   @override
   void dispose() {
     _compassSubscription?.cancel();
+    _headingNotifier.dispose();
     super.dispose();
   }
 
@@ -416,9 +419,12 @@ class NearbyState extends State<Nearby> {
                   ),
             ),
           ),
-          FuzzyCompass(
-            compassCounts: compassMap,
-            headingDegrees: _direction,
+          ValueListenableBuilder<double?>(
+            valueListenable: _headingNotifier,
+            builder: (_, heading, __) => FuzzyCompass(
+              compassCounts: compassMap,
+              headingDegrees: heading,
+            ),
           ),
         ],
 
