@@ -22,6 +22,12 @@ export const startScoring = functions.https.onCall(async (request) => {
   if (lat === undefined || lat === null || lng === undefined || lng === null) {
     throw new functions.https.HttpsError("invalid-argument", "lat and lng are required");
   }
+  if (!Number.isFinite(lat) || lat < -90 || lat > 90) {
+    throw new functions.https.HttpsError("invalid-argument", "lat must be a finite number between -90 and 90");
+  }
+  if (!Number.isFinite(lng) || lng < -180 || lng > 180) {
+    throw new functions.https.HttpsError("invalid-argument", "lng must be a finite number between -180 and 180");
+  }
 
   const results = await lookupPostboxes(lat, lng, 30);
 
