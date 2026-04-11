@@ -140,35 +140,49 @@ class _FuzzyCompassPainter extends CustomPainter {
       final startAngle = -pi / 2 + i * (2 * pi / 8);
       final sweepAngle = 2 * pi / 8;
       final count = i < sectors.length ? sectors[i] : 0;
-      final extent =
-          count <= 0 ? 0.0 : (0.3 + 0.7 * (count / maxCount)).clamp(0.0, 1.0);
-      final r = radius * extent;
 
-      final path = Path()
+      // Grey background: full sector for every direction so the compass ring
+      // is always visible even when a direction has no postboxes.
+      final bgPath = Path()
         ..moveTo(center.dx, center.dy)
-        ..arcTo(Rect.fromCircle(center: center, radius: radius), startAngle,
-            sweepAngle, false)
-        ..lineTo(center.dx + cos(startAngle + sweepAngle) * r,
-            center.dy + sin(startAngle + sweepAngle) * r)
-        ..arcTo(Rect.fromCircle(center: center, radius: r),
-            startAngle + sweepAngle, -sweepAngle, false)
+        ..arcTo(Rect.fromCircle(center: center, radius: radius),
+            startAngle, sweepAngle, false)
         ..close();
-
       canvas.drawPath(
-        path,
+        bgPath,
         Paint()
-          ..color = count > 0
-              ? postalRed.withValues(alpha:0.25 + 0.5 * (count / maxCount))
-              : Colors.grey.withValues(alpha:0.12)
+          ..color = Colors.grey.withValues(alpha: 0.12)
           ..style = PaintingStyle.fill,
       );
-      canvas.drawPath(
-        path,
-        Paint()
-          ..color = postalRed.withValues(alpha:0.35)
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1,
-      );
+
+      if (count > 0) {
+        // Red fill grows OUTWARD from center — more postboxes → larger sector.
+        // Previously the code used a donut (inner radius = extent * radius) which
+        // inverted the mapping: maximum count produced a zero-width ring.
+        final extent =
+            (0.3 + 0.7 * (count / maxCount)).clamp(0.0, 1.0);
+        final r = radius * extent;
+
+        final fillPath = Path()
+          ..moveTo(center.dx, center.dy)
+          ..arcTo(Rect.fromCircle(center: center, radius: r),
+              startAngle, sweepAngle, false)
+          ..close();
+
+        canvas.drawPath(
+          fillPath,
+          Paint()
+            ..color = postalRed.withValues(alpha: 0.25 + 0.5 * (count / maxCount))
+            ..style = PaintingStyle.fill,
+        );
+        canvas.drawPath(
+          fillPath,
+          Paint()
+            ..color = postalRed.withValues(alpha: 0.45)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1,
+        );
+      }
     }
 
     // North marker: red circle with white 'N'
