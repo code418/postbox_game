@@ -192,5 +192,29 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
         assert.strictEqual(err.code, "invalid-argument");
       }
     });
+
+    it("should throw invalid-argument when lat is out of range", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      const req = { data: { lat: 999, lng: -0.95 }, auth: { uid: "test-uid" } };
+      try {
+        await wrappedStartScoring(req);
+        assert.fail("Expected invalid-argument error");
+      } catch (e: unknown) {
+        const err = e as { code?: string };
+        assert.strictEqual(err.code, "invalid-argument");
+      }
+    });
+
+    it("should throw invalid-argument when lng is out of range", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      const req = { data: { lat: 51.45, lng: 999 }, auth: { uid: "test-uid" } };
+      try {
+        await wrappedStartScoring(req);
+        assert.fail("Expected invalid-argument error");
+      } catch (e: unknown) {
+        const err = e as { code?: string };
+        assert.strictEqual(err.code, "invalid-argument");
+      }
+    });
   });
 });
