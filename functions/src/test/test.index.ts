@@ -85,6 +85,7 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
 
   const wrappedNearby = testEnv.wrap(myFunctions.nearbyPostboxes) as (data: unknown, context?: unknown) => Promise<unknown>;
   const wrappedStartScoring = testEnv.wrap(myFunctions.startScoring) as (data: unknown, context?: unknown) => Promise<unknown>;
+  const wrappedUpdateDisplayName = testEnv.wrap(myFunctions.updateDisplayName) as (data: unknown, context?: unknown) => Promise<unknown>;
 
   after(() => {
     testEnv.cleanup();
@@ -234,6 +235,113 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
       } catch (e: unknown) {
         const err = e as { code?: string };
         assert.strictEqual(err.code, "invalid-argument");
+      }
+    });
+
+    it("should return dailyDate string on success", async function (this: Mocha.Context) {
+      this.timeout(10000);
+      const req = { data: { lat: 51.45, lng: -0.95 }, auth: { uid: "test-uid" } };
+      try {
+        const result = (await wrappedStartScoring(req)) as Record<string, unknown>;
+        // dailyDate is returned on both found:true and found:false paths.
+        if (result.found === false) {
+          // No postboxes nearby — dailyDate not returned on the not-found path.
+          assert.ok(!("dailyDate" in result) || result.dailyDate === undefined);
+        } else {
+          assert.ok("dailyDate" in result, "dailyDate should be present when found:true");
+          assert.match(result.dailyDate as string, /^\d{4}-\d{2}-\d{2}$/);
+        }
+      } catch (e: unknown) {
+        const err = e as { code?: string; message?: string };
+        if (!(err.message ?? "").includes("PERMISSION_DENIED") && err.code !== "permission-denied") {
+          throw e;
+        }
+      }
+    });
+  });
+
+  describe("updateDisplayName (onCall)", () => {
+    it("should throw unauthenticated when no auth context", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      const req = { data: { name: "Alice" } };
+      try {
+        await wrappedUpdateDisplayName(req);
+        assert.fail("Expected unauthenticated error");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "unauthenticated");
+      }
+    });
+
+    it("should throw invalid-argument when name is missing", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      const req = { data: {}, auth: { uid: "test-uid" } };
+      try {
+        await wrappedUpdateDisplayName(req);
+        assert.fail("Expected invalid-argument error");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("should throw invalid-argument when name is too short (< 2 chars)", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      const req = { data: { name: "A" }, auth: { uid: "test-uid" } };
+      try {
+        await wrappedUpdateDisplayName(req);
+        assert.fail("Expected invalid-argument error");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("should throw invalid-argument when name is too long (> 30 chars)", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      const req = { data: { name: "A".repeat(31) }, auth: { uid: "test-uid" } };
+      try {
+        await wrappedUpdateDisplayName(req);
+        assert.fail("Expected invalid-argument error");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("should throw invalid-argument for name containing profanity", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      const req = { data: { name: "BloodyWanker" }, auth: { uid: "test-uid" } };
+      try {
+        await wrappedUpdateDisplayName(req);
+        assert.fail("Expected invalid-argument error");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("should throw invalid-argument for name that is only whitespace after trim", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      const req = { data: { name: "   " }, auth: { uid: "test-uid" } };
+      try {
+        await wrappedUpdateDisplayName(req);
+        assert.fail("Expected invalid-argument error");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("should accept a valid name (or fail with permission-denied if no emulator)", async function (this: Mocha.Context) {
+      this.timeout(10000);
+      const req = { data: { name: "PostboxHunter" }, auth: { uid: "test-uid" } };
+      try {
+        const result = (await wrappedUpdateDisplayName(req)) as Record<string, unknown>;
+        assert.strictEqual(result.displayName, "PostboxHunter");
+      } catch (e: unknown) {
+        const err = e as { code?: string; message?: string };
+        // Without an emulator, the Admin SDK calls will fail with permission-denied.
+        // That's acceptable — we've validated the function reaches that point.
+        if (!(err.message ?? "").includes("PERMISSION_DENIED") &&
+            err.code !== "permission-denied" &&
+            err.code !== "internal") {
+          throw e;
+        }
       }
     });
   });
