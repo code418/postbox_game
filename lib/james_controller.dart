@@ -14,16 +14,21 @@ class JamesController extends ChangeNotifier {
   String? _pendingMessage;
   String? get pendingMessage => _pendingMessage;
 
+  bool _isTalking = false;
+  bool get isTalking => _isTalking;
+
   void show(String message) {
     _pendingMessage = message;
+    _isTalking = true;
     notifyListeners();
     _scheduleIdleCheck();
   }
 
   /// Called internally by JamesStrip after slide-out completes.
-  /// Does not notify — the strip manages its own reset.
   void clear() {
     _pendingMessage = null;
+    _isTalking = false;
+    notifyListeners();
   }
 
   // ── Idle non-sequitur system ─────────────────────────────────────────────
