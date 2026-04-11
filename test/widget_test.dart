@@ -74,26 +74,23 @@ void main() {
       );
     });
 
-    test('signUp writes displayName to Firestore', () async {
+    test('signUp does not write to Firestore (handled by Cloud Function)', () async {
+      // displayName and all profile fields are written by the onUserCreated
+      // Cloud Function (server-side), not by the client. This prevents clients
+      // from bypassing the profanity filter via direct Firestore writes.
       await repo.signUp(email: 'test@example.com', password: 'password123');
-
       final uid = mockAuth.currentUser?.uid;
       expect(uid, isNotNull);
-
       final doc = await fakeFirestore.collection('users').doc(uid).get();
-      expect(doc.data()?['displayName'], equals('test'));
+      expect(doc.exists, isFalse,
+          reason: 'signUp must not create a Firestore document; '
+              'the onUserCreated Cloud Function handles this server-side');
     });
 
-    test('signUp does not write email to Firestore (privacy)', () async {
-      // Email must NOT be stored in the public-readable users document.
-      // It is only accessible via Firebase Auth to prevent other authenticated
-      // users from reading it through friend/leaderboard name lookups.
+    test('signUp sets displayName in Firebase Auth', () async {
       await repo.signUp(email: 'alice@example.com', password: 'password');
-      final uid = mockAuth.currentUser?.uid;
-      expect(uid, isNotNull);
-      final doc = await fakeFirestore.collection('users').doc(uid).get();
-      expect(doc.data()?.containsKey('email'), isFalse,
-          reason: 'email must not be stored in the public users document');
+      final displayName = mockAuth.currentUser?.displayName;
+      expect(displayName, equals('alice'));
     });
 
     test('getDisplayName returns stored name', () async {
@@ -120,16 +117,14 @@ void main() {
       expect(await signedInRepo.isSignedIn(), isTrue);
     });
 
-    test('signUp uses Player_ fallback for profane email prefix', () async {
-      // Email prefix "cunt" fails the profanity filter.
+    test('signUp uses Player_ fallback in Auth displayName for profane email prefix', () async {
+      // Email prefix "cunt" fails the profanity filter; Auth displayName should
+      // use the Player_<uid> fallback. No Firestore write occurs client-side.
       await repo.signUp(email: 'cunt@example.com', password: 'password123');
-      final uid = mockAuth.currentUser?.uid;
-      expect(uid, isNotNull);
-      final doc = await fakeFirestore.collection('users').doc(uid).get();
-      final name = doc.data()?['displayName'] as String?;
-      expect(name, isNotNull);
-      expect(name!.startsWith('Player_'), isTrue,
-          reason: 'Profane email prefix should fall back to Player_<uid>');
+      final displayName = mockAuth.currentUser?.displayName;
+      expect(displayName, isNotNull);
+      expect(displayName!.startsWith('Player_'), isTrue,
+          reason: 'Profane email prefix should fall back to Player_<uid> in Auth profile');
     });
   });
 

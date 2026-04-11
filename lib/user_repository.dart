@@ -24,18 +24,10 @@ class UserRepository {
       idToken: googleAuth.idToken,
     );
     final userCredential = await _firebaseAuth.signInWithCredential(credential);
-    final user = userCredential.user;
-    if (user != null) {
-      if (userCredential.additionalUserInfo?.isNewUser == true) {
-        // First sign-in: seed the profile. Subsequent sign-ins must not
-        // overwrite a custom display name the user may have set.
-        await _saveUserProfile(
-            user.uid, user.displayName ?? user.email ?? '');
-      }
-      // Returning user: no Firestore update needed — displayName is managed
-      // via updateDisplayName and email lives in Firebase Auth only.
-    }
-    return user;
+    // The onUserCreated Cloud Function creates the Firestore profile
+    // (displayName, createdAt) when a new Auth user is first created.
+    // No client-side Firestore write is needed here.
+    return userCredential.user;
   }
 
   Future<void> signInWithCredentials(String email, String password) {
@@ -52,26 +44,17 @@ class UserRepository {
     );
     final user = credential.user;
     if (user != null) {
-      // Use the part of the email before @ as the initial display name,
-      // but fall back to Player_<uid> if the prefix fails the profanity filter.
+      // Set the display name in Firebase Auth so the profile is immediately
+      // readable from FirebaseAuth.currentUser.displayName. The Firestore
+      // profile (users/{uid}) is created by the onUserCreated Cloud Function,
+      // which applies the same sanitisation logic server-side.
       final prefix = email.split('@').first;
       final name = Validators.isValidDisplayName(prefix)
           ? prefix
           : 'Player_${user.uid.substring(0, 6)}';
       await user.updateDisplayName(name);
-      await _saveUserProfile(user.uid, name);
     }
     return credential;
-  }
-
-  /// Persists displayName to Firestore so friends can resolve names.
-  /// Email is intentionally not stored here — it is only accessible via
-  /// Firebase Auth to avoid exposing it to other authenticated users.
-  Future<void> _saveUserProfile(String uid, String displayName) async {
-    await _firestore.collection('users').doc(uid).set(
-      {'displayName': displayName},
-      SetOptions(merge: true),
-    );
   }
 
   /// Fetches the display name for any user by UID.
