@@ -21,6 +21,4 @@ class Authenticated extends AuthenticationState {
   String toString() => 'Authenticated { displayName: $displayName }';
 }
 
-class FirstRun extends AuthenticationState {}
-
 class Unauthenticated extends AuthenticationState {}

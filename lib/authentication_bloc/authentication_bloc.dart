@@ -9,7 +9,7 @@ class AuthenticationBloc
 
   AuthenticationBloc({required UserRepository userRepository})
       : _userRepository = userRepository,
-        super(null) {
+        super(Uninitialized()) {
     on<AppStarted>(_mapAppStartedToState);
     on<LoggedIn>(_mapLoggedInToState);
     on<LoggedOut>(_mapLoggedOutToState);
@@ -43,7 +43,7 @@ class AuthenticationBloc
     LoggedOut event,
     Emitter<AuthenticationState?> emit,
   ) async {
-    emit(Unauthenticated());
     await _userRepository.signOut();
+    emit(Unauthenticated());
   }
 }
