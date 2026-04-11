@@ -90,7 +90,7 @@ class _HomeState extends State<Home> {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => Intro(replay: true),
+                        builder: (_) => const Intro(replay: true),
                       ),
                     );
                 }

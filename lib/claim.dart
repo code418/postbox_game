@@ -168,7 +168,10 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
         debugPrint('Streak update failed (non-fatal): $e');
       }
       if (mounted) {
-        final msg = _pointsEarned >= 50
+        // Fire the rare message when the average per-box score indicates a
+        // rare cipher (VR=7, EVIIR/CIIIR=9, EVIIIR=12 all score ≥ 7).
+        final avgPts = _claimedCount > 0 ? _pointsEarned / _claimedCount : 0;
+        final msg = avgPts >= 7
             ? JamesMessages.claimSuccessRare.resolve()
             : JamesMessages.claimSuccessStandard.resolve();
         JamesController.of(context).show(msg);
