@@ -100,6 +100,8 @@ class _FriendsScreenState extends State<FriendsScreen> {
       await _firestore.collection('users').doc(uid).update({
         'friends': FieldValue.arrayRemove([friendUid]),
       });
+      // Bust the cache so re-adding this friend fetches fresh data.
+      _nameCache.remove(friendUid);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Friend removed')),
