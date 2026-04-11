@@ -181,14 +181,6 @@ void main() {
     late StreakService streakService;
     late String uid;
 
-    /// Returns today's date string in YYYY-MM-DD using local time, matching the
-    /// logic inside StreakService._today.
-    String localDateString(DateTime d) {
-      return '${d.year.toString().padLeft(4, '0')}-'
-          '${d.month.toString().padLeft(2, '0')}-'
-          '${d.day.toString().padLeft(2, '0')}';
-    }
-
     setUp(() {
       fakeFirestore = FakeFirebaseFirestore();
       mockAuth = MockFirebaseAuth(signedIn: true);
@@ -196,55 +188,10 @@ void main() {
       uid = mockAuth.currentUser!.uid;
     });
 
-    test('first claim sets streak to 1 and records today', () async {
-      await streakService.updateStreakAfterClaim();
-      final doc = await fakeFirestore.collection('users').doc(uid).get();
-      expect(doc.data()?['streak'], equals(1));
-      expect(doc.data()?['lastClaimDate'],
-          equals(localDateString(DateTime.now())));
-    });
-
-    test('claiming again today leaves streak unchanged', () async {
-      final today = localDateString(DateTime.now());
-      await fakeFirestore
-          .collection('users')
-          .doc(uid)
-          .set({'streak': 5, 'lastClaimDate': today});
-
-      await streakService.updateStreakAfterClaim();
-
-      final doc = await fakeFirestore.collection('users').doc(uid).get();
-      expect(doc.data()?['streak'], equals(5),
-          reason: 'Same-day re-claim must not increment streak');
-    });
-
-    test('claiming on consecutive day increments streak', () async {
-      final yesterday =
-          localDateString(DateTime.now().subtract(const Duration(days: 1)));
-      await fakeFirestore
-          .collection('users')
-          .doc(uid)
-          .set({'streak': 3, 'lastClaimDate': yesterday});
-
-      await streakService.updateStreakAfterClaim();
-
-      final doc = await fakeFirestore.collection('users').doc(uid).get();
-      expect(doc.data()?['streak'], equals(4));
-    });
-
-    test('claiming after a gap resets streak to 1', () async {
-      final twoDaysAgo =
-          localDateString(DateTime.now().subtract(const Duration(days: 2)));
-      await fakeFirestore
-          .collection('users')
-          .doc(uid)
-          .set({'streak': 10, 'lastClaimDate': twoDaysAgo});
-
-      await streakService.updateStreakAfterClaim();
-
-      final doc = await fakeFirestore.collection('users').doc(uid).get();
-      expect(doc.data()?['streak'], equals(1));
-    });
+    // Streak writes (lastClaimDate, streak) are performed server-side in
+    // startScoring (Admin SDK) because Firestore rules restrict client writes
+    // on users/{uid} to the friends array only. Only the read-side (streakStream)
+    // is tested here.
 
     test('streakStream emits null when document has no streak field', () async {
       await fakeFirestore
@@ -264,34 +211,6 @@ void main() {
 
       final value = await streakService.streakStream().first;
       expect(value, equals(7));
-    });
-
-    test('claimDate param overrides device time for lastClaimDate', () async {
-      // Simulates a server-returned dailyDate that differs from device local
-      // date (e.g. user near midnight, device ticked over but server recorded
-      // yesterday). The streak should use the provided date, not today.
-      const serverDate = '2026-04-10';
-      await streakService.updateStreakAfterClaim(claimDate: serverDate);
-
-      final doc = await fakeFirestore.collection('users').doc(uid).get();
-      expect(doc.data()?['lastClaimDate'], equals(serverDate),
-          reason: 'lastClaimDate must match the server-provided claimDate');
-      expect(doc.data()?['streak'], equals(1));
-    });
-
-    test('claimDate yesterday increments streak', () async {
-      const yesterday = '2026-04-09';
-      const today = '2026-04-10';
-      await fakeFirestore
-          .collection('users')
-          .doc(uid)
-          .set({'streak': 4, 'lastClaimDate': yesterday});
-
-      await streakService.updateStreakAfterClaim(claimDate: today);
-
-      final doc = await fakeFirestore.collection('users').doc(uid).get();
-      expect(doc.data()?['streak'], equals(5));
-      expect(doc.data()?['lastClaimDate'], equals(today));
     });
   });
 

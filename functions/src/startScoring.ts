@@ -102,6 +102,28 @@ export const startScoring = functions.https.onCall(async (request) => {
     const displayName =
       (userDoc.data()?.displayName as string | undefined) ||
       `Player_${userid.slice(0, 6)}`;
+
+    // Update daily-claim streak. Runs server-side (Admin SDK) because
+    // Firestore rules restrict client writes on users/{uid} to the friends
+    // array only, to prevent profanity-filter bypass on displayName.
+    const yesterdayDate = new Date(todayLondon + "T00:00:00Z");
+    yesterdayDate.setUTCDate(yesterdayDate.getUTCDate() - 1);
+    const yesterday = yesterdayDate.toISOString().slice(0, 10);
+    const userRef = database.collection("users").doc(userid);
+    try {
+      await database.runTransaction(async (tx) => {
+        const snap = await tx.get(userRef);
+        const d = snap.data() ?? {};
+        const lastClaimDate = d.lastClaimDate as string | undefined;
+        if (lastClaimDate === todayLondon) return; // already updated today
+        const currentStreak = (d.streak as number | undefined) ?? 0;
+        const newStreak = lastClaimDate === yesterday ? currentStreak + 1 : 1;
+        tx.set(userRef, { lastClaimDate: todayLondon, streak: newStreak }, { merge: true });
+      });
+    } catch (streakErr) {
+      console.error("streak update failed (non-fatal):", streakErr);
+    }
+
     // Retry leaderboard update once on transient Firestore errors.
     try {
       await updateUserLeaderboards(userid, displayName, todayLondon, database);

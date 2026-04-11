@@ -171,12 +171,10 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
       });
       _successController.forward(from: 0);
       _confettiController.play();
-      try {
-        final claimDate = result.data?['dailyDate'] as String?;
-        await _streakService.updateStreakAfterClaim(claimDate: claimDate);
-      } catch (e) {
-        debugPrint('Streak update failed (non-fatal): $e');
-      }
+      // Streak update is performed server-side in startScoring (Admin SDK),
+      // because Firestore rules restrict client writes on users/{uid} to
+      // the friends array only. The streakStream in this widget reflects
+      // the updated value via the existing Firestore listener.
       if (mounted) {
         final String msg;
         if (_claimedCount > 1) {
