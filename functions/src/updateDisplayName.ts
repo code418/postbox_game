@@ -1,6 +1,8 @@
 import "./adminInit";
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions";
+import { getTodayLondon } from "./_dateUtils";
+import { updateUserLeaderboards } from "./_leaderboardUtils";
 
 // Keep in sync with validators.dart and onUserCreated.ts.
 const BLOCKED_WORDS = [
@@ -74,6 +76,16 @@ export const updateDisplayName = functions.https.onCall(async (request) => {
     // Non-fatal: Auth profile was updated. Log and continue so the client
     // doesn't think the operation failed when the Auth change succeeded.
     console.error("Firestore displayName update failed:", fsResult.reason);
+  }
+
+  // Refresh leaderboard entries so the new name shows immediately on
+  // all periods, without waiting for the user's next claim.
+  // Non-fatal: leaderboard is cosmetic and will be corrected on the next claim.
+  try {
+    const today = getTodayLondon();
+    await updateUserLeaderboards(uid, name, today, admin.firestore());
+  } catch (lbErr) {
+    console.error("Leaderboard name refresh failed (non-fatal):", lbErr);
   }
 
   return { displayName: name };
