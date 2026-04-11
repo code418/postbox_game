@@ -26,7 +26,6 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
   static const int _totalSteps = 7;
 
   late AnimationController _jamesWalkController;
-  late AnimationController _starsController;
   late Animation<double> _jamesSlide;
 
   @override
@@ -39,22 +38,17 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
     _jamesSlide = Tween<double>(begin: -1.0, end: 0.0).animate(
       CurvedAnimation(parent: _jamesWalkController, curve: Curves.easeOut),
     );
-    _starsController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 600),
-    );
   }
 
   @override
   void dispose() {
     _jamesWalkController.dispose();
-    _starsController.dispose();
     super.dispose();
   }
 
   void _advance() {
-    if (_step == 1) _jamesWalkController.forward();
-    if (_step == 3) _starsController.forward();
+    // Start the walk animation when entering step 1 (James slides in from left).
+    if (_step == 0) _jamesWalkController.forward();
     if (_step < _totalSteps - 1) {
       setState(() => _step++);
     } else {
