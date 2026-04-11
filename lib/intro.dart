@@ -1,7 +1,6 @@
-import 'dart:math';
-
-import 'package:flutter/material.dart';
 import 'package:animated_text_kit/animated_text_kit.dart';
+import 'package:flutter/material.dart';
+import 'package:postbox_game/postman_james_svg.dart';
 import 'package:postbox_game/theme.dart';
 
 /// First-run cinematic intro: postbox on stage, Postman James, dialogue, then app overview.
@@ -172,7 +171,7 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
               const SizedBox(height: 40),
               FractionalTranslation(
                 translation: Offset(_jamesSlide.value, 0),
-                child: PostManJames(showStarEyes: false, size: 100),
+                child: const PostmanJamesSvg(size: 100),
               ),
               const SizedBox(height: AppSpacing.lg),
               const Text(
@@ -193,7 +192,7 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            PostManJames(showStarEyes: false, size: 90),
+            const PostmanJamesSvg(size: 90, isTalking: true),
             const SizedBox(height: AppSpacing.xl),
             Container(
               padding: const EdgeInsets.all(AppSpacing.lg),
@@ -201,11 +200,19 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
                 color: Colors.black26,
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: Text(
-                text,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                    color: Colors.white, fontSize: 22, height: 1.4),
+              child: AnimatedTextKit(
+                key: ValueKey(text),
+                animatedTexts: [
+                  TypewriterAnimatedText(
+                    text,
+                    textAlign: TextAlign.center,
+                    textStyle: const TextStyle(
+                        color: Colors.white, fontSize: 22, height: 1.4),
+                    speed: const Duration(milliseconds: 35),
+                  ),
+                ],
+                totalRepeatCount: 1,
+                displayFullTextOnTap: true,
               ),
             ),
           ],
@@ -221,7 +228,7 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            PostManJames(showStarEyes: true, size: 90),
+            const PostmanJamesSvg(size: 90, showStarEyes: true, isTalking: true),
             const SizedBox(height: AppSpacing.lg),
             Text(
               'Mega points!',
@@ -295,158 +302,12 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
               'Sign in or create an account to start collecting mega points.',
               textAlign: TextAlign.center,
               style: TextStyle(
-                  color: Colors.white.withValues(alpha:0.9),
+                  color: Colors.white.withValues(alpha: 0.9),
                   fontSize: 20,
                   height: 1.4),
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-/// Postman James character drawn with CustomPainter.
-/// [showStarEyes] true for the "Mega points!" moment.
-class PostManJames extends StatelessWidget {
-  const PostManJames(
-      {Key? key, this.showStarEyes = false, this.size = 120})
-      : super(key: key);
-
-  final bool showStarEyes;
-  final double size;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      height: size,
-      width: size,
-      child: CustomPaint(
-        painter: _JamesPainter(showStarEyes: showStarEyes),
-      ),
-    );
-  }
-}
-
-class _JamesPainter extends CustomPainter {
-  final bool showStarEyes;
-
-  _JamesPainter({required this.showStarEyes});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final w = size.width;
-    final h = size.height;
-
-    // Body — navy rectangle
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(w * 0.25, h * 0.48, w * 0.5, h * 0.42),
-        Radius.circular(w * 0.08),
-      ),
-      Paint()..color = royalNavy,
-    );
-
-    // Post bag — red rectangle on left hip
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(w * 0.12, h * 0.58, w * 0.16, h * 0.2),
-        Radius.circular(w * 0.04),
-      ),
-      Paint()..color = postalRed,
-    );
-
-    // Cap brim — red rectangle
-    canvas.drawRect(
-      Rect.fromLTWH(w * 0.18, h * 0.17, w * 0.64, h * 0.07),
-      Paint()..color = postalRed,
-    );
-
-    // Cap top — red rounded top
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(w * 0.22, h * 0.04, w * 0.56, h * 0.16),
-        Radius.circular(w * 0.1),
-      ),
-      Paint()..color = postalRed,
-    );
-
-    // Face — skin-tone circle
-    canvas.drawCircle(
-      Offset(w * 0.5, h * 0.38),
-      w * 0.18,
-      Paint()..color = const Color(0xFFFFDDB4),
-    );
-
-    // Eyes
-    if (showStarEyes) {
-      // Star eyes (amber sparkle dots)
-      _drawStar(canvas, Offset(w * 0.42, h * 0.37), w * 0.045, postalGold);
-      _drawStar(canvas, Offset(w * 0.58, h * 0.37), w * 0.045, postalGold);
-    } else {
-      // Normal dot eyes
-      canvas.drawCircle(
-        Offset(w * 0.43, h * 0.37),
-        w * 0.028,
-        Paint()..color = const Color(0xFF333333),
-      );
-      canvas.drawCircle(
-        Offset(w * 0.57, h * 0.37),
-        w * 0.028,
-        Paint()..color = const Color(0xFF333333),
-      );
-    }
-
-    // Smile
-    final smilePath = Path()
-      ..moveTo(w * 0.42, h * 0.44)
-      ..quadraticBezierTo(w * 0.5, h * 0.49, w * 0.58, h * 0.44);
-    canvas.drawPath(
-      smilePath,
-      Paint()
-        ..color = const Color(0xFF8B4513)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = w * 0.02
-        ..strokeCap = StrokeCap.round,
-    );
-  }
-
-  void _drawStar(Canvas canvas, Offset center, double r, Color color) {
-    final paint = Paint()..color = color;
-    for (var i = 0; i < 4; i++) {
-      final angle = i * pi / 4;
-      canvas.drawLine(
-        Offset(center.dx + cos(angle) * r * 1.5,
-            center.dy + sin(angle) * r * 1.5),
-        Offset(center.dx - cos(angle) * r * 1.5,
-            center.dy - sin(angle) * r * 1.5),
-        paint
-          ..strokeWidth = r * 0.5
-          ..strokeCap = StrokeCap.round,
-      );
-    }
-    canvas.drawCircle(center, r * 0.5, paint..strokeWidth = 0);
-  }
-
-  @override
-  bool shouldRepaint(covariant _JamesPainter old) =>
-      old.showStarEyes != showStarEyes;
-}
-
-/// Legacy ChatWindow using AnimatedTextKit (kept for reference).
-class ChatWindow extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 250.0,
-      child: AnimatedTextKit(
-        animatedTexts: [
-          TypewriterAnimatedText(
-            'Hi, I\'m Postman James!',
-            textStyle: const TextStyle(fontSize: 24.0, color: Colors.white),
-          ),
-        ],
-        onTap: () {},
       ),
     );
   }
