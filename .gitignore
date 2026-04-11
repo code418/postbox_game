@@ -28,6 +28,8 @@ firebase-debug.log*
 *.iml
 .vscode/
 .cursor/agent-transcripts/
+.agents/
+.claude/scheduled_tasks.lock
 
 # Environment & secrets (never commit)
 .env
