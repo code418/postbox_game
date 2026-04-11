@@ -342,5 +342,30 @@ void main() {
       expect(overlap, isEmpty,
           reason: 'A cipher should not be both rare and historic');
     });
+
+    test('all ciphers in "all" have a points value', () {
+      for (final cipher in MonarchInfo.all) {
+        expect(MonarchInfo.points.containsKey(cipher), isTrue,
+            reason: '$cipher missing from points');
+      }
+    });
+
+    test('getPoints returns the mapped value for known ciphers', () {
+      expect(MonarchInfo.getPoints('EIIR'), equals(2));
+      expect(MonarchInfo.getPoints('CIIIR'), equals(9));
+      expect(MonarchInfo.getPoints('EVIIIR'), equals(12));
+      expect(MonarchInfo.getPoints('VR'), equals(7));
+    });
+
+    test('getPoints returns 2 for unknown cipher', () {
+      expect(MonarchInfo.getPoints('UNKNOWN'), equals(2));
+    });
+
+    test('all points values are positive', () {
+      for (final entry in MonarchInfo.points.entries) {
+        expect(entry.value, greaterThan(0),
+            reason: '${entry.key} has non-positive point value');
+      }
+    });
   });
 }
