@@ -143,7 +143,7 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
                 SvgPicture.asset('assets/postbox.svg', width: 120, height: 120),
                 const SizedBox(height: AppSpacing.sm),
                 const Text(
-                  'A normal postbox',
+                  'A brief introduction to postboxes...',
                   style: TextStyle(color: Colors.white70, fontSize: 18),
                 ),
               ],
@@ -177,7 +177,7 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
               ),
               const SizedBox(height: AppSpacing.lg),
               const Text(
-                'Someone arrives...',
+                'Look, it\'s a Postie!',
                 style: TextStyle(color: Colors.white70, fontSize: 20),
               ),
             ],
@@ -238,10 +238,11 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const PostmanJamesSvg(size: 90, showStarEyes: true, isTalking: true),
+            const PostmanJamesSvg(
+                size: 160, showStarEyes: true, isTalking: true),
             const SizedBox(height: AppSpacing.lg),
             Text(
-              'Mega points!',
+              'Points, baby! Sweet, beautiful, points!',
               style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                     color: postalGold,
                     fontWeight: FontWeight.bold,
