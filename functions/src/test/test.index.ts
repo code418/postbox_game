@@ -4,7 +4,7 @@ import * as myFunctions from "../index";
 import { getPoints } from "../_getPoints";
 import { getTodayLondon } from "../_dateUtils";
 import { getWeekStart, getMonthStart, getPeriodKey } from "../_leaderboardUtils";
-import { setPrecision } from "../_lookupPostboxes";
+import { setPrecision, getLatLng } from "../_lookupPostboxes";
 import { computeNewStreak } from "../_streakUtils";
 import { containsProfanity } from "../_profanityFilter";
 import { sanitiseName } from "../onUserCreated";
@@ -98,6 +98,34 @@ describe("setPrecision", () => {
   it("returns 4 for 10 km radius", () => assert.strictEqual(setPrecision(10), 4));
   it("returns 2 for 1000 km radius", () => assert.strictEqual(setPrecision(1000), 2));
   it("returns 1 for very large radius (>1250 km)", () => assert.strictEqual(setPrecision(2000), 1));
+});
+
+describe("getLatLng", () => {
+  it("returns null for undefined geopoint", () => assert.strictEqual(getLatLng(undefined), null));
+  it("returns null for null-equivalent object with no lat/lng fields", () =>
+    assert.strictEqual(getLatLng({}), null));
+  it("reads standard latitude/longitude fields", () => {
+    const r = getLatLng({ latitude: 51.5, longitude: -0.1 });
+    assert.deepStrictEqual(r, { lat: 51.5, lng: -0.1 });
+  });
+  it("reads Admin SDK internal _latitude/_longitude fields", () => {
+    const r = getLatLng({ _latitude: 53.8, _longitude: -1.55 });
+    assert.deepStrictEqual(r, { lat: 53.8, lng: -1.55 });
+  });
+  it("prefers _latitude/_longitude over latitude/longitude when both present", () => {
+    const r = getLatLng({ _latitude: 10, _longitude: 20, latitude: 99, longitude: 99 });
+    assert.deepStrictEqual(r, { lat: 10, lng: 20 });
+  });
+  it("returns null when lat is present but lng is undefined", () => {
+    assert.strictEqual(getLatLng({ latitude: 51.5 }), null);
+  });
+  it("returns null when lng is present but lat is undefined", () => {
+    assert.strictEqual(getLatLng({ longitude: -0.1 }), null);
+  });
+  it("handles coordinate value 0 (falsy-but-valid)", () => {
+    const r = getLatLng({ latitude: 0, longitude: 0 });
+    assert.deepStrictEqual(r, { lat: 0, lng: 0 });
+  });
 });
 
 describe("computeNewStreak", () => {

@@ -19,7 +19,7 @@ export function setPrecision(km: number): number {
   return 1;
 }
 
-function getLatLng(geopoint: PostboxDoc["geopoint"]): { lat: number; lng: number } | null {
+export function getLatLng(geopoint: PostboxDoc["geopoint"]): { lat: number; lng: number } | null {
   if (!geopoint) return null;
   const lat = geopoint._latitude ?? geopoint.latitude;
   const lng = geopoint._longitude ?? geopoint.longitude;
