@@ -43,8 +43,27 @@ export const startScoring = functions.https.onCall(async (request) => {
   // Hoist date computation so all return paths include dailyDate for consistency.
   const todayLondon = getTodayLondon();
 
-  // Fast-path: if every postbox in range was already claimed today, skip transactions.
-  if (results.counts.claimedToday === results.counts.total) {
+  // Pre-fetch this user's today claims so we can check per-user claim status
+  // without a postbox-document read inside every transaction.  One query covers
+  // all postboxes in range; we extract the postbox keys from the stored path.
+  const userClaimsSnap = await database.collection('claims')
+    .where('userid', '==', userid)
+    .where('dailyDate', '==', todayLondon)
+    .get();
+  const userClaimedKeys = new Set(
+    userClaimsSnap.docs.map(d => {
+      const ref = d.data().postboxes as string;
+      // stored as "/postbox/{key}" → extract just the key
+      return ref.replace('/postbox/', '');
+    })
+  );
+
+  // Fast-path: if every postbox in range was already claimed today by THIS USER,
+  // skip all transactions.  Uses per-user data so other players' claims don't
+  // block the current user.
+  const userClaimedInRange = Object.keys(results.postboxes)
+    .filter(k => userClaimedKeys.has(k)).length;
+  if (userClaimedInRange === results.counts.total) {
     return { found: true, claimed: 0, points: 0, allClaimedToday: true, dailyDate: todayLondon };
   }
 
@@ -52,20 +71,23 @@ export const startScoring = functions.https.onCall(async (request) => {
   // points from postboxes whose transactions already committed successfully.
   const claimSettled = await Promise.allSettled(
     Object.entries(results.postboxes).map(([key, postbox]) => {
-      // Use our own todayLondon (not the derived claimedToday flag from
-      // lookupPostboxes) to guard against a rare midnight rollover between
-      // the two getTodayLondon() calls.
-      if (postbox.dailyClaim?.date === todayLondon) return Promise.resolve(null);
+      // Per-user skip: if this user has already claimed this postbox today
+      // (from the pre-fetch), skip without a transaction.  Other users' claims
+      // do NOT block the current user.
+      if (userClaimedKeys.has(key)) return Promise.resolve(null);
 
       const postboxRef = database.collection('postbox').doc(key);
-      const claimRef   = database.collection('claims').doc();
+      // Deterministic claim ID: one document per (user, postbox, date) triple.
+      // The transaction reads this doc to confirm the user hasn't claimed since
+      // the pre-fetch, then creates it atomically — preventing double-claims from
+      // concurrent requests.
+      const claimRef = database.collection('claims').doc(`${userid}_${key}_${todayLondon}`);
       const pts = postbox.monarch !== undefined ? getPoints(postbox.monarch) : 2;
 
       return database.runTransaction(async (tx) => {
-        const snap = await tx.get(postboxRef);
-        if (snap.data()?.dailyClaim?.date === todayLondon) return null;
+        const claimSnap = await tx.get(claimRef);
+        if (claimSnap.exists) return null; // concurrent request already claimed
 
-        tx.set(postboxRef, { dailyClaim: { date: todayLondon, by: userid } }, { merge: true });
         const claimData: Record<string, unknown> = {
           userid,
           timestamp: admin.firestore.Timestamp.now(),
@@ -76,6 +98,9 @@ export const startScoring = functions.https.onCall(async (request) => {
         };
         if (postbox.monarch !== undefined) claimData.monarch = postbox.monarch;
         tx.set(claimRef, claimData);
+        // Keep dailyClaim on the postbox doc for display purposes (shows
+        // "someone found this today" in future UI); does not gate claiming.
+        tx.set(postboxRef, { dailyClaim: { date: todayLondon, by: userid } }, { merge: true });
         return pts;
       });
     })
