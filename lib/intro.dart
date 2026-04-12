@@ -1,6 +1,9 @@
 import 'package:animated_text_kit/animated_text_kit.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'dart:math' as math;
+
+import 'package:particles_flutter/engine.dart';
 import 'package:postbox_game/james_messages.dart';
 import 'package:postbox_game/postman_james_svg.dart';
 import 'package:postbox_game/theme.dart';
@@ -28,6 +31,7 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
 
   late AnimationController _jamesWalkController;
   late Animation<double> _jamesSlide;
+  late final List<Particle> _particles;
 
   @override
   void initState() {
@@ -39,6 +43,23 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
     _jamesSlide = Tween<double>(begin: -1.0, end: 0.0).animate(
       CurvedAnimation(parent: _jamesWalkController, curve: Curves.easeOut),
     );
+    _particles = _buildParticles();
+  }
+
+  static List<Particle> _buildParticles() {
+    final rng = math.Random();
+    return List.generate(25, (_) {
+      final speed = 0.3 + rng.nextDouble() * 0.7;
+      final angle = rng.nextDouble() * 2 * math.pi;
+      return CircularParticle(
+        radius: 1.0 + rng.nextDouble() * 3.0,
+        color: Colors.white.withValues(alpha: 0.1 + rng.nextDouble() * 0.12),
+        velocity: Offset(
+          math.cos(angle) * speed * 30,
+          math.sin(angle) * speed * 30,
+        ),
+      );
+    });
   }
 
   @override
@@ -74,23 +95,37 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
             colors: [royalNavy, Color(0xFF3D0C13)],
           ),
         ),
-        child: SafeArea(
-          child: Column(
-            children: [
-              Expanded(child: _buildStep()),
-              Padding(
-                padding: const EdgeInsets.all(AppSpacing.lg),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: FilledButton(
-                    onPressed: _advance,
-                    child:
-                        Text(_step == _totalSteps - 1 ? 'Get started' : 'Next'),
-                  ),
-                ),
+        child: Stack(
+          children: [
+            // Subtle floating particles behind all intro content.
+            Positioned.fill(
+              child: Particles(
+                particles: _particles,
+                height: MediaQuery.of(context).size.height,
+                width: MediaQuery.of(context).size.width,
+                boundType: BoundType.WrapAround,
+                connectDots: false,
               ),
-            ],
-          ),
+            ),
+            SafeArea(
+              child: Column(
+                children: [
+                  Expanded(child: _buildStep()),
+                  Padding(
+                    padding: const EdgeInsets.all(AppSpacing.lg),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: FilledButton(
+                        onPressed: _advance,
+                        child: Text(
+                            _step == _totalSteps - 1 ? 'Get started' : 'Next'),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
