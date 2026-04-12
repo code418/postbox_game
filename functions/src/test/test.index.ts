@@ -97,8 +97,8 @@ describe("computeNewStreak", () => {
   it("resets streak to 1 when last claim was long ago", () =>
     assert.strictEqual(computeNewStreak("2025-01-01", 42, today, yesterday), 1));
 
-  it("handles first-ever claim (currentStreak 0, no prior date)", () =>
-    assert.strictEqual(computeNewStreak(undefined, 0, today, yesterday), 1));
+  it("resets orphaned streak (streak > 0, no lastClaimDate) to 1", () =>
+    assert.strictEqual(computeNewStreak(undefined, 5, today, yesterday), 1));
 
   it("streak increment from 1 to 2 on consecutive day", () =>
     assert.strictEqual(computeNewStreak(yesterday, 1, today, yesterday), 2));
