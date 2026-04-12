@@ -271,9 +271,8 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
       const req = { data: { lat: 51.45, lng: -0.95 }, auth: { uid: "test-uid" } };
       try {
         const result = (await wrappedStartScoring(req)) as Record<string, unknown>;
-        // dailyDate is returned on both found:true and found:false paths.
+        // dailyDate is included on found:true paths only; omitted when found:false.
         if (result.found === false) {
-          // No postboxes nearby — dailyDate not returned on the not-found path.
           assert.ok(!("dailyDate" in result) || result.dailyDate === undefined);
         } else {
           assert.ok("dailyDate" in result, "dailyDate should be present when found:true");
