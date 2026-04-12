@@ -1,5 +1,7 @@
 import 'package:animated_text_kit/animated_text_kit.dart';
+import 'package:confetti/confetti.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:postbox_game/james_messages.dart';
 import 'package:postbox_game/postman_james_svg.dart';
@@ -28,6 +30,7 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
 
   late AnimationController _jamesWalkController;
   late Animation<double> _jamesSlide;
+  late final ConfettiController _confettiController;
 
   @override
   void initState() {
@@ -39,17 +42,21 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
     _jamesSlide = Tween<double>(begin: -1.0, end: 0.0).animate(
       CurvedAnimation(parent: _jamesWalkController, curve: Curves.easeOut),
     );
+    _confettiController =
+        ConfettiController(duration: const Duration(seconds: 6));
   }
 
   @override
   void dispose() {
     _jamesWalkController.dispose();
+    _confettiController.dispose();
     super.dispose();
   }
 
   void _advance() {
-    // Start the walk animation when entering step 1 (James slides in from left).
     if (_step == 0) _jamesWalkController.forward();
+    // Fire confetti when the user taps into the Mega Points step.
+    if (_step == 3) _confettiController.play();
     if (_step < _totalSteps - 1) {
       setState(() => _step++);
     } else {
@@ -128,7 +135,10 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
                   color: Colors.white,
                   fontWeight: FontWeight.bold,
                 ),
-          ),
+          )
+              .animate()
+              .fadeIn(duration: 600.ms)
+              .slideY(begin: 0.3, duration: 600.ms, curve: Curves.easeOut),
           const SizedBox(height: AppSpacing.xxl),
           Container(
             padding: const EdgeInsets.symmetric(
@@ -140,7 +150,14 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
             ),
             child: Column(
               children: [
-                SvgPicture.asset('assets/postbox.svg', width: 120, height: 120),
+                SvgPicture.asset('assets/postbox.svg', width: 120, height: 120)
+                    .animate(delay: 200.ms)
+                    .fadeIn(duration: 600.ms)
+                    .scale(
+                      begin: const Offset(0.6, 0.6),
+                      duration: 600.ms,
+                      curve: Curves.elasticOut,
+                    ),
                 const SizedBox(height: AppSpacing.sm),
                 const Text(
                   'A brief introduction to postboxes...',
@@ -167,7 +184,9 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  SvgPicture.asset('assets/postbox.svg', width: 80, height: 80),
+                  SvgPicture.asset('assets/postbox.svg', width: 80, height: 80)
+                      .animate()
+                      .fadeIn(duration: 500.ms),
                   const SizedBox(width: AppSpacing.lg),
                   FractionalTranslation(
                     translation: Offset(_jamesSlide.value, 0),
@@ -179,7 +198,7 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
               const Text(
                 'Look, it\'s a Postie!',
                 style: TextStyle(color: Colors.white70, fontSize: 20),
-              ),
+              ).animate(delay: 1000.ms).fadeIn(duration: 400.ms),
             ],
           ),
         );
@@ -202,7 +221,7 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
                 const SizedBox(width: AppSpacing.md),
                 const PostmanJamesSvg(size: 90, isTalking: true),
               ],
-            ),
+            ).animate().fadeIn(duration: 400.ms),
             const SizedBox(height: AppSpacing.xl),
             Container(
               padding: const EdgeInsets.all(AppSpacing.lg),
@@ -224,7 +243,10 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
                 totalRepeatCount: 1,
                 displayFullTextOnTap: true,
               ),
-            ),
+            )
+                .animate(delay: 200.ms)
+                .fadeIn(duration: 500.ms)
+                .slideY(begin: 0.2, duration: 400.ms, curve: Curves.easeOut),
           ],
         ),
       ),
@@ -232,25 +254,49 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
   }
 
   Widget _buildMegaPoints() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const PostmanJamesSvg(
-                size: 160, showStarEyes: true, isTalking: true),
-            const SizedBox(height: AppSpacing.lg),
-            Text(
-              'Points, baby! Sweet, beautiful, points!',
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    color: postalGold,
-                    fontWeight: FontWeight.bold,
-                  ),
-            ),
-          ],
+    return Stack(
+      alignment: Alignment.topCenter,
+      children: [
+        // Confetti fires from the top-centre when this step is entered.
+        Align(
+          alignment: Alignment.topCenter,
+          child: ConfettiWidget(
+            confettiController: _confettiController,
+            blastDirectionality: BlastDirectionality.explosive,
+            colors: const [postalGold, postalRed, Colors.white],
+            numberOfParticles: 30,
+            gravity: 0.2,
+          ),
         ),
-      ),
+        Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const PostmanJamesSvg(
+                    size: 160, showStarEyes: true, isTalking: true),
+                const SizedBox(height: AppSpacing.lg),
+                Text(
+                  'Points, baby! Sweet, beautiful, points!',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                        color: postalGold,
+                        fontWeight: FontWeight.bold,
+                      ),
+                )
+                    .animate(onPlay: (c) => c.repeat(reverse: true))
+                    .shimmer(duration: 1200.ms, color: Colors.white70)
+                    .scale(
+                      begin: const Offset(0.95, 0.95),
+                      end: const Offset(1.05, 1.05),
+                      duration: 800.ms,
+                    ),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -267,20 +313,20 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
                   .textTheme
                   .titleLarge
                   ?.copyWith(color: Colors.white),
-            ),
+            ).animate().fadeIn(duration: 400.ms),
             const SizedBox(height: AppSpacing.lg),
-            _overviewRow(Icons.location_searching, 'Find postboxes near you'),
+            _overviewRow(Icons.location_searching, 'Find postboxes near you', 0),
             _overviewRow(Icons.add_location,
-                'Claim them when you\'re there to score points'),
+                'Claim them when you\'re there to score points', 1),
             _overviewRow(Icons.leaderboard,
-                'Climb the leaderboard and compete with friends'),
+                'Climb the leaderboard and compete with friends', 2),
           ],
         ),
       ),
     );
   }
 
-  Widget _overviewRow(IconData icon, String text) {
+  Widget _overviewRow(IconData icon, String text, int index) {
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.md),
       child: Row(
@@ -297,7 +343,10 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
           ),
         ],
       ),
-    );
+    )
+        .animate(delay: (index * 150).ms)
+        .fadeIn(duration: 400.ms)
+        .slideX(begin: -0.2, duration: 400.ms, curve: Curves.easeOut);
   }
 
   Widget _buildOverviewEnd() {
@@ -307,7 +356,13 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.thumb_up, size: 64, color: postalGold),
+            Icon(Icons.thumb_up, size: 64, color: postalGold)
+                .animate()
+                .scale(
+                  begin: const Offset(0.3, 0.3),
+                  duration: 600.ms,
+                  curve: Curves.elasticOut,
+                ),
             const SizedBox(height: AppSpacing.lg),
             Text(
               widget.replay
@@ -318,7 +373,7 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
                   color: Colors.white.withValues(alpha: 0.9),
                   fontSize: 20,
                   height: 1.4),
-            ),
+            ).animate(delay: 300.ms).fadeIn(duration: 500.ms),
           ],
         ),
       ),
