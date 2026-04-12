@@ -527,7 +527,11 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
                             ),
                           )
                         : const Icon(Icons.check_circle_outline),
-                    label: Text(_isClaiming ? 'Claiming...' : 'Claim this postbox!'),
+                    label: Text(_isClaiming
+                        ? 'Claiming...'
+                        : (_count - _claimedToday) == 1
+                            ? 'Claim this postbox!'
+                            : 'Claim ${_count - _claimedToday} postboxes!'),
                   ),
                 ),
         ),
