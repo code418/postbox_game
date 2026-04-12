@@ -268,8 +268,8 @@ class _StarEyesOverlayPainter extends CustomPainter {
   final double pulse;
 
   static const List<Offset> _eyeCentres = [
-    Offset(0.33, 0.36),
-    Offset(0.57, 0.37),
+    Offset(0.24, 0.36),
+    Offset(0.42, 0.37),
   ];
   static const double _starR = 0.065;
 
