@@ -36,44 +36,54 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final controller = TextEditingController(
       text: FirebaseAuth.instance.currentUser?.displayName ?? '',
     );
-    final formKey = GlobalKey<FormState>();
 
     final String? newName;
     try {
       newName = await showDialog<String>(
         context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Display name'),
-          content: Form(
-            key: formKey,
-            child: TextFormField(
-              controller: controller,
-              autofocus: true,
-              maxLength: 30,
-              decoration: const InputDecoration(labelText: 'Name'),
-              validator: (v) => Validators.displayNameError(v ?? ''),
-              textInputAction: TextInputAction.done,
-              onFieldSubmitted: (_) {
-                if (formKey.currentState?.validate() ?? false) {
-                  Navigator.pop(ctx, controller.text.trim());
-                }
-              },
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () {
-                if (formKey.currentState?.validate() ?? false) {
-                  Navigator.pop(ctx, controller.text.trim());
-                }
-              },
-              child: const Text('Save'),
-            ),
-          ],
+        builder: (ctx) => StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            String? errorText;
+
+            void trySubmit() {
+              final error = Validators.displayNameError(controller.text.trim());
+              if (error != null) {
+                setDialogState(() => errorText = error);
+                return;
+              }
+              if (ctx.mounted) Navigator.pop(ctx, controller.text.trim());
+            }
+
+            return AlertDialog(
+              title: const Text('Display name'),
+              content: TextField(
+                controller: controller,
+                autofocus: true,
+                maxLength: 30,
+                decoration: InputDecoration(
+                  labelText: 'Name',
+                  errorText: errorText,
+                ),
+                textInputAction: TextInputAction.done,
+                onChanged: (_) {
+                  if (errorText != null) setDialogState(() => errorText = null);
+                },
+                onSubmitted: (_) => trySubmit(),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    if (ctx.mounted) Navigator.pop(ctx);
+                  },
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: trySubmit,
+                  child: const Text('Save'),
+                ),
+              ],
+            );
+          },
         ),
       );
     } finally {
@@ -148,7 +158,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final currentPwCtrl = TextEditingController();
     final newPwCtrl = TextEditingController();
     final confirmPwCtrl = TextEditingController();
-    final formKey = GlobalKey<FormState>();
 
     try {
       final confirmed = await showDialog<bool>(
@@ -157,20 +166,42 @@ class _SettingsScreenState extends State<SettingsScreen> {
           bool showCurrent = false;
           bool showNew = false;
           bool showConfirm = false;
+          String? currentError;
+          String? newError;
+          String? confirmError;
           return StatefulBuilder(
-            builder: (ctx, setDialogState) => AlertDialog(
-              title: const Text('Change password'),
-              content: Form(
-                key: formKey,
-                child: Column(
+            builder: (ctx, setDialogState) {
+              void trySubmit() {
+                final ce = currentPwCtrl.text.isEmpty ? 'Required' : null;
+                final ne = newPwCtrl.text.length < 6
+                    ? 'Password must be at least 6 characters'
+                    : null;
+                final co = confirmPwCtrl.text != newPwCtrl.text
+                    ? "Passwords don't match"
+                    : null;
+                if (ce != null || ne != null || co != null) {
+                  setDialogState(() {
+                    currentError = ce;
+                    newError = ne;
+                    confirmError = co;
+                  });
+                  return;
+                }
+                if (ctx.mounted) Navigator.pop(ctx, true);
+              }
+
+              return AlertDialog(
+                title: const Text('Change password'),
+                content: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    TextFormField(
+                    TextField(
                       controller: currentPwCtrl,
                       obscureText: !showCurrent,
                       decoration: InputDecoration(
                         labelText: 'Current password',
                         prefixIcon: const Icon(Icons.lock_outline),
+                        errorText: currentError,
                         suffixIcon: IconButton(
                           icon: Icon(showCurrent
                               ? Icons.visibility_off_outlined
@@ -179,17 +210,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               setDialogState(() => showCurrent = !showCurrent),
                         ),
                       ),
-                      validator: (v) =>
-                          (v == null || v.isEmpty) ? 'Required' : null,
+                      onChanged: (_) {
+                        if (currentError != null) {
+                          setDialogState(() => currentError = null);
+                        }
+                      },
                     ),
                     const SizedBox(height: AppSpacing.md),
-                    TextFormField(
+                    TextField(
                       controller: newPwCtrl,
                       obscureText: !showNew,
                       decoration: InputDecoration(
                         labelText: 'New password',
                         helperText: 'At least 6 characters',
                         prefixIcon: const Icon(Icons.lock_outline),
+                        errorText: newError,
                         suffixIcon: IconButton(
                           icon: Icon(showNew
                               ? Icons.visibility_off_outlined
@@ -198,20 +233,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               setDialogState(() => showNew = !showNew),
                         ),
                       ),
-                      validator: (v) {
-                        if (v == null || v.length < 6) {
-                          return 'Password must be at least 6 characters';
-                        }
-                        return null;
+                      onChanged: (_) {
+                        if (newError != null) setDialogState(() => newError = null);
                       },
                     ),
                     const SizedBox(height: AppSpacing.md),
-                    TextFormField(
+                    TextField(
                       controller: confirmPwCtrl,
                       obscureText: !showConfirm,
                       decoration: InputDecoration(
                         labelText: 'Confirm new password',
                         prefixIcon: const Icon(Icons.lock_outline),
+                        errorText: confirmError,
                         suffixIcon: IconButton(
                           icon: Icon(showConfirm
                               ? Icons.visibility_off_outlined
@@ -220,28 +253,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               setDialogState(() => showConfirm = !showConfirm),
                         ),
                       ),
-                      validator: (v) => v != newPwCtrl.text
-                          ? 'Passwords don\'t match'
-                          : null,
+                      onChanged: (_) {
+                        if (confirmError != null) {
+                          setDialogState(() => confirmError = null);
+                        }
+                      },
+                      onSubmitted: (_) => trySubmit(),
                     ),
                   ],
                 ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx, false),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  onPressed: () {
-                    if (formKey.currentState?.validate() ?? false) {
-                      Navigator.pop(ctx, true);
-                    }
-                  },
-                  child: const Text('Update'),
-                ),
-              ],
-            ),
+                actions: [
+                  TextButton(
+                    onPressed: () {
+                      if (ctx.mounted) Navigator.pop(ctx, false);
+                    },
+                    child: const Text('Cancel'),
+                  ),
+                  FilledButton(
+                    onPressed: trySubmit,
+                    child: const Text('Update'),
+                  ),
+                ],
+              );
+            },
           );
         },
       );
