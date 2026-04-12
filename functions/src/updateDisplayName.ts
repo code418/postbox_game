@@ -3,17 +3,7 @@ import * as admin from "firebase-admin";
 import * as functions from "firebase-functions";
 import { getTodayLondon } from "./_dateUtils";
 import { updateUserLeaderboards } from "./_leaderboardUtils";
-
-// Keep in sync with validators.dart and onUserCreated.ts.
-const BLOCKED_WORDS = [
-  "fuck","shit","cunt","bitch","bastard","asshole","arsehole",
-  "twat","prick","cock","dick","pussy","wank","wanker",
-  "bollocks","bellend","tosser","shite","knobhead","knobend",
-  "gobshite","minge","slag","slapper","slut","whore",
-  "bugger","arse","pillock","plonker","numpty","muppet",
-  "nigger","nigga","chink","spic","kike","faggot","retard",
-  "paki","spaz","mong","nonce",
-];
+import { containsProfanity } from "./_profanityFilter";
 
 /**
  * Validates and updates the caller's display name in both Firebase Auth and
@@ -50,7 +40,7 @@ export const updateDisplayName = functions.https.onCall(async (request) => {
       "Name must be 30 characters or fewer"
     );
   }
-  if (BLOCKED_WORDS.some((w) => name.toLowerCase().includes(w))) {
+  if (containsProfanity(name)) {
     throw new functions.https.HttpsError("invalid-argument", "That name isn't allowed");
   }
 

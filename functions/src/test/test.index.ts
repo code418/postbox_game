@@ -6,6 +6,7 @@ import { getTodayLondon } from "../_dateUtils";
 import { getWeekStart, getMonthStart } from "../_leaderboardUtils";
 import { setPrecision } from "../_lookupPostboxes";
 import { computeNewStreak } from "../_streakUtils";
+import { containsProfanity } from "../_profanityFilter";
 
 // ── Pure utility unit tests (no Firebase required) ────────────────────────────
 
@@ -102,6 +103,19 @@ describe("computeNewStreak", () => {
 
   it("streak increment from 1 to 2 on consecutive day", () =>
     assert.strictEqual(computeNewStreak(yesterday, 1, today, yesterday), 2));
+});
+
+describe("containsProfanity", () => {
+  it("returns false for a clean name", () => assert.strictEqual(containsProfanity("Alice"), false));
+  it("returns false for a clean multi-word name", () => assert.strictEqual(containsProfanity("Postbox Pete"), false));
+  it("returns true for an exact blocked word", () => assert.strictEqual(containsProfanity("wanker"), true));
+  it("returns true for a blocked word in upper case", () => assert.strictEqual(containsProfanity("WANKER"), true));
+  it("returns true for a blocked word embedded in a longer name", () => assert.strictEqual(containsProfanity("BigWanker"), true));
+  it("returns true for 'cunt'", () => assert.strictEqual(containsProfanity("cunt"), true));
+  it("returns true for 'bellend' embedded", () => assert.strictEqual(containsProfanity("MyBellend"), true));
+  it("returns false for an empty string", () => assert.strictEqual(containsProfanity(""), false));
+  it("returns false for whitespace-only string", () => assert.strictEqual(containsProfanity("   "), false));
+  it("returns true for slur 'paki'", () => assert.strictEqual(containsProfanity("paki"), true));
 });
 
 // ── Cloud Function integration tests (require Firebase emulator) ─────────────
