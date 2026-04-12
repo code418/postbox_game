@@ -116,10 +116,17 @@ function buildDoc(node) {
   const cipher = rawCipher.toUpperCase().trim();
   if (cipher && VALID_CIPHERS.has(cipher)) {
     doc.monarch = cipher;
+  } else {
+    // Explicitly delete any stale monarch field so that a reimport (which uses
+    // merge:true) removes it when the OSM data no longer has a known cipher.
+    // Without this, a postbox previously tagged e.g. EIIR would keep that
+    // value in Firestore even after the OSM tag is corrected or removed.
+    doc.monarch = admin.firestore.FieldValue.delete();
   }
 
   const ref = node.tags?.ref ?? '';
-  if (ref) doc.reference = ref;
+  // Same as monarch: explicitly delete stale reference values on reimport.
+  doc.reference = ref || admin.firestore.FieldValue.delete();
 
   return doc;
 }
@@ -181,7 +188,13 @@ async function main() {
     for (const node of sample) {
       const docId = `osm_${node.id}`;
       const doc = buildDoc(node);
-      console.log(`  ${docId}:`, JSON.stringify({ ...doc, geopoint: `GeoPoint(${node.lat}, ${node.lon})` }));
+      // Substitute FieldValue sentinels with a readable placeholder for dry-run display.
+      const FieldValue = admin.firestore.FieldValue;
+      const display = Object.fromEntries(
+        Object.entries({ ...doc, geopoint: `GeoPoint(${node.lat}, ${node.lon})` })
+          .map(([k, v]) => [k, (v instanceof FieldValue) ? '<delete>' : v])
+      );
+      console.log(`  ${docId}:`, JSON.stringify(display));
     }
     return;
   }
