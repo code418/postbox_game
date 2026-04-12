@@ -97,8 +97,8 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
     // Set searching state synchronously before any awaits so rapid
     // double-taps cannot fire two concurrent Firebase requests.
     setState(() => currentStage = ClaimStage.searching);
-    _distanceUnit = await AppPreferences.getDistanceUnit();
     try {
+      _distanceUnit = await AppPreferences.getDistanceUnit();
       final position = await _getPosition();
       final result = await _callable.call(<String, dynamic>{
         'lat': position.latitude,
@@ -119,19 +119,17 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
       _showErrorSnackBar(isOffline
           ? 'No internet connection. Please try again.'
           : 'Could not scan for postboxes. Please try again.');
-      if (mounted) {
-        JamesController.of(context).show(JamesMessages.claimErrorGeneral.resolve());
-      }
+      if (!mounted) return;
+      JamesController.of(context).show(JamesMessages.claimErrorGeneral.resolve());
       setState(() => currentStage = ClaimStage.initial);
     } catch (e) {
       debugPrint('Error scanning: $e');
       _showErrorSnackBar(e.toString().replaceFirst('Exception: ', ''));
-      if (mounted) {
-        final msg = e.toString().contains('permission')
-            ? JamesMessages.nearbyErrorPermission.resolve()
-            : JamesMessages.claimErrorGeneral.resolve();
-        JamesController.of(context).show(msg);
-      }
+      if (!mounted) return;
+      final msg = e.toString().contains('permission')
+          ? JamesMessages.nearbyErrorPermission.resolve()
+          : JamesMessages.claimErrorGeneral.resolve();
+      JamesController.of(context).show(msg);
       setState(() => currentStage = ClaimStage.initial);
     }
   }
@@ -152,23 +150,22 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
 
       if (!found) {
         // User moved out of range between scan and claim.
+        if (!mounted) return;
         setState(() => _isClaiming = false);
-        if (mounted) {
-          JamesController.of(context).show(JamesMessages.claimOutOfRange.resolve());
-        }
+        JamesController.of(context).show(JamesMessages.claimOutOfRange.resolve());
         await _startSearch();
         return;
       }
       if (allClaimedToday || claimedCount == 0) {
+        if (!mounted) return;
         setState(() => _isClaiming = false);
         _showErrorSnackBar('Already claimed today — come back tomorrow!');
-        if (mounted) {
-          JamesController.of(context).show(JamesMessages.claimErrorAlreadyClaimed.resolve());
-        }
+        JamesController.of(context).show(JamesMessages.claimErrorAlreadyClaimed.resolve());
         await _startSearch();
         return;
       }
       final points = result.data?['points'] ?? 0;
+      if (!mounted) return;
       setState(() {
         _pointsEarned = points is int ? points : (points as num).toInt();
         _claimedCount = claimedCount;
@@ -201,15 +198,14 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
           ? 'No internet connection. Please try again.'
           : (e.message ?? 'Could not claim postbox.');
       _showErrorSnackBar(snackMsg);
+      if (!mounted) return;
       setState(() => _isClaiming = false);
-      if (mounted) {
-        final msg = (e.code == 'already-claimed')
-            ? JamesMessages.claimErrorAlreadyClaimed.resolve()
-            : (e.code == 'out-of-range')
-                ? JamesMessages.claimErrorOutOfRange.resolve()
-                : JamesMessages.claimErrorGeneral.resolve();
-        JamesController.of(context).show(msg);
-      }
+      final msg = (e.code == 'already-claimed')
+          ? JamesMessages.claimErrorAlreadyClaimed.resolve()
+          : (e.code == 'out-of-range')
+              ? JamesMessages.claimErrorOutOfRange.resolve()
+              : JamesMessages.claimErrorGeneral.resolve();
+      JamesController.of(context).show(msg);
     } catch (e) {
       debugPrint('Claim error: $e');
       final isPermission = e.toString().contains('permission');
@@ -219,8 +215,9 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
       _showErrorSnackBar(isPermission
           ? e.toString().replaceFirst('Exception: ', '')
           : 'Could not claim postbox. Please try again.');
+      if (!mounted) return;
       setState(() => _isClaiming = false);
-      if (mounted) JamesController.of(context).show(msg);
+      JamesController.of(context).show(msg);
     }
   }
 

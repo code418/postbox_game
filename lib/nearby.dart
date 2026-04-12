@@ -97,8 +97,8 @@ class NearbyState extends State<Nearby> {
     // Set searching state synchronously before any awaits so rapid
     // double-taps cannot fire two concurrent Firebase requests.
     setState(() => currentStage = NearbyStage.searching);
-    _distanceUnit = await AppPreferences.getDistanceUnit();
     try {
+      _distanceUnit = await AppPreferences.getDistanceUnit();
       final position = await _getPosition();
       final result = await callable.call(<String, dynamic>{
         'lat': position.latitude,
@@ -133,33 +133,31 @@ class NearbyState extends State<Nearby> {
       }
     } on FirebaseFunctionsException catch (e) {
       debugPrint('Firebase functions error: ${e.code} ${e.message}');
-      if (mounted) {
-        final isOffline = e.code == 'unavailable';
-        JamesController.of(context).show(JamesMessages.nearbyErrorGeneral.resolve());
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(isOffline
-                ? 'No internet connection. Please try again.'
-                : 'Could not fetch postboxes. Please try again.'),
-            backgroundColor: Colors.red.shade700,
-          ),
-        );
-      }
+      if (!mounted) return;
+      final isOffline = e.code == 'unavailable';
+      JamesController.of(context).show(JamesMessages.nearbyErrorGeneral.resolve());
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(isOffline
+              ? 'No internet connection. Please try again.'
+              : 'Could not fetch postboxes. Please try again.'),
+          backgroundColor: Colors.red.shade700,
+        ),
+      );
       setState(() => currentStage = NearbyStage.initial);
     } catch (e) {
       debugPrint('Error: $e');
-      if (mounted) {
-        final msg = e.toString().contains('permission')
-            ? JamesMessages.nearbyErrorPermission.resolve()
-            : JamesMessages.nearbyErrorGeneral.resolve();
-        JamesController.of(context).show(msg);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.toString().replaceFirst('Exception: ', '')),
-            backgroundColor: Colors.red.shade700,
-          ),
-        );
-      }
+      if (!mounted) return;
+      final msg = e.toString().contains('permission')
+          ? JamesMessages.nearbyErrorPermission.resolve()
+          : JamesMessages.nearbyErrorGeneral.resolve();
+      JamesController.of(context).show(msg);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          backgroundColor: Colors.red.shade700,
+        ),
+      );
       setState(() => currentStage = NearbyStage.initial);
     }
   }
