@@ -135,7 +135,11 @@ class NearbyState extends State<Nearby> {
       debugPrint('Firebase functions error: ${e.code} ${e.message}');
       if (!mounted) return;
       final isOffline = e.code == 'unavailable';
-      JamesController.of(context)?.show(JamesMessages.nearbyErrorGeneral.resolve());
+      JamesController.of(context)?.show(
+        isOffline
+            ? JamesMessages.errorOffline.resolve()
+            : JamesMessages.nearbyErrorGeneral.resolve(),
+      );
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(isOffline

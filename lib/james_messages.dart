@@ -116,6 +116,13 @@ abstract final class JamesMessages {
     ["Something went wrong there. Give it another go."],
   );
 
+  // ── Offline / no network ─────────────────────────────────────────────────
+
+  static const errorOffline = JamesMessage(
+    'jamesErrorOffline',
+    ["No signal out here. Find some Wi-Fi and give it another go."],
+  );
+
   // ── Claim out-of-range ───────────────────────────────────────────────────
 
   static const claimOutOfRange = JamesMessage(

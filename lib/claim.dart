@@ -122,7 +122,11 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
           ? 'No internet connection. Please try again.'
           : 'Could not scan for postboxes. Please try again.');
       if (!mounted) return;
-      JamesController.of(context)?.show(JamesMessages.claimErrorGeneral.resolve());
+      JamesController.of(context)?.show(
+        isOffline
+            ? JamesMessages.errorOffline.resolve()
+            : JamesMessages.claimErrorGeneral.resolve(),
+      );
       setState(() => currentStage = ClaimStage.initial);
     } catch (e) {
       debugPrint('Error scanning: $e');
@@ -202,11 +206,13 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
       _showErrorSnackBar(snackMsg);
       if (!mounted) return;
       setState(() => _isClaiming = false);
-      final msg = (e.code == 'already-claimed')
-          ? JamesMessages.claimErrorAlreadyClaimed.resolve()
-          : (e.code == 'out-of-range')
-              ? JamesMessages.claimErrorOutOfRange.resolve()
-              : JamesMessages.claimErrorGeneral.resolve();
+      final msg = (e.code == 'unavailable')
+          ? JamesMessages.errorOffline.resolve()
+          : (e.code == 'already-claimed')
+              ? JamesMessages.claimErrorAlreadyClaimed.resolve()
+              : (e.code == 'out-of-range')
+                  ? JamesMessages.claimErrorOutOfRange.resolve()
+                  : JamesMessages.claimErrorGeneral.resolve();
       JamesController.of(context)?.show(msg);
     } catch (e) {
       debugPrint('Claim error: $e');
