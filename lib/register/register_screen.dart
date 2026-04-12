@@ -51,7 +51,7 @@ class RegisterScreen extends StatelessWidget {
                 Text(
                   'Create your account to start collecting postboxes',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Colors.grey.shade600,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
                       ),
                   textAlign: TextAlign.center,
                 ),

@@ -100,7 +100,7 @@ class _LeaderboardListState extends State<_LeaderboardList> {
                   style: Theme.of(context)
                       .textTheme
                       .bodySmall
-                      ?.copyWith(color: Colors.grey),
+                      ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
                 ),
               ],
             ),
@@ -134,7 +134,7 @@ class _LeaderboardListState extends State<_LeaderboardList> {
                     'You\'re outside the top ${entries.length} — keep claiming to climb!',
                     textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Colors.grey.shade500,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
                         ),
                   ),
                 );
@@ -163,8 +163,9 @@ class _LeaderboardListState extends State<_LeaderboardList> {
                   trailing: Text(
                     '$points pts',
                     style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          color:
-                              isCurrentUser ? postalRed : Colors.grey.shade600,
+                          color: isCurrentUser
+                              ? postalRed
+                              : Theme.of(context).colorScheme.onSurfaceVariant,
                           fontWeight: isCurrentUser
                               ? FontWeight.bold
                               : FontWeight.normal,

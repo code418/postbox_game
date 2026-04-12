@@ -150,7 +150,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
                   style: Theme.of(context)
                       .textTheme
                       .bodySmall
-                      ?.copyWith(color: Colors.grey.shade700),
+                      ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
@@ -243,7 +243,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
                           style: Theme.of(context)
                               .textTheme
                               .bodySmall
-                              ?.copyWith(color: Colors.grey),
+                              ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
                           textAlign: TextAlign.center,
                         ),
                       ],
@@ -283,12 +283,12 @@ class _FriendsScreenState extends State<FriendsScreen> {
                             displayName != null ? friendUid : 'UID',
                             overflow: TextOverflow.ellipsis,
                             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                  color: Colors.grey.shade500,
+                                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                                 ),
                           ),
                           trailing: IconButton(
                             icon: Icon(Icons.person_remove_outlined,
-                                color: Colors.grey.shade500),
+                                color: Theme.of(context).colorScheme.onSurfaceVariant),
                             tooltip: 'Remove friend',
                             onPressed: () => _removeFriend(friendUid),
                           ),

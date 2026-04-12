@@ -382,7 +382,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
               style: Theme.of(context)
                   .textTheme
                   .bodyMedium
-                  ?.copyWith(color: Colors.grey.shade600),
+                  ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: AppSpacing.lg),
@@ -466,7 +466,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
               style: Theme.of(context)
                   .textTheme
                   .bodyMedium
-                  ?.copyWith(color: Colors.grey.shade600),
+                  ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: AppSpacing.xl),
@@ -585,7 +585,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
                       style: Theme.of(context)
                           .textTheme
                           .bodySmall
-                          ?.copyWith(color: Colors.grey.shade600),
+                          ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
                     ),
                 ],
               ),
@@ -621,7 +621,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
             style: Theme.of(context)
                 .textTheme
                 .bodyMedium
-                ?.copyWith(color: Colors.grey.shade600),
+                ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: AppSpacing.xl),
@@ -681,7 +681,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
                                   style: Theme.of(context)
                                       .textTheme
                                       .bodySmall
-                                      ?.copyWith(color: Colors.grey.shade600),
+                                      ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
                                 ),
                             ],
                           ),
@@ -724,7 +724,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
               style: Theme.of(context)
                   .textTheme
                   .bodyMedium
-                  ?.copyWith(color: Colors.grey.shade600),
+                  ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: AppSpacing.xl),
