@@ -39,12 +39,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     final String? newName;
     try {
+      // errorText must live in the outer closure (not inside StatefulBuilder.builder)
+      // so that setDialogState updates it by reference and it persists across rebuilds.
+      String? errorText;
       newName = await showDialog<String>(
         context: context,
         builder: (ctx) => StatefulBuilder(
           builder: (ctx, setDialogState) {
-            String? errorText;
-
             void trySubmit() {
               final error = Validators.displayNameError(controller.text.trim());
               if (error != null) {
