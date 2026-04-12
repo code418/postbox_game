@@ -272,6 +272,18 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
       }
     });
 
+    it("should throw invalid-argument when lng is out of range", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      const req = { data: { lat: 51.45, lng: 999, meters: 500 }, auth: { uid: "test-uid" } };
+      try {
+        await wrappedNearby(req);
+        assert.fail("Expected invalid-argument error");
+      } catch (e: unknown) {
+        const err = e as { code?: string };
+        assert.strictEqual(err.code, "invalid-argument");
+      }
+    });
+
     it("should clamp meters to 2000 without error", async function (this: Mocha.Context) {
       this.timeout(10000);
       // This will still hit Firestore but at least validates the clamping path doesn't throw
