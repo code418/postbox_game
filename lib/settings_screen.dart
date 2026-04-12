@@ -38,56 +38,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
     final formKey = GlobalKey<FormState>();
 
-    final newName = await showModalBottomSheet<String>(
+    final newName = await showDialog<String>(
       context: context,
-      isScrollControlled: true,
-      builder: (ctx) => Padding(
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.of(ctx).viewInsets.bottom,
-        ),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(AppSpacing.md),
-            child: Form(
-              key: formKey,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text('Display name',
-                      style: Theme.of(ctx).textTheme.titleMedium),
-                  const SizedBox(height: AppSpacing.md),
-                  TextFormField(
-                    controller: controller,
-                    autofocus: true,
-                    maxLength: 30,
-                    decoration: const InputDecoration(labelText: 'Name'),
-                    validator: (v) => Validators.displayNameError(v ?? ''),
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(ctx),
-                        child: const Text('Cancel'),
-                      ),
-                      const SizedBox(width: AppSpacing.sm),
-                      FilledButton(
-                        onPressed: () {
-                          if (formKey.currentState?.validate() ?? false) {
-                            Navigator.pop(ctx, controller.text.trim());
-                          }
-                        },
-                        child: const Text('Save'),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
+      builder: (ctx) => AlertDialog(
+        title: const Text('Display name'),
+        content: Form(
+          key: formKey,
+          child: TextFormField(
+            controller: controller,
+            autofocus: true,
+            maxLength: 30,
+            decoration: const InputDecoration(labelText: 'Name'),
+            validator: (v) => Validators.displayNameError(v ?? ''),
+            textInputAction: TextInputAction.done,
+            onFieldSubmitted: (_) {
+              if (formKey.currentState?.validate() ?? false) {
+                Navigator.pop(ctx, controller.text.trim());
+              }
+            },
           ),
         ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (formKey.currentState?.validate() ?? false) {
+                Navigator.pop(ctx, controller.text.trim());
+              }
+            },
+            child: const Text('Save'),
+          ),
+        ],
       ),
     );
 
