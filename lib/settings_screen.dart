@@ -38,42 +38,47 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
     final formKey = GlobalKey<FormState>();
 
-    final newName = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Display name'),
-        content: Form(
-          key: formKey,
-          child: TextFormField(
-            controller: controller,
-            autofocus: true,
-            maxLength: 30,
-            decoration: const InputDecoration(labelText: 'Name'),
-            validator: (v) => Validators.displayNameError(v ?? ''),
-            textInputAction: TextInputAction.done,
-            onFieldSubmitted: (_) {
-              if (formKey.currentState?.validate() ?? false) {
-                Navigator.pop(ctx, controller.text.trim());
-              }
-            },
+    final String? newName;
+    try {
+      newName = await showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Display name'),
+          content: Form(
+            key: formKey,
+            child: TextFormField(
+              controller: controller,
+              autofocus: true,
+              maxLength: 30,
+              decoration: const InputDecoration(labelText: 'Name'),
+              validator: (v) => Validators.displayNameError(v ?? ''),
+              textInputAction: TextInputAction.done,
+              onFieldSubmitted: (_) {
+                if (formKey.currentState?.validate() ?? false) {
+                  Navigator.pop(ctx, controller.text.trim());
+                }
+              },
+            ),
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (formKey.currentState?.validate() ?? false) {
+                  Navigator.pop(ctx, controller.text.trim());
+                }
+              },
+              child: const Text('Save'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              if (formKey.currentState?.validate() ?? false) {
-                Navigator.pop(ctx, controller.text.trim());
-              }
-            },
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
+      );
+    } finally {
+      controller.dispose();
+    }
 
     if (newName == null || !mounted) return;
 
