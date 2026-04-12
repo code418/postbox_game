@@ -10,6 +10,8 @@
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
+	<key>CFBundleDisplayName</key>
+	<string>Postbox Game</string>
 	<key>CFBundleName</key>
 	<string>postbox_game</string>
 	<key>CFBundlePackageType</key>
@@ -41,5 +43,9 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Postbox Game needs your location to find postboxes near you and verify you're close enough to claim one.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Postbox Game needs your location to find postboxes near you and verify you're close enough to claim one.</string>
 </dict>
 </plist>
