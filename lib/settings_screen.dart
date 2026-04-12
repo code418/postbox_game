@@ -1,3 +1,4 @@
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -97,10 +98,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       await _userRepository.updateDisplayName(newName);
       if (mounted) setState(() {}); // re-reads Auth displayName in build()
+    } on FirebaseFunctionsException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.message ?? 'Failed to update name.')),
+        );
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to update name: $e')),
+          const SnackBar(content: Text('Failed to update name. Please try again.')),
         );
       }
     } finally {
