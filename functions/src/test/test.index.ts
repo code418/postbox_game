@@ -285,6 +285,28 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
         assert.notStrictEqual(err.code, "invalid-argument", "Should not throw invalid-argument for large meters");
       }
     });
+
+    it("should throw invalid-argument when meters is zero", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      const req = { data: { lat: 51.45, lng: -0.95, meters: 0 }, auth: { uid: "test-uid" } };
+      try {
+        await wrappedNearby(req);
+        assert.fail("Expected invalid-argument error");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("should throw invalid-argument when meters is negative", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      const req = { data: { lat: 51.45, lng: -0.95, meters: -100 }, auth: { uid: "test-uid" } };
+      try {
+        await wrappedNearby(req);
+        assert.fail("Expected invalid-argument error");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
   });
 
   describe("startScoring (onCall)", () => {
