@@ -599,7 +599,9 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
           const Icon(Icons.help_outline, size: 64, color: postalRed),
           const SizedBox(height: AppSpacing.md),
           Text(
-            'What\'s the cipher on this postbox?',
+            (_count - _claimedToday) == 1
+                ? 'What\'s the cipher on this postbox?'
+                : 'What\'s the cipher on one of the nearby postboxes?',
             style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                   fontWeight: FontWeight.bold,
                 ),
@@ -607,7 +609,9 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
           ),
           const SizedBox(height: AppSpacing.xs),
           Text(
-            'Look at the postbox and pick the correct royal cipher.',
+            (_count - _claimedToday) == 1
+                ? 'Look at the postbox and pick the correct royal cipher.'
+                : 'Look at one of the postboxes and pick its royal cipher.',
             style: Theme.of(context)
                 .textTheme
                 .bodyMedium
