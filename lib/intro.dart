@@ -292,7 +292,9 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
             Icon(Icons.thumb_up, size: 64, color: postalGold),
             const SizedBox(height: AppSpacing.lg),
             Text(
-              'Sign in or create an account to start collecting mega points.',
+              widget.replay
+                  ? 'Get out there and find some mega-rare postboxes!'
+                  : 'Sign in or create an account to start collecting mega points.',
               textAlign: TextAlign.center,
               style: TextStyle(
                   color: Colors.white.withValues(alpha: 0.9),
