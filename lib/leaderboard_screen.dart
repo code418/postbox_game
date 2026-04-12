@@ -109,7 +109,7 @@ class _LeaderboardListState extends State<_LeaderboardList> {
         }
         final currentUserInList = _currentUid != null &&
             entries.any((e) =>
-                (e as Map<String, dynamic>?)?['uid'] == _currentUid);
+                e is Map && e['uid'] == _currentUid);
         // Only show the "outside the top N" footer when authenticated but not
         // in the list; omit it for unauthenticated viewers.
         final showFooter = _currentUid != null && !currentUserInList;
@@ -141,7 +141,9 @@ class _LeaderboardListState extends State<_LeaderboardList> {
                 );
               }
 
-              final e = entries[index] as Map<String, dynamic>? ?? {};
+              final e = (entries[index] is Map<String, dynamic>
+                  ? entries[index] as Map<String, dynamic>
+                  : const <String, dynamic>{});
               final rank = index + 1;
               final displayName = e['displayName'] as String? ?? 'Unknown';
               final entryUid = e['uid'] as String?;
