@@ -371,8 +371,10 @@ class NearbyState extends State<Nearby> {
           }),
         ],
 
-        // Compasses
-        if (_count > 0) ...[
+        // Compass — only shown when there are unclaimed postboxes; the
+        // server now returns an unclaimed-only compass so hiding it when
+        // everything is claimed avoids showing a blank "No postboxes" disc.
+        if (_count > 0 && _claimedToday < _count) ...[
           Padding(
             padding: const EdgeInsets.fromLTRB(
                 AppSpacing.md, AppSpacing.lg, AppSpacing.md, AppSpacing.xs),
