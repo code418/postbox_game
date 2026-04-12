@@ -75,7 +75,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
     );
 
-    controller.dispose();
     if (newName == null || !mounted) return;
 
     setState(() => _isSaving = true);
