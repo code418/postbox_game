@@ -84,6 +84,13 @@ describe("getPeriodKey", () => {
 describe("setPrecision", () => {
   // Verify geohash precision thresholds used for postbox proximity queries.
   // Lower precision = larger cells = more documents fetched but guaranteed coverage.
+  //
+  // IMPORTANT — import precision coupling: import_postboxes.js must store
+  // postboxes at a geohash precision >= the highest precision returned here.
+  // The Claim screen uses a 30 m radius → precision 8 prefix queries.
+  // If stored precision < 8 the documents sort lexicographically before the
+  // prefix range, so every claim silently returns { found: false }.
+  // Current import precision: 9 (maximum). Do not lower it.
   it("returns 9 at exact upper boundary (0.00477 km)", () => assert.strictEqual(setPrecision(0.00477), 9));
   it("returns 8 just above precision-9 boundary", () => assert.strictEqual(setPrecision(0.005), 8));
   it("returns 8 for 30 m radius (0.030 km, used by Claim screen)", () => assert.strictEqual(setPrecision(0.030), 8));
