@@ -38,6 +38,8 @@ firebase-debug.log*
 .env.*.local
 *.jks
 *.keystore
+*.der
+**/android/key.properties
 # Firebase service account key (client config like google-services.json is usually committed)
 **/*credentials*.json
 **/*secret*.json

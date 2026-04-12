@@ -13,6 +13,14 @@ if (localPropertiesFile.exists()) {
     }
 }
 
+def keyProperties = new Properties()
+def keyPropertiesFile = rootProject.file('key.properties')
+if (keyPropertiesFile.exists()) {
+    keyPropertiesFile.withReader('UTF-8') { reader ->
+        keyProperties.load(reader)
+    }
+}
+
 def flutterVersionCode = localProperties.getProperty('flutter.versionCode')
 if (flutterVersionCode == null) {
     flutterVersionCode = '1'
@@ -39,11 +47,20 @@ android {
     defaultConfig {
         applicationId "com.code418.postbox_game"
         minSdk 23
-        targetSdk 34
+        targetSdk 35
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
         multiDexEnabled true
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    signingConfigs {
+        release {
+            keyAlias keyProperties['keyAlias']
+            keyPassword keyProperties['keyPassword']
+            storeFile keyProperties['storeFile'] ? file(keyProperties['storeFile']) : null
+            storePassword keyProperties['storePassword']
+        }
     }
 
     compileOptions {
@@ -53,7 +70,7 @@ android {
 
     buildTypes {
         release {
-            signingConfig signingConfigs.debug
+            signingConfig signingConfigs.release
         }
     }
 }
