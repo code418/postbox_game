@@ -122,7 +122,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _chooseDistanceUnit() async {
     final chosen = await showModalBottomSheet<DistanceUnit>(
       context: context,
-      builder: (context) => SafeArea(
+      builder: (_) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -137,18 +137,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
               leading: Radio<DistanceUnit>(
                 value: DistanceUnit.meters,
                 groupValue: _distanceUnit,
-                onChanged: (v) => Navigator.pop(context, v),
+                onChanged: (v) => Navigator.of(context).pop(v),
               ),
-              onTap: () => Navigator.pop(context, DistanceUnit.meters),
+              onTap: () => Navigator.of(context).pop(DistanceUnit.meters),
             ),
             ListTile(
               title: const Text('Miles'),
               leading: Radio<DistanceUnit>(
                 value: DistanceUnit.miles,
                 groupValue: _distanceUnit,
-                onChanged: (v) => Navigator.pop(context, v),
+                onChanged: (v) => Navigator.of(context).pop(v),
               ),
-              onTap: () => Navigator.pop(context, DistanceUnit.miles),
+              onTap: () => Navigator.of(context).pop(DistanceUnit.miles),
             ),
           ],
         ),
