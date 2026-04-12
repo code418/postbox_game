@@ -29,7 +29,7 @@ class PasswordChanged extends LoginEvent {
   List<Object> get props => [password];
 
   @override
-  String toString() => 'PasswordChanged { password: $password }';
+  String toString() => 'PasswordChanged';
 }
 
 class LoginWithGooglePressed extends LoginEvent {
@@ -50,7 +50,5 @@ class LoginWithCredentialsPressed extends LoginEvent {
   List<Object> get props => [email, password];
 
   @override
-  String toString() {
-    return 'LoginWithCredentialsPressed { email: $email, password: $password }';
-  }
+  String toString() => 'LoginWithCredentialsPressed { email: $email }';
 }
