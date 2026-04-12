@@ -146,6 +146,24 @@ void main() {
       });
     });
 
+    group('isValidPassword', () {
+      test('accepts passwords with 6 or more characters', () {
+        expect(Validators.isValidPassword('123456'), isTrue);
+        expect(Validators.isValidPassword('password'), isTrue);
+        expect(Validators.isValidPassword('!@#\$%^'), isTrue);
+      });
+
+      test('rejects passwords shorter than 6 characters', () {
+        expect(Validators.isValidPassword(''), isFalse);
+        expect(Validators.isValidPassword('12345'), isFalse);
+      });
+
+      test('accepts any character type (matches Firebase Auth minimum)', () {
+        expect(Validators.isValidPassword('abc def'), isTrue);
+        expect(Validators.isValidPassword('      '), isTrue); // 6 spaces
+      });
+    });
+
     group('isValidDisplayName', () {
       test('accepts normal names', () {
         expect(Validators.isValidDisplayName('Alice'), isTrue);
@@ -167,6 +185,35 @@ void main() {
 
       test('allows 30-char names', () {
         expect(Validators.isValidDisplayName('a' * 30), isTrue);
+      });
+    });
+
+    group('displayNameError', () {
+      test('returns null for valid names', () {
+        expect(Validators.displayNameError('Alice'), isNull);
+        expect(Validators.displayNameError('Postbox Pete'), isNull);
+        expect(Validators.displayNameError('a' * 30), isNull);
+      });
+
+      test('returns length error for too-short names', () {
+        expect(Validators.displayNameError('a'),
+            equals('Name must be at least 2 characters'));
+        expect(Validators.displayNameError(''),
+            equals('Name must be at least 2 characters'));
+        expect(Validators.displayNameError('   '),
+            equals('Name must be at least 2 characters'));
+      });
+
+      test('returns length error for too-long names', () {
+        expect(Validators.displayNameError('a' * 31),
+            equals('Name must be 30 characters or fewer'));
+      });
+
+      test('returns profanity error for blocked names', () {
+        expect(Validators.displayNameError('BigWanker'),
+            equals("That name isn't allowed"));
+        expect(Validators.displayNameError('CUNT'),
+            equals("That name isn't allowed"));
       });
     });
   });
