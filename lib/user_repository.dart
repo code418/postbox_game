@@ -57,6 +57,32 @@ class UserRepository {
     return credential;
   }
 
+  /// If the current user's Firestore profile is missing a displayName,
+  /// calls the updateDisplayName Cloud Function to backfill it from their
+  /// Firebase Auth profile (falling back to Player_XXXXXX). Errors are
+  /// silently swallowed — this is best-effort repair, not a critical path.
+  Future<void> backfillDisplayNameIfMissing() async {
+    final user = _firebaseAuth.currentUser;
+    if (user == null) return;
+    try {
+      final doc = await _firestore.collection('users').doc(user.uid).get();
+      final existing = doc.exists
+          ? (doc.data()?['displayName'] as String? ?? '').trim()
+          : '';
+      if (existing.isNotEmpty) return; // already set — nothing to do
+      final raw = user.displayName?.trim() ??
+          (user.email != null ? user.email!.split('@').first : '');
+      final name = Validators.isValidDisplayName(raw)
+          ? raw
+          : 'Player_${user.uid.substring(0, 6)}';
+      final callable = FirebaseFunctions.instance.httpsCallable('updateDisplayName');
+      await callable.call({'name': name});
+      await user.reload();
+    } catch (_) {
+      // Non-fatal: the user can always set their name manually in Settings.
+    }
+  }
+
   /// Fetches the display name for any user by UID.
   Future<String?> getDisplayName(String uid) async {
     final doc = await _firestore.collection('users').doc(uid).get();

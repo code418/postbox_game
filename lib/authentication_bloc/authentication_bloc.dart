@@ -22,6 +22,11 @@ class AuthenticationBloc
     try {
       final isSignedIn = await _userRepository.isSignedIn();
       emit(isSignedIn ? const Authenticated() : Unauthenticated());
+      if (isSignedIn) {
+        // Fire-and-forget: silently repairs accounts created before
+        // onUserCreated was deployed (missing Firestore displayName).
+        unawaited(_userRepository.backfillDisplayNameIfMissing());
+      }
     } catch (_) {
       emit(Unauthenticated());
     }
