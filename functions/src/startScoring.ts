@@ -3,7 +3,7 @@ import * as functions from "firebase-functions";
 import { getPoints } from "./_getPoints";
 import { getTodayLondon } from "./_dateUtils";
 import { lookupPostboxes } from "./_lookupPostboxes";
-import { updateUserLeaderboards } from "./_leaderboardUtils";
+import { updateUserLeaderboards, updateLifetimeLeaderboard } from "./_leaderboardUtils";
 import { computeNewStreak } from "./_streakUtils";
 
 const database = admin.firestore();
@@ -100,7 +100,7 @@ export const startScoring = functions.https.onCall(async (request) => {
         // Keep dailyClaim on the postbox doc for display purposes (shows
         // "someone found this today" in future UI); does not gate claiming.
         tx.set(postboxRef, { dailyClaim: { date: todayLondon, by: userid } }, { merge: true });
-        return pts;
+        return { key, pts };
       });
     })
   );
@@ -112,9 +112,16 @@ export const startScoring = functions.https.onCall(async (request) => {
     }
   }
 
-  const earnedPoints = claimSettled
-    .filter((r): r is PromiseFulfilledResult<number> => r.status === "fulfilled" && typeof r.value === "number")
+  const successfulClaims = claimSettled
+    .filter((r): r is PromiseFulfilledResult<{ key: string; pts: number }> =>
+      r.status === "fulfilled" &&
+      r.value !== null &&
+      typeof r.value === "object" &&
+      "key" in r.value
+    )
     .map((r) => r.value);
+
+  const earnedPoints = successfulClaims.map((c) => c.pts);
 
   // If no points were earned but at least one transaction was rejected (as
   // opposed to being skipped because already claimed today), surface an error
@@ -153,6 +160,43 @@ export const startScoring = functions.https.onCall(async (request) => {
     // updateUserLeaderboards uses Promise.allSettled internally and never
     // throws; individual period failures are logged inside the function.
     await updateUserLeaderboards(userid, displayName, todayLondon, database);
+
+    // ── Lifetime leaderboard update ─────────────────────────────────────────
+    try {
+      // For each postbox claimed in this session, check if the user has any
+      // prior claim on a different day. Empty result = first-ever claim for
+      // that postbox → increment unique counter by 1.
+      const uniqueChecks = await Promise.all(
+        successfulClaims.map(({ key }) =>
+          database.collection("claims")
+            .where("userid", "==", userid)
+            .where("postboxes", "==", `/postbox/${key}`)
+            .where("dailyDate", "<", todayLondon)
+            .limit(1)
+            .get()
+            .then((snap) => snap.empty ? 1 : 0)
+        )
+      );
+      const uniqueIncrement = uniqueChecks.reduce<number>((a, b) => a + b, 0);
+      const lifetimePointsIncrement = earnedPoints.reduce((s, p) => s + p, 0);
+
+      await database.collection("users").doc(userid).set(
+        {
+          uniquePostboxesClaimed: admin.firestore.FieldValue.increment(uniqueIncrement),
+          lifetimePoints: admin.firestore.FieldValue.increment(lifetimePointsIncrement),
+        },
+        { merge: true }
+      );
+
+      const updatedUser = await database.collection("users").doc(userid).get();
+      const d = updatedUser.data() ?? {};
+      const uniquePostboxesClaimed = (d.uniquePostboxesClaimed as number | undefined) ?? 0;
+      const lifetimePoints = (d.lifetimePoints as number | undefined) ?? 0;
+
+      await updateLifetimeLeaderboard(userid, displayName, uniquePostboxesClaimed, lifetimePoints, database);
+    } catch (lifetimeErr) {
+      console.error("lifetime leaderboard update failed (non-fatal):", lifetimeErr);
+    }
   }
 
   return {

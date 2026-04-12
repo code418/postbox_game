@@ -90,6 +90,22 @@ class _JamesStripState extends State<JamesStrip> with SingleTickerProviderStateM
     });
   }
 
+  void _dismiss() {
+    if (!_slideCtrl.isAnimating && !_slideCtrl.isCompleted) return;
+    _typeTimer?.cancel();
+    _dismissTimer?.cancel();
+    final messageToDismiss = _currentMessage;
+    _slideCtrl.reverse().then((_) {
+      if (mounted && _currentMessage == messageToDismiss) {
+        widget.controller.clear();
+        setState(() {
+          _currentMessage = '';
+          _charIndex = 0;
+        });
+      }
+    });
+  }
+
   void _startDismissTimer() {
     final messageToDismiss = _currentMessage;
     // Give at least 3 s, plus ~40 ms per character so longer messages stay
@@ -115,7 +131,9 @@ class _JamesStripState extends State<JamesStrip> with SingleTickerProviderStateM
     final colorScheme = Theme.of(context).colorScheme;
     return SlideTransition(
       position: _slideAnim,
-      child: Container(
+      child: GestureDetector(
+        onTap: _dismiss,
+        child: Container(
         decoration: BoxDecoration(
           color: colorScheme.surfaceContainerHighest,
           borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
@@ -150,6 +168,7 @@ class _JamesStripState extends State<JamesStrip> with SingleTickerProviderStateM
             ],
           ),
         ),
+      ),
       ),
     );
   }

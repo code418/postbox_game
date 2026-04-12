@@ -1,38 +1,68 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:postbox_game/james_controller.dart';
+import 'package:postbox_game/james_messages.dart';
 import 'package:postbox_game/theme.dart';
 
-/// Leaderboard with Daily, Weekly, Monthly tabs.
-/// Reads from Firestore leaderboards/{period}; backend can aggregate via Cloud Function.
-class LeaderboardScreen extends StatelessWidget {
+/// Leaderboard with Daily, Weekly, Monthly, Lifetime tabs.
+/// Reads from Firestore leaderboards/{period}; backend aggregates via Cloud Function.
+class LeaderboardScreen extends StatefulWidget {
   const LeaderboardScreen({super.key});
 
-  static const List<String> _periods = ['daily', 'weekly', 'monthly'];
+  @override
+  State<LeaderboardScreen> createState() => _LeaderboardScreenState();
+}
+
+class _LeaderboardScreenState extends State<LeaderboardScreen>
+    with SingleTickerProviderStateMixin {
+  static const List<String> _periods = ['daily', 'weekly', 'monthly', 'lifetime'];
+  late final TabController _tabController;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: _periods.length, vsync: this);
+    _tabController.addListener(_onTabChanged);
+  }
+
+  @override
+  void dispose() {
+    _tabController.removeListener(_onTabChanged);
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  void _onTabChanged() {
+    if (_tabController.indexIsChanging) return;
+    if (_tabController.index == _periods.indexOf('lifetime')) {
+      JamesController.of(context)
+          ?.show(JamesMessages.navLifetimeScores.resolve());
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return DefaultTabController(
-      length: _periods.length,
-      child: Column(
-        children: [
-          Container(
-            color: Theme.of(context).colorScheme.surface,
-            child: TabBar(
-              tabs: _periods
-                  .map((p) => Tab(text: p[0].toUpperCase() + p.substring(1)))
-                  .toList(),
-            ),
+    return Column(
+      children: [
+        Container(
+          color: Theme.of(context).colorScheme.surface,
+          child: TabBar(
+            controller: _tabController,
+            tabs: _periods
+                .map((p) => Tab(text: p[0].toUpperCase() + p.substring(1)))
+                .toList(),
           ),
-          Expanded(
-            child: TabBarView(
-              children: _periods
-                  .map((period) => _LeaderboardList(period: period))
-                  .toList(),
-            ),
+        ),
+        Expanded(
+          child: TabBarView(
+            controller: _tabController,
+            children: _periods
+                .map((period) => _LeaderboardList(period: period))
+                .toList(),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
@@ -49,6 +79,8 @@ class _LeaderboardList extends StatefulWidget {
 class _LeaderboardListState extends State<_LeaderboardList> {
   late final Stream<DocumentSnapshot<Map<String, dynamic>>> _stream;
   final String? _currentUid = FirebaseAuth.instance.currentUser?.uid;
+
+  bool get _isLifetime => widget.period == 'lifetime';
 
   @override
   void initState() {
@@ -97,7 +129,9 @@ class _LeaderboardListState extends State<_LeaderboardList> {
                         )),
                 const SizedBox(height: AppSpacing.xs),
                 Text(
-                  'Leaderboard is updated by the backend.',
+                  _isLifetime
+                      ? 'Start claiming postboxes to appear here.'
+                      : 'Leaderboard is updated by the backend.',
                   style: Theme.of(context)
                       .textTheme
                       .bodySmall
@@ -109,7 +143,7 @@ class _LeaderboardListState extends State<_LeaderboardList> {
         }
         final currentUserInList = _currentUid != null &&
             entries.any((e) =>
-                (e as Map<String, dynamic>?)?['uid'] == _currentUid);
+                e is Map && e['uid'] == _currentUid);
         // Only show the "outside the top N" footer when authenticated but not
         // in the list; omit it for unauthenticated viewers.
         final showFooter = _currentUid != null && !currentUserInList;
@@ -132,7 +166,9 @@ class _LeaderboardListState extends State<_LeaderboardList> {
                   padding: const EdgeInsets.fromLTRB(
                       AppSpacing.md, AppSpacing.sm, AppSpacing.md, AppSpacing.lg),
                   child: Text(
-                    'You\'re outside the top ${entries.length} — keep claiming to climb!',
+                    _isLifetime
+                        ? 'You\'re outside the top ${entries.length} — keep exploring!'
+                        : 'You\'re outside the top ${entries.length} — keep claiming to climb!',
                     textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -141,17 +177,38 @@ class _LeaderboardListState extends State<_LeaderboardList> {
                 );
               }
 
-              final e = entries[index] as Map<String, dynamic>? ?? {};
+              final e = (entries[index] is Map<String, dynamic>
+                  ? entries[index] as Map<String, dynamic>
+                  : const <String, dynamic>{});
               final rank = index + 1;
               final displayName = e['displayName'] as String? ?? 'Unknown';
               final entryUid = e['uid'] as String?;
-              final points =
-                  (e['points'] is num) ? (e['points'] as num).toInt() : 0;
               final isCurrentUser = entryUid != null && entryUid == _currentUid;
+
+              // Lifetime-specific fields
+              final uniqueBoxes = _isLifetime
+                  ? ((e['uniquePostboxesClaimed'] is num)
+                      ? (e['uniquePostboxesClaimed'] as num).toInt()
+                      : 0)
+                  : 0;
+              final totalPoints = _isLifetime
+                  ? ((e['totalPoints'] is num)
+                      ? (e['totalPoints'] as num).toInt()
+                      : 0)
+                  : 0;
+
+              // Standard period fields
+              final points = !_isLifetime
+                  ? ((e['points'] is num) ? (e['points'] as num).toInt() : 0)
+                  : 0;
+
+              final trailingText = _isLifetime
+                  ? '$uniqueBoxes ${uniqueBoxes == 1 ? 'box' : 'boxes'} · $totalPoints pts'
+                  : '$points pts';
 
               return Card(
                 color: isCurrentUser
-                    ? postalRed.withValues(alpha:0.08)
+                    ? postalRed.withValues(alpha: 0.08)
                     : null,
                 child: ListTile(
                   leading: _rankWidget(rank),
@@ -162,7 +219,7 @@ class _LeaderboardListState extends State<_LeaderboardList> {
                         : null,
                   ),
                   trailing: Text(
-                    '$points pts',
+                    trailingText,
                     style: Theme.of(context).textTheme.titleSmall?.copyWith(
                           color: isCurrentUser
                               ? postalRed
@@ -192,7 +249,7 @@ class _LeaderboardListState extends State<_LeaderboardList> {
       default:
         return CircleAvatar(
           radius: 16,
-          backgroundColor: postalRed.withValues(alpha:0.1),
+          backgroundColor: postalRed.withValues(alpha: 0.1),
           child: Text(
             '$rank',
             style: const TextStyle(

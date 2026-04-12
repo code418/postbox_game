@@ -2,7 +2,7 @@ import "./adminInit";
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions";
 import { getTodayLondon } from "./_dateUtils";
-import { updateUserLeaderboards } from "./_leaderboardUtils";
+import { updateUserLeaderboards, updateLifetimeLeaderboard } from "./_leaderboardUtils";
 import { containsProfanity } from "./_profanityFilter";
 
 /**
@@ -74,6 +74,16 @@ export const updateDisplayName = functions.https.onCall(async (request) => {
   // failures are logged inside it.
   const today = getTodayLondon();
   await updateUserLeaderboards(uid, name, today, admin.firestore());
+
+  try {
+    const userDoc = await admin.firestore().collection("users").doc(uid).get();
+    const d = userDoc.data() ?? {};
+    const uniquePostboxesClaimed = (d.uniquePostboxesClaimed as number | undefined) ?? 0;
+    const lifetimePoints = (d.lifetimePoints as number | undefined) ?? 0;
+    await updateLifetimeLeaderboard(uid, name, uniquePostboxesClaimed, lifetimePoints, admin.firestore());
+  } catch (lifetimeErr) {
+    console.error("lifetime leaderboard display name update failed (non-fatal):", lifetimeErr);
+  }
 
   return { displayName: name };
 });

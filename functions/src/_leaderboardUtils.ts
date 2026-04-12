@@ -111,3 +111,42 @@ export async function updateUserLeaderboards(
     }
   }
 }
+
+interface LifetimeLeaderboardEntry {
+  uid: string;
+  displayName: string;
+  uniquePostboxesClaimed: number;
+  totalPoints: number;
+}
+
+/**
+ * Upserts the user's lifetime entry in leaderboards/lifetime.
+ * Sorts by uniquePostboxesClaimed descending, keeps top 100.
+ * periodKey is always "lifetime" — no rollover.
+ */
+export async function updateLifetimeLeaderboard(
+  uid: string,
+  displayName: string,
+  uniquePostboxesClaimed: number,
+  totalPoints: number,
+  db: Firestore
+): Promise<void> {
+  const ref = db.collection("leaderboards").doc("lifetime");
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const existing: LifetimeLeaderboardEntry[] =
+      (snap.data()?.entries as LifetimeLeaderboardEntry[]) ?? [];
+
+    const others = existing.filter((e) => e.uid !== uid);
+    const updated: LifetimeLeaderboardEntry[] = [
+      ...others,
+      ...(uniquePostboxesClaimed > 0 || totalPoints > 0
+        ? [{ uid, displayName, uniquePostboxesClaimed, totalPoints }]
+        : []),
+    ]
+      .sort((a, b) => b.uniquePostboxesClaimed - a.uniquePostboxesClaimed)
+      .slice(0, 100);
+
+    tx.set(ref, { periodKey: "lifetime", entries: updated }, { merge: false });
+  });
+}
