@@ -61,6 +61,8 @@ class RegisterBloc extends Bloc<RegisterEvent, RegisterState> {
         return 'Email sign-up is not enabled.';
       case 'network-request-failed':
         return 'No internet connection.';
+      case 'too-many-requests':
+        return 'Too many attempts. Please wait and try again.';
       default:
         return 'Registration failed. Please try again.';
     }
