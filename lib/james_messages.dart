@@ -59,6 +59,14 @@ abstract final class JamesMessages {
     ["Add friends by UID to see them here. More the merrier."],
   );
 
+  static const navLifetimeScores = JamesMessage(
+    'jamesNavLifetimeScores',
+    [
+      "This is the all-time tally — unique postboxes ever claimed. "
+          "Claiming the same box twice doesn't count, so get out and explore!",
+    ],
+  );
+
   /// Returns the nav hint for tab [index] (0–3), or null for unknown indices.
   static JamesMessage? forTabIndex(int index) => switch (index) {
         0 => navNearby,
