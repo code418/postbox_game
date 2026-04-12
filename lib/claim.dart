@@ -105,6 +105,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
         'lng': position.longitude,
         'meters': AppPreferences.claimRadiusMeters,
       });
+      if (!mounted) return;
       setState(() {
         _count = result.data['counts']['total'] ?? 0;
         _maxPoints = result.data['points']['max'] ?? 0;

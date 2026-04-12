@@ -105,6 +105,7 @@ class NearbyState extends State<Nearby> {
         'lng': position.longitude,
         'meters': AppPreferences.nearbyRadiusMeters,
       });
+      if (!mounted) return;
       setState(() {
         _count = result.data['counts']['total'] ?? 0;
         _maxPoints = result.data['points']['max'] ?? 0;
@@ -124,13 +125,11 @@ class NearbyState extends State<Nearby> {
         }
         _lastScanned = DateTime.now();
       });
-      if (mounted) {
-        final box = _count == 1 ? 'postbox' : 'postboxes';
-        final msg = _count > 0
-            ? JamesMessages.nearbyFound(_count, box)
-            : JamesMessages.nearbyNoneFound.resolve();
-        JamesController.of(context).show(msg);
-      }
+      final box = _count == 1 ? 'postbox' : 'postboxes';
+      final msg = _count > 0
+          ? JamesMessages.nearbyFound(_count, box)
+          : JamesMessages.nearbyNoneFound.resolve();
+      JamesController.of(context).show(msg);
     } on FirebaseFunctionsException catch (e) {
       debugPrint('Firebase functions error: ${e.code} ${e.message}');
       if (!mounted) return;
