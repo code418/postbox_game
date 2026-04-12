@@ -45,7 +45,7 @@ class LoginScreen extends StatelessWidget {
                 Text(
                   'Sign in to start collecting',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Colors.grey.shade600,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
                       ),
                 ),
                 const SizedBox(height: AppSpacing.xl),
