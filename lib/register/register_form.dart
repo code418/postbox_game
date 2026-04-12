@@ -41,6 +41,9 @@ class _RegisterFormState extends State<RegisterForm> {
       listener: (BuildContext context, RegisterState state) {
         if (state.isSuccess) {
           BlocProvider.of<AuthenticationBloc>(context).add(LoggedIn());
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (context.mounted) Navigator.of(context).popUntil((route) => route.isFirst);
+          });
         }
         if (state.isFailure) {
           ScaffoldMessenger.of(context)
