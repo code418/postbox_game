@@ -94,8 +94,9 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
   }
 
   Future<void> _startSearch() async {
-    // Set searching state synchronously before any awaits so rapid
-    // double-taps cannot fire two concurrent Firebase requests.
+    // Guard against concurrent calls (e.g. pull-to-refresh + Refresh button
+    // both firing before the next frame rebuilds the UI).
+    if (currentStage == ClaimStage.searching) return;
     setState(() => currentStage = ClaimStage.searching);
     try {
       _distanceUnit = await AppPreferences.getDistanceUnit();

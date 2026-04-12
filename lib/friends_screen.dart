@@ -87,7 +87,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to add friend: $e')),
+          const SnackBar(content: Text('Failed to add friend. Please try again.')),
         );
       }
     }
@@ -110,7 +110,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to remove: $e')),
+          const SnackBar(content: Text('Failed to remove friend. Please try again.')),
         );
       }
     }
