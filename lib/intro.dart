@@ -1,5 +1,6 @@
 import 'package:animated_text_kit/animated_text_kit.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:postbox_game/james_messages.dart';
 import 'package:postbox_game/postman_james_svg.dart';
 import 'package:postbox_game/theme.dart';
@@ -137,11 +138,11 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
               borderRadius: BorderRadius.circular(16),
               border: Border.all(color: Colors.white24, width: 2),
             ),
-            child: const Column(
+            child: Column(
               children: [
-                Icon(Icons.mail, size: 80, color: postalRed),
-                SizedBox(height: AppSpacing.sm),
-                Text(
+                SvgPicture.asset('assets/postbox.svg', width: 120, height: 120),
+                const SizedBox(height: AppSpacing.sm),
+                const Text(
                   'A normal postbox',
                   style: TextStyle(color: Colors.white70, fontSize: 18),
                 ),
@@ -162,13 +163,21 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               const SizedBox(height: 40),
-              FractionalTranslation(
-                translation: Offset(_jamesSlide.value, 0),
-                child: const PostmanJamesSvg(size: 100),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  SvgPicture.asset('assets/postbox.svg', width: 80, height: 80),
+                  const SizedBox(width: AppSpacing.lg),
+                  FractionalTranslation(
+                    translation: Offset(_jamesSlide.value, 0),
+                    child: const PostmanJamesSvg(size: 100),
+                  ),
+                ],
               ),
               const SizedBox(height: AppSpacing.lg),
               const Text(
-                'Postman James arrives',
+                'Someone arrives...',
                 style: TextStyle(color: Colors.white70, fontSize: 20),
               ),
             ],
@@ -185,7 +194,15 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const PostmanJamesSvg(size: 90, isTalking: true),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                SvgPicture.asset('assets/postbox.svg', width: 64, height: 64),
+                const SizedBox(width: AppSpacing.md),
+                const PostmanJamesSvg(size: 90, isTalking: true),
+              ],
+            ),
             const SizedBox(height: AppSpacing.xl),
             Container(
               padding: const EdgeInsets.all(AppSpacing.lg),

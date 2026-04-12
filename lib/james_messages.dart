@@ -174,7 +174,7 @@ abstract final class JamesMessages {
 
   static const introStep2 = JamesMessage(
     'jamesIntroStep2',
-    ['Hi, my name is Postman James.\nWhat you see here is a normal postbox.'],
+    ['Ah, you found one!\nWhat you see here is a perfectly ordinary postbox.'],
   );
 
   static const introStep3 = JamesMessage(
