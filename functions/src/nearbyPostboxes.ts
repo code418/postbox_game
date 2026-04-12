@@ -2,6 +2,7 @@ import "./adminInit";
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions";
 import { getTodayLondon } from "./_dateUtils";
+import { getPoints } from "./_getPoints";
 import { lookupPostboxes } from "./_lookupPostboxes";
 
 interface NearbyCallData {
@@ -89,9 +90,26 @@ export const nearbyPostboxes = functions.https.onCall(async (request) => {
   }
   updatedCounts.claimedToday = myClaimedCount;
 
+  // Compute per-user points range: exclude boxes already claimed by THIS user
+  // today so the "Worth X–Y pts" display reflects what's actually claimable.
+  let unclaimedMin = Infinity;
+  let unclaimedMax = 0;
+  for (const [id, pb] of Object.entries(full.postboxes)) {
+    if (!userClaimedKeys.has(id)) {
+      const pts = pb.monarch !== undefined ? getPoints(pb.monarch) : 2;
+      if (pts < unclaimedMin) unclaimedMin = pts;
+      if (pts > unclaimedMax) unclaimedMax = pts;
+    }
+  }
+  const updatedPoints = {
+    min: isFinite(unclaimedMin) ? unclaimedMin : 0,
+    max: unclaimedMax,
+  };
+
   return {
     ...full,
     postboxes: slimPostboxes,
     counts: updatedCounts,
+    points: updatedPoints,
   };
 });
