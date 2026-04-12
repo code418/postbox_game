@@ -70,13 +70,10 @@ export const updateDisplayName = functions.https.onCall(async (request) => {
 
   // Refresh leaderboard entries so the new name shows immediately on
   // all periods, without waiting for the user's next claim.
-  // Non-fatal: leaderboard is cosmetic and will be corrected on the next claim.
-  try {
-    const today = getTodayLondon();
-    await updateUserLeaderboards(uid, name, today, admin.firestore());
-  } catch (lbErr) {
-    console.error("Leaderboard name refresh failed (non-fatal):", lbErr);
-  }
+  // updateUserLeaderboards uses allSettled and never throws; period
+  // failures are logged inside it.
+  const today = getTodayLondon();
+  await updateUserLeaderboards(uid, name, today, admin.firestore());
 
   return { displayName: name };
 });

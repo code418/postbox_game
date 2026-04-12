@@ -126,16 +126,9 @@ export const startScoring = functions.https.onCall(async (request) => {
       console.error("streak update failed (non-fatal):", streakErr);
     }
 
-    // Retry leaderboard update once on transient Firestore errors.
-    try {
-      await updateUserLeaderboards(userid, displayName, todayLondon, database);
-    } catch (err) {
-      try {
-        await updateUserLeaderboards(userid, displayName, todayLondon, database);
-      } catch (retryErr) {
-        console.error("updateUserLeaderboards failed after retry:", retryErr);
-      }
-    }
+    // updateUserLeaderboards uses Promise.allSettled internally and never
+    // throws; individual period failures are logged inside the function.
+    await updateUserLeaderboards(userid, displayName, todayLondon, database);
   }
 
   return {
