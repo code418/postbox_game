@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Data Safety – The Postbox Game</title>
+  <style>
+    :root {
+      --red: #C8102E;
+      --navy: #0A1931;
+      --gold: #FFB400;
+      --bg: #f9f7f4;
+      --text: #1a1a1a;
+      --muted: #555;
+      --green: #1a7a3c;
+      --green-bg: #e8f5ee;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.7;
+    }
+    header {
+      background: var(--navy);
+      color: white;
+      padding: 2rem 1.5rem 1.5rem;
+      border-bottom: 4px solid var(--red);
+    }
+    header h1 { font-size: 1.6rem; font-weight: 700; }
+    header p  { font-size: 0.9rem; color: #aab; margin-top: 0.3rem; }
+    main {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 2rem 1.5rem 4rem;
+    }
+    h2 {
+      font-size: 1.15rem;
+      color: var(--red);
+      margin: 2rem 0 0.8rem;
+      padding-bottom: 0.3rem;
+      border-bottom: 1px solid #e0d8d0;
+    }
+    p { margin-bottom: 0.9rem; }
+    .summary-box {
+      background: var(--green-bg);
+      border-left: 4px solid var(--green);
+      padding: 1rem 1.2rem;
+      border-radius: 4px;
+      margin-bottom: 1.5rem;
+      font-size: 0.95rem;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 1.5rem;
+      font-size: 0.95rem;
+    }
+    th {
+      background: var(--navy);
+      color: white;
+      text-align: left;
+      padding: 0.6rem 0.9rem;
+      font-weight: 600;
+    }
+    td {
+      padding: 0.55rem 0.9rem;
+      border-bottom: 1px solid #ddd;
+      vertical-align: top;
+    }
+    tr:nth-child(even) td { background: #f1ece6; }
+    .yes { color: var(--green); font-weight: 600; }
+    .no  { color: var(--muted); }
+    .badge {
+      display: inline-block;
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 0.1rem 0.5rem;
+      border-radius: 3px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .badge-required  { background: #fde8ec; color: var(--red); }
+    .badge-optional  { background: #e8f0fe; color: #1a4dbb; }
+    a { color: var(--red); }
+    footer {
+      text-align: center;
+      padding: 1.5rem;
+      font-size: 0.8rem;
+      color: var(--muted);
+      border-top: 1px solid #ddd;
+    }
+  </style>
+</head>
+<body>
+<header>
+  <h1>The Postbox Game – Data Safety</h1>
+  <p>What data the App collects and how it is used.</p>
+</header>
+<main>
+
+  <div class="summary-box">
+    <strong>Summary:</strong> The App collects your location (while in use only), your account display name and email, and gameplay activity. Data is encrypted in transit. You can request deletion of your account and data at any time. We do not sell your data.
+  </div>
+
+  <h2>Data Collected</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Data type</th>
+        <th>What specifically</th>
+        <th>Why</th>
+        <th>Required?</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Precise location</strong></td>
+        <td>GPS coordinates while using the App</td>
+        <td>Find nearby postboxes; validate claims</td>
+        <td><span class="badge badge-required">Required</span></td>
+      </tr>
+      <tr>
+        <td><strong>Name</strong></td>
+        <td>Display name (chosen by you or from Google)</td>
+        <td>Shown on leaderboards and to friends</td>
+        <td><span class="badge badge-required">Required</span></td>
+      </tr>
+      <tr>
+        <td><strong>Email address</strong></td>
+        <td>Email used to sign in</td>
+        <td>Account authentication</td>
+        <td><span class="badge badge-required">Required</span></td>
+      </tr>
+      <tr>
+        <td><strong>App interactions</strong></td>
+        <td>Postbox claims, scores, streaks, leaderboard entries</td>
+        <td>Core gameplay features</td>
+        <td><span class="badge badge-required">Required</span></td>
+      </tr>
+      <tr>
+        <td><strong>Crash logs</strong></td>
+        <td>Anonymous crash reports and stack traces</td>
+        <td>Bug fixing and App stability</td>
+        <td><span class="badge badge-optional">Optional</span></td>
+      </tr>
+      <tr>
+        <td><strong>App performance</strong></td>
+        <td>Anonymous performance traces (load times, etc.)</td>
+        <td>Performance improvements</td>
+        <td><span class="badge badge-optional">Optional</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Data Sharing</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Question</th>
+        <th>Answer</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Is data shared with third parties?</td>
+        <td><span class="no">No</span> – data is only processed by Google Firebase (our infrastructure provider)</td>
+      </tr>
+      <tr>
+        <td>Is data sold?</td>
+        <td><span class="no">No</span></td>
+      </tr>
+      <tr>
+        <td>Is data used for advertising?</td>
+        <td><span class="no">No</span></td>
+      </tr>
+      <tr>
+        <td>Is data used to track users across other apps?</td>
+        <td><span class="no">No</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Security Practices</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Practice</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Data encrypted in transit</td>
+        <td><span class="yes">Yes</span> – HTTPS / TLS for all network requests</td>
+      </tr>
+      <tr>
+        <td>Data encrypted at rest</td>
+        <td><span class="yes">Yes</span> – Google Firebase encrypts data at rest by default</td>
+      </tr>
+      <tr>
+        <td>You can request data deletion</td>
+        <td><span class="yes">Yes</span> – contact us to delete your account and all associated data</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Location Access</h2>
+  <p>The App requests <strong>precise location</strong> permission. Location is accessed <strong>only while the App is in the foreground</strong> (i.e. not in the background). It is used solely to find postboxes near you and to validate that you are close enough to claim one. Location coordinates are not stored after a claim check completes.</p>
+
+  <h2>Account Deletion</h2>
+  <p>You can request deletion of your account and all associated personal data by contacting us at <a href="mailto:richard@agilepixel.io">richard@agilepixel.io</a>. We will process deletion requests within 30 days.</p>
+
+  <h2>More Information</h2>
+  <p>For full details, see our <a href="/privacy-policy">Privacy Policy</a>.</p>
+
+</main>
+<footer>
+  &copy; 2025 The Postbox Game &nbsp;|&nbsp; <a href="/privacy-policy">Privacy Policy</a>
+</footer>
+</body>
+</html>
