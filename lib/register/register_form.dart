@@ -113,7 +113,7 @@ class _RegisterFormState extends State<RegisterForm> {
               if (state.isSubmitting)
                 Positioned.fill(
                   child: Container(
-                    color: Colors.white.withValues(alpha:0.7),
+                    color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.7),
                     child: const Center(
                       child: CircularProgressIndicator(color: postalRed),
                     ),
