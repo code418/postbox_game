@@ -161,7 +161,7 @@ class _LoginFormState extends State<LoginForm> {
     try {
       final confirmed = await showDialog<bool>(
         context: context,
-        builder: (ctx) => AlertDialog(
+        builder: (_) => AlertDialog(
           title: const Text('Reset password'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
@@ -176,7 +176,7 @@ class _LoginFormState extends State<LoginForm> {
                 keyboardType: TextInputType.emailAddress,
                 autocorrect: false,
                 textInputAction: TextInputAction.done,
-                onFieldSubmitted: (_) => Navigator.pop(ctx, true),
+                onFieldSubmitted: (_) => Navigator.of(context).pop(true),
                 decoration: const InputDecoration(
                   labelText: 'Email',
                   prefixIcon: Icon(Icons.email_outlined),
@@ -186,11 +186,11 @@ class _LoginFormState extends State<LoginForm> {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
+              onPressed: () => Navigator.of(context).pop(false),
               child: const Text('Cancel'),
             ),
             FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
+              onPressed: () => Navigator.of(context).pop(true),
               child: const Text('Send link'),
             ),
           ],

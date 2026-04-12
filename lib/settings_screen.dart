@@ -44,15 +44,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
       String? errorText;
       newName = await showDialog<String>(
         context: context,
-        builder: (ctx) => StatefulBuilder(
-          builder: (ctx, setDialogState) {
+        builder: (_) => StatefulBuilder(
+          builder: (_, setDialogState) {
             void trySubmit() {
               final error = Validators.displayNameError(controller.text.trim());
               if (error != null) {
                 setDialogState(() => errorText = error);
                 return;
               }
-              if (ctx.mounted) Navigator.pop(ctx, controller.text.trim());
+              // Use the outer (settings screen) context to navigate, not the
+              // dialog's builder context. The dialog's context is owned by a
+              // route that is being deactivated by this very pop call, so using
+              // it can race with InkWell/button ripple rebuilds still scheduled
+              // against it, causing the '_dependents.isEmpty' Flutter assertion.
+              if (mounted) Navigator.of(context).pop(controller.text.trim());
             }
 
             return AlertDialog(
@@ -74,7 +79,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               actions: [
                 TextButton(
                   onPressed: () {
-                    if (ctx.mounted) Navigator.pop(ctx);
+                    if (mounted) Navigator.of(context).pop();
                   },
                   child: const Text('Cancel'),
                 ),
@@ -163,7 +168,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       final confirmed = await showDialog<bool>(
         context: context,
-        builder: (ctx) {
+        builder: (_) {
           bool showCurrent = false;
           bool showNew = false;
           bool showConfirm = false;
@@ -171,7 +176,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           String? newError;
           String? confirmError;
           return StatefulBuilder(
-            builder: (ctx, setDialogState) {
+            builder: (_, setDialogState) {
               void trySubmit() {
                 final ce = currentPwCtrl.text.isEmpty ? 'Required' : null;
                 final ne = newPwCtrl.text.length < 6
@@ -188,7 +193,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   });
                   return;
                 }
-                if (ctx.mounted) Navigator.pop(ctx, true);
+                if (mounted) Navigator.of(context).pop(true);
               }
 
               return AlertDialog(
@@ -266,7 +271,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 actions: [
                   TextButton(
                     onPressed: () {
-                      if (ctx.mounted) Navigator.pop(ctx, false);
+                      if (mounted) Navigator.of(context).pop(false);
                     },
                     child: const Text('Cancel'),
                   ),
@@ -315,16 +320,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _signOut() async {
     final confirm = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (_) => AlertDialog(
         title: const Text('Sign out'),
         content: const Text('Are you sure you want to sign out?'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context, false),
+            onPressed: () => Navigator.of(context).pop(false),
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () => Navigator.of(context).pop(true),
             child: const Text('Sign out'),
           ),
         ],
