@@ -227,8 +227,8 @@ class _FriendsScreenState extends State<FriendsScreen> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.people_outline,
-                            size: 72, color: Colors.grey.shade300),
+                        Icon(Icons.people_outline, size: 72,
+                            color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.2)),
                         const SizedBox(height: AppSpacing.md),
                         Text(
                           'No friends yet',

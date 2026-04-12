@@ -69,7 +69,8 @@ class _LeaderboardListState extends State<_LeaderboardList> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.error_outline, size: 48, color: Colors.grey.shade400),
+                Icon(Icons.error_outline, size: 48,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant),
                 const SizedBox(height: AppSpacing.md),
                 Text('Could not load leaderboard',
                     style: Theme.of(context).textTheme.titleMedium),
@@ -87,8 +88,8 @@ class _LeaderboardListState extends State<_LeaderboardList> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.leaderboard_outlined,
-                    size: 72, color: Colors.grey.shade300),
+                Icon(Icons.leaderboard_outlined, size: 72,
+                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.2)),
                 const SizedBox(height: AppSpacing.md),
                 Text('No rankings yet',
                     style: Theme.of(context).textTheme.titleLarge?.copyWith(

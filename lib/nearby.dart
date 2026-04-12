@@ -186,7 +186,8 @@ class NearbyState extends State<Nearby> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(Icons.location_searching,
-                size: 80, color: Colors.grey.shade300),
+                size: 80,
+                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.2)),
             const SizedBox(height: AppSpacing.lg),
             Text(
               'Find nearby postboxes',
@@ -326,7 +327,8 @@ class NearbyState extends State<Nearby> {
             padding: const EdgeInsets.all(AppSpacing.xl),
             child: Column(
               children: [
-                Icon(Icons.location_off, size: 60, color: Colors.grey.shade300),
+                Icon(Icons.location_off, size: 60,
+                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.2)),
                 const SizedBox(height: AppSpacing.md),
                 Text(
                   'No postboxes found within ${AppPreferences.formatDistance(AppPreferences.nearbyRadiusMeters, _distanceUnit)}',

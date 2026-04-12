@@ -450,7 +450,8 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.location_off, size: 80, color: Colors.grey.shade400),
+            Icon(Icons.location_off, size: 80,
+                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.2)),
             const SizedBox(height: AppSpacing.md),
             Text(
               'No postboxes found within ${AppPreferences.formatShortDistance(AppPreferences.claimRadiusMeters, _distanceUnit)}',
