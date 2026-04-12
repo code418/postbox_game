@@ -88,7 +88,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
       }
     }
     if (permission == LocationPermission.deniedForever) {
-      throw Exception('Location permission permanently denied. Enable in Settings.');
+      throw Exception('Location permission permanently denied. Enable it in Settings.');
     }
     return Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
   }
@@ -126,6 +126,12 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
     } catch (e) {
       debugPrint('Error scanning: $e');
       _showErrorSnackBar(e.toString().replaceFirst('Exception: ', ''));
+      if (mounted) {
+        final msg = e.toString().contains('permission')
+            ? JamesMessages.nearbyErrorPermission.resolve()
+            : JamesMessages.claimErrorGeneral.resolve();
+        JamesController.of(context).show(msg);
+      }
       setState(() => currentStage = ClaimStage.initial);
     }
   }
@@ -206,10 +212,13 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
       }
     } catch (e) {
       debugPrint('Claim error: $e');
-      final msg = e.toString().contains('permission')
+      final isPermission = e.toString().contains('permission');
+      final msg = isPermission
           ? JamesMessages.nearbyErrorPermission.resolve()
           : JamesMessages.claimErrorGeneral.resolve();
-      _showErrorSnackBar('Could not claim postbox. Please try again.');
+      _showErrorSnackBar(isPermission
+          ? e.toString().replaceFirst('Exception: ', '')
+          : 'Could not claim postbox. Please try again.');
       setState(() => _isClaiming = false);
       if (mounted) JamesController.of(context).show(msg);
     }
