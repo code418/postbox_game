@@ -100,6 +100,7 @@ class RegisterState {
       isSubmitting: $isSubmitting,
       isSuccess: $isSuccess,
       isFailure: $isFailure,
+      errorMessage: $errorMessage,
     }''';
   }
 }
