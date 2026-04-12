@@ -444,7 +444,9 @@ class NearbyState extends State<Nearby> {
           child: Text(
             allClaimed ? '✓' : '$available',
             style: TextStyle(
-              color: allClaimed ? Colors.grey.shade400 : color,
+              color: allClaimed
+                  ? Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.38)
+                  : color,
               fontWeight: FontWeight.bold,
             ),
           ),
@@ -452,7 +454,7 @@ class NearbyState extends State<Nearby> {
         title: Text(
           label,
           style: allClaimed
-              ? TextStyle(color: Colors.grey.shade400)
+              ? TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.38))
               : null,
         ),
         subtitle: Text(
@@ -462,7 +464,7 @@ class NearbyState extends State<Nearby> {
                   ? '$code · ${MonarchInfo.getPoints(code)} pts · $available of $count available'
                   : '$code · ${MonarchInfo.getPoints(code)} pts each',
           style: allClaimed
-              ? TextStyle(color: Colors.grey.shade400)
+              ? TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.38))
               : null,
         ),
         trailing: allClaimed ? null : trailing,
