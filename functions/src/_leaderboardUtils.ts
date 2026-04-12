@@ -24,7 +24,7 @@ export function getMonthStart(today: string): string {
  *   weekly  → "week:2026-04-06"  (Monday of the week)
  *   monthly → "month:2026-04"
  */
-function getPeriodKey(name: string, startDate: string): string {
+export function getPeriodKey(name: string, startDate: string): string {
   if (name === "daily") return startDate;
   if (name === "weekly") return `week:${startDate}`;
   return `month:${startDate.slice(0, 7)}`;

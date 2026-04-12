@@ -3,7 +3,7 @@ import test from "firebase-functions-test";
 import * as myFunctions from "../index";
 import { getPoints } from "../_getPoints";
 import { getTodayLondon } from "../_dateUtils";
-import { getWeekStart, getMonthStart } from "../_leaderboardUtils";
+import { getWeekStart, getMonthStart, getPeriodKey } from "../_leaderboardUtils";
 import { setPrecision } from "../_lookupPostboxes";
 import { computeNewStreak } from "../_streakUtils";
 import { containsProfanity } from "../_profanityFilter";
@@ -57,6 +57,27 @@ describe("getMonthStart", () => {
   it("first day returns itself", () => assert.strictEqual(getMonthStart("2026-04-01"), "2026-04-01"));
   it("last day of month returns 1st", () => assert.strictEqual(getMonthStart("2026-04-30"), "2026-04-01"));
   it("preserves year and month digits", () => assert.strictEqual(getMonthStart("2026-12-25"), "2026-12-01"));
+});
+
+describe("getPeriodKey", () => {
+  it("daily returns the date itself", () =>
+    assert.strictEqual(getPeriodKey("daily", "2026-04-11"), "2026-04-11"));
+  it("weekly returns 'week:' prefix with Monday date", () =>
+    assert.strictEqual(getPeriodKey("weekly", "2026-04-06"), "week:2026-04-06"));
+  it("monthly returns 'month:' prefix with YYYY-MM", () =>
+    assert.strictEqual(getPeriodKey("monthly", "2026-04-01"), "month:2026-04"));
+  it("daily keys for different dates are distinct", () => {
+    assert.notStrictEqual(getPeriodKey("daily", "2026-04-11"), getPeriodKey("daily", "2026-04-12"));
+  });
+  it("weekly keys for the same week are identical", () => {
+    // Both Tuesday and Saturday of the same week return the same key
+    const tuesdayWeekStart = getWeekStart("2026-04-07");
+    const saturdayWeekStart = getWeekStart("2026-04-11");
+    assert.strictEqual(getPeriodKey("weekly", tuesdayWeekStart), getPeriodKey("weekly", saturdayWeekStart));
+  });
+  it("monthly keys for different months are distinct", () => {
+    assert.notStrictEqual(getPeriodKey("monthly", "2026-04-01"), getPeriodKey("monthly", "2026-05-01"));
+  });
 });
 
 describe("setPrecision", () => {
