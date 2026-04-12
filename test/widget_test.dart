@@ -1,4 +1,5 @@
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_auth_mocks/firebase_auth_mocks.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_core_platform_interface/test.dart';
@@ -126,6 +127,40 @@ void main() {
       expect(displayName, isNotNull);
       expect(displayName!.startsWith('Player_'), isTrue,
           reason: 'Profane email prefix should fall back to Player_<uid> in Auth profile');
+    });
+
+    test('sendPasswordResetEmail completes without error for valid email', () async {
+      // The real Firebase sends an email; the mock just completes.
+      // We verify the method chain reaches FirebaseAuth without throwing.
+      await expectLater(
+        repo.sendPasswordResetEmail('alice@example.com'),
+        completes,
+      );
+    });
+
+    test('changePassword throws when no user is signed in', () async {
+      // repo uses MockFirebaseAuth() with no signed-in user (mockAuth default).
+      expect(
+        () => repo.changePassword(
+          currentPassword: 'old',
+          newPassword: 'newpassword',
+        ),
+        throwsA(isA<FirebaseAuthException>()),
+      );
+    });
+
+    test('changePassword completes for a signed-in email user', () async {
+      // Sign up first so there is a current user with an email address.
+      await repo.signUp(email: 'bob@example.com', password: 'password123');
+      // MockFirebaseAuth.reauthenticateWithCredential always succeeds (no real
+      // credential validation in the mock), so this verifies the call chain.
+      await expectLater(
+        repo.changePassword(
+          currentPassword: 'password123',
+          newPassword: 'newpassword123',
+        ),
+        completes,
+      );
     });
   });
 
