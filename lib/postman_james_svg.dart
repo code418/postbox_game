@@ -2,15 +2,16 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_svg/flutter_svg.dart';
 
-/// Renders the Postman James SVG character with animated overlays.
+/// Renders the Postman James SVG character with native SVG shape animations.
 ///
 /// Animations:
 /// - Head-bob (sine wave) while [isTalking]
-/// - Mouth open/close while [isTalking] (only at size >= 60)
-/// - Periodic blink every 3–6 seconds
-/// - Gold spinning star-eyes when [showStarEyes]
+/// - Mouth cycle (path8 → A → O → E) while [isTalking], using SVG native shapes
+/// - Periodic blink every 3–6 seconds, using SVG native closed-eye layers
+/// - Gold spinning star-eyes when [showStarEyes] (canvas overlay)
 class PostmanJamesSvg extends StatefulWidget {
   const PostmanJamesSvg({
     super.key,
@@ -33,8 +34,72 @@ class _PostmanJamesSvgState extends State<PostmanJamesSvg>
   late final AnimationController _mouthController;
   late final AnimationController _blinkController;
   late final AnimationController _starController;
-  late final Animation<double> _mouthAnim;
   Timer? _blinkTimer;
+
+  // Talking frames: 4 SVG strings (path8/A/O/E), eyes open.
+  List<String> _talkingFrames = const [];
+  // Blink frames: same 4 strings but with eyes closed.
+  List<String> _blinkFrames = const [];
+
+  /// Toggles display visibility for the SVG element with [elementId].
+  /// Handles elements that already have display:X, or whose style has no
+  /// display property yet (e.g. path8 default smile).
+  static String _setVisible(String svg, String elementId, bool visible) {
+    final want = visible ? 'display:inline' : 'display:none';
+    final opposite = visible ? 'display:none' : 'display:inline';
+    // [^>] matches newlines in Dart, so multi-line Inkscape opening tags work.
+    final tagRe = RegExp(r'<[^>]*\bid="' + elementId + r'"[^>]*>');
+    return svg.replaceFirstMapped(tagRe, (match) {
+      final tag = match.group(0)!;
+      if (tag.contains(opposite)) {
+        return tag.replaceFirst(opposite, want);
+      } else if (tag.contains(RegExp(r'display:[^;>"]*'))) {
+        return tag.replaceFirstMapped(
+          RegExp(r'display:[^;>"]*'),
+          (_) => want,
+        );
+      } else if (tag.contains('style="')) {
+        return tag.replaceFirst('style="', 'style="$want;');
+      }
+      return tag; // already correct
+    });
+  }
+
+  /// Returns an SVG string with [activeMouthId] visible and all other
+  /// mouth shapes hidden.
+  static String _applyMouth(String svg, String activeMouthId) {
+    const allMouths = [
+      'path8', 'path12', 'path17', 'path18', 'path23',
+      'path24', 'path25', 'path26', 'path27', 'path28', 'path29',
+    ];
+    var result = svg;
+    for (final id in allMouths) {
+      result = _setVisible(result, id, id == activeMouthId);
+    }
+    return result;
+  }
+
+  /// Returns an SVG string with open/closed eyes toggled for blinking.
+  static String _applyBlink(String svg) {
+    var result = svg;
+    result = _setVisible(result, 'layer5', false);  // Left Eye open: hide
+    result = _setVisible(result, 'layer6', false);  // Right Eye open: hide
+    result = _setVisible(result, 'layer9', true);   // Left Eye Closed: show
+    result = _setVisible(result, 'layer10', true);  // Right Eye Closed: show
+    return result;
+  }
+
+  Future<void> _loadSvgVariants() async {
+    final base = await rootBundle.loadString('assets/postman_james.svg');
+    if (!mounted) return;
+    const cycle = ['path8', 'path17', 'path18', 'path23'];
+    final talking = cycle.map((id) => _applyMouth(base, id)).toList();
+    final blink = talking.map(_applyBlink).toList();
+    setState(() {
+      _talkingFrames = talking;
+      _blinkFrames = blink;
+    });
+  }
 
   @override
   void initState() {
@@ -47,11 +112,7 @@ class _PostmanJamesSvgState extends State<PostmanJamesSvg>
 
     _mouthController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 300),
-    );
-    _mouthAnim = CurvedAnimation(
-      parent: _mouthController,
-      curve: Curves.easeInOut,
+      duration: const Duration(milliseconds: 880),
     );
 
     _blinkController = AnimationController(
@@ -64,6 +125,8 @@ class _PostmanJamesSvgState extends State<PostmanJamesSvg>
       duration: const Duration(milliseconds: 1800),
     );
 
+    _loadSvgVariants();
+
     if (widget.isTalking) _startTalkingAnimations();
     if (widget.showStarEyes) _starController.repeat();
     _scheduleBlink();
@@ -71,7 +134,7 @@ class _PostmanJamesSvgState extends State<PostmanJamesSvg>
 
   void _startTalkingAnimations() {
     _bobController.repeat();
-    _mouthController.repeat(reverse: true);
+    _mouthController.repeat();
   }
 
   void _stopTalkingAnimations() {
@@ -128,13 +191,32 @@ class _PostmanJamesSvgState extends State<PostmanJamesSvg>
 
   @override
   Widget build(BuildContext context) {
-    final showMouth = widget.isTalking && widget.size >= 60;
+    // Show static asset while SVG variants are loading (first frame only).
+    if (_talkingFrames.isEmpty) {
+      return SizedBox(
+        width: widget.size,
+        height: widget.size,
+        child: SvgPicture.asset(
+          'assets/postman_james.svg',
+          width: widget.size,
+          height: widget.size,
+          fit: BoxFit.contain,
+        ),
+      );
+    }
 
     return AnimatedBuilder(
-      animation: Listenable.merge([_bobController, _mouthController]),
-      builder: (context, child) {
-        final bob =
-            math.sin(_bobController.value * 2 * math.pi) * 2.5;
+      animation:
+          Listenable.merge([_bobController, _mouthController, _blinkController]),
+      builder: (context, _) {
+        final bob = math.sin(_bobController.value * 2 * math.pi) * 2.5;
+        final mouthIdx =
+            (_mouthController.value * 4).floor().clamp(0, 3);
+        final isBlinking = _blinkController.value > 0.05;
+        final svgFrame = isBlinking
+            ? _blinkFrames[mouthIdx]
+            : _talkingFrames[mouthIdx];
+
         return Transform.translate(
           offset: Offset(0, bob),
           child: SizedBox(
@@ -142,26 +224,11 @@ class _PostmanJamesSvgState extends State<PostmanJamesSvg>
             height: widget.size,
             child: Stack(
               children: [
-                SvgPicture.asset(
-                  'assets/postman_james.svg',
+                SvgPicture.string(
+                  svgFrame,
                   width: widget.size,
                   height: widget.size,
                   fit: BoxFit.contain,
-                ),
-                if (showMouth)
-                  CustomPaint(
-                    size: Size(widget.size, widget.size),
-                    painter:
-                        _MouthOverlayPainter(openFraction: _mouthAnim.value),
-                  ),
-                AnimatedBuilder(
-                  animation: _blinkController,
-                  builder: (_, __) => CustomPaint(
-                    size: Size(widget.size, widget.size),
-                    painter: _BlinkOverlayPainter(
-                      closeFraction: _blinkController.value,
-                    ),
-                  ),
                 ),
                 if (widget.showStarEyes)
                   AnimatedBuilder(
@@ -173,7 +240,7 @@ class _PostmanJamesSvgState extends State<PostmanJamesSvg>
                         pulse: 0.85 +
                             0.15 *
                                 math.sin(
-                                    _starController.value * 2 * math.pi * 2),
+                                    _starController.value * 2 * math.pi),
                       ),
                     ),
                   ),
@@ -187,113 +254,6 @@ class _PostmanJamesSvgState extends State<PostmanJamesSvg>
 }
 
 // ── Overlay painters ──────────────────────────────────────────────────────────
-
-/// Hides the static SVG smile and draws an animated open/close mouth.
-///
-/// Proportional coordinates are derived from SVG path analysis
-/// (viewBox 10 15 192 243, layer1 matrix(1.0819613,0,0,1.0819613,-6.6485319,-2.8901256)).
-/// Mouth path8 spans SVG-local x≈63–97, y≈163–177 → normalised cx≈0.37, cy≈0.68.
-class _MouthOverlayPainter extends CustomPainter {
-  const _MouthOverlayPainter({required this.openFraction});
-  final double openFraction;
-
-  // SVG skin fill is #ffaaaa.
-  static const Color _skinColour = Color(0xFFFFAAAA);
-
-  static const double _cx = 0.37;
-  static const double _cy = 0.68;
-  static const double _halfW = 0.095;
-  static const double _skinR = 0.095;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final cx = size.width * _cx;
-    final cy = size.height * _cy;
-    final hw = size.width * _halfW;
-
-    // Erase the SVG's static smile with a skin-coloured oval.
-    final eraser = Paint()..color = _skinColour;
-    canvas.drawOval(
-      Rect.fromCenter(
-        center: Offset(cx, cy),
-        width: size.width * _skinR * 2.2,
-        height: size.height * _skinR * 0.7,
-      ),
-      eraser,
-    );
-
-    final openH = size.height * 0.03 * openFraction;
-    if (openH < 0.5) return;
-
-    // Filled oval for open mouth (dark red interior).
-    final mouthPaint = Paint()
-      ..color = const Color(0xFF8B2500)
-      ..style = PaintingStyle.fill;
-    final rect = Rect.fromCenter(
-      center: Offset(cx, cy + openH * 0.5),
-      width: hw * 2,
-      height: openH * 2,
-    );
-    canvas.drawOval(rect, mouthPaint);
-
-    // White teeth strip when more than half open.
-    if (openFraction > 0.5) {
-      canvas.drawRect(
-        Rect.fromLTRB(cx - hw * 0.7, cy, cx + hw * 0.7, cy + openH * 0.4),
-        Paint()..color = Colors.white,
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(_MouthOverlayPainter old) =>
-      old.openFraction != openFraction;
-}
-
-/// Paints skin-coloured lids over both eyes to simulate a blink.
-///
-/// Eye centres derived from SVG eyeball bounds:
-/// - Left eye (path3): SVG-local x≈62–88, y≈80–116 → normalised (0.33, 0.36)
-/// - Right eye (path4): SVG-local x≈97–136, y≈83–118 → normalised (0.57, 0.37)
-class _BlinkOverlayPainter extends CustomPainter {
-  const _BlinkOverlayPainter({required this.closeFraction});
-  final double closeFraction;
-
-  // SVG skin fill is #ffaaaa.
-  static const Color _skinColour = Color(0xFFFFAAAA);
-
-  static const List<Offset> _eyeCentres = [
-    Offset(0.33, 0.36), // left eye
-    Offset(0.57, 0.37), // right eye
-  ];
-  static const double _eyeHalfW = 0.115;
-  static const double _eyeHalfH = 0.085;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (closeFraction < 0.05) return;
-    final paint = Paint()..color = _skinColour;
-    for (final centre in _eyeCentres) {
-      final cx = size.width * centre.dx;
-      final eyeTop = size.height * (centre.dy - _eyeHalfH);
-      final lidH = size.height * _eyeHalfH * 2 * closeFraction;
-      // Lid descends from the top of the eye downward.
-      canvas.drawOval(
-        Rect.fromLTRB(
-          cx - size.width * _eyeHalfW,
-          eyeTop,
-          cx + size.width * _eyeHalfW,
-          eyeTop + lidH,
-        ),
-        paint,
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(_BlinkOverlayPainter old) =>
-      old.closeFraction != closeFraction;
-}
 
 /// Draws animated gold 4-point star overlays over both eyes.
 ///
