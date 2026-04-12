@@ -260,32 +260,44 @@ class _FriendsScreenState extends State<FriendsScreen> {
                     future: _nameCache[friendUid] ??=
                         _firestore.collection('users').doc(friendUid).get(),
                     builder: (context, nameSnap) {
+                      final isLoading = nameSnap.connectionState == ConnectionState.waiting;
                       final displayName = nameSnap.data?.data()?['displayName'] as String?;
-                      final label = displayName ?? friendUid;
-                      final initials = label.length >= 2
-                          ? label.substring(0, 2).toUpperCase()
-                          : label.toUpperCase();
+                      final initials = displayName != null && displayName.length >= 2
+                          ? displayName.substring(0, 2).toUpperCase()
+                          : '?';
                       return Card(
                         child: ListTile(
                           leading: CircleAvatar(
                             backgroundColor: postalRed,
-                            child: Text(
-                              initials,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 13,
-                              ),
-                            ),
+                            child: isLoading
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      color: Colors.white,
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : Text(
+                                    initials,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                    ),
+                                  ),
                           ),
-                          title: Text(label, overflow: TextOverflow.ellipsis),
-                          subtitle: Text(
-                            displayName != null ? friendUid : 'UID',
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          title: isLoading
+                              ? Text(
+                                  'Loading...',
+                                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                      ),
+                                )
+                              : Text(
+                                  displayName ?? 'Unknown player',
+                                  overflow: TextOverflow.ellipsis,
                                 ),
-                          ),
                           trailing: IconButton(
                             icon: Icon(Icons.person_remove_outlined,
                                 color: Theme.of(context).colorScheme.onSurfaceVariant),
