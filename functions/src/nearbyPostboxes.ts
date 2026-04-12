@@ -46,10 +46,10 @@ export const nearbyPostboxes = functions.https.onCall(async (request) => {
   // Build the set of postbox IDs already claimed by THIS user today.
   // The postboxes field is stored as "/postbox/{key}".
   const userClaimedKeys = new Set(
-    userClaimsSnap.docs.map(d => {
-      const ref = d.data().postboxes as string;
-      return ref.replace("/postbox/", "");
-    })
+    userClaimsSnap.docs
+      .map(d => d.data().postboxes as string | undefined)
+      .filter((ref): ref is string => typeof ref === "string")
+      .map(ref => ref.replace("/postbox/", ""))
   );
 
   // Strip precise location fields (geopoint, geohash, dailyClaim) before
