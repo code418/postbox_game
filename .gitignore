@@ -105,3 +105,8 @@ devtools_options.yaml
 
 # Accidental Overpass API query downloads
 interpreter?data=*
+
+# Root-level dev utility scripts and one-off data files (not app code)
+/test.py
+/find_postboxes.js
+/ciiir_postboxes.json
