@@ -3,7 +3,7 @@ import * as admin from "firebase-admin";
 import * as functions from "firebase-functions/v1";
 import { containsProfanity } from "./_profanityFilter";
 
-function sanitiseName(name: string, uid: string): string {
+export function sanitiseName(name: string, uid: string): string {
   const t = name.trim();
   if (t.length < 2 || t.length > 30) return `Player_${uid.slice(0, 6)}`;
   if (containsProfanity(t)) return `Player_${uid.slice(0, 6)}`;

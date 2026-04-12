@@ -7,6 +7,7 @@ import { getWeekStart, getMonthStart, getPeriodKey } from "../_leaderboardUtils"
 import { setPrecision } from "../_lookupPostboxes";
 import { computeNewStreak } from "../_streakUtils";
 import { containsProfanity } from "../_profanityFilter";
+import { sanitiseName } from "../onUserCreated";
 
 // ── Pure utility unit tests (no Firebase required) ────────────────────────────
 
@@ -124,6 +125,33 @@ describe("computeNewStreak", () => {
 
   it("streak increment from 1 to 2 on consecutive day", () =>
     assert.strictEqual(computeNewStreak(yesterday, 1, today, yesterday), 2));
+});
+
+describe("sanitiseName", () => {
+  const uid = "abc123xyz";
+  const fallback = `Player_${uid.slice(0, 6)}`; // "Player_abc123"
+
+  it("returns the name unchanged for a clean 2+ char name", () =>
+    assert.strictEqual(sanitiseName("Alice", uid), "Alice"));
+  it("trims whitespace before validating", () =>
+    assert.strictEqual(sanitiseName("  Alice  ", uid), "Alice"));
+  it("returns fallback for a name shorter than 2 chars after trim", () =>
+    assert.strictEqual(sanitiseName("A", uid), fallback));
+  it("returns fallback for a name longer than 30 chars", () =>
+    assert.strictEqual(sanitiseName("A".repeat(31), uid), fallback));
+  it("returns fallback for a profane name", () =>
+    assert.strictEqual(sanitiseName("wanker", uid), fallback));
+  it("returns fallback for an empty string", () =>
+    assert.strictEqual(sanitiseName("", uid), fallback));
+  it("returns fallback for whitespace-only input", () =>
+    assert.strictEqual(sanitiseName("   ", uid), fallback));
+  it("accepts a 30-char clean name", () =>
+    assert.strictEqual(sanitiseName("A".repeat(30), uid), "A".repeat(30)));
+  it("uses first 6 chars of uid in fallback", () => {
+    const result = sanitiseName("wanker", "testUID999");
+    assert.ok(result.startsWith("Player_"), "should start with Player_");
+    assert.strictEqual(result, "Player_testUI");
+  });
 });
 
 describe("containsProfanity", () => {
