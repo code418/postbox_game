@@ -185,9 +185,11 @@ class _FuzzyCompassPainter extends CustomPainter {
       }
     }
 
-    // North marker: red circle with white 'N'
+    // North marker: red circle with white 'N'.
+    // Placed just inside the arc rim (center.dy - radius + 3) so it stays
+    // within the 200×200 canvas; placing it outside would clip the circle.
     final nX = center.dx;
-    final nY = center.dy - radius - 10;
+    final nY = center.dy - radius + 3;
     canvas.drawCircle(
         Offset(nX, nY), 9, Paint()..color = postalRed);
 
