@@ -106,10 +106,23 @@ export const nearbyPostboxes = functions.https.onCall(async (request) => {
     max: unclaimedMax,
   };
 
+  // Compute per-user compass: only include unclaimed boxes so "Where to look"
+  // guides the user toward boxes they can still claim, not ones already taken.
+  const updatedCompass: Record<string, number> = {};
+  for (const [id, pb] of Object.entries(full.postboxes)) {
+    if (!userClaimedKeys.has(id)) {
+      const dir = pb.compass?.exact;
+      if (dir) {
+        updatedCompass[dir] = (updatedCompass[dir] ?? 0) + 1;
+      }
+    }
+  }
+
   return {
     ...full,
     postboxes: slimPostboxes,
     counts: updatedCounts,
     points: updatedPoints,
+    compass: updatedCompass,
   };
 });
