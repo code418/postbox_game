@@ -30,10 +30,36 @@ export function getPeriodKey(name: string, startDate: string): string {
   return `month:${startDate.slice(0, 7)}`;
 }
 
-interface LeaderboardEntry {
+export interface LeaderboardEntry {
   uid: string;
   displayName: string;
   points: number;
+}
+
+/**
+ * Pure function: upsert a user's entry into a period leaderboard snapshot.
+ * Exported for unit testing. The Firestore transaction wrapper calls this
+ * with the existing snapshot entries, then writes the returned array.
+ *
+ * - Removes any prior entry for `uid`.
+ * - Adds a new entry if `userPoints > 0`; omits it if zero (name-change
+ *   before first claim in a period should not add a 0-point entry).
+ * - Sorts descending by points and caps at `limit` entries (default 100).
+ */
+export function mergePeriodEntries(
+  existing: LeaderboardEntry[],
+  uid: string,
+  displayName: string,
+  userPoints: number,
+  limit = 100
+): LeaderboardEntry[] {
+  const others = existing.filter((e) => e.uid !== uid);
+  return [
+    ...others,
+    ...(userPoints > 0 ? [{ uid, displayName, points: userPoints }] : []),
+  ]
+    .sort((a, b) => b.points - a.points)
+    .slice(0, limit);
 }
 
 /**
@@ -93,14 +119,7 @@ export async function updateUserLeaderboards(
 
         // Upsert this user's entry, or remove it if they have 0 points (e.g.
         // updateDisplayName called before any claim in this period).
-        const otherEntries = existing.filter((e) => e.uid !== uid);
-        const updatedEntries: LeaderboardEntry[] = [
-          ...otherEntries,
-          ...(userPoints > 0 ? [{ uid, displayName, points: userPoints }] : []),
-        ]
-          .sort((a, b) => b.points - a.points)
-          .slice(0, 100); // keep top 100
-
+        const updatedEntries = mergePeriodEntries(existing, uid, displayName, userPoints);
         tx.set(leaderboardRef, { periodKey: currentPeriodKey, entries: updatedEntries }, { merge: false });
       });
     })
@@ -112,11 +131,43 @@ export async function updateUserLeaderboards(
   }
 }
 
-interface LifetimeLeaderboardEntry {
+export interface LifetimeLeaderboardEntry {
   uid: string;
   displayName: string;
   uniquePostboxesClaimed: number;
   totalPoints: number;
+}
+
+/**
+ * Pure function: upsert a user's entry into the lifetime leaderboard snapshot.
+ * Exported for unit testing.
+ *
+ * - Removes any prior entry for `uid`.
+ * - Adds an entry if either `uniquePostboxesClaimed > 0` or `totalPoints > 0`.
+ * - Sorts descending by `uniquePostboxesClaimed` (secondary: totalPoints) and
+ *   caps at `limit` entries (default 100).
+ */
+export function mergeLifetimeEntries(
+  existing: LifetimeLeaderboardEntry[],
+  uid: string,
+  displayName: string,
+  uniquePostboxesClaimed: number,
+  totalPoints: number,
+  limit = 100
+): LifetimeLeaderboardEntry[] {
+  const others = existing.filter((e) => e.uid !== uid);
+  return [
+    ...others,
+    ...(uniquePostboxesClaimed > 0 || totalPoints > 0
+      ? [{ uid, displayName, uniquePostboxesClaimed, totalPoints }]
+      : []),
+  ]
+    .sort((a, b) =>
+      b.uniquePostboxesClaimed !== a.uniquePostboxesClaimed
+        ? b.uniquePostboxesClaimed - a.uniquePostboxesClaimed
+        : b.totalPoints - a.totalPoints
+    )
+    .slice(0, limit);
 }
 
 /**
@@ -137,16 +188,7 @@ export async function updateLifetimeLeaderboard(
     const existing: LifetimeLeaderboardEntry[] =
       (snap.data()?.entries as LifetimeLeaderboardEntry[]) ?? [];
 
-    const others = existing.filter((e) => e.uid !== uid);
-    const updated: LifetimeLeaderboardEntry[] = [
-      ...others,
-      ...(uniquePostboxesClaimed > 0 || totalPoints > 0
-        ? [{ uid, displayName, uniquePostboxesClaimed, totalPoints }]
-        : []),
-    ]
-      .sort((a, b) => b.uniquePostboxesClaimed - a.uniquePostboxesClaimed)
-      .slice(0, 100);
-
+    const updated = mergeLifetimeEntries(existing, uid, displayName, uniquePostboxesClaimed, totalPoints);
     tx.set(ref, { periodKey: "lifetime", entries: updated }, { merge: false });
   });
 }

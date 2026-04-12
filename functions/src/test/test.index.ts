@@ -3,7 +3,7 @@ import test from "firebase-functions-test";
 import * as myFunctions from "../index";
 import { getPoints } from "../_getPoints";
 import { getTodayLondon } from "../_dateUtils";
-import { getWeekStart, getMonthStart, getPeriodKey } from "../_leaderboardUtils";
+import { getWeekStart, getMonthStart, getPeriodKey, mergePeriodEntries, mergeLifetimeEntries } from "../_leaderboardUtils";
 import { setPrecision, getLatLng } from "../_lookupPostboxes";
 import { computeNewStreak } from "../_streakUtils";
 import { containsProfanity } from "../_profanityFilter";
@@ -78,6 +78,121 @@ describe("getPeriodKey", () => {
   });
   it("monthly keys for different months are distinct", () => {
     assert.notStrictEqual(getPeriodKey("monthly", "2026-04-01"), getPeriodKey("monthly", "2026-05-01"));
+  });
+});
+
+describe("mergePeriodEntries", () => {
+  const alice = { uid: "a", displayName: "Alice", points: 10 };
+  const bob   = { uid: "b", displayName: "Bob",   points:  5 };
+
+  it("adds a new entry when list is empty", () => {
+    const result = mergePeriodEntries([], "a", "Alice", 10);
+    assert.deepStrictEqual(result, [alice]);
+  });
+
+  it("upserts an existing user's entry (replaces, not duplicates)", () => {
+    const result = mergePeriodEntries([alice, bob], "a", "Alice", 20);
+    assert.strictEqual(result.length, 2);
+    assert.strictEqual(result[0].uid, "a");
+    assert.strictEqual(result[0].points, 20);
+  });
+
+  it("removes a user from the list when points are 0", () => {
+    const result = mergePeriodEntries([alice, bob], "a", "Alice", 0);
+    assert.strictEqual(result.length, 1);
+    assert.strictEqual(result[0].uid, "b");
+  });
+
+  it("sorts entries descending by points", () => {
+    const result = mergePeriodEntries([bob], "a", "Alice", 10);
+    assert.strictEqual(result[0].uid, "a");
+    assert.strictEqual(result[1].uid, "b");
+  });
+
+  it("does not add a 0-point entry for a new user", () => {
+    const result = mergePeriodEntries([], "a", "Alice", 0);
+    assert.strictEqual(result.length, 0);
+  });
+
+  it("caps at the given limit", () => {
+    const existing = Array.from({ length: 3 }, (_, i) => ({
+      uid: `u${i}`, displayName: `User${i}`, points: 3 - i,
+    }));
+    const result = mergePeriodEntries(existing, "new", "NewUser", 10, 3);
+    assert.strictEqual(result.length, 3);
+    assert.strictEqual(result[0].uid, "new"); // highest score
+  });
+
+  it("updates displayName when upserted", () => {
+    const result = mergePeriodEntries([alice], "a", "Alice Updated", 10);
+    assert.strictEqual(result[0].displayName, "Alice Updated");
+  });
+
+  it("default limit is 100", () => {
+    const existing = Array.from({ length: 100 }, (_, i) => ({
+      uid: `u${i}`, displayName: `U${i}`, points: 100 - i,
+    }));
+    // Adding one more at a low score; should not exceed 100 entries.
+    const result = mergePeriodEntries(existing, "extra", "Extra", 1);
+    assert.strictEqual(result.length, 100);
+  });
+});
+
+describe("mergeLifetimeEntries", () => {
+  const alice = { uid: "a", displayName: "Alice", uniquePostboxesClaimed: 10, totalPoints: 50 };
+  const bob   = { uid: "b", displayName: "Bob",   uniquePostboxesClaimed:  5, totalPoints: 20 };
+
+  it("adds a new entry when list is empty", () => {
+    const result = mergeLifetimeEntries([], "a", "Alice", 10, 50);
+    assert.deepStrictEqual(result, [alice]);
+  });
+
+  it("upserts an existing user's entry (replaces old)", () => {
+    const result = mergeLifetimeEntries([alice, bob], "a", "Alice", 15, 70);
+    assert.strictEqual(result.length, 2);
+    assert.strictEqual(result[0].uid, "a");
+    assert.strictEqual(result[0].uniquePostboxesClaimed, 15);
+    assert.strictEqual(result[0].totalPoints, 70);
+  });
+
+  it("removes user when both uniqueBoxes and totalPoints are 0", () => {
+    const result = mergeLifetimeEntries([alice, bob], "a", "Alice", 0, 0);
+    assert.strictEqual(result.length, 1);
+    assert.strictEqual(result[0].uid, "b");
+  });
+
+  it("keeps user with uniqueBoxes 0 if they have totalPoints > 0", () => {
+    const result = mergeLifetimeEntries([], "a", "Alice", 0, 5);
+    assert.strictEqual(result.length, 1);
+    assert.strictEqual(result[0].totalPoints, 5);
+  });
+
+  it("sorts descending by uniquePostboxesClaimed", () => {
+    const result = mergeLifetimeEntries([bob], "a", "Alice", 10, 50);
+    assert.strictEqual(result[0].uid, "a");
+    assert.strictEqual(result[1].uid, "b");
+  });
+
+  it("breaks ties in uniqueBoxes by totalPoints descending", () => {
+    const tied = { uid: "c", displayName: "Carol", uniquePostboxesClaimed: 10, totalPoints: 30 };
+    const result = mergeLifetimeEntries([tied], "a", "Alice", 10, 50);
+    assert.strictEqual(result[0].uid, "a");   // 10 boxes, 50 pts
+    assert.strictEqual(result[1].uid, "c");   // 10 boxes, 30 pts
+  });
+
+  it("caps at the given limit", () => {
+    const existing = Array.from({ length: 3 }, (_, i) => ({
+      uid: `u${i}`, displayName: `User${i}`,
+      uniquePostboxesClaimed: 3 - i, totalPoints: 0,
+    }));
+    const result = mergeLifetimeEntries(existing, "new", "NewUser", 10, 0, 3);
+    assert.strictEqual(result.length, 3);
+    assert.strictEqual(result[0].uid, "new");
+  });
+
+  it("updates displayName when upserted", () => {
+    const result = mergeLifetimeEntries([alice], "a", "Alice v2", 10, 50);
+    assert.strictEqual(result[0].displayName, "Alice v2");
   });
 });
 
