@@ -144,6 +144,139 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _changePassword() async {
+    final currentPwCtrl = TextEditingController();
+    final newPwCtrl = TextEditingController();
+    final confirmPwCtrl = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+
+    try {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) {
+          bool showCurrent = false;
+          bool showNew = false;
+          bool showConfirm = false;
+          return StatefulBuilder(
+            builder: (ctx, setDialogState) => AlertDialog(
+              title: const Text('Change password'),
+              content: Form(
+                key: formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextFormField(
+                      controller: currentPwCtrl,
+                      obscureText: !showCurrent,
+                      decoration: InputDecoration(
+                        labelText: 'Current password',
+                        prefixIcon: const Icon(Icons.lock_outline),
+                        suffixIcon: IconButton(
+                          icon: Icon(showCurrent
+                              ? Icons.visibility_off_outlined
+                              : Icons.visibility_outlined),
+                          onPressed: () =>
+                              setDialogState(() => showCurrent = !showCurrent),
+                        ),
+                      ),
+                      validator: (v) =>
+                          (v == null || v.isEmpty) ? 'Required' : null,
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    TextFormField(
+                      controller: newPwCtrl,
+                      obscureText: !showNew,
+                      decoration: InputDecoration(
+                        labelText: 'New password',
+                        helperText: 'At least 6 characters',
+                        prefixIcon: const Icon(Icons.lock_outline),
+                        suffixIcon: IconButton(
+                          icon: Icon(showNew
+                              ? Icons.visibility_off_outlined
+                              : Icons.visibility_outlined),
+                          onPressed: () =>
+                              setDialogState(() => showNew = !showNew),
+                        ),
+                      ),
+                      validator: (v) {
+                        if (v == null || v.length < 6) {
+                          return 'Password must be at least 6 characters';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    TextFormField(
+                      controller: confirmPwCtrl,
+                      obscureText: !showConfirm,
+                      decoration: InputDecoration(
+                        labelText: 'Confirm new password',
+                        prefixIcon: const Icon(Icons.lock_outline),
+                        suffixIcon: IconButton(
+                          icon: Icon(showConfirm
+                              ? Icons.visibility_off_outlined
+                              : Icons.visibility_outlined),
+                          onPressed: () =>
+                              setDialogState(() => showConfirm = !showConfirm),
+                        ),
+                      ),
+                      validator: (v) => v != newPwCtrl.text
+                          ? 'Passwords don\'t match'
+                          : null,
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () {
+                    if (formKey.currentState?.validate() ?? false) {
+                      Navigator.pop(ctx, true);
+                    }
+                  },
+                  child: const Text('Update'),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+      if (confirmed != true || !mounted) return;
+      setState(() => _isSaving = true);
+      await _userRepository.changePassword(
+        currentPassword: currentPwCtrl.text,
+        newPassword: newPwCtrl.text,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Password updated.')),
+        );
+      }
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+      final msg = switch (e.code) {
+        'wrong-password' || 'invalid-credential' =>
+          'Current password is incorrect.',
+        'weak-password' => 'New password is too weak.',
+        'network-request-failed' => 'No internet connection.',
+        'too-many-requests' => 'Too many attempts. Please wait and try again.',
+        _ => 'Could not update password. Please try again.',
+      };
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(msg), backgroundColor: Colors.red.shade700),
+      );
+    } finally {
+      currentPwCtrl.dispose();
+      newPwCtrl.dispose();
+      confirmPwCtrl.dispose();
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
   Future<void> _signOut() async {
     final confirm = await showDialog<bool>(
       context: context,
@@ -256,6 +389,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
 
           _sectionHeader('Account'),
+          if (user?.providerData.any((p) => p.providerId == 'password') ?? false)
+            ListTile(
+              leading: const Icon(Icons.lock_reset),
+              title: const Text('Change password'),
+              subtitle: const Text('Update your account password'),
+              onTap: _isSaving ? null : _changePassword,
+            ),
           ListTile(
             leading: const Icon(Icons.logout),
             title: const Text('Sign out'),

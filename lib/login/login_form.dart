@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:postbox_game/authentication_bloc/bloc.dart';
@@ -108,7 +109,17 @@ class _LoginFormState extends State<LoginForm> {
                             : null;
                       },
                     ),
-                    const SizedBox(height: AppSpacing.lg),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        onPressed: state.isSubmitting ? null : _onForgotPassword,
+                        style: TextButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        child: const Text('Forgot password?'),
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
                     LoginButton(
                       onPressed: isLoginButtonEnabled(state)
                           ? _onFormSubmitted
@@ -142,6 +153,76 @@ class _LoginFormState extends State<LoginForm> {
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
+  }
+
+  Future<void> _onForgotPassword() async {
+    final emailController =
+        TextEditingController(text: _emailController.text.trim());
+    try {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Reset password'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                  'Enter your email address and we\'ll send you a link to reset your password.'),
+              const SizedBox(height: AppSpacing.md),
+              TextFormField(
+                controller: emailController,
+                autofocus: emailController.text.isEmpty,
+                keyboardType: TextInputType.emailAddress,
+                autocorrect: false,
+                textInputAction: TextInputAction.done,
+                onFieldSubmitted: (_) => Navigator.pop(ctx, true),
+                decoration: const InputDecoration(
+                  labelText: 'Email',
+                  prefixIcon: Icon(Icons.email_outlined),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Send link'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+      final email = emailController.text.trim();
+      if (email.isEmpty) return;
+      await widget._userRepository.sendPasswordResetEmail(email);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text(
+                'If that address is registered, a reset link is on its way.'),
+          ),
+        );
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+      final msg = e.code == 'invalid-email'
+          ? 'That email address isn\'t valid.'
+          : 'Could not send reset email. Please try again.';
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          content: Text(msg),
+          backgroundColor: Colors.red.shade700,
+        ));
+    } finally {
+      emailController.dispose();
+    }
   }
 
   void _onEmailChanged() {

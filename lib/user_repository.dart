@@ -77,6 +77,31 @@ class UserRepository {
     await user.reload();
   }
 
+  /// Sends a password reset email to [email].
+  /// Uses a generic success message on the calling side to prevent user
+  /// enumeration — do not surface whether the address is registered.
+  Future<void> sendPasswordResetEmail(String email) {
+    return _firebaseAuth.sendPasswordResetEmail(email: email);
+  }
+
+  /// Reauthenticates with [currentPassword] then updates to [newPassword].
+  /// Throws [FirebaseAuthException] on wrong current password or network error.
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    final user = _firebaseAuth.currentUser;
+    if (user == null || user.email == null) {
+      throw FirebaseAuthException(code: 'no-current-user');
+    }
+    final credential = EmailAuthProvider.credential(
+      email: user.email!,
+      password: currentPassword,
+    );
+    await user.reauthenticateWithCredential(credential);
+    await user.updatePassword(newPassword);
+  }
+
   Future<void> signOut() async {
     await Future.wait([
       _firebaseAuth.signOut(),
