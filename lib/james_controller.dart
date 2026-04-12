@@ -9,8 +9,12 @@ class JamesController extends ChangeNotifier {
     _scheduleIdleCheck();
   }
 
-  static JamesController of(BuildContext context) =>
-      context.dependOnInheritedWidgetOfExactType<JamesControllerScope>()!.notifier!;
+  /// Returns the nearest [JamesController], or null if no [JamesControllerScope]
+  /// is present in the widget tree (e.g. screens opened via named routes / deep
+  /// links that bypass the [Home] shell). Callers use `?.show()` so James
+  /// messages are silently skipped rather than crashing.
+  static JamesController? of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<JamesControllerScope>()?.notifier;
 
   String? _pendingMessage;
   String? get pendingMessage => _pendingMessage;

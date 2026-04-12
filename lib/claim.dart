@@ -122,7 +122,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
           ? 'No internet connection. Please try again.'
           : 'Could not scan for postboxes. Please try again.');
       if (!mounted) return;
-      JamesController.of(context).show(JamesMessages.claimErrorGeneral.resolve());
+      JamesController.of(context)?.show(JamesMessages.claimErrorGeneral.resolve());
       setState(() => currentStage = ClaimStage.initial);
     } catch (e) {
       debugPrint('Error scanning: $e');
@@ -131,7 +131,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
       final msg = e.toString().contains('permission')
           ? JamesMessages.nearbyErrorPermission.resolve()
           : JamesMessages.claimErrorGeneral.resolve();
-      JamesController.of(context).show(msg);
+      JamesController.of(context)?.show(msg);
       setState(() => currentStage = ClaimStage.initial);
     }
   }
@@ -154,7 +154,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
         // User moved out of range between scan and claim.
         if (!mounted) return;
         setState(() => _isClaiming = false);
-        JamesController.of(context).show(JamesMessages.claimOutOfRange.resolve());
+        JamesController.of(context)?.show(JamesMessages.claimOutOfRange.resolve());
         await _startSearch();
         return;
       }
@@ -162,7 +162,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
         if (!mounted) return;
         setState(() => _isClaiming = false);
         _showErrorSnackBar('Already claimed today — come back tomorrow!');
-        JamesController.of(context).show(JamesMessages.claimErrorAlreadyClaimed.resolve());
+        JamesController.of(context)?.show(JamesMessages.claimErrorAlreadyClaimed.resolve());
         await _startSearch();
         return;
       }
@@ -192,7 +192,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
               ? JamesMessages.claimSuccessRare.resolve()
               : JamesMessages.claimSuccessStandard.resolve();
         }
-        JamesController.of(context).show(msg);
+        JamesController.of(context)?.show(msg);
       }
     } on FirebaseFunctionsException catch (e) {
       debugPrint('Claim error: ${e.code} ${e.message}');
@@ -207,7 +207,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
           : (e.code == 'out-of-range')
               ? JamesMessages.claimErrorOutOfRange.resolve()
               : JamesMessages.claimErrorGeneral.resolve();
-      JamesController.of(context).show(msg);
+      JamesController.of(context)?.show(msg);
     } catch (e) {
       debugPrint('Claim error: $e');
       final isPermission = e.toString().contains('permission');
@@ -219,7 +219,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
           : 'Could not claim postbox. Please try again.');
       if (!mounted) return;
       setState(() => _isClaiming = false);
-      JamesController.of(context).show(msg);
+      JamesController.of(context)?.show(msg);
     }
   }
 

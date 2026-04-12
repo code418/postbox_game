@@ -130,12 +130,12 @@ class NearbyState extends State<Nearby> {
       final msg = _count > 0
           ? JamesMessages.nearbyFound(_count, box)
           : JamesMessages.nearbyNoneFound.resolve();
-      JamesController.of(context).show(msg);
+      JamesController.of(context)?.show(msg);
     } on FirebaseFunctionsException catch (e) {
       debugPrint('Firebase functions error: ${e.code} ${e.message}');
       if (!mounted) return;
       final isOffline = e.code == 'unavailable';
-      JamesController.of(context).show(JamesMessages.nearbyErrorGeneral.resolve());
+      JamesController.of(context)?.show(JamesMessages.nearbyErrorGeneral.resolve());
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(isOffline
@@ -151,7 +151,7 @@ class NearbyState extends State<Nearby> {
       final msg = e.toString().contains('permission')
           ? JamesMessages.nearbyErrorPermission.resolve()
           : JamesMessages.nearbyErrorGeneral.resolve();
-      JamesController.of(context).show(msg);
+      JamesController.of(context)?.show(msg);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(e.toString().replaceFirst('Exception: ', '')),
