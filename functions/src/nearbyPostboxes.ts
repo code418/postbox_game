@@ -1,3 +1,4 @@
+import "./adminInit";
 import * as functions from "firebase-functions";
 import { lookupPostboxes } from "./_lookupPostboxes";
 

@@ -55,7 +55,10 @@ export async function updateUserLeaderboards(
     { name: "monthly", startDate: monthStart },
   ];
 
-  await Promise.all(
+  // allSettled so a single period failure doesn't abort the other two.
+  // Each period transaction is independent and idempotent; partial success
+  // is always better than retrying all three when only one failed.
+  const results = await Promise.allSettled(
     periods.map(async ({ name, startDate, exact }) => {
       // Sum points from claims for this user in the period.
       // Daily: equality query. Weekly/monthly: range query with an upper bound
@@ -102,4 +105,9 @@ export async function updateUserLeaderboards(
       });
     })
   );
+  for (const result of results) {
+    if (result.status === "rejected") {
+      console.error("leaderboard period update failed:", result.reason);
+    }
+  }
 }
