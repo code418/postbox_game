@@ -40,12 +40,13 @@ export const startScoring = functions.https.onCall(async (request) => {
     return { found: false, claimed: 0, points: 0, allClaimedToday: false };
   }
 
+  // Hoist date computation so all return paths include dailyDate for consistency.
+  const todayLondon = getTodayLondon();
+
   // Fast-path: if every postbox in range was already claimed today, skip transactions.
   if (results.counts.claimedToday === results.counts.total) {
-    return { found: true, claimed: 0, points: 0, allClaimedToday: true };
+    return { found: true, claimed: 0, points: 0, allClaimedToday: true, dailyDate: todayLondon };
   }
-
-  const todayLondon = getTodayLondon();
 
   // Use allSettled so a single transient transaction failure does not discard
   // points from postboxes whose transactions already committed successfully.
