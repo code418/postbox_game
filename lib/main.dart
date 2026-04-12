@@ -82,7 +82,7 @@ class _PostboxGameState extends State<PostboxGame> {
           ),
           routes: {
             '/nearby': (context) => _guardRoute(context, () => const Nearby()),
-            '/Claim': (context) => _guardRoute(context, () => const Claim()),
+            '/claim': (context) => _guardRoute(context, () => const Claim()),
             '/friends': (context) => _guardRoute(context, () => const FriendsScreen()),
             '/leaderboard': (context) => _guardRoute(context, () => const LeaderboardScreen()),
             '/settings': (context) => _guardRoute(context, () => const SettingsScreen()),
