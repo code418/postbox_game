@@ -21,12 +21,7 @@ class AuthenticationBloc
   ) async {
     try {
       final isSignedIn = await _userRepository.isSignedIn();
-      if (isSignedIn) {
-        final name = await _userRepository.getUser();
-        emit(Authenticated(name ?? ''));
-      } else {
-        emit(Unauthenticated());
-      }
+      emit(isSignedIn ? const Authenticated() : Unauthenticated());
     } catch (_) {
       emit(Unauthenticated());
     }
@@ -36,7 +31,7 @@ class AuthenticationBloc
     LoggedIn event,
     Emitter<AuthenticationState?> emit,
   ) async {
-    emit(Authenticated(await _userRepository.getUser() ?? ''));
+    emit(const Authenticated());
   }
 
   Future<void> _mapLoggedOutToState(
