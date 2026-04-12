@@ -63,14 +63,35 @@ export const nearbyPostboxes = functions.https.onCall(async (request) => {
     };
   }
 
-  // Override counts.claimedToday with the per-user count so the client's
-  // "X of N available" and "All claimed today" logic is also per-user.
-  const myClaimedCount = Object.keys(full.postboxes)
-    .filter(k => userClaimedKeys.has(k)).length;
+  // Build per-user counts, overriding both the total claimedToday and the
+  // per-cipher claimed counts ({cipher}_claimed) so that the Nearby screen's
+  // monarch breakdown shows the correct "X available" for the current user.
+  const updatedCounts: Record<string, number> = {};
+  // Copy all global counts first, then override the _claimed keys.
+  for (const [k, v] of Object.entries(full.counts)) {
+    if (!k.endsWith("_claimed")) {
+      updatedCounts[k] = v as number;
+    }
+  }
+
+  // Accumulate per-user cipher claimed counts from the user's actual claims.
+  // full.postboxes[id].monarch is available because lookupPostboxes spreads
+  // the full PostboxDoc into the result map.
+  let myClaimedCount = 0;
+  for (const [id, pb] of Object.entries(full.postboxes)) {
+    if (userClaimedKeys.has(id)) {
+      myClaimedCount++;
+      if (pb.monarch !== undefined) {
+        const ck = `${pb.monarch}_claimed`;
+        updatedCounts[ck] = (updatedCounts[ck] ?? 0) + 1;
+      }
+    }
+  }
+  updatedCounts.claimedToday = myClaimedCount;
 
   return {
     ...full,
     postboxes: slimPostboxes,
-    counts: { ...full.counts, claimedToday: myClaimedCount },
+    counts: updatedCounts,
   };
 });
