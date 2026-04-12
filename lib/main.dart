@@ -24,6 +24,9 @@ void main() async {
     options: DefaultFirebaseOptions.currentPlatform,
   );
   await FirebaseAppCheck.instance.activate(
+    // TODO: Replace 'recaptcha-v3-site-key' with the real reCAPTCHA v3 site
+    // key from Firebase Console > App Check > Web app before enabling
+    // App Check enforcement for web builds.
     providerWeb: ReCaptchaV3Provider('recaptcha-v3-site-key'),
     // Debug provider is only safe for local development; release builds must use
     // Play Integrity to actually enforce App Check.
