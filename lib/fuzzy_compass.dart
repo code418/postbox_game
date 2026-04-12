@@ -21,8 +21,8 @@ class FuzzyCompass extends StatelessWidget {
     this.headingDegrees,
   });
 
-  /// Merge 16-wind into 8-wind.
-  static Map<String, int> _to8Sectors(Map<String, int> counts) {
+  /// Merge 16-wind into 8-wind sectors.
+  static Map<String, int> to8Sectors(Map<String, int> counts) {
     final out = <String, int>{};
     final pairs = [
       ('N', ['N', 'NNE']),
@@ -40,7 +40,7 @@ class FuzzyCompass extends StatelessWidget {
     return out;
   }
 
-  static String _vagueLabel(int count) {
+  static String vagueLabel(int count) {
     if (count <= 0) return 'None';
     if (count <= 1) return 'One';
     if (count <= 3) return 'A few';
@@ -49,7 +49,7 @@ class FuzzyCompass extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final sectors = _to8Sectors(compassCounts);
+    final sectors = to8Sectors(compassCounts);
     final order = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
     final rotation =
         headingDegrees != null ? (headingDegrees! * pi / 180) : 0.0;
@@ -99,7 +99,7 @@ class FuzzyCompass extends StatelessWidget {
                 runSpacing: AppSpacing.xs,
                 children: activeOrder.map((dir) {
                   final count = sectors[dir] ?? 0;
-                  final label = _vagueLabel(count);
+                  final label = vagueLabel(count);
                   return Chip(
                     label: Text('$dir: $label'),
                     visualDensity: VisualDensity.compact,

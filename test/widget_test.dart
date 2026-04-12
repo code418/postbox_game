@@ -5,6 +5,7 @@ import 'package:firebase_core_platform_interface/test.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:postbox_game/app_preferences.dart';
+import 'package:postbox_game/fuzzy_compass.dart';
 import 'package:postbox_game/james_messages.dart';
 import 'package:postbox_game/main.dart';
 import 'package:postbox_game/monarch_info.dart';
@@ -294,6 +295,70 @@ void main() {
     test('formatShortDistance uses meters in metric mode', () {
       expect(AppPreferences.formatShortDistance(30.0, DistanceUnit.meters),
           equals('30 m'));
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // FuzzyCompass unit tests
+  // ---------------------------------------------------------------------------
+
+  group('FuzzyCompass.vagueLabel', () {
+    test('returns None for zero', () {
+      expect(FuzzyCompass.vagueLabel(0), equals('None'));
+    });
+    test('returns None for negative', () {
+      expect(FuzzyCompass.vagueLabel(-5), equals('None'));
+    });
+    test('returns One for count 1', () {
+      expect(FuzzyCompass.vagueLabel(1), equals('One'));
+    });
+    test('returns A few for count 2', () {
+      expect(FuzzyCompass.vagueLabel(2), equals('A few'));
+    });
+    test('returns A few for count 3', () {
+      expect(FuzzyCompass.vagueLabel(3), equals('A few'));
+    });
+    test('returns Several for count 4+', () {
+      expect(FuzzyCompass.vagueLabel(4), equals('Several'));
+      expect(FuzzyCompass.vagueLabel(100), equals('Several'));
+    });
+  });
+
+  group('FuzzyCompass.to8Sectors', () {
+    test('sums N and NNE into N sector', () {
+      final result = FuzzyCompass.to8Sectors({'N': 3, 'NNE': 2});
+      expect(result['N'], equals(5));
+    });
+
+    test('each 8-wind sector is present in output', () {
+      final result = FuzzyCompass.to8Sectors({});
+      for (final dir in ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']) {
+        expect(result.containsKey(dir), isTrue, reason: '$dir missing from output');
+      }
+    });
+
+    test('missing 16-wind directions contribute 0', () {
+      final result = FuzzyCompass.to8Sectors({});
+      for (final v in result.values) {
+        expect(v, equals(0));
+      }
+    });
+
+    test('all 16 winds sum correctly into 8 sectors', () {
+      final counts = {
+        'N': 1, 'NNE': 1,
+        'NE': 1, 'ENE': 1,
+        'E': 1, 'ESE': 1,
+        'SE': 1, 'SSE': 1,
+        'S': 1, 'SSW': 1,
+        'SW': 1, 'WSW': 1,
+        'W': 1, 'WNW': 1,
+        'NW': 1, 'NNW': 1,
+      };
+      final result = FuzzyCompass.to8Sectors(counts);
+      for (final v in result.values) {
+        expect(v, equals(2), reason: 'each 8-sector should sum 2 x 1');
+      }
     });
   });
 
