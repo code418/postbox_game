@@ -52,12 +52,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 setDialogState(() => errorText = error);
                 return;
               }
-              // Use the outer (settings screen) context to navigate, not the
-              // dialog's builder context. The dialog's context is owned by a
-              // route that is being deactivated by this very pop call, so using
-              // it can race with InkWell/button ripple rebuilds still scheduled
-              // against it, causing the '_dependents.isEmpty' Flutter assertion.
-              if (mounted) Navigator.of(context).pop(controller.text.trim());
+              // Defer the pop by one frame so that any pending rebuilds triggered
+              // by the keyboard dismissing (MediaQuery viewport insets changing)
+              // can complete before the dialog's InheritedWidget subtree is torn
+              // down. Popping synchronously from onPressed races with those
+              // rebuilds and causes the '_dependents.isEmpty' assertion.
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted) Navigator.of(context).pop(controller.text.trim());
+              });
             }
 
             return AlertDialog(
@@ -79,7 +81,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
               actions: [
                 TextButton(
                   onPressed: () {
-                    if (mounted) Navigator.of(context).pop();
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (mounted) Navigator.of(context).pop();
+                    });
                   },
                   child: const Text('Cancel'),
                 ),
@@ -193,7 +197,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   });
                   return;
                 }
-                if (mounted) Navigator.of(context).pop(true);
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted) Navigator.of(context).pop(true);
+                });
               }
 
               return AlertDialog(
@@ -271,7 +277,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 actions: [
                   TextButton(
                     onPressed: () {
-                      if (mounted) Navigator.of(context).pop(false);
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (mounted) Navigator.of(context).pop(false);
+                      });
                     },
                     child: const Text('Cancel'),
                   ),
