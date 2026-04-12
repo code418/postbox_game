@@ -32,24 +32,6 @@ class PasswordChanged extends LoginEvent {
   String toString() => 'PasswordChanged { password: $password }';
 }
 
-class Submitted extends LoginEvent {
-  final String email;
-  final String password;
-
-  const Submitted({
-    required this.email,
-    required this.password,
-  });
-
-  @override
-  List<Object> get props => [email, password];
-
-  @override
-  String toString() {
-    return 'Submitted { email: $email, password: $password }';
-  }
-}
-
 class LoginWithGooglePressed extends LoginEvent {
   @override
   String toString() => 'LoginWithGooglePressed';
