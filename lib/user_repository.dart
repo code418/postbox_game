@@ -88,8 +88,4 @@ class UserRepository {
     final currentUser = _firebaseAuth.currentUser;
     return currentUser != null;
   }
-
-  Future<String?> getUser() async {
-    return _firebaseAuth.currentUser?.email;
-  }
 }
