@@ -4,6 +4,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_compass/flutter_compass.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
+import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/app_preferences.dart';
 import 'package:postbox_game/james_controller.dart';
 import 'package:postbox_game/james_messages.dart';
@@ -80,6 +81,7 @@ class NearbyState extends State<Nearby> {
     // both firing before the next frame rebuilds the UI).
     if (currentStage == NearbyStage.searching) return;
     setState(() => currentStage = NearbyStage.searching);
+    Analytics.nearbyStarted();
     try {
       _distanceUnit = await AppPreferences.getDistanceUnit();
       final position = await getPosition();
@@ -108,6 +110,16 @@ class NearbyState extends State<Nearby> {
         }
         _lastScanned = DateTime.now();
       });
+      if (_count > 0) {
+        Analytics.nearbyComplete(
+          count: _count,
+          claimedToday: _claimedToday,
+          minPoints: _minPoints,
+          maxPoints: _maxPoints,
+        );
+      } else {
+        Analytics.nearbyEmpty();
+      }
       final box = _count == 1 ? 'postbox' : 'postboxes';
       final msg = _count > 0
           ? JamesMessages.nearbyFound(_count, box)

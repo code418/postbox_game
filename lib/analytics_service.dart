@@ -14,13 +14,13 @@ class Analytics {
       FirebaseAnalyticsObserver(analytics: _fa);
 
   // ---------------------------------------------------------------------------
-  // Scan events
+  // Claim scan events
   // ---------------------------------------------------------------------------
 
-  /// User tapped "Scan for postboxes nearby".
+  /// User tapped "Scan" on the Claim screen.
   static Future<void> scanStarted() => _log('scan_started');
 
-  /// Scan returned results.
+  /// Claim scan returned results.
   static Future<void> scanComplete({
     required int count,
     required int claimedToday,
@@ -34,8 +34,32 @@ class Analytics {
         'max_points': maxPoints,
       });
 
-  /// Scan returned zero postboxes in range.
+  /// Claim scan returned zero postboxes in range.
   static Future<void> scanEmpty() => _log('scan_empty');
+
+  // ---------------------------------------------------------------------------
+  // Nearby search events
+  // ---------------------------------------------------------------------------
+
+  /// User tapped "Find nearby postboxes" on the Nearby screen.
+  static Future<void> nearbyStarted() => _log('nearby_started');
+
+  /// Nearby search returned results.
+  static Future<void> nearbyComplete({
+    required int count,
+    required int claimedToday,
+    required int minPoints,
+    required int maxPoints,
+  }) =>
+      _log('nearby_complete', {
+        'postbox_count': count,
+        'claimed_today': claimedToday,
+        'min_points': minPoints,
+        'max_points': maxPoints,
+      });
+
+  /// Nearby search returned zero postboxes in range.
+  static Future<void> nearbyEmpty() => _log('nearby_empty');
 
   // ---------------------------------------------------------------------------
   // Quiz events
