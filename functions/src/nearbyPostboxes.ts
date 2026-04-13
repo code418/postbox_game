@@ -2,7 +2,7 @@ import "./adminInit";
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions";
 import { getTodayLondon } from "./_dateUtils";
-import { getPoints } from "./_getPoints";
+import { applyUserClaims } from "./_nearbyUtils";
 import { lookupPostboxes } from "./_lookupPostboxes";
 
 interface NearbyCallData {
@@ -52,71 +52,8 @@ export const nearbyPostboxes = functions.https.onCall(async (request) => {
       .map(ref => ref.replace("/postbox/", ""))
   );
 
-  // Strip precise location fields (geopoint, geohash, dailyClaim) before
-  // sending to the client.  Override claimedToday with per-user status so
-  // the Claim and Nearby screens only show boxes as "claimed" when the
-  // current user has claimed them — other players' claims never block.
-  const slimPostboxes: Record<string, { monarch?: string; claimedToday: boolean }> = {};
-  for (const [id, pb] of Object.entries(full.postboxes)) {
-    slimPostboxes[id] = {
-      ...(pb.monarch !== undefined ? { monarch: pb.monarch } : {}),
-      claimedToday: userClaimedKeys.has(id),
-    };
-  }
-
-  // Build per-user counts, overriding both the total claimedToday and the
-  // per-cipher claimed counts ({cipher}_claimed) so that the Nearby screen's
-  // monarch breakdown shows the correct "X available" for the current user.
-  const updatedCounts: Record<string, number> = {};
-  // Copy all global counts first, then override the _claimed keys.
-  for (const [k, v] of Object.entries(full.counts)) {
-    if (!k.endsWith("_claimed")) {
-      updatedCounts[k] = v as number;
-    }
-  }
-
-  // Accumulate per-user cipher claimed counts from the user's actual claims.
-  // full.postboxes[id].monarch is available because lookupPostboxes spreads
-  // the full PostboxDoc into the result map.
-  let myClaimedCount = 0;
-  for (const [id, pb] of Object.entries(full.postboxes)) {
-    if (userClaimedKeys.has(id)) {
-      myClaimedCount++;
-      if (pb.monarch !== undefined) {
-        const ck = `${pb.monarch}_claimed`;
-        updatedCounts[ck] = (updatedCounts[ck] ?? 0) + 1;
-      }
-    }
-  }
-  updatedCounts.claimedToday = myClaimedCount;
-
-  // Compute per-user points range: exclude boxes already claimed by THIS user
-  // today so the "Worth X–Y pts" display reflects what's actually claimable.
-  let unclaimedMin = Infinity;
-  let unclaimedMax = 0;
-  for (const [id, pb] of Object.entries(full.postboxes)) {
-    if (!userClaimedKeys.has(id)) {
-      const pts = pb.monarch !== undefined ? getPoints(pb.monarch) : 2;
-      if (pts < unclaimedMin) unclaimedMin = pts;
-      if (pts > unclaimedMax) unclaimedMax = pts;
-    }
-  }
-  const updatedPoints = {
-    min: isFinite(unclaimedMin) ? unclaimedMin : 0,
-    max: unclaimedMax,
-  };
-
-  // Compute per-user compass: only include unclaimed boxes so "Where to look"
-  // guides the user toward boxes they can still claim, not ones already taken.
-  const updatedCompass: Record<string, number> = {};
-  for (const [id, pb] of Object.entries(full.postboxes)) {
-    if (!userClaimedKeys.has(id)) {
-      const dir = pb.compass?.exact;
-      if (dir) {
-        updatedCompass[dir] = (updatedCompass[dir] ?? 0) + 1;
-      }
-    }
-  }
+  const { slimPostboxes, updatedCounts, updatedPoints, updatedCompass } =
+    applyUserClaims(full, userClaimedKeys);
 
   return {
     ...full,

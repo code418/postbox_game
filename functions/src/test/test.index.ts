@@ -5,6 +5,7 @@ import { getPoints } from "../_getPoints";
 import { getTodayLondon } from "../_dateUtils";
 import { getWeekStart, getMonthStart, getPeriodKey, mergePeriodEntries, mergeLifetimeEntries } from "../_leaderboardUtils";
 import { setPrecision, getLatLng } from "../_lookupPostboxes";
+import { applyUserClaims } from "../_nearbyUtils";
 import { computeNewStreak } from "../_streakUtils";
 import { containsProfanity } from "../_profanityFilter";
 import { sanitiseName } from "../onUserCreated";
@@ -625,5 +626,130 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
         }
       }
     });
+  });
+});
+
+// ── applyUserClaims pure unit tests (no Firebase required) ────────────────────
+
+describe("applyUserClaims", () => {
+  /** Minimal LookupResult with two postboxes: one EIIR (2 pts, N), one VR (7 pts, S). */
+  const makeFull = () => ({
+    postboxes: {
+      box1: { monarch: "EIIR", compass: { exact: "N" } },
+      box2: { monarch: "VR",   compass: { exact: "S" } },
+    },
+    counts: { total: 2, claimedToday: 0, EIIR: 1, VR: 1 },
+    points: { min: 2, max: 7 },
+    compass: { N: 1, S: 1 },
+  });
+
+  it("returns correct shape when user has no claims", () => {
+    const result = applyUserClaims(makeFull(), new Set());
+    assert.ok("slimPostboxes" in result);
+    assert.ok("updatedCounts" in result);
+    assert.ok("updatedPoints" in result);
+    assert.ok("updatedCompass" in result);
+  });
+
+  it("all postboxes have claimedToday=false when user has no claims", () => {
+    const { slimPostboxes } = applyUserClaims(makeFull(), new Set());
+    assert.strictEqual(slimPostboxes.box1.claimedToday, false);
+    assert.strictEqual(slimPostboxes.box2.claimedToday, false);
+  });
+
+  it("preserves monarch fields in slim postboxes", () => {
+    const { slimPostboxes } = applyUserClaims(makeFull(), new Set());
+    assert.strictEqual(slimPostboxes.box1.monarch, "EIIR");
+    assert.strictEqual(slimPostboxes.box2.monarch, "VR");
+  });
+
+  it("marks claimed postbox with claimedToday=true", () => {
+    const { slimPostboxes } = applyUserClaims(makeFull(), new Set(["box1"]));
+    assert.strictEqual(slimPostboxes.box1.claimedToday, true);
+    assert.strictEqual(slimPostboxes.box2.claimedToday, false);
+  });
+
+  it("claimedToday count equals number of user-claimed postboxes", () => {
+    const { updatedCounts } = applyUserClaims(makeFull(), new Set(["box1"]));
+    assert.strictEqual(updatedCounts.claimedToday, 1);
+  });
+
+  it("per-cipher _claimed count reflects user's claims only", () => {
+    const { updatedCounts } = applyUserClaims(makeFull(), new Set(["box1"]));
+    assert.strictEqual(updatedCounts["EIIR_claimed"], 1);
+    assert.strictEqual(updatedCounts["VR_claimed"] ?? 0, 0);
+  });
+
+  it("non-claimed count keys (total, per-cipher totals) are preserved", () => {
+    const { updatedCounts } = applyUserClaims(makeFull(), new Set(["box1"]));
+    assert.strictEqual(updatedCounts.total, 2);
+    assert.strictEqual(updatedCounts.EIIR, 1);
+    assert.strictEqual(updatedCounts.VR, 1);
+  });
+
+  it("points range excludes claimed postbox", () => {
+    // box1 (EIIR, 2pts) is claimed → only box2 (VR, 7pts) counts
+    const { updatedPoints } = applyUserClaims(makeFull(), new Set(["box1"]));
+    assert.strictEqual(updatedPoints.min, 7);
+    assert.strictEqual(updatedPoints.max, 7);
+  });
+
+  it("points {min:0, max:0} when all postboxes claimed", () => {
+    const { updatedPoints } = applyUserClaims(makeFull(), new Set(["box1", "box2"]));
+    assert.strictEqual(updatedPoints.min, 0);
+    assert.strictEqual(updatedPoints.max, 0);
+  });
+
+  it("compass excludes claimed postboxes", () => {
+    // box1 (N) is claimed → compass should only show S
+    const { updatedCompass } = applyUserClaims(makeFull(), new Set(["box1"]));
+    assert.strictEqual(updatedCompass["N"] ?? 0, 0);
+    assert.strictEqual(updatedCompass["S"], 1);
+  });
+
+  it("compass is empty when all postboxes claimed", () => {
+    const { updatedCompass } = applyUserClaims(makeFull(), new Set(["box1", "box2"]));
+    assert.strictEqual(Object.keys(updatedCompass).length, 0);
+  });
+
+  it("postbox without monarch gets default 2 pts in points range", () => {
+    const full = {
+      postboxes: {
+        noMonarch: { compass: { exact: "E" } },
+      },
+      counts: { total: 1, claimedToday: 0 },
+      points: { min: 2, max: 2 },
+      compass: { E: 1 },
+    };
+    const { updatedPoints } = applyUserClaims(full, new Set());
+    assert.strictEqual(updatedPoints.min, 2);
+    assert.strictEqual(updatedPoints.max, 2);
+  });
+
+  it("postbox without compass.exact is not added to updatedCompass", () => {
+    const full = {
+      postboxes: {
+        noCompass: { monarch: "EIIR" },
+      },
+      counts: { total: 1, claimedToday: 0 },
+      points: { min: 2, max: 2 },
+      compass: {},
+    };
+    const { updatedCompass } = applyUserClaims(full, new Set());
+    assert.strictEqual(Object.keys(updatedCompass).length, 0);
+  });
+
+  it("accumulates multiple unclaimed boxes from the same compass direction", () => {
+    const full = {
+      postboxes: {
+        a: { monarch: "EIIR", compass: { exact: "N" } },
+        b: { monarch: "VR",   compass: { exact: "N" } },
+      },
+      counts: { total: 2, claimedToday: 0 },
+      points: { min: 2, max: 7 },
+      compass: { N: 2 },
+    };
+    const { updatedCompass } = applyUserClaims(full, new Set());
+    assert.strictEqual(updatedCompass["N"], 2);
   });
 });
