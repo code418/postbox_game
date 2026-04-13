@@ -1,3 +1,4 @@
+import "./adminInit";
 import * as admin from "firebase-admin";
 import * as geohash from "ngeohash";
 import * as geolib from "geolib";
