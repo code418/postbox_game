@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/theme.dart';
 
 /// Friends list and add-friend by UID.
@@ -81,6 +82,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
       await _firestore.collection('users').doc(uid).update({
         'friends': FieldValue.arrayUnion([friendUid]),
       });
+      Analytics.friendAdded();
       // Bust the name cache so a re-add shows fresh data.
       _nameCache.remove(friendUid);
       if (mounted) {
@@ -107,6 +109,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
       await _firestore.collection('users').doc(uid).update({
         'friends': FieldValue.arrayRemove([friendUid]),
       });
+      Analytics.friendRemoved();
       // Bust the cache so re-adding this friend fetches fresh data.
       _nameCache.remove(friendUid);
       if (mounted) {

@@ -118,6 +118,16 @@ class Analytics {
       _log('login_failed', {'method': method, 'error_code': errorCode});
 
   // ---------------------------------------------------------------------------
+  // Friends
+  // ---------------------------------------------------------------------------
+
+  /// User successfully added a friend by UID.
+  static Future<void> friendAdded() => _log('friend_added');
+
+  /// User removed a friend.
+  static Future<void> friendRemoved() => _log('friend_removed');
+
+  // ---------------------------------------------------------------------------
   // Navigation
   // ---------------------------------------------------------------------------
 
