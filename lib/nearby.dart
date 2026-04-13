@@ -165,6 +165,12 @@ class NearbyState extends State<Nearby> {
         ),
       );
       setState(() => currentStage = NearbyStage.initial);
+    } finally {
+      // Safety net: ensure we never get permanently stuck in 'searching' state
+      // if an unexpected Dart Error bypasses the catch blocks above.
+      if (mounted && currentStage == NearbyStage.searching) {
+        setState(() => currentStage = NearbyStage.initial);
+      }
     }
   }
 

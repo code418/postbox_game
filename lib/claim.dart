@@ -134,6 +134,12 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
           : JamesMessages.claimErrorGeneral.resolve();
       JamesController.of(context)?.show(msg);
       setState(() => currentStage = ClaimStage.initial);
+    } finally {
+      // Safety net: ensure we never get permanently stuck in 'searching' state
+      // if an unexpected Dart Error bypasses the catch blocks above.
+      if (mounted && currentStage == ClaimStage.searching) {
+        setState(() => currentStage = ClaimStage.initial);
+      }
     }
   }
 
