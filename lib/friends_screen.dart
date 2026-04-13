@@ -16,6 +16,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
   final _formKey = GlobalKey<FormState>();
   final _uidController = TextEditingController();
   final _firestore = FirebaseFirestore.instance;
+  bool _isAdding = false;
 
   // Cache name lookups so FutureBuilder doesn't re-fetch on every rebuild.
   final Map<String, Future<DocumentSnapshot<Map<String, dynamic>>>> _nameCache = {};
@@ -40,15 +41,19 @@ class _FriendsScreenState extends State<FriendsScreen> {
   }
 
   Future<void> _addFriendByUid(String friendUid) async {
-    final uid = _currentUid;
-    if (uid == null) return;
-    if (uid == friendUid) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('You can\'t add yourself')),
-      );
-      return;
-    }
+    if (_isAdding) return;
+    setState(() => _isAdding = true);
     try {
+      final uid = _currentUid;
+      if (uid == null) return;
+      if (uid == friendUid) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('You can\'t add yourself')),
+          );
+        }
+        return;
+      }
       // Check the friend exists AND whether they're already in the list.
       final results = await Future.wait([
         _firestore.collection('users').doc(friendUid).get(),
@@ -90,6 +95,8 @@ class _FriendsScreenState extends State<FriendsScreen> {
           const SnackBar(content: Text('Failed to add friend. Please try again.')),
         );
       }
+    } finally {
+      if (mounted) setState(() => _isAdding = false);
     }
   }
 
@@ -188,15 +195,26 @@ class _FriendsScreenState extends State<FriendsScreen> {
                 Padding(
                   padding: const EdgeInsets.only(top: 4),
                   child: FilledButton(
-                    onPressed: () {
-                      if (_formKey.currentState?.validate() ?? false) {
-                        _addFriendByUid(_uidController.text.trim());
-                      }
-                    },
+                    onPressed: _isAdding
+                        ? null
+                        : () {
+                            if (_formKey.currentState?.validate() ?? false) {
+                              _addFriendByUid(_uidController.text.trim());
+                            }
+                          },
                     style: FilledButton.styleFrom(
                       minimumSize: const Size(0, 52),
                     ),
-                    child: const Text('Add'),
+                    child: _isAdding
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : const Text('Add'),
                   ),
                 ),
               ],
