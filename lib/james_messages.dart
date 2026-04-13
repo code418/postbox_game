@@ -59,7 +59,7 @@ abstract final class JamesMessages {
   static const navScores = JamesMessage(
     'jamesNavScores',
     [
-      "Daily, weekly, monthly — see how you stack up against the competition."
+      "Daily, weekly, monthly — see how you stack up against the competition. "
           "The only thing better than spotting postboxes is knowing you have "
           "spotted more than your friends"
     ],
@@ -101,7 +101,7 @@ abstract final class JamesMessages {
   static const idle = JamesMessage(
     'jamesIdle',
     [
-      "You cannot send an email using a postbox. Send more letters!"
+      "You cannot send an email using a postbox. Send more letters!",
       "Did you know the oldest surviving postbox in the UK is in Botchergate, "
           "Carlisle? Still standing. Still red.",
       "A Victorian VR postbox weighs about 70 kilograms. Don't try to move one.",
@@ -202,7 +202,7 @@ abstract final class JamesMessages {
     'jamesClaimErrorAlreadyClaimed',
     [
       "You've already had that one today. It'll reset tomorrow.",
-      "Calm down, you've alrady claimed that one today.",
+      "Calm down, you've already claimed that one today.",
       "You know you do need to move around a bit to get different postboxes."
     ],
   );
