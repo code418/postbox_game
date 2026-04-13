@@ -176,7 +176,15 @@ class _LoginFormState extends State<LoginForm> {
                 keyboardType: TextInputType.emailAddress,
                 autocorrect: false,
                 textInputAction: TextInputAction.done,
-                onFieldSubmitted: (_) => Navigator.of(context).pop(true),
+                onFieldSubmitted: (_) {
+                  // Defer pop by one frame to avoid the '_dependents.isEmpty'
+                  // assertion that fires when the keyboard dismissal (which
+                  // triggers MediaQuery viewport rebuilds) races with the
+                  // dialog being torn down synchronously from this callback.
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted) Navigator.of(context).pop(true);
+                  });
+                },
                 decoration: const InputDecoration(
                   labelText: 'Email',
                   prefixIcon: Icon(Icons.email_outlined),
@@ -186,11 +194,19 @@ class _LoginFormState extends State<LoginForm> {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
+              onPressed: () {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted) Navigator.of(context).pop(false);
+                });
+              },
               child: const Text('Cancel'),
             ),
             FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
+              onPressed: () {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted) Navigator.of(context).pop(true);
+                });
+              },
               child: const Text('Send link'),
             ),
           ],
