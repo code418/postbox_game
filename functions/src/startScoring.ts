@@ -167,7 +167,10 @@ export const startScoring = functions.https.onCall(async (request) => {
       // For each postbox claimed in this session, check if the user has any
       // prior claim on a different day. Empty result = first-ever claim for
       // that postbox → increment unique counter by 1.
-      const uniqueChecks = await Promise.all(
+      // Use allSettled so a single Firestore read failure doesn't abort the
+      // entire increment — lifetimePoints and uniquePostboxesClaimed still
+      // update correctly for the successful checks even if a few reads fail.
+      const uniqueCheckResults = await Promise.allSettled(
         successfulClaims.map(({ key }) =>
           database.collection("claims")
             .where("userid", "==", userid)
@@ -178,7 +181,14 @@ export const startScoring = functions.https.onCall(async (request) => {
             .then((snap) => snap.empty ? 1 : 0)
         )
       );
-      const uniqueIncrement = uniqueChecks.reduce<number>((a, b) => a + b, 0);
+      for (const r of uniqueCheckResults) {
+        if (r.status === "rejected") {
+          console.error("uniqueChecks read failed (non-fatal):", r.reason);
+        }
+      }
+      const uniqueIncrement = uniqueCheckResults
+        .filter((r) => r.status === "fulfilled")
+        .reduce((a, r) => a + (r as PromiseFulfilledResult<number>).value, 0);
       const lifetimePointsIncrement = earnedPoints.reduce((s, p) => s + p, 0);
 
       await database.collection("users").doc(userid).set(
