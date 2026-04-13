@@ -295,6 +295,28 @@ void main() {
       final value = await streakService.streakStream().first;
       expect(value, equals(7));
     });
+
+    test('streakStream emits null when no user is signed in', () async {
+      // Service with a signed-out auth instance should return null immediately
+      // rather than throwing or hanging.
+      final signedOutAuth = MockFirebaseAuth();
+      final service = StreakService(firestore: fakeFirestore, auth: signedOutAuth);
+      final value = await service.streakStream().first;
+      expect(value, isNull);
+    });
+
+    test('streakStream handles streak stored as double (num cast)', () async {
+      // Firestore may return numeric fields as double even when originally
+      // written as int. The StreakService must handle this via (num?)?.toInt().
+      await fakeFirestore
+          .collection('users')
+          .doc(uid)
+          .set({'streak': 3.0, 'lastClaimDate': '2026-01-01'});
+
+      final value = await streakService.streakStream().first;
+      expect(value, equals(3));
+      expect(value, isA<int>());
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -549,12 +571,13 @@ void main() {
 
     test('idle pool has at least 5 variants for variety', () {
       // Sampling: resolve 50 times and collect unique messages.
+      // The idle pool has 14 variants; 50 samples should surface at least 5.
       final seen = <String>{};
       for (var i = 0; i < 50; i++) {
         seen.add(JamesMessages.idle.resolve());
       }
-      expect(seen.length, greaterThanOrEqualTo(2),
-          reason: 'idle pool should have multiple variants');
+      expect(seen.length, greaterThanOrEqualTo(5),
+          reason: 'idle pool should have at least 5 distinct variants');
     });
   });
 }
