@@ -4,7 +4,7 @@ import * as functions from "firebase-functions";
 import { getPoints } from "./_getPoints";
 import { getTodayLondon } from "./_dateUtils";
 import { lookupPostboxes } from "./_lookupPostboxes";
-import { updateUserLeaderboards, updateLifetimeLeaderboard } from "./_leaderboardUtils";
+import { updateUserLeaderboards, mergeLifetimeEntries, LifetimeLeaderboardEntry } from "./_leaderboardUtils";
 import { computeNewStreak } from "./_streakUtils";
 
 const database = admin.firestore();
@@ -185,6 +185,12 @@ export const startScoring = functions.https.onCall(async (request) => {
     ]);
 
     // ── Lifetime leaderboard update ─────────────────────────────────────────
+    // Use a single transaction to atomically increment the user's lifetime
+    // counters and update the leaderboard. Doing this as two separate
+    // operations (increment + get + leaderboard write) has a race: a
+    // concurrent claim from another device could increment the counter
+    // between our write and our read, causing the leaderboard to reflect
+    // the other session's total instead of ours.
     try {
       for (const r of uniqueCheckResults) {
         if (r.status === "rejected") {
@@ -196,20 +202,24 @@ export const startScoring = functions.https.onCall(async (request) => {
         .reduce((a, r) => a + (r as PromiseFulfilledResult<number>).value, 0);
       const lifetimePointsIncrement = earnedPoints.reduce((s, p) => s + p, 0);
 
-      await database.collection("users").doc(userid).set(
-        {
-          uniquePostboxesClaimed: admin.firestore.FieldValue.increment(uniqueIncrement),
-          lifetimePoints: admin.firestore.FieldValue.increment(lifetimePointsIncrement),
-        },
-        { merge: true }
-      );
+      const userRef = database.collection("users").doc(userid);
+      const lifetimeRef = database.collection("leaderboards").doc("lifetime");
 
-      const updatedUser = await database.collection("users").doc(userid).get();
-      const d = updatedUser.data() ?? {};
-      const uniquePostboxesClaimed = (d.uniquePostboxesClaimed as number | undefined) ?? 0;
-      const lifetimePoints = (d.lifetimePoints as number | undefined) ?? 0;
+      await database.runTransaction(async (tx) => {
+        const [userSnap, lifetimeSnap] = await Promise.all([
+          tx.get(userRef),
+          tx.get(lifetimeRef),
+        ]);
+        const d = userSnap.data() ?? {};
+        const newUnique = ((d.uniquePostboxesClaimed as number | undefined) ?? 0) + uniqueIncrement;
+        const newLifetimePoints = ((d.lifetimePoints as number | undefined) ?? 0) + lifetimePointsIncrement;
 
-      await updateLifetimeLeaderboard(userid, displayName, uniquePostboxesClaimed, lifetimePoints, database);
+        tx.set(userRef, { uniquePostboxesClaimed: newUnique, lifetimePoints: newLifetimePoints }, { merge: true });
+
+        const existingEntries = (lifetimeSnap.data()?.entries ?? []) as LifetimeLeaderboardEntry[];
+        const updatedEntries = mergeLifetimeEntries(existingEntries, userid, displayName, newUnique, newLifetimePoints);
+        tx.set(lifetimeRef, { periodKey: "lifetime", entries: updatedEntries }, { merge: false });
+      });
     } catch (lifetimeErr) {
       console.error("lifetime leaderboard update failed (non-fatal):", lifetimeErr);
     }

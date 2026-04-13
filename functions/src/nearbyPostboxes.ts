@@ -55,8 +55,10 @@ export const nearbyPostboxes = functions.https.onCall(async (request) => {
   const { slimPostboxes, updatedCounts, updatedPoints, updatedCompass } =
     applyUserClaims(full, userClaimedKeys);
 
+  // Return only the 4 intended fields — explicit rather than ...full spread
+  // so future LookupResult fields (e.g. precise geopoints) are not accidentally
+  // leaked to clients before they're deliberately included here.
   return {
-    ...full,
     postboxes: slimPostboxes,
     counts: updatedCounts,
     points: updatedPoints,
