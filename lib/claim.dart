@@ -6,10 +6,10 @@ import 'package:confetti/confetti.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:postbox_game/app_preferences.dart';
 import 'package:postbox_game/james_controller.dart';
 import 'package:postbox_game/james_messages.dart';
+import 'package:postbox_game/location_service.dart';
 import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/streak_service.dart';
 import 'package:postbox_game/theme.dart';
@@ -75,24 +75,6 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
       FirebaseFunctions.instance.httpsCallable('startScoring');
   final StreakService _streakService = StreakService();
 
-  Future<Position> _getPosition() async {
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      throw Exception('Location services are disabled.');
-    }
-    LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
-        throw Exception('Location permission denied.');
-      }
-    }
-    if (permission == LocationPermission.deniedForever) {
-      throw Exception('Location permission permanently denied. Enable it in Settings.');
-    }
-    return Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
-  }
-
   Future<void> _startSearch() async {
     // Guard against concurrent calls (e.g. pull-to-refresh + Refresh button
     // both firing before the next frame rebuilds the UI).
@@ -100,7 +82,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
     setState(() => currentStage = ClaimStage.searching);
     try {
       _distanceUnit = await AppPreferences.getDistanceUnit();
-      final position = await _getPosition();
+      final position = await getPosition();
       final result = await _callable.call(<String, dynamic>{
         'lat': position.latitude,
         'lng': position.longitude,
@@ -144,7 +126,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
     setState(() => _isClaiming = true);
     HapticFeedback.mediumImpact();
     try {
-      final position = await _getPosition();
+      final position = await getPosition();
       final result = await _claimCallable.call(<String, dynamic>{
         'lat': position.latitude,
         'lng': position.longitude,
