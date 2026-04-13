@@ -51,7 +51,7 @@ abstract final class JamesMessages {
     'jamesNavClaim',
     [
       "Found one? Get close and claim it. Rarer cyphers are worth more points.",
-      "Can you actually see a postboxes? Not that I am saying you are a liar "
+      "Can you actually see a postbox? Not that I am saying you are a liar "
           "or anything"
     ],
   );
