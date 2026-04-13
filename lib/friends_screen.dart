@@ -212,7 +212,18 @@ class _FriendsScreenState extends State<FriendsScreen> {
             stream: _friendsStream,
             builder: (context, snapshot) {
               if (snapshot.hasError) {
-                return Center(child: Text('Error: ${snapshot.error}'));
+                return Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.error_outline, size: 48,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant),
+                      const SizedBox(height: AppSpacing.md),
+                      Text('Could not load friends list',
+                          style: Theme.of(context).textTheme.titleMedium),
+                    ],
+                  ),
+                );
               }
               if (!snapshot.hasData) {
                 return const Center(
