@@ -80,6 +80,9 @@ export async function lookupPostboxes(lat: number, lng: number, meters: number):
 
       const compassDir = geolib.getCompassDirection(from, { latitude: pos.lat, longitude: pos.lng });
       if (compassDir) {
+        // result.compass accumulates ALL postboxes (claimed + unclaimed by any
+        // user). Callers should override this with per-user data via
+        // applyUserClaims, which recomputes compass for unclaimed postboxes only.
         result.compass[compassDir] = (result.compass[compassDir] ?? 0) + 1;
       }
 

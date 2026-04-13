@@ -132,20 +132,21 @@ export const startScoring = functions.https.onCall(async (request) => {
   }
 
   if (earnedPoints.length > 0) {
-    const userDoc = await database.collection('users').doc(userid).get();
-    const displayName =
-      (userDoc.data()?.displayName as string | undefined) ||
-      `Player_${userid.slice(0, 6)}`;
-
-    // Update daily-claim streak. Runs server-side (Admin SDK) because
-    // Firestore rules restrict client writes on users/{uid} to the friends
-    // array only, to prevent profanity-filter bypass on displayName.
+    // Compute yesterday once; used by the streak transaction below.
     const yesterdayDate = new Date(todayLondon + "T00:00:00Z");
     yesterdayDate.setUTCDate(yesterdayDate.getUTCDate() - 1);
     const yesterday = yesterdayDate.toISOString().slice(0, 10);
     const userRef = database.collection("users").doc(userid);
-    try {
-      await database.runTransaction(async (tx) => {
+
+    // Fetch displayName and update streak in parallel. The streak transaction
+    // only writes lastClaimDate/streak — never displayName — so both
+    // operations read independent fields of the same document safely.
+    const [userDoc] = await Promise.all([
+      database.collection("users").doc(userid).get(),
+      // Update daily-claim streak. Runs server-side (Admin SDK) because
+      // Firestore rules restrict client writes on users/{uid} to the friends
+      // array only, to prevent profanity-filter bypass on displayName.
+      database.runTransaction(async (tx) => {
         const snap = await tx.get(userRef);
         const d = snap.data() ?? {};
         const lastClaimDate = d.lastClaimDate as string | undefined;
@@ -153,24 +154,24 @@ export const startScoring = functions.https.onCall(async (request) => {
         const newStreak = computeNewStreak(lastClaimDate, currentStreak, todayLondon, yesterday);
         if (newStreak === null) return; // already updated today
         tx.set(userRef, { lastClaimDate: todayLondon, streak: newStreak }, { merge: true });
-      });
-    } catch (streakErr) {
-      console.error("streak update failed (non-fatal):", streakErr);
-    }
+      }).catch((streakErr) => {
+        console.error("streak update failed (non-fatal):", streakErr);
+      }),
+    ]);
+    const displayName =
+      (userDoc.data()?.displayName as string | undefined) ||
+      `Player_${userid.slice(0, 6)}`;
 
+    // Run the period leaderboard update and the uniqueness checks in parallel.
     // updateUserLeaderboards uses Promise.allSettled internally and never
-    // throws; individual period failures are logged inside the function.
-    await updateUserLeaderboards(userid, displayName, todayLondon, database);
-
-    // ── Lifetime leaderboard update ─────────────────────────────────────────
-    try {
-      // For each postbox claimed in this session, check if the user has any
-      // prior claim on a different day. Empty result = first-ever claim for
-      // that postbox → increment unique counter by 1.
-      // Use allSettled so a single Firestore read failure doesn't abort the
-      // entire increment — lifetimePoints and uniquePostboxesClaimed still
-      // update correctly for the successful checks even if a few reads fail.
-      const uniqueCheckResults = await Promise.allSettled(
+    // throws; uniqueness checks use allSettled so individual read failures
+    // only affect that postbox's unique count without aborting the rest.
+    const [, uniqueCheckResults] = await Promise.all([
+      updateUserLeaderboards(userid, displayName, todayLondon, database),
+      Promise.allSettled(
+        // For each postbox claimed this session, check whether the user has any
+        // prior claim on a different day. Empty result → first-ever claim for
+        // that postbox → increment the unique counter by 1.
         successfulClaims.map(({ key }) =>
           database.collection("claims")
             .where("userid", "==", userid)
@@ -180,7 +181,11 @@ export const startScoring = functions.https.onCall(async (request) => {
             .get()
             .then((snap) => snap.empty ? 1 : 0)
         )
-      );
+      ),
+    ]);
+
+    // ── Lifetime leaderboard update ─────────────────────────────────────────
+    try {
       for (const r of uniqueCheckResults) {
         if (r.status === "rejected") {
           console.error("uniqueChecks read failed (non-fatal):", r.reason);

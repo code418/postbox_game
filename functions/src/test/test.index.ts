@@ -168,6 +168,13 @@ describe("mergeLifetimeEntries", () => {
     assert.strictEqual(result[0].totalPoints, 5);
   });
 
+  it("keeps user with totalPoints 0 if they have uniqueBoxes > 0", () => {
+    const result = mergeLifetimeEntries([], "a", "Alice", 3, 0);
+    assert.strictEqual(result.length, 1);
+    assert.strictEqual(result[0].uniquePostboxesClaimed, 3);
+    assert.strictEqual(result[0].totalPoints, 0);
+  });
+
   it("sorts descending by uniquePostboxesClaimed", () => {
     const result = mergeLifetimeEntries([bob], "a", "Alice", 10, 50);
     assert.strictEqual(result[0].uid, "a");
