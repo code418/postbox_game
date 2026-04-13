@@ -22,7 +22,7 @@ Both screens are implemented and accessible from the `NavigationBar` in `Home`.
 - **Friends** (`lib/friends_screen.dart`): add by UID (`users/{uid}/friends` array in Firestore), shows "Your UID" copy banner, friend cards with `CircleAvatar` initials. Email lookup not yet implemented — UID only.
 - **Leaderboard** (`lib/leaderboard_screen.dart`): Daily/Weekly/Monthly tabs reading `leaderboards/{period}/entries`. Top-3 trophy icons, current user's row highlighted. Backend must write `{uid, displayName, points}` entries; no in-app aggregation.
 
-**Remaining**: display names in the friends list require storing `displayName` in `users/{uid}` on registration and resolving it client-side or via a Cloud Function.
+Display names are stored by the `onUserCreated` Cloud Function in `users/{uid}.displayName` and resolved client-side in the friends list via `FutureBuilder` (with a name cache). This is fully implemented.
 
 ## Fuzzy compass
 
@@ -30,7 +30,7 @@ The app shows a **fuzzy compass** that gives the user an **indication** of where
 
 ## Key paths
 
-- **App entry**: `lib/main.dart` → **if unauthenticated** → `_UnauthGate` → `Intro` (first run) or `LoginScreen`; **if authenticated** → `Home`. `Home` (`lib/home.dart`) is a `NavigationBar` + `IndexedStack` shell: tabs are **Nearby** (index 0), **Claim** (index 1), **Leaderboard** (index 2), **Friends** (index 3). Settings is in an AppBar `PopupMenuButton`. Named routes `/nearby`, `/Claim`, `/friends`, `/leaderboard`, `/settings` are retained for deep-link use.
+- **App entry**: `lib/main.dart` → **if unauthenticated** → `_UnauthGate` → `Intro` (first run) or `LoginScreen`; **if authenticated** → `Home`. `Home` (`lib/home.dart`) is a `NavigationBar` + `IndexedStack` shell: tabs are **Nearby** (index 0), **Claim** (index 1), **Leaderboard** (index 2), **Friends** (index 3). Settings is in an AppBar `PopupMenuButton`. Named routes `/nearby`, `/claim`, `/friends`, `/leaderboard`, `/settings` are retained for deep-link use.
 - **Backend**: `functions/src/index.ts` exports `nearbyPostboxes`, `startScoring`, `updateDisplayName`, `onUserCreated`; `_lookupPostboxes.ts` uses ngeohash + Firestore geohash prefix queries; `_getPoints.ts` maps monarch (EIIR, CIIIR, GR, GVR, GVIR, VR, EVIIR, EVIIIR) to points (2/9/4/4/4/7/9/12). Friends list in `users/{uid}/friends` array; leaderboards updated by Cloud Functions in `leaderboards/{daily|weekly|monthly}` documents.
 - **Postbox data source and storage**: Postbox data is **sourced from OpenStreetMap (OSM)**—e.g. Overpass API (`amenity=post_box`, UK area). **test.json** in the repo is a sample of the OSM/Overpass response: nodes with `type`, `id`, `lat`, `lon`, and `tags` (e.g. `amenity`, `ref`, `royal_cypher`, `post_box:type`, `collection_times`, `postal_code`). This data is **not** queried from OSM at app runtime; it is **ingested and stored in the cloud database** (Firestore). The app and existing Cloud Functions read from Firestore only.
 - **OSM→Firestore import pipeline**: Implemented in `functions/import_postboxes.js`. Run from the `functions/` directory: `node import_postboxes.js <overpass-export.json> --project the-postbox-game`. Stores each postbox as `{ geohash (precision 9), geopoint, overpass_id, monarch?, reference? }` in `postbox/{osm_<id>}` with batch writes of 400. Use `--dry-run --limit 5` to preview. GEOHASH_PRECISION must remain 9 (maximum) so stored hashes match precision-8 prefix queries used by the 30 m claim scan.
@@ -53,8 +53,8 @@ The app shows a **fuzzy compass** that gives the user an **indication** of where
 
 ## Tests
 
-- `test/widget_test.dart` uses `firebase_auth_mocks` + `fake_cloud_firestore` and `setupFirebaseCoreMocks()` — tests run without real Firebase. 55 Dart tests passing.
-- `functions/src/test/test.index.ts` uses `firebase-functions-test`. 98 TypeScript tests passing (pure unit tests + auth/validation integration tests that gracefully skip when no emulator is running).
+- `test/widget_test.dart` uses `firebase_auth_mocks` + `fake_cloud_firestore` and `setupFirebaseCoreMocks()` — tests run without real Firebase. 58 Dart tests passing.
+- `functions/src/test/test.index.ts` uses `firebase-functions-test`. 114 TypeScript tests passing (pure unit tests + auth/validation integration tests that gracefully skip when no emulator is running).
 
 ## Security / release
 
