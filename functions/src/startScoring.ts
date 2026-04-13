@@ -142,7 +142,7 @@ export const startScoring = functions.https.onCall(async (request) => {
     // only writes lastClaimDate/streak — never displayName — so both
     // operations read independent fields of the same document safely.
     const [userDoc] = await Promise.all([
-      database.collection("users").doc(userid).get(),
+      userRef.get(),
       // Update daily-claim streak. Runs server-side (Admin SDK) because
       // Firestore rules restrict client writes on users/{uid} to the friends
       // array only, to prevent profanity-filter bypass on displayName.
