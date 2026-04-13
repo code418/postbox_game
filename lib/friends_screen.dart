@@ -79,6 +79,14 @@ class _FriendsScreenState extends State<FriendsScreen> {
         }
         return;
       }
+      if (existingFriends.length >= 200) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Friends list is full (200 maximum)')),
+          );
+        }
+        return;
+      }
       await _firestore.collection('users').doc(uid).update({
         'friends': FieldValue.arrayUnion([friendUid]),
       });

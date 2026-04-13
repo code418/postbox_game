@@ -27,8 +27,13 @@ service cloud.firestore {
     match /users/{uid} {
       allow read: if request.auth != null;
       // Only the friends array may be updated by the owning user.
+      // friends must remain a list and is capped at 200 entries to prevent
+      // abuse (large lists would cause O(n) parallel Firestore reads in the
+      // friends leaderboard).
       allow update: if request.auth != null && request.auth.uid == uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['friends']);
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['friends'])
+        && request.resource.data.friends is list
+        && request.resource.data.friends.size() <= 200;
       // Create and all other writes are handled by Cloud Functions.
       allow create: if false;
     }
