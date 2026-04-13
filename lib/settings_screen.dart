@@ -351,6 +351,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
     if (confirm == true && mounted) {
       context.read<AuthenticationBloc>().add(LoggedOut());
+      Navigator.of(context).popUntil((route) => route.isFirst);
     }
   }
 

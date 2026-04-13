@@ -7,6 +7,7 @@ export function getPoints(monarch: string): number {
     case "GR":
     case "GVR":
     case "GVIR":
+    case "SCOTTISH_CROWN":
       return 4;
     case "VR":
       return 7;

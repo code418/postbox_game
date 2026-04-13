@@ -15,6 +15,7 @@ abstract final class MonarchInfo {
     'EVIIR': 'Edward VII (1901–1910)',
     'VR': 'Victoria (1840–1901)',
     'GR': 'George (generic)',
+    'SCOTTISH_CROWN': 'Scottish Crown (Scotland only)',
   };
 
   /// Display colours for each cipher.
@@ -27,6 +28,7 @@ abstract final class MonarchInfo {
     'EVIIR': Colors.deepPurple,
     'VR': Colors.amber,
     'GR': Colors.blueGrey,
+    'SCOTTISH_CROWN': Color(0xFF005EB8), // Saltire blue
   };
 
   /// Ciphers that are considered rare (shown with a star badge).
@@ -38,6 +40,7 @@ abstract final class MonarchInfo {
   /// All known ciphers in display order — used for quiz answer pools etc.
   static const List<String> all = [
     'EIIR', 'CIIIR', 'GR', 'GVR', 'GVIR', 'VR', 'EVIIR', 'EVIIIR',
+    'SCOTTISH_CROWN',
   ];
 
   /// Point values per cipher — must stay in sync with _getPoints.ts.
@@ -50,6 +53,7 @@ abstract final class MonarchInfo {
     'VR': 7,
     'EVIIR': 9,
     'EVIIIR': 12,
+    'SCOTTISH_CROWN': 4,
   };
 
   /// Returns the point value for [cipher], or 2 if unknown (matches server default).

@@ -3,7 +3,7 @@ import test from "firebase-functions-test";
 import * as myFunctions from "../index";
 import { getPoints } from "../_getPoints";
 import { getTodayLondon } from "../_dateUtils";
-import { getWeekStart, getMonthStart, getPeriodKey, mergePeriodEntries, mergeLifetimeEntries } from "../_leaderboardUtils";
+import { getWeekStart, getMonthStart, getPeriodKey, mergePeriodEntries, mergeLifetimeEntries, updateUserLeaderboards } from "../_leaderboardUtils";
 import { setPrecision, getLatLng } from "../_lookupPostboxes";
 import { applyUserClaims } from "../_nearbyUtils";
 import { computeNewStreak } from "../_streakUtils";
@@ -17,6 +17,7 @@ describe("getPoints", () => {
   it("returns 4 for GR", () => assert.strictEqual(getPoints("GR"), 4));
   it("returns 4 for GVR", () => assert.strictEqual(getPoints("GVR"), 4));
   it("returns 4 for GVIR", () => assert.strictEqual(getPoints("GVIR"), 4));
+  it("returns 4 for SCOTTISH_CROWN", () => assert.strictEqual(getPoints("SCOTTISH_CROWN"), 4));
   it("returns 7 for VR", () => assert.strictEqual(getPoints("VR"), 7));
   it("returns 9 for EVIIR", () => assert.strictEqual(getPoints("EVIIR"), 9));
   it("returns 9 for CIIIR", () => assert.strictEqual(getPoints("CIIIR"), 9));
@@ -201,6 +202,167 @@ describe("mergeLifetimeEntries", () => {
   it("updates displayName when upserted", () => {
     const result = mergeLifetimeEntries([alice], "a", "Alice v2", 10, 50);
     assert.strictEqual(result[0].displayName, "Alice v2");
+  });
+});
+
+// ── updateUserLeaderboards unit tests (mock Firestore, no emulator needed) ───
+//
+// The mock only implements the operations updateUserLeaderboards actually uses:
+//   collection("claims").where(...).where(...)[.where(...)].get()
+//   collection("leaderboards").doc(id)
+//   runTransaction(tx => { tx.get(ref); tx.set(ref, data) })
+//
+// Typing is cast through `unknown` to avoid reproducing the full admin SDK
+// interface — this is intentional in test-only code.
+
+describe("updateUserLeaderboards (unit, mock Firestore)", () => {
+  type ClaimDoc  = { userid: string; dailyDate: string; points: number };
+  type LbDoc     = { periodKey?: string; entries?: unknown[] };
+
+  function makeMockDb(claims: ClaimDoc[], initial: Record<string, LbDoc> = {}) {
+    const leaderboards = new Map<string, LbDoc>(Object.entries(initial));
+
+    function buildQuery(preds: Array<{ field: string; op: string; val: unknown }>) {
+      return {
+        where: (f: string, o: string, v: unknown) =>
+          buildQuery([...preds, { field: f, op: o, val: v }]),
+        get: async () => ({
+          docs: claims
+            .filter(doc =>
+              preds.every(({ field, op, val }) => {
+                const v = (doc as Record<string, unknown>)[field];
+                if (op === "==") return v === val;
+                if (op === ">=") return typeof v === "string" && typeof val === "string" && v >= val;
+                if (op === "<=") return typeof v === "string" && typeof val === "string" && v <= val;
+                return false;
+              })
+            )
+            .map(d => ({ data: () => d as Record<string, unknown> })),
+        }),
+      };
+    }
+
+    const db = {
+      collection: (name: string) => {
+        if (name === "claims") {
+          return { where: (f: string, o: string, v: unknown) => buildQuery([{ field: f, op: o, val: v }]) };
+        }
+        if (name === "leaderboards") {
+          return { doc: (id: string) => ({ _id: id }) };
+        }
+        throw new Error(`Unexpected collection: ${name}`);
+      },
+      runTransaction: async (fn: (tx: unknown) => Promise<void>) => {
+        let pending: { id: string; data: LbDoc } | null = null;
+        await fn({
+          get: async (ref: { _id: string }) => ({ data: () => leaderboards.get(ref._id) }),
+          set: (ref: { _id: string }, data: LbDoc) => { pending = { id: ref._id, data }; },
+        });
+        if (pending) leaderboards.set((pending as { id: string; data: LbDoc }).id, (pending as { id: string; data: LbDoc }).data);
+      },
+    };
+
+    return {
+      db: db as unknown as import("firebase-admin").firestore.Firestore,
+      lb: (period: string) => leaderboards.get(period) as Record<string, unknown> | undefined,
+    };
+  }
+
+  it("creates a weekly entry summing claims within the current week", async () => {
+    const today = "2026-04-15"; // Wednesday; week starts Mon 2026-04-13
+    const { db, lb } = makeMockDb([
+      { userid: "u1", dailyDate: "2026-04-13", points: 5 }, // Monday
+      { userid: "u1", dailyDate: "2026-04-15", points: 3 }, // Wednesday (today)
+    ]);
+    await updateUserLeaderboards("u1", "Alice", today, db);
+    const weekly = lb("weekly");
+    assert.strictEqual(weekly?.periodKey, `week:${getWeekStart(today)}`);
+    assert.strictEqual((weekly?.entries as Array<{ uid: string; points: number }>)?.[0]?.uid, "u1");
+    assert.strictEqual((weekly?.entries as Array<{ uid: string; points: number }>)?.[0]?.points, 8);
+  });
+
+  it("creates a monthly entry summing all claims in the current month", async () => {
+    const today = "2026-04-15";
+    const { db, lb } = makeMockDb([
+      { userid: "u1", dailyDate: "2026-04-01", points: 2 },
+      { userid: "u1", dailyDate: "2026-04-10", points: 7 },
+      { userid: "u1", dailyDate: "2026-04-15", points: 4 },
+      { userid: "u1", dailyDate: "2026-03-31", points: 9 }, // previous month — must NOT be included
+    ]);
+    await updateUserLeaderboards("u1", "Alice", today, db);
+    const monthly = lb("monthly");
+    assert.strictEqual(monthly?.periodKey, "month:2026-04");
+    assert.strictEqual((monthly?.entries as Array<{ points: number }>)?.[0]?.points, 13); // 2+7+4
+  });
+
+  it("excludes claims from a previous week", async () => {
+    const today = "2026-04-15"; // week starts 2026-04-13
+    const { db, lb } = makeMockDb([
+      { userid: "u1", dailyDate: "2026-04-10", points: 100 }, // previous Friday
+      { userid: "u1", dailyDate: "2026-04-15", points: 2 },
+    ]);
+    await updateUserLeaderboards("u1", "Alice", today, db);
+    assert.strictEqual((lb("weekly")?.entries as Array<{ points: number }>)?.[0]?.points, 2);
+  });
+
+  it("clears stale weekly entries when the week rolls over", async () => {
+    const today = "2026-04-13"; // new Monday
+    const { db, lb } = makeMockDb(
+      [{ userid: "u1", dailyDate: "2026-04-13", points: 3 }],
+      { weekly: { periodKey: "week:2026-04-06", entries: [{ uid: "u2", displayName: "Bob", points: 99 }] } }
+    );
+    await updateUserLeaderboards("u1", "Alice", today, db);
+    const weekly = lb("weekly");
+    assert.strictEqual(weekly?.periodKey, "week:2026-04-13");
+    assert.strictEqual((weekly?.entries as unknown[])?.length, 1);
+    assert.strictEqual((weekly?.entries as Array<{ uid: string }>)?.[0]?.uid, "u1");
+  });
+
+  it("clears stale monthly entries when the month rolls over", async () => {
+    const today = "2026-05-01";
+    const { db, lb } = makeMockDb(
+      [{ userid: "u1", dailyDate: "2026-05-01", points: 2 }],
+      { monthly: { periodKey: "month:2026-04", entries: [{ uid: "u2", displayName: "Bob", points: 50 }] } }
+    );
+    await updateUserLeaderboards("u1", "Alice", today, db);
+    const monthly = lb("monthly");
+    assert.strictEqual(monthly?.periodKey, "month:2026-05");
+    assert.strictEqual((monthly?.entries as unknown[])?.length, 1);
+    assert.strictEqual((monthly?.entries as Array<{ uid: string }>)?.[0]?.uid, "u1");
+  });
+
+  it("preserves other users' entries within the same period", async () => {
+    const today = "2026-04-15";
+    const { db, lb } = makeMockDb(
+      [{ userid: "u1", dailyDate: "2026-04-15", points: 4 }],
+      { weekly: { periodKey: `week:${getWeekStart(today)}`, entries: [{ uid: "u2", displayName: "Bob", points: 10 }] } }
+    );
+    await updateUserLeaderboards("u1", "Alice", today, db);
+    const entries = lb("weekly")?.entries as Array<{ uid: string; points: number }>;
+    assert.strictEqual(entries?.length, 2);
+    assert.ok(entries?.some(e => e.uid === "u2" && e.points === 10), "Bob's entry should be preserved");
+    assert.ok(entries?.some(e => e.uid === "u1" && e.points === 4),  "Alice's entry should be added");
+  });
+
+  it("removes a user from the leaderboard when they have 0 points in the period", async () => {
+    const today = "2026-04-15";
+    const { db, lb } = makeMockDb(
+      [], // no claims this week
+      { weekly: { periodKey: `week:${getWeekStart(today)}`, entries: [{ uid: "u1", displayName: "Alice", points: 5 }] } }
+    );
+    await updateUserLeaderboards("u1", "Alice", today, db);
+    assert.strictEqual((lb("weekly")?.entries as unknown[])?.length, 0);
+  });
+
+  it("Sunday belongs to the same week as the preceding Monday", async () => {
+    // Week of Mon 2026-04-06: Mon claim 5pts + Sun claim 3pts = 8pts
+    const today = "2026-04-12"; // Sunday
+    const { db, lb } = makeMockDb([
+      { userid: "u1", dailyDate: "2026-04-06", points: 5 }, // Monday
+      { userid: "u1", dailyDate: "2026-04-12", points: 3 }, // Sunday (today)
+    ]);
+    await updateUserLeaderboards("u1", "Alice", today, db);
+    assert.strictEqual((lb("weekly")?.entries as Array<{ points: number }>)?.[0]?.points, 8);
   });
 });
 

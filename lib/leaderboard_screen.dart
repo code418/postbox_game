@@ -85,6 +85,7 @@ class _LeaderboardList extends StatefulWidget {
 class _LeaderboardListState extends State<_LeaderboardList> {
   late final Stream<DocumentSnapshot<Map<String, dynamic>>> _stream;
   final String? _currentUid = FirebaseAuth.instance.currentUser?.uid;
+  int? _totalPostboxes;
 
   bool get _isLifetime => widget.period == 'lifetime';
 
@@ -95,6 +96,20 @@ class _LeaderboardListState extends State<_LeaderboardList> {
         .collection('leaderboards')
         .doc(widget.period)
         .snapshots();
+    if (_isLifetime) _loadTotalPostboxes();
+  }
+
+  Future<void> _loadTotalPostboxes() async {
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('meta')
+          .doc('stats')
+          .get();
+      final total = (doc.data()?['totalPostboxes'] as num?)?.toInt();
+      if (mounted && total != null && total > 0) {
+        setState(() => _totalPostboxes = total);
+      }
+    } catch (_) {}
   }
 
   @override
@@ -208,8 +223,13 @@ class _LeaderboardListState extends State<_LeaderboardList> {
                   ? ((e['points'] is num) ? (e['points'] as num).toInt() : 0)
                   : 0;
 
+              final pctText = (_isLifetime &&
+                      _totalPostboxes != null &&
+                      _totalPostboxes! > 0)
+                  ? ' (${(uniqueBoxes / _totalPostboxes! * 100).toStringAsFixed(4)}%)'
+                  : '';
               final trailingText = _isLifetime
-                  ? '$uniqueBoxes ${uniqueBoxes == 1 ? 'box' : 'boxes'} · $totalPoints pts'
+                  ? '$uniqueBoxes ${uniqueBoxes == 1 ? 'box' : 'boxes'}$pctText · $totalPoints pts'
                   : '$points pts';
 
               return Card(
@@ -280,6 +300,8 @@ class _FriendsLeaderboardList extends StatefulWidget {
 class _FriendsLeaderboardListState extends State<_FriendsLeaderboardList> {
   final String? _currentUid = FirebaseAuth.instance.currentUser?.uid;
 
+  int? _totalPostboxes;
+
   // Stream cached here so that setState (e.g. pull-to-refresh) doesn't
   // recreate the stream and cause StreamBuilder to flash a loading indicator.
   Stream<DocumentSnapshot<Map<String, dynamic>>>? _userStream;
@@ -304,6 +326,20 @@ class _FriendsLeaderboardListState extends State<_FriendsLeaderboardList> {
           .doc(_currentUid)
           .snapshots();
     }
+    _loadTotalPostboxes();
+  }
+
+  Future<void> _loadTotalPostboxes() async {
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('meta')
+          .doc('stats')
+          .get();
+      final total = (doc.data()?['totalPostboxes'] as num?)?.toInt();
+      if (mounted && total != null && total > 0) {
+        setState(() => _totalPostboxes = total);
+      }
+    } catch (_) {}
   }
 
   Future<List<Map<String, dynamic>>> _fetchScores(Set<String> friendUids) async {
@@ -507,8 +543,11 @@ class _FriendsLeaderboardListState extends State<_FriendsLeaderboardList> {
 
                   final uniqueBoxes = e['uniquePostboxesClaimed'] as int;
                   final totalPoints = e['totalPoints'] as int;
+                  final pctText = (_totalPostboxes != null && _totalPostboxes! > 0)
+                      ? ' (${(uniqueBoxes / _totalPostboxes! * 100).toStringAsFixed(4)}%)'
+                      : '';
                   final trailingText =
-                      '$uniqueBoxes ${uniqueBoxes == 1 ? 'box' : 'boxes'} · $totalPoints pts';
+                      '$uniqueBoxes ${uniqueBoxes == 1 ? 'box' : 'boxes'}$pctText · $totalPoints pts';
 
                   return Card(
                     color: isCurrentUser

@@ -55,6 +55,7 @@ const BATCH_SIZE = 400;
 // imported but without a `monarch` field — they score 2 pts (the default).
 const VALID_CIPHERS = new Set([
   'EIIR', 'CIIIR', 'GR', 'GVR', 'GVIR', 'VR', 'EVIIR', 'EVIIIR',
+  'SCOTTISH_CROWN',
 ]);
 
 // ── Argument parsing ──────────────────────────────────────────────────────────
@@ -221,6 +222,16 @@ async function main() {
   const totalSecs = ((Date.now() - start) / 1000).toFixed(1);
   console.log(`\n\nImport complete. Wrote ${written.toLocaleString()} postboxes in ${totalSecs}s.`);
   console.log(`Collection: ${COLLECTION}`);
+
+  // Only persist the total count when importing without a --limit so the
+  // stored value reflects the full dataset (not a subset used for testing).
+  if (opts.limit === Infinity) {
+    await db.collection('meta').doc('stats').set(
+      { totalPostboxes: written },
+      { merge: true }
+    );
+    console.log(`meta/stats.totalPostboxes updated to ${written.toLocaleString()}.`);
+  }
 }
 
 main().catch((err) => {

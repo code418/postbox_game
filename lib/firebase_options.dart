@@ -48,6 +48,7 @@ class DefaultFirebaseOptions {
     authDomain: 'the-postbox-game.firebaseapp.com',
     databaseURL: 'https://the-postbox-game.firebaseio.com',
     storageBucket: 'the-postbox-game.firebasestorage.app',
+      measurementId: 'G-JZ284NSHRQ'
   );
 
   static const FirebaseOptions android = FirebaseOptions(

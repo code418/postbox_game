@@ -48,11 +48,16 @@ class _PostboxGameState extends State<PostboxGame> {
   final UserRepository _userRepository = UserRepository();
 
   /// Redirects to login when accessing protected named routes while unauthenticated.
+  /// Uses BlocBuilder so the route rebuilds if auth state changes after it is first pushed
+  /// (e.g. deep-linking to a protected URL before the auth check has completed).
   Widget _guardRoute(BuildContext context, Widget Function() page) {
-    final state = context.read<AuthenticationBloc>().state;
-    if (state is Authenticated) return page();
-    if (state is Unauthenticated) return LoginScreen(userRepository: _userRepository);
-    return const Splash();
+    return BlocBuilder<AuthenticationBloc, AuthenticationState?>(
+      builder: (context, state) {
+        if (state is Authenticated) return page();
+        if (state is Unauthenticated) return LoginScreen(userRepository: _userRepository);
+        return const Splash();
+      },
+    );
   }
 
   @override
