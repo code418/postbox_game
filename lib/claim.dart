@@ -11,6 +11,7 @@ import 'package:postbox_game/james_controller.dart';
 import 'package:postbox_game/james_messages.dart';
 import 'package:postbox_game/location_service.dart';
 import 'package:postbox_game/monarch_info.dart';
+import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/streak_service.dart';
 import 'package:postbox_game/theme.dart';
 
@@ -80,6 +81,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
     // both firing before the next frame rebuilds the UI).
     if (currentStage == ClaimStage.searching) return;
     setState(() => currentStage = ClaimStage.searching);
+    Analytics.scanStarted();
     try {
       _distanceUnit = await AppPreferences.getDistanceUnit();
       final position = await getPosition();
@@ -97,6 +99,16 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
         _postboxes = Map<String, dynamic>.from(result.data['postboxes'] ?? {});
         currentStage = _count > 0 ? ClaimStage.results : ClaimStage.empty;
       });
+      if (_count > 0) {
+        Analytics.scanComplete(
+          count: _count,
+          claimedToday: _claimedToday,
+          minPoints: _minPoints,
+          maxPoints: _maxPoints,
+        );
+      } else {
+        Analytics.scanEmpty();
+      }
     } on FirebaseFunctionsException catch (e) {
       debugPrint('Firebase functions error: ${e.code} ${e.message}');
       final isOffline = e.code == 'unavailable';
@@ -141,6 +153,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
 
       if (!found) {
         // User moved out of range between scan and claim.
+        Analytics.claimFailed(reason: 'out_of_range');
         if (!mounted) return;
         setState(() => _isClaiming = false);
         JamesController.of(context)?.show(JamesMessages.claimOutOfRange.resolve());
@@ -148,6 +161,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
         return;
       }
       if (allClaimedToday || claimedCount == 0) {
+        Analytics.claimFailed(reason: 'already_claimed_today');
         if (!mounted) return;
         setState(() => _isClaiming = false);
         _showErrorSnackBar('Already claimed today — come back tomorrow!');
@@ -157,8 +171,10 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
       }
       final points = result.data?['points'] ?? 0;
       if (!mounted) return;
+      final earnedPts = points is int ? points : (points as num).toInt();
+      Analytics.claimSuccess(pointsEarned: earnedPts, claimedCount: claimedCount);
       setState(() {
-        _pointsEarned = points is int ? points : (points as num).toInt();
+        _pointsEarned = earnedPts;
         _claimedCount = claimedCount;
         _isClaiming = false;
         currentStage = ClaimStage.claimed;
@@ -185,6 +201,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
       }
     } on FirebaseFunctionsException catch (e) {
       debugPrint('Claim error: ${e.code} ${e.message}');
+      Analytics.claimFailed(reason: e.code);
       final snackMsg = e.code == 'unavailable'
           ? 'No internet connection. Please try again.'
           : 'Could not claim postbox. Please try again.';
@@ -249,6 +266,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
       _claimPostbox();
       return;
     }
+    Analytics.quizStarted(cipher: cipher);
     setState(() {
       _quizCipher = cipher;
       _quizOptions = _buildQuizOptions(cipher);
@@ -260,9 +278,14 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
   void _onQuizAnswer(String answer) {
     setState(() => _selectedAnswer = answer);
     if (answer == _quizCipher) {
+      Analytics.quizCorrect(cipher: _quizCipher!);
       HapticFeedback.lightImpact();
       _claimPostbox();
     } else {
+      Analytics.quizIncorrect(
+        correctCipher: _quizCipher!,
+        selectedCipher: answer,
+      );
       HapticFeedback.heavyImpact();
       setState(() => currentStage = ClaimStage.quizFailed);
     }

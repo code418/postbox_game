@@ -6,6 +6,7 @@ import 'package:postbox_game/login/bloc/bloc.dart';
 import 'package:postbox_game/login/create_account_button.dart';
 import 'package:postbox_game/login/google_login_button.dart';
 import 'package:postbox_game/login/login_button.dart';
+import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/user_repository.dart';
 
@@ -49,6 +50,7 @@ class _LoginFormState extends State<LoginForm> {
       bloc: _loginBloc,
       listener: (BuildContext context, LoginState state) {
         if (state.isFailure) {
+          Analytics.loginFailed(method: 'email', errorCode: state.errorMessage);
           ScaffoldMessenger.of(context)
             ..hideCurrentSnackBar()
             ..showSnackBar(
@@ -59,6 +61,7 @@ class _LoginFormState extends State<LoginForm> {
             );
         }
         if (state.isSuccess) {
+          Analytics.login(method: 'email');
           BlocProvider.of<AuthenticationBloc>(context).add(LoggedIn());
         }
       },
@@ -125,9 +128,9 @@ class _LoginFormState extends State<LoginForm> {
                           ? _onFormSubmitted
                           : null,
                     ),
+                    //const SizedBox(height: AppSpacing.sm),
+                    //GoogleLoginButton(),
                     const SizedBox(height: AppSpacing.sm),
-                    GoogleLoginButton(),
-                    const SizedBox(height: AppSpacing.xs),
                     CreateAccountButton(userRepository: _userRepository),
                   ],
                 ),

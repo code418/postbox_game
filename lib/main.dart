@@ -17,6 +17,8 @@ import 'package:postbox_game/user_repository.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'firebase_options.dart';
+import 'secrets.dart';
+import 'analytics_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -24,10 +26,7 @@ void main() async {
     options: DefaultFirebaseOptions.currentPlatform,
   );
   await FirebaseAppCheck.instance.activate(
-    // TODO: Replace 'recaptcha-v3-site-key' with the real reCAPTCHA v3 site
-    // key from Firebase Console > App Check > Web app before enabling
-    // App Check enforcement for web builds.
-    providerWeb: ReCaptchaV3Provider('recaptcha-v3-site-key'),
+    providerWeb: ReCaptchaV3Provider(kRecaptchaSiteKey),
     // Debug provider is only safe for local development; release builds must use
     // Play Integrity to actually enforce App Check.
     providerAndroid: kDebugMode
@@ -66,6 +65,7 @@ class _PostboxGameState extends State<PostboxGame> {
           theme: AppTheme.light,
           darkTheme: AppTheme.dark,
           themeMode: ThemeMode.system,
+          navigatorObservers: [Analytics.observer],
           home: BlocBuilder<AuthenticationBloc, AuthenticationState?>(
             builder: (BuildContext context, AuthenticationState? state) {
               if (state is Uninitialized) {

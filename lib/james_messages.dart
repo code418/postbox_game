@@ -41,28 +41,40 @@ abstract final class JamesMessages {
     [
       "Nothing like a good wander. The compass shows roughly where postboxes "
           "are — no exact locations, mind.",
+      "There is nothing, and I mean nothing, I like more than being on the "
+          "lookout for postboxes. I love it.",
+      "Impress your friends and loved ones by finding nearby postboxes!"
     ],
   );
 
   static const navClaim = JamesMessage(
     'jamesNavClaim',
-    ["Found one? Get close and claim it. Rarer cyphers are worth more points."],
+    [
+      "Found one? Get close and claim it. Rarer cyphers are worth more points.",
+      "Can you actually see a postboxes? Not that I am saying you are a liar "
+          "or anything"
+    ],
   );
 
   static const navScores = JamesMessage(
     'jamesNavScores',
-    ["Daily, weekly, monthly — see how you stack up against the competition."],
+    [
+      "Daily, weekly, monthly — see how you stack up against the competition."
+          "The only thing better than spotting postboxes is knowing you have "
+          "spotted more than your friends"
+    ],
   );
 
   static const navFriends = JamesMessage(
     'jamesNavFriends',
-    ["Add friends by UID to see them here. More the merrier."],
+    ["Add friends by UID to see them here. You do not have to do this alone."],
   );
 
   static const navFriendsLeaderboard = JamesMessage(
     'jamesNavFriendsLeaderboard',
     [
       "See how you and your mates are getting on. Bit of friendly rivalry never hurt anyone.",
+      "The only thing better than having friends is knowing you are better than all of them"
     ],
   );
 
@@ -71,6 +83,7 @@ abstract final class JamesMessages {
     [
       "This is the all-time tally — unique postboxes ever claimed. "
           "Claiming the same box twice doesn't count, so get out and explore!",
+      "There are over a hundred thousand postboxes out there, gotta spot them all!"
     ],
   );
 
@@ -88,6 +101,7 @@ abstract final class JamesMessages {
   static const idle = JamesMessage(
     'jamesIdle',
     [
+      "You cannot send an email using a postbox. Send more letters!"
       "Did you know the oldest surviving postbox in the UK is in Botchergate, "
           "Carlisle? Still standing. Still red.",
       "A Victorian VR postbox weighs about 70 kilograms. Don't try to move one.",
@@ -102,6 +116,10 @@ abstract final class JamesMessages {
           "after the thing. Marvellous.",
       "Apparently squirrels occasionally nest inside postboxes. I've said nothing "
           "about this to the sorting office.",
+      "Sure, sex is great, but have you ever spotted a rare postbox?",
+      "Have I ever told you how much I love postboxes?",
+      "People say the internet will kill the need for postboxes. I feel personally "
+          "attacked at that prospect."
     ],
   );
 
@@ -109,13 +127,15 @@ abstract final class JamesMessages {
 
   /// Dynamic: [count] postboxes found. Pass pluralised [box] ("postbox" / "postboxes").
   static String nearbyFound(int count, String box) =>
-      "Right then — $count $box in your area. Crack on!";
+      "Right... $count $box in your area. Crack on!";
 
   static const nearbyNoneFound = JamesMessage(
     'jamesNearbyNoneFound',
     [
-      "Arse... nothing nearby. Try a different area — postboxes are everywhere "
-          "if you know where to look.",
+      "Arse... nothing nearby. Try a different area — postboxes are everywhere. "
+          "Just not here.",
+      "By my calculations you are in the middle of nowhere, try not being there.",
+      "An area without postboxes tears me up inside."
     ],
   );
 
@@ -123,12 +143,18 @@ abstract final class JamesMessages {
 
   static const nearbyErrorPermission = JamesMessage(
     'jamesNearbyErrorPermission',
-    ["I'll need your location for this bit, I'm afraid. Worth it, I promise."],
+    [
+      "I'll need your location for this bit, I'm afraid. Worth it, I promise.",
+      "Come on, let me know where you are, I won't tell the police."
+    ],
   );
 
   static const nearbyErrorGeneral = JamesMessage(
     'jamesNearbyErrorGeneral',
-    ["Something went wrong there. Give it another go."],
+    [
+      "Something went wrong there. Give it another go.",
+      "An error occurrred. I will contact tech support to get their arses in gear"
+    ],
   );
 
   // ── Offline / no network ─────────────────────────────────────────────────
@@ -142,14 +168,17 @@ abstract final class JamesMessages {
 
   static const claimOutOfRange = JamesMessage(
     'jamesClaimOutOfRange',
-    ["Hmm, I can't see a postbox at your location. Move closer and try again."],
+    [
+      "Hmm, I can't see a postbox at your location. Move closer and try again.",
+      "No postboxes nearby? Sounds crazy, no?"
+    ],
   );
 
   // ── Claim success ────────────────────────────────────────────────────────
 
   static const claimSuccessRare = JamesMessage(
     'jamesClaimSuccessRare',
-    ["Oh ho — a rare one! That's a find. Well done."],
+    ["Oh ho — a rare one! That's a find. Well done.", "Nice, big points"],
   );
 
   /// Dynamic: multiple postboxes claimed in a single scan.
@@ -163,6 +192,7 @@ abstract final class JamesMessages {
       "Claimed! Every one counts. Keep going.",
       "Nicely done. On to the next.",
       "That's another one in the bag.",
+      "Don't rest now. Gotta claim them all!"
     ],
   );
 
@@ -171,18 +201,27 @@ abstract final class JamesMessages {
   static const claimErrorAlreadyClaimed = JamesMessage(
     'jamesClaimErrorAlreadyClaimed',
     [
-      "You've already had that one today. It'll reset tomorrow — patience is a virtue.",
+      "You've already had that one today. It'll reset tomorrow.",
+      "Calm down, you've alrady claimed that one today.",
+      "You know you do need to move around a bit to get different postboxes."
     ],
   );
 
   static const claimErrorOutOfRange = JamesMessage(
     'jamesClaimErrorOutOfRange',
-    ["You're not quite close enough. A few steps closer should do it."],
+    [
+      "You're not quite close enough. A few steps closer should do it.",
+      "You've got to be close, I couldn't sleep at night if I knew you "
+          "were trying to cheat me."
+    ],
   );
 
   static const claimErrorGeneral = JamesMessage(
     'jamesClaimErrorGeneral',
-    ["Hmm, something went wrong there. Give it another go."],
+    [
+      "Hmm, something went wrong there. Give it another go.",
+      "Whoops, messed up there, try again."
+    ],
   );
 
   // ── Intro dialogue ───────────────────────────────────────────────────────

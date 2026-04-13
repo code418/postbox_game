@@ -31,6 +31,9 @@ firebase-debug.log*
 .agents/
 .claude/scheduled_tasks.lock
 
+# App secrets (never commit)
+lib/secrets.dart
+
 # Environment & secrets (never commit)
 .env
 .env.*

@@ -13,11 +13,13 @@ require("firebase/firestore");
 
 var config = {
   "apiKey": "AIzaSyAl4uzvsZ1m05Dw0U19vkcq6b1IqYHJOdA",
-  "databaseURL": "https://the-postbox-game.firebaseio.com",
-  "storageBucket": "the-postbox-game.appspot.com",
   "authDomain": "the-postbox-game.firebaseapp.com",
+  "databaseURL": "https://the-postbox-game.firebaseio.com",
+  "projectId": "the-postbox-game",
+  "storageBucket": "the-postbox-game.firebasestorage.app",
   "messagingSenderId": "176793005702",
-  "projectId": "the-postbox-game"
+  "appId": "1:176793005702:web:3be3d668ccca8df91eab07",
+  "measurementId": "G-JZ284NSHRQ"
 };
 firebase.initializeApp(config);
 

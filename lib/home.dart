@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/claim.dart';
 import 'package:postbox_game/friends_screen.dart';
 import 'package:postbox_game/intro.dart';
@@ -134,6 +135,8 @@ class _HomeState extends State<Home> {
           selectedIndex: _selectedIndex,
           onDestinationSelected: (i) {
             setState(() => _selectedIndex = i);
+            final tabName = ['nearby', 'claim', 'scores', 'friends'][i];
+            Analytics.tabSelected(index: i, name: tabName);
             final msg = JamesMessages.forTabIndex(i);
             if (msg != null) _jamesController.show(msg.resolve());
           },

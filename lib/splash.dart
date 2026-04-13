@@ -34,7 +34,7 @@ class Splash extends StatelessWidget {
               ),
               const SizedBox(height: AppSpacing.sm),
               Text(
-                'Hunt. Claim. Collect.',
+                'What else were you going to do today?',
                 style: GoogleFonts.plusJakartaSans(
                   fontSize: 16,
                   color: Colors.white70,
