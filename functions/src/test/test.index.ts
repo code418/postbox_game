@@ -248,6 +248,10 @@ describe("getLatLng", () => {
     const r = getLatLng({ latitude: 0, longitude: 0 });
     assert.deepStrictEqual(r, { lat: 0, lng: 0 });
   });
+  it("handles _latitude/_longitude coordinate value 0 (falsy-but-valid)", () => {
+    const r = getLatLng({ _latitude: 0, _longitude: 0 });
+    assert.deepStrictEqual(r, { lat: 0, lng: 0 });
+  });
 });
 
 describe("computeNewStreak", () => {
@@ -275,6 +279,9 @@ describe("computeNewStreak", () => {
 
   it("streak increment from 1 to 2 on consecutive day", () =>
     assert.strictEqual(computeNewStreak(yesterday, 1, today, yesterday), 2));
+
+  it("streak starts at 1 when currentStreak is 0 and last claim was yesterday", () =>
+    assert.strictEqual(computeNewStreak(yesterday, 0, today, yesterday), 1));
 });
 
 describe("sanitiseName", () => {
