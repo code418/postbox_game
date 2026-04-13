@@ -232,6 +232,10 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
       if (!mounted) return;
       setState(() => _isClaiming = false);
       JamesController.of(context)?.show(msg);
+    } finally {
+      // Safety net: ensure _isClaiming is always cleared even if an unexpected
+      // Dart Error (not Exception) bypasses the catch blocks above.
+      if (mounted && _isClaiming) setState(() => _isClaiming = false);
     }
   }
 
