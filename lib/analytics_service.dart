@@ -117,6 +117,17 @@ class Analytics {
   }) =>
       _log('login_failed', {'method': method, 'error_code': errorCode});
 
+  /// Standard Firebase Analytics sign_up event (new account created).
+  static Future<void> signUp({required String method}) =>
+      _fa.logSignUp(signUpMethod: method);
+
+  /// Registration attempt that ended in failure.
+  static Future<void> signUpFailed({
+    required String method,
+    required String errorCode,
+  }) =>
+      _log('sign_up_failed', {'method': method, 'error_code': errorCode});
+
   // ---------------------------------------------------------------------------
   // Friends
   // ---------------------------------------------------------------------------
