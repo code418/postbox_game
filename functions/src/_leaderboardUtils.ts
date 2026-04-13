@@ -170,25 +170,3 @@ export function mergeLifetimeEntries(
     .slice(0, limit);
 }
 
-/**
- * Upserts the user's lifetime entry in leaderboards/lifetime.
- * Sorts by uniquePostboxesClaimed descending, keeps top 100.
- * periodKey is always "lifetime" — no rollover.
- */
-export async function updateLifetimeLeaderboard(
-  uid: string,
-  displayName: string,
-  uniquePostboxesClaimed: number,
-  totalPoints: number,
-  db: Firestore
-): Promise<void> {
-  const ref = db.collection("leaderboards").doc("lifetime");
-  await db.runTransaction(async (tx) => {
-    const snap = await tx.get(ref);
-    const existing: LifetimeLeaderboardEntry[] =
-      (snap.data()?.entries as LifetimeLeaderboardEntry[]) ?? [];
-
-    const updated = mergeLifetimeEntries(existing, uid, displayName, uniquePostboxesClaimed, totalPoints);
-    tx.set(ref, { periodKey: "lifetime", entries: updated }, { merge: false });
-  });
-}
