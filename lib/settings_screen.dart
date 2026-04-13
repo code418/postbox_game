@@ -317,6 +317,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(msg), backgroundColor: Colors.red.shade700),
       );
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not update password. Please try again.')),
+        );
+      }
     } finally {
       currentPwCtrl.dispose();
       newPwCtrl.dispose();
