@@ -284,11 +284,16 @@ class _FriendsLeaderboardListState extends State<_FriendsLeaderboardList> {
   // recreate the stream and cause StreamBuilder to flash a loading indicator.
   Stream<DocumentSnapshot<Map<String, dynamic>>>? _userStream;
 
-  // Cached fetch future and the friend-UID set it corresponds to.
+  // Cached fetch future and the key values it was built from.
   // Set inside build() — safe because _scoreFuture is only consumed by
   // the FutureBuilder and never drives setState directly.
   Future<List<Map<String, dynamic>>>? _scoreFuture;
   Set<String> _lastFriendUids = const {};
+  // Track the current user's own lifetime scores so that the Friends
+  // leaderboard auto-refreshes after the user claims a postbox (their
+  // uniquePostboxesClaimed/lifetimePoints change in the user stream).
+  int _lastUniqueBoxes = -1;
+  int _lastLifetimePoints = -1;
 
   @override
   void initState() {
@@ -394,9 +399,19 @@ class _FriendsLeaderboardListState extends State<_FriendsLeaderboardList> {
           );
         }
 
-        // Trigger a new fetch only when the friends list actually changes.
-        if (!setEquals(_lastFriendUids, friendUids)) {
+        // Trigger a new fetch when the friends list changes OR when the
+        // current user's own lifetime scores change (e.g. after claiming).
+        final myUniqueBoxes =
+            (userData?['uniquePostboxesClaimed'] as num?)?.toInt() ?? 0;
+        final myLifetimePoints =
+            (userData?['lifetimePoints'] as num?)?.toInt() ?? 0;
+        final friendsChanged = !setEquals(_lastFriendUids, friendUids);
+        final scoresChanged = myUniqueBoxes != _lastUniqueBoxes ||
+            myLifetimePoints != _lastLifetimePoints;
+        if (friendsChanged || scoresChanged) {
           _lastFriendUids = friendUids;
+          _lastUniqueBoxes = myUniqueBoxes;
+          _lastLifetimePoints = myLifetimePoints;
           _scoreFuture = _fetchScores(friendUids);
         }
 
