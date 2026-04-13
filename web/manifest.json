@@ -1,11 +1,11 @@
 {
-    "name": "postbox_game",
-    "short_name": "postbox_game",
+    "name": "The Postbox Game",
+    "short_name": "Postbox Game",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#0A1931",
+    "theme_color": "#C8102E",
+    "description": "Find nearby postboxes, claim them for points, and compete on leaderboards.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
