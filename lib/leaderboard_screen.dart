@@ -280,11 +280,26 @@ class _FriendsLeaderboardList extends StatefulWidget {
 class _FriendsLeaderboardListState extends State<_FriendsLeaderboardList> {
   final String? _currentUid = FirebaseAuth.instance.currentUser?.uid;
 
+  // Stream cached here so that setState (e.g. pull-to-refresh) doesn't
+  // recreate the stream and cause StreamBuilder to flash a loading indicator.
+  Stream<DocumentSnapshot<Map<String, dynamic>>>? _userStream;
+
   // Cached fetch future and the friend-UID set it corresponds to.
   // Set inside build() — safe because _scoreFuture is only consumed by
   // the FutureBuilder and never drives setState directly.
   Future<List<Map<String, dynamic>>>? _scoreFuture;
   Set<String> _lastFriendUids = const {};
+
+  @override
+  void initState() {
+    super.initState();
+    if (_currentUid != null) {
+      _userStream = FirebaseFirestore.instance
+          .collection('users')
+          .doc(_currentUid)
+          .snapshots();
+    }
+  }
 
   Future<List<Map<String, dynamic>>> _fetchScores(Set<String> friendUids) async {
     final visibleUids = <String>{
@@ -318,17 +333,12 @@ class _FriendsLeaderboardListState extends State<_FriendsLeaderboardList> {
 
   @override
   Widget build(BuildContext context) {
-    if (_currentUid == null) {
+    if (_currentUid == null || _userStream == null) {
       return const Center(child: CircularProgressIndicator(color: postalRed));
     }
 
-    final userStream = FirebaseFirestore.instance
-        .collection('users')
-        .doc(_currentUid)
-        .snapshots();
-
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: userStream,
+      stream: _userStream,
       builder: (context, userSnap) {
         if (userSnap.hasError) {
           return Center(
