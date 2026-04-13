@@ -2,7 +2,7 @@ import "./adminInit";
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions";
 import { getTodayLondon } from "./_dateUtils";
-import { updateUserLeaderboards, updateLifetimeLeaderboard } from "./_leaderboardUtils";
+import { updateUserLeaderboards, mergeLifetimeEntries, LifetimeLeaderboardEntry } from "./_leaderboardUtils";
 import { containsProfanity } from "./_profanityFilter";
 
 /**
@@ -75,12 +75,25 @@ export const updateDisplayName = functions.https.onCall(async (request) => {
   const today = getTodayLondon();
   await updateUserLeaderboards(uid, name, today, admin.firestore());
 
+  // Read user doc and update lifetime leaderboard atomically in one transaction
+  // so a concurrent startScoring claim cannot race between our read of
+  // uniquePostboxesClaimed/lifetimePoints and our write to leaderboards/lifetime.
   try {
-    const userDoc = await admin.firestore().collection("users").doc(uid).get();
-    const d = userDoc.data() ?? {};
-    const uniquePostboxesClaimed = (d.uniquePostboxesClaimed as number | undefined) ?? 0;
-    const lifetimePoints = (d.lifetimePoints as number | undefined) ?? 0;
-    await updateLifetimeLeaderboard(uid, name, uniquePostboxesClaimed, lifetimePoints, admin.firestore());
+    const db = admin.firestore();
+    const userRef = db.collection("users").doc(uid);
+    const lifetimeRef = db.collection("leaderboards").doc("lifetime");
+    await db.runTransaction(async (tx) => {
+      const [userSnap, lifetimeSnap] = await Promise.all([
+        tx.get(userRef),
+        tx.get(lifetimeRef),
+      ]);
+      const d = userSnap.data() ?? {};
+      const uniquePostboxesClaimed = ((d.uniquePostboxesClaimed as number | undefined) ?? 0);
+      const lifetimePoints = ((d.lifetimePoints as number | undefined) ?? 0);
+      const existing = (lifetimeSnap.data()?.entries ?? []) as LifetimeLeaderboardEntry[];
+      const updated = mergeLifetimeEntries(existing, uid, name, uniquePostboxesClaimed, lifetimePoints);
+      tx.set(lifetimeRef, { periodKey: "lifetime", entries: updated }, { merge: false });
+    });
   } catch (lifetimeErr) {
     console.error("lifetime leaderboard display name update failed (non-fatal):", lifetimeErr);
   }
