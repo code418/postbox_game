@@ -41,9 +41,10 @@ class _RegisterFormState extends State<RegisterForm> {
       listener: (BuildContext context, RegisterState state) {
         if (state.isSuccess) {
           BlocProvider.of<AuthenticationBloc>(context).add(LoggedIn());
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (context.mounted) Navigator.of(context).popUntil((route) => route.isFirst);
-          });
+          // Do NOT pop here: LoggedIn() → Authenticated emitted by AuthenticationBloc
+          // causes main.dart's BlocBuilder to replace the entire tree with Home.
+          // Any Navigator.pop/popUntil call before that rebuild fires would briefly
+          // surface the LoginScreen for one frame (same issue as fixed in session 13).
         }
         if (state.isFailure) {
           ScaffoldMessenger.of(context)
