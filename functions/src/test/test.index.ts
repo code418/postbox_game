@@ -752,4 +752,21 @@ describe("applyUserClaims", () => {
     const { updatedCompass } = applyUserClaims(full, new Set());
     assert.strictEqual(updatedCompass["N"], 2);
   });
+
+  it("handles empty postboxes map (no postboxes in range)", () => {
+    const empty = {
+      postboxes: {},
+      counts: { total: 0, claimedToday: 0 },
+      points: { min: 0, max: 0 },
+      compass: {},
+    };
+    const { slimPostboxes, updatedCounts, updatedPoints, updatedCompass } =
+      applyUserClaims(empty, new Set());
+    assert.strictEqual(Object.keys(slimPostboxes).length, 0);
+    assert.strictEqual(updatedCounts.claimedToday, 0);
+    assert.strictEqual(updatedCounts.total, 0);
+    assert.strictEqual(updatedPoints.min, 0);
+    assert.strictEqual(updatedPoints.max, 0);
+    assert.strictEqual(Object.keys(updatedCompass).length, 0);
+  });
 });
