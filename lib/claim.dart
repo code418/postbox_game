@@ -138,6 +138,10 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
   }
 
   Future<void> _claimPostbox() async {
+    // Guard against concurrent calls (e.g. rapid double-tap before the frame
+    // rebuild disables the button). _isClaiming is set synchronously inside
+    // setState, so this check is effective even before the next build.
+    if (_isClaiming) return;
     setState(() => _isClaiming = true);
     HapticFeedback.mediumImpact();
     try {
