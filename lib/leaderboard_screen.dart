@@ -16,7 +16,7 @@ class LeaderboardScreen extends StatefulWidget {
 
 class _LeaderboardScreenState extends State<LeaderboardScreen>
     with SingleTickerProviderStateMixin {
-  static const List<String> _periods = ['daily', 'weekly', 'monthly', 'lifetime'];
+  static const List<String> _periods = ['daily', 'weekly', 'monthly', 'lifetime', 'friends'];
   late final TabController _tabController;
 
   @override
@@ -57,9 +57,10 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
         Expanded(
           child: TabBarView(
             controller: _tabController,
-            children: _periods
-                .map((period) => _LeaderboardList(period: period))
-                .toList(),
+            children: _periods.map((period) {
+              if (period == 'friends') return const _FriendsLeaderboardList();
+              return _LeaderboardList(period: period);
+            }).toList(),
           ),
         ),
       ],
@@ -246,6 +247,256 @@ class _LeaderboardListState extends State<_LeaderboardList> {
         return Icon(Icons.emoji_events, color: Colors.grey.shade400, size: 32);
       case 3:
         return Icon(Icons.emoji_events, color: Colors.brown.shade300, size: 32);
+      default:
+        return CircleAvatar(
+          radius: 16,
+          backgroundColor: postalRed.withValues(alpha: 0.1),
+          child: Text(
+            '$rank',
+            style: const TextStyle(
+                color: postalRed, fontSize: 13, fontWeight: FontWeight.w600),
+          ),
+        );
+    }
+  }
+}
+
+/// Leaderboard tab showing the current user alongside their friends,
+/// ranked by lifetime score. Filters the global lifetime leaderboard
+/// to the friend group using client-side data only — no extra index needed.
+class _FriendsLeaderboardList extends StatefulWidget {
+  const _FriendsLeaderboardList();
+
+  @override
+  State<_FriendsLeaderboardList> createState() =>
+      _FriendsLeaderboardListState();
+}
+
+class _FriendsLeaderboardListState extends State<_FriendsLeaderboardList> {
+  final String? _currentUid = FirebaseAuth.instance.currentUser?.uid;
+
+  @override
+  Widget build(BuildContext context) {
+    if (_currentUid == null) {
+      return const Center(child: CircularProgressIndicator(color: postalRed));
+    }
+
+    // Outer stream: current user's friends list from their user document.
+    final userStream = FirebaseFirestore.instance
+        .collection('users')
+        .doc(_currentUid)
+        .snapshots();
+
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: userStream,
+      builder: (context, userSnap) {
+        if (userSnap.hasError) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.error_outline,
+                    size: 48,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant),
+                const SizedBox(height: AppSpacing.md),
+                Text('Could not load friends',
+                    style: Theme.of(context).textTheme.titleMedium),
+              ],
+            ),
+          );
+        }
+        if (!userSnap.hasData) {
+          return const Center(child: CircularProgressIndicator(color: postalRed));
+        }
+
+        final userData = userSnap.data!.data();
+        final friendUids = (userData?['friends'] as List<dynamic>?)
+                ?.whereType<String>()
+                .toSet() ??
+            <String>{};
+
+        if (friendUids.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.group_outlined,
+                    size: 72,
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withValues(alpha: 0.2)),
+                const SizedBox(height: AppSpacing.md),
+                Text('No friends yet',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        )),
+                const SizedBox(height: AppSpacing.xs),
+                Text(
+                  'Add friends from the Friends tab to see how you compare.',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                ),
+              ],
+            ),
+          );
+        }
+
+        // Inner stream: lifetime leaderboard entries for all players.
+        final boardStream = FirebaseFirestore.instance
+            .collection('leaderboards')
+            .doc('lifetime')
+            .snapshots();
+
+        return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+          stream: boardStream,
+          builder: (context, boardSnap) {
+            if (boardSnap.hasError) {
+              return Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.error_outline,
+                        size: 48,
+                        color:
+                            Theme.of(context).colorScheme.onSurfaceVariant),
+                    const SizedBox(height: AppSpacing.md),
+                    Text('Could not load leaderboard',
+                        style: Theme.of(context).textTheme.titleMedium),
+                  ],
+                ),
+              );
+            }
+            if (!boardSnap.hasData) {
+              return const Center(
+                  child: CircularProgressIndicator(color: postalRed));
+            }
+
+            final boardData = boardSnap.data!.data();
+            final allEntries =
+                boardData?['entries'] as List<dynamic>? ?? [];
+
+            // Filter to current user + their friends.
+            final visibleUids = {_currentUid!, ...friendUids};
+            final filtered = allEntries
+                .whereType<Map>()
+                .where((e) => visibleUids.contains(e['uid'] as String?))
+                .toList();
+
+            if (filtered.isEmpty) {
+              return Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.leaderboard_outlined,
+                        size: 72,
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withValues(alpha: 0.2)),
+                    const SizedBox(height: AppSpacing.md),
+                    Text('No scores yet',
+                        style:
+                            Theme.of(context).textTheme.titleLarge?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                )),
+                    const SizedBox(height: AppSpacing.xs),
+                    Text(
+                      'Start claiming postboxes to appear here.',
+                      textAlign: TextAlign.center,
+                      style:
+                          Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurfaceVariant,
+                              ),
+                    ),
+                  ],
+                ),
+              );
+            }
+
+            return RefreshIndicator(
+              color: postalRed,
+              onRefresh: () async {
+                await Future.delayed(const Duration(milliseconds: 400));
+              },
+              child: ListView.builder(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding:
+                    const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+                itemCount: filtered.length,
+                itemBuilder: (context, index) {
+                  final e = filtered[index] is Map<String, dynamic>
+                      ? filtered[index] as Map<String, dynamic>
+                      : const <String, dynamic>{};
+                  final rank = index + 1;
+                  final displayName =
+                      e['displayName'] as String? ?? 'Unknown';
+                  final entryUid = e['uid'] as String?;
+                  final isCurrentUser =
+                      entryUid != null && entryUid == _currentUid;
+
+                  final uniqueBoxes = (e['uniquePostboxesClaimed'] is num)
+                      ? (e['uniquePostboxesClaimed'] as num).toInt()
+                      : 0;
+                  final totalPoints = (e['totalPoints'] is num)
+                      ? (e['totalPoints'] as num).toInt()
+                      : 0;
+                  final trailingText =
+                      '$uniqueBoxes ${uniqueBoxes == 1 ? 'box' : 'boxes'} · $totalPoints pts';
+
+                  return Card(
+                    color: isCurrentUser
+                        ? postalRed.withValues(alpha: 0.08)
+                        : null,
+                    child: ListTile(
+                      leading: _friendsRankWidget(rank),
+                      title: Text(
+                        displayName,
+                        style: isCurrentUser
+                            ? const TextStyle(fontWeight: FontWeight.bold)
+                            : null,
+                      ),
+                      trailing: Text(
+                        trailingText,
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleSmall
+                            ?.copyWith(
+                              color: isCurrentUser
+                                  ? postalRed
+                                  : Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant,
+                              fontWeight: isCurrentUser
+                                  ? FontWeight.bold
+                                  : FontWeight.normal,
+                            ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _friendsRankWidget(int rank) {
+    switch (rank) {
+      case 1:
+        return const Icon(Icons.emoji_events, color: postalGold, size: 32);
+      case 2:
+        return Icon(Icons.emoji_events,
+            color: Colors.grey.shade400, size: 32);
+      case 3:
+        return Icon(Icons.emoji_events,
+            color: Colors.brown.shade300, size: 32);
       default:
         return CircleAvatar(
           radius: 16,
