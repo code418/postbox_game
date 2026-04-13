@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/material.dart';
 import 'package:postbox_game/james_controller.dart';
 import 'package:postbox_game/james_messages.dart';
@@ -266,8 +267,8 @@ class _LeaderboardListState extends State<_LeaderboardList> {
 }
 
 /// Leaderboard tab showing the current user alongside their friends,
-/// ranked by lifetime score. Filters the global lifetime leaderboard
-/// to the friend group using client-side data only — no extra index needed.
+/// ranked by lifetime score. Fetches scores from user documents
+/// directly so all friends are visible regardless of global ranking.
 class _FriendsLeaderboardList extends StatefulWidget {
   const _FriendsLeaderboardList();
 
@@ -279,13 +280,48 @@ class _FriendsLeaderboardList extends StatefulWidget {
 class _FriendsLeaderboardListState extends State<_FriendsLeaderboardList> {
   final String? _currentUid = FirebaseAuth.instance.currentUser?.uid;
 
+  // Cached fetch future and the friend-UID set it corresponds to.
+  // Set inside build() — safe because _scoreFuture is only consumed by
+  // the FutureBuilder and never drives setState directly.
+  Future<List<Map<String, dynamic>>>? _scoreFuture;
+  Set<String> _lastFriendUids = const {};
+
+  Future<List<Map<String, dynamic>>> _fetchScores(Set<String> friendUids) async {
+    final visibleUids = <String>{
+      if (_currentUid != null) _currentUid!,
+      ...friendUids,
+    };
+    final docs = await Future.wait(
+      visibleUids.map(
+        (uid) => FirebaseFirestore.instance.collection('users').doc(uid).get(),
+      ),
+    );
+    final entries = docs
+        .where((d) => d.exists)
+        .map((d) => <String, dynamic>{
+              'uid': d.id,
+              'displayName': d.data()?['displayName'] as String? ?? 'Unknown',
+              'uniquePostboxesClaimed':
+                  (d.data()?['uniquePostboxesClaimed'] as num?)?.toInt() ?? 0,
+              'totalPoints':
+                  (d.data()?['lifetimePoints'] as num?)?.toInt() ?? 0,
+            })
+        .toList();
+    entries.sort((a, b) {
+      final ua = a['uniquePostboxesClaimed'] as int;
+      final ub = b['uniquePostboxesClaimed'] as int;
+      if (ub != ua) return ub - ua;
+      return (b['totalPoints'] as int) - (a['totalPoints'] as int);
+    });
+    return entries;
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_currentUid == null) {
       return const Center(child: CircularProgressIndicator(color: postalRed));
     }
 
-    // Outer stream: current user's friends list from their user document.
     final userStream = FirebaseFirestore.instance
         .collection('users')
         .doc(_currentUid)
@@ -348,24 +384,28 @@ class _FriendsLeaderboardListState extends State<_FriendsLeaderboardList> {
           );
         }
 
-        // Inner stream: lifetime leaderboard entries for all players.
-        final boardStream = FirebaseFirestore.instance
-            .collection('leaderboards')
-            .doc('lifetime')
-            .snapshots();
+        // Trigger a new fetch only when the friends list actually changes.
+        if (!setEquals(_lastFriendUids, friendUids)) {
+          _lastFriendUids = friendUids;
+          _scoreFuture = _fetchScores(friendUids);
+        }
 
-        return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-          stream: boardStream,
-          builder: (context, boardSnap) {
-            if (boardSnap.hasError) {
+        return FutureBuilder<List<Map<String, dynamic>>>(
+          future: _scoreFuture,
+          builder: (context, snap) {
+            if (snap.connectionState == ConnectionState.waiting &&
+                snap.data == null) {
+              return const Center(
+                  child: CircularProgressIndicator(color: postalRed));
+            }
+            if (snap.hasError) {
               return Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Icon(Icons.error_outline,
                         size: 48,
-                        color:
-                            Theme.of(context).colorScheme.onSurfaceVariant),
+                        color: Theme.of(context).colorScheme.onSurfaceVariant),
                     const SizedBox(height: AppSpacing.md),
                     Text('Could not load leaderboard',
                         style: Theme.of(context).textTheme.titleMedium),
@@ -373,23 +413,10 @@ class _FriendsLeaderboardListState extends State<_FriendsLeaderboardList> {
                 ),
               );
             }
-            if (!boardSnap.hasData) {
-              return const Center(
-                  child: CircularProgressIndicator(color: postalRed));
-            }
 
-            final boardData = boardSnap.data!.data();
-            final allEntries =
-                boardData?['entries'] as List<dynamic>? ?? [];
+            final entries = snap.data ?? [];
 
-            // Filter to current user + their friends.
-            final visibleUids = {_currentUid!, ...friendUids};
-            final filtered = allEntries
-                .whereType<Map>()
-                .where((e) => visibleUids.contains(e['uid'] as String?))
-                .toList();
-
-            if (filtered.isEmpty) {
+            if (entries.isEmpty) {
               return Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -410,12 +437,11 @@ class _FriendsLeaderboardListState extends State<_FriendsLeaderboardList> {
                     Text(
                       'Start claiming postboxes to appear here.',
                       textAlign: TextAlign.center,
-                      style:
-                          Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .onSurfaceVariant,
-                              ),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant,
+                          ),
                     ),
                   ],
                 ),
@@ -424,18 +450,19 @@ class _FriendsLeaderboardListState extends State<_FriendsLeaderboardList> {
 
             return RefreshIndicator(
               color: postalRed,
-              onRefresh: () async {
-                await Future.delayed(const Duration(milliseconds: 400));
+              onRefresh: () {
+                setState(() {
+                  _scoreFuture = _fetchScores(_lastFriendUids);
+                });
+                return _scoreFuture!;
               },
               child: ListView.builder(
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding:
                     const EdgeInsets.symmetric(vertical: AppSpacing.sm),
-                itemCount: filtered.length,
+                itemCount: entries.length,
                 itemBuilder: (context, index) {
-                  final e = filtered[index] is Map<String, dynamic>
-                      ? filtered[index] as Map<String, dynamic>
-                      : const <String, dynamic>{};
+                  final e = entries[index];
                   final rank = index + 1;
                   final displayName =
                       e['displayName'] as String? ?? 'Unknown';
@@ -443,12 +470,8 @@ class _FriendsLeaderboardListState extends State<_FriendsLeaderboardList> {
                   final isCurrentUser =
                       entryUid != null && entryUid == _currentUid;
 
-                  final uniqueBoxes = (e['uniquePostboxesClaimed'] is num)
-                      ? (e['uniquePostboxesClaimed'] as num).toInt()
-                      : 0;
-                  final totalPoints = (e['totalPoints'] is num)
-                      ? (e['totalPoints'] as num).toInt()
-                      : 0;
+                  final uniqueBoxes = e['uniquePostboxesClaimed'] as int;
+                  final totalPoints = e['totalPoints'] as int;
                   final trailingText =
                       '$uniqueBoxes ${uniqueBoxes == 1 ? 'box' : 'boxes'} · $totalPoints pts';
 

@@ -15,9 +15,7 @@ class StreakService {
     final uid = _auth.currentUser?.uid;
     if (uid == null) return Stream<int?>.value(null);
     return _firestore.collection('users').doc(uid).snapshots().map((s) {
-      final d = s.data();
-      if (d == null || d['streak'] is! int) return null;
-      return d['streak'] as int;
+      return (s.data()?['streak'] as num?)?.toInt();
     });
   }
 }
