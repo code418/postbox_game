@@ -35,9 +35,13 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
 
   void _onTabChanged() {
     if (_tabController.indexIsChanging) return;
-    if (_tabController.index == _periods.indexOf('lifetime')) {
+    final idx = _tabController.index;
+    if (idx == _periods.indexOf('lifetime')) {
       JamesController.of(context)
           ?.show(JamesMessages.navLifetimeScores.resolve());
+    } else if (idx == _periods.indexOf('friends')) {
+      JamesController.of(context)
+          ?.show(JamesMessages.navFriendsLeaderboard.resolve());
     }
   }
 

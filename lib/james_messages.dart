@@ -59,6 +59,13 @@ abstract final class JamesMessages {
     ["Add friends by UID to see them here. More the merrier."],
   );
 
+  static const navFriendsLeaderboard = JamesMessage(
+    'jamesNavFriendsLeaderboard',
+    [
+      "See how you and your mates are getting on. Bit of friendly rivalry never hurt anyone.",
+    ],
+  );
+
   static const navLifetimeScores = JamesMessage(
     'jamesNavLifetimeScores',
     [
