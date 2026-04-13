@@ -202,7 +202,6 @@ export const startScoring = functions.https.onCall(async (request) => {
         .reduce((a, r) => a + (r as PromiseFulfilledResult<number>).value, 0);
       const lifetimePointsIncrement = earnedPoints.reduce((s, p) => s + p, 0);
 
-      const userRef = database.collection("users").doc(userid);
       const lifetimeRef = database.collection("leaderboards").doc("lifetime");
 
       await database.runTransaction(async (tx) => {
