@@ -49,7 +49,7 @@ class _RegisterFormState extends State<RegisterForm> {
           // surface the LoginScreen for one frame (same issue as fixed in session 13).
         }
         if (state.isFailure) {
-          Analytics.signUpFailed(method: 'email', errorCode: state.errorMessage);
+          Analytics.signUpFailed(method: 'email', errorCode: state.errorCode.isNotEmpty ? state.errorCode : 'unknown');
           ScaffoldMessenger.of(context)
             ..hideCurrentSnackBar()
             ..showSnackBar(

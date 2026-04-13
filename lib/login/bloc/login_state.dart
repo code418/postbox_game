@@ -8,6 +8,9 @@ class LoginState {
   final bool isSuccess;
   final bool isFailure;
   final String errorMessage;
+  // Raw Firebase error code (e.g. 'wrong-password') for analytics.
+  // Empty when not a failure or when the error has no specific code.
+  final String errorCode;
 
   bool get isFormValid => isEmailValid && isPasswordValid;
 
@@ -18,6 +21,7 @@ class LoginState {
     required this.isSuccess,
     required this.isFailure,
     this.errorMessage = '',
+    this.errorCode = '',
   });
 
   factory LoginState.empty() {
@@ -40,7 +44,7 @@ class LoginState {
     );
   }
 
-  factory LoginState.failure({String message = 'Sign in failed. Please try again.'}) {
+  factory LoginState.failure({String message = 'Sign in failed. Please try again.', String code = ''}) {
     return LoginState(
       isEmailValid: true,
       isPasswordValid: true,
@@ -48,6 +52,7 @@ class LoginState {
       isSuccess: false,
       isFailure: true,
       errorMessage: message,
+      errorCode: code,
     );
   }
 
@@ -81,6 +86,7 @@ class LoginState {
     bool? isSuccess,
     bool? isFailure,
     String? errorMessage,
+    String? errorCode,
   }) {
     return LoginState(
       isEmailValid: isEmailValid ?? this.isEmailValid,
@@ -89,6 +95,7 @@ class LoginState {
       isSuccess: isSuccess ?? this.isSuccess,
       isFailure: isFailure ?? this.isFailure,
       errorMessage: errorMessage ?? this.errorMessage,
+      errorCode: errorCode ?? this.errorCode,
     );
   }
 
@@ -101,6 +108,7 @@ class LoginState {
       isSuccess: $isSuccess,
       isFailure: $isFailure,
       errorMessage: $errorMessage,
+      errorCode: $errorCode,
     }''';
   }
 }

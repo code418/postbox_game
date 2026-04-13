@@ -43,7 +43,7 @@ class RegisterBloc extends Bloc<RegisterEvent, RegisterState> {
       );
       emit(RegisterState.success());
     } on FirebaseAuthException catch (e) {
-      emit(RegisterState.failure(message: _mapFirebaseError(e.code)));
+      emit(RegisterState.failure(message: _mapFirebaseError(e.code), code: e.code));
     } catch (_) {
       emit(RegisterState.failure());
     }

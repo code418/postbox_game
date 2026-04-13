@@ -50,7 +50,7 @@ class LoginBloc extends Bloc<LoginEvent, LoginState> {
       }
       emit(LoginState.success());
     } on FirebaseAuthException catch (e) {
-      emit(LoginState.failure(message: _mapFirebaseError(e.code)));
+      emit(LoginState.failure(message: _mapFirebaseError(e.code), code: e.code));
     } catch (_) {
       emit(LoginState.failure());
     }
@@ -65,7 +65,7 @@ class LoginBloc extends Bloc<LoginEvent, LoginState> {
       await _userRepository.signInWithCredentials(event.email, event.password);
       emit(LoginState.success());
     } on FirebaseAuthException catch (e) {
-      emit(LoginState.failure(message: _mapFirebaseError(e.code)));
+      emit(LoginState.failure(message: _mapFirebaseError(e.code), code: e.code));
     } catch (_) {
       emit(LoginState.failure());
     }

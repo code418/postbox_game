@@ -8,6 +8,9 @@ class RegisterState {
   final bool isSuccess;
   final bool isFailure;
   final String errorMessage;
+  // Raw Firebase error code (e.g. 'email-already-in-use') for analytics.
+  // Empty when not a failure or when the error has no specific code.
+  final String errorCode;
 
   bool get isFormValid => isEmailValid && isPasswordValid;
 
@@ -18,6 +21,7 @@ class RegisterState {
     required this.isSuccess,
     required this.isFailure,
     this.errorMessage = '',
+    this.errorCode = '',
   });
 
   factory RegisterState.empty() {
@@ -40,7 +44,7 @@ class RegisterState {
     );
   }
 
-  factory RegisterState.failure({String message = 'Registration failed. Please try again.'}) {
+  factory RegisterState.failure({String message = 'Registration failed. Please try again.', String code = ''}) {
     return RegisterState(
       isEmailValid: true,
       isPasswordValid: true,
@@ -48,6 +52,7 @@ class RegisterState {
       isSuccess: false,
       isFailure: true,
       errorMessage: message,
+      errorCode: code,
     );
   }
 
@@ -81,6 +86,7 @@ class RegisterState {
     bool? isSuccess,
     bool? isFailure,
     String? errorMessage,
+    String? errorCode,
   }) {
     return RegisterState(
       isEmailValid: isEmailValid ?? this.isEmailValid,
@@ -89,6 +95,7 @@ class RegisterState {
       isSuccess: isSuccess ?? this.isSuccess,
       isFailure: isFailure ?? this.isFailure,
       errorMessage: errorMessage ?? this.errorMessage,
+      errorCode: errorCode ?? this.errorCode,
     );
   }
 
@@ -101,6 +108,7 @@ class RegisterState {
       isSuccess: $isSuccess,
       isFailure: $isFailure,
       errorMessage: $errorMessage,
+      errorCode: $errorCode,
     }''';
   }
 }

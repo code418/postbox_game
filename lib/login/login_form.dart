@@ -49,7 +49,7 @@ class _LoginFormState extends State<LoginForm> {
       bloc: _loginBloc,
       listener: (BuildContext context, LoginState state) {
         if (state.isFailure) {
-          Analytics.loginFailed(method: 'email', errorCode: state.errorMessage);
+          Analytics.loginFailed(method: 'email', errorCode: state.errorCode.isNotEmpty ? state.errorCode : 'unknown');
           ScaffoldMessenger.of(context)
             ..hideCurrentSnackBar()
             ..showSnackBar(
