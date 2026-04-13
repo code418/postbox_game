@@ -153,7 +153,7 @@ abstract final class JamesMessages {
     'jamesNearbyErrorGeneral',
     [
       "Something went wrong there. Give it another go.",
-      "An error occurrred. I will contact tech support to get their arses in gear"
+      "An error occurred. I will contact tech support to get their arses in gear"
     ],
   );
 
