@@ -311,12 +311,22 @@ class _FriendsLeaderboardListState extends State<_FriendsLeaderboardList> {
       if (_currentUid != null) _currentUid!,
       ...friendUids,
     };
+    // Use individual try-catch so a single failed read doesn't prevent all
+    // other friends from appearing. Failed reads are silently omitted.
     final docs = await Future.wait(
-      visibleUids.map(
-        (uid) => FirebaseFirestore.instance.collection('users').doc(uid).get(),
-      ),
+      visibleUids.map((uid) async {
+        try {
+          return await FirebaseFirestore.instance
+              .collection('users')
+              .doc(uid)
+              .get();
+        } catch (_) {
+          return null;
+        }
+      }),
     );
     final entries = docs
+        .whereType<DocumentSnapshot<Map<String, dynamic>>>()
         .where((d) => d.exists)
         .map((d) => <String, dynamic>{
               'uid': d.id,
