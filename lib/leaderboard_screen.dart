@@ -131,7 +131,7 @@ class _LeaderboardListState extends State<_LeaderboardList> {
                 Text(
                   _isLifetime
                       ? 'Start claiming postboxes to appear here.'
-                      : 'Leaderboard is updated by the backend.',
+                      : 'No rankings yet — start claiming postboxes to appear here.',
                   style: Theme.of(context)
                       .textTheme
                       .bodySmall
