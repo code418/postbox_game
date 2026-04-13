@@ -112,7 +112,10 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
       setState(() => currentStage = ClaimStage.initial);
     } catch (e) {
       debugPrint('Error scanning: $e');
-      _showErrorSnackBar(e.toString().replaceFirst('Exception: ', ''));
+      final raw = e.toString();
+      _showErrorSnackBar(raw.startsWith('Exception: ')
+          ? raw.replaceFirst('Exception: ', '')
+          : 'Could not scan for postboxes. Please try again.');
       if (!mounted) return;
       final msg = e.toString().contains('permission')
           ? JamesMessages.nearbyErrorPermission.resolve()
@@ -184,7 +187,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
       debugPrint('Claim error: ${e.code} ${e.message}');
       final snackMsg = e.code == 'unavailable'
           ? 'No internet connection. Please try again.'
-          : (e.message ?? 'Could not claim postbox.');
+          : 'Could not claim postbox. Please try again.';
       _showErrorSnackBar(snackMsg);
       if (!mounted) return;
       setState(() => _isClaiming = false);

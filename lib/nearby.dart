@@ -138,9 +138,17 @@ class NearbyState extends State<Nearby> {
           ? JamesMessages.nearbyErrorPermission.resolve()
           : JamesMessages.nearbyErrorGeneral.resolve();
       JamesController.of(context)?.show(msg);
+      // Only surface the message for exceptions thrown with Exception('...')
+      // (location-permission errors from getPosition()). PlatformException
+      // and other types produce a 'PlatformException(...)' prefix and must
+      // not be forwarded to the user.
+      final raw = e.toString();
+      final userMsg = raw.startsWith('Exception: ')
+          ? raw.replaceFirst('Exception: ', '')
+          : 'Could not fetch postboxes. Please try again.';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          content: Text(userMsg),
           backgroundColor: Colors.red.shade700,
         ),
       );
