@@ -38,7 +38,7 @@ class LoginScreen extends StatelessWidget {
                   style: GoogleFonts.playfairDisplay(
                     fontSize: 28,
                     fontWeight: FontWeight.bold,
-                    color: postalRed,
+                    color: Theme.of(context).colorScheme.primary,
                   ),
                 ),
                 const SizedBox(height: AppSpacing.xs),

@@ -19,7 +19,7 @@ class RegisterScreen extends StatelessWidget {
       appBar: AppBar(
         title: const Text('Create account'),
         backgroundColor: Colors.transparent,
-        foregroundColor: postalRed,
+        foregroundColor: Theme.of(context).colorScheme.primary,
         elevation: 0,
       ),
       body: BlocProvider<RegisterBloc>(
@@ -44,7 +44,7 @@ class RegisterScreen extends StatelessWidget {
                   style: GoogleFonts.playfairDisplay(
                     fontSize: 26,
                     fontWeight: FontWeight.bold,
-                    color: postalRed,
+                    color: Theme.of(context).colorScheme.primary,
                   ),
                 ),
                 const SizedBox(height: AppSpacing.xs),
