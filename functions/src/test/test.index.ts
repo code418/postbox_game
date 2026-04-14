@@ -922,6 +922,78 @@ describe("applyUserClaims", () => {
     assert.strictEqual(updatedCompass["N"], 2);
   });
 
+  it("claimed postbox without monarch increments claimedToday but adds no cipher _claimed key", () => {
+    // Postboxes without a known cipher exist in OSM data. When the user claims
+    // one, claimedToday should still increment but no CIPHER_claimed key is written
+    // (there is no cipher to attribute the claim to).
+    const full = {
+      postboxes: {
+        noMonarch: { compass: { exact: "W" } },
+      },
+      counts: { total: 1, claimedToday: 0 },
+      points: { min: 2, max: 2 },
+      compass: { W: 1 },
+    };
+    const { updatedCounts, updatedPoints } = applyUserClaims(full, new Set(["noMonarch"]));
+    assert.strictEqual(updatedCounts.claimedToday, 1);
+    const cipherKeys = Object.keys(updatedCounts).filter(k => k.endsWith("_claimed"));
+    assert.strictEqual(cipherKeys.length, 0, "No cipher _claimed key should be added for unknown monarch");
+    // The unclaimed points range should be empty (everything claimed).
+    assert.strictEqual(updatedPoints.min, 0);
+    assert.strictEqual(updatedPoints.max, 0);
+  });
+
+  it("slim postbox for no-monarch has no monarch field", () => {
+    const full = {
+      postboxes: {
+        noMonarch: { compass: { exact: "W" } },
+      },
+      counts: { total: 1, claimedToday: 0 },
+      points: { min: 2, max: 2 },
+      compass: { W: 1 },
+    };
+    const { slimPostboxes } = applyUserClaims(full, new Set());
+    assert.strictEqual("monarch" in slimPostboxes["noMonarch"], false,
+      "slim postbox must omit monarch field when postbox has no monarch");
+  });
+
+  it("strips _claimed keys from input counts (replaces with per-user values)", () => {
+    // lookupPostboxes includes global CIPHER_claimed counts from any user's daily
+    // claim. applyUserClaims must strip these and replace with per-user values.
+    const full = {
+      postboxes: {
+        box1: { monarch: "EIIR", compass: { exact: "N" } },
+      },
+      // Includes a global EIIR_claimed=1 from another user's claim today.
+      counts: { total: 1, claimedToday: 1, EIIR: 1, "EIIR_claimed": 1 },
+      points: { min: 0, max: 0 },
+      compass: {},
+    };
+    // THIS user has NOT claimed box1 yet.
+    const { updatedCounts } = applyUserClaims(full, new Set());
+    assert.strictEqual(updatedCounts["EIIR_claimed"] ?? 0, 0,
+      "Global EIIR_claimed should be stripped and replaced with user's own (0) claims");
+    assert.strictEqual(updatedCounts.EIIR, 1, "Total EIIR count preserved");
+    assert.strictEqual(updatedCounts.claimedToday, 0, "User's own claimedToday is 0");
+  });
+
+  it("points max stays at highest value when a lower-pts postbox follows a higher one", () => {
+    // Exercises the false branch of `if (pts > unclaimedMax)`.
+    // Processing order is insertion order: VR first (7pts), then EIIR (2pts).
+    const full = {
+      postboxes: {
+        high: { monarch: "VR",   compass: { exact: "N" } },  // 7 pts — processed first
+        low:  { monarch: "EIIR", compass: { exact: "S" } },  // 2 pts — should not lower max
+      },
+      counts: { total: 2, claimedToday: 0, VR: 1, EIIR: 1 },
+      points: { min: 2, max: 7 },
+      compass: { N: 1, S: 1 },
+    };
+    const { updatedPoints } = applyUserClaims(full, new Set());
+    assert.strictEqual(updatedPoints.max, 7, "Max should remain 7 after processing the 2-pt postbox");
+    assert.strictEqual(updatedPoints.min, 2, "Min should be 2");
+  });
+
   it("handles empty postboxes map (no postboxes in range)", () => {
     const empty = {
       postboxes: {},
