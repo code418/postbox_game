@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:bloc/bloc.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/login/bloc/bloc.dart';
 import 'package:postbox_game/user_repository.dart';
 import 'package:postbox_game/validators.dart';
@@ -48,10 +49,13 @@ class LoginBloc extends Bloc<LoginEvent, LoginState> {
         emit(LoginState.empty());
         return;
       }
+      unawaited(Analytics.login(method: 'google'));
       emit(LoginState.success());
     } on FirebaseAuthException catch (e) {
+      unawaited(Analytics.loginFailed(method: 'google', errorCode: e.code.isNotEmpty ? e.code : 'unknown'));
       emit(LoginState.failure(message: _mapFirebaseError(e.code), code: e.code));
     } catch (_) {
+      unawaited(Analytics.loginFailed(method: 'google', errorCode: 'unknown'));
       emit(LoginState.failure());
     }
   }
@@ -63,10 +67,13 @@ class LoginBloc extends Bloc<LoginEvent, LoginState> {
     emit(LoginState.loading());
     try {
       await _userRepository.signInWithCredentials(event.email, event.password);
+      unawaited(Analytics.login(method: 'email'));
       emit(LoginState.success());
     } on FirebaseAuthException catch (e) {
+      unawaited(Analytics.loginFailed(method: 'email', errorCode: e.code.isNotEmpty ? e.code : 'unknown'));
       emit(LoginState.failure(message: _mapFirebaseError(e.code), code: e.code));
     } catch (_) {
+      unawaited(Analytics.loginFailed(method: 'email', errorCode: 'unknown'));
       emit(LoginState.failure());
     }
   }

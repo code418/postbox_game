@@ -1,11 +1,14 @@
+import 'dart:io' show Platform;
+
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:postbox_game/authentication_bloc/bloc.dart';
 import 'package:postbox_game/login/bloc/bloc.dart';
 import 'package:postbox_game/login/create_account_button.dart';
+import 'package:postbox_game/login/google_login_button.dart';
 import 'package:postbox_game/login/login_button.dart';
-import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/user_repository.dart';
 
@@ -49,7 +52,7 @@ class _LoginFormState extends State<LoginForm> {
       bloc: _loginBloc,
       listener: (BuildContext context, LoginState state) {
         if (state.isFailure) {
-          Analytics.loginFailed(method: 'email', errorCode: state.errorCode.isNotEmpty ? state.errorCode : 'unknown');
+          // Analytics.loginFailed() is fired inside LoginBloc (where the method is known).
           ScaffoldMessenger.of(context)
             ..hideCurrentSnackBar()
             ..showSnackBar(
@@ -60,7 +63,7 @@ class _LoginFormState extends State<LoginForm> {
             );
         }
         if (state.isSuccess) {
-          Analytics.login(method: 'email');
+          // Analytics.login() is fired inside LoginBloc (where the method is known).
           BlocProvider.of<AuthenticationBloc>(context).add(LoggedIn());
         }
       },
@@ -134,8 +137,10 @@ class _LoginFormState extends State<LoginForm> {
                           ? _onFormSubmitted
                           : null,
                     ),
-                    //const SizedBox(height: AppSpacing.sm),
-                    //GoogleLoginButton(),
+                    if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) ...[
+                      const SizedBox(height: AppSpacing.sm),
+                      const GoogleLoginButton(),
+                    ],
                     const SizedBox(height: AppSpacing.sm),
                     CreateAccountButton(userRepository: _userRepository),
                   ],
