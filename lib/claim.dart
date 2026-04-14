@@ -626,9 +626,18 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
   }
 
   Widget _buildQuiz(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(AppSpacing.xl),
-      child: Column(
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+      padding: const EdgeInsets.only(
+        top: AppSpacing.xl,
+        left: AppSpacing.xl,
+        right: AppSpacing.xl,
+        // Extra clearance so the Back button doesn't hide behind the JamesStrip.
+        bottom: 100,
+      ),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(minHeight: constraints.maxHeight - 100),
+        child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           const Icon(Icons.help_outline, size: 64, color: postalRed),
@@ -728,6 +737,8 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
             child: const Text('Back'),
           ),
         ],
+      ),
+      ),
       ),
     );
   }
