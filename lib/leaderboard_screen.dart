@@ -120,47 +120,56 @@ class _LeaderboardListState extends State<_LeaderboardList> {
       stream: _stream,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.error_outline, size: 48,
-                    color: Theme.of(context).colorScheme.onSurfaceVariant),
-                const SizedBox(height: AppSpacing.md),
-                Text('Could not load leaderboard',
-                    style: Theme.of(context).textTheme.titleMedium),
-              ],
+          return Padding(
+            padding: const EdgeInsets.only(bottom: kJamesStripClearance),
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.error_outline, size: 48,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant),
+                  const SizedBox(height: AppSpacing.md),
+                  Text('Could not load leaderboard',
+                      style: Theme.of(context).textTheme.titleMedium),
+                ],
+              ),
             ),
           );
         }
         if (!snapshot.hasData) {
-          return const Center(child: CircularProgressIndicator(color: postalRed));
+          return const Padding(
+            padding: EdgeInsets.only(bottom: kJamesStripClearance),
+            child: Center(child: CircularProgressIndicator(color: postalRed)),
+          );
         }
         final data = snapshot.data!.data();
         final entries = data?['entries'] as List<dynamic>? ?? [];
         if (entries.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.leaderboard_outlined, size: 72,
-                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.2)),
-                const SizedBox(height: AppSpacing.md),
-                Text('No rankings yet',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        )),
-                const SizedBox(height: AppSpacing.xs),
-                Text(
-                  _isLifetime
-                      ? 'Start claiming postboxes to appear here.'
-                      : 'No rankings yet — start claiming postboxes to appear here.',
-                  style: Theme.of(context)
-                      .textTheme
-                      .bodySmall
-                      ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
-                ),
-              ],
+          return Padding(
+            padding: const EdgeInsets.only(bottom: kJamesStripClearance),
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.leaderboard_outlined, size: 72,
+                      color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.2)),
+                  const SizedBox(height: AppSpacing.md),
+                  Text('No rankings yet',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          )),
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(
+                    _isLifetime
+                        ? 'Start claiming postboxes to appear here.'
+                        : 'No rankings yet — start claiming postboxes to appear here.',
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodySmall
+                        ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+                  ),
+                ],
+              ),
             ),
           );
         }
@@ -398,29 +407,38 @@ class _FriendsLeaderboardListState extends State<_FriendsLeaderboardList> {
   @override
   Widget build(BuildContext context) {
     if (_currentUid == null || _userStream == null) {
-      return const Center(child: CircularProgressIndicator(color: postalRed));
+      return const Padding(
+        padding: EdgeInsets.only(bottom: kJamesStripClearance),
+        child: Center(child: CircularProgressIndicator(color: postalRed)),
+      );
     }
 
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: _userStream,
       builder: (context, userSnap) {
         if (userSnap.hasError) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.error_outline,
-                    size: 48,
-                    color: Theme.of(context).colorScheme.onSurfaceVariant),
-                const SizedBox(height: AppSpacing.md),
-                Text('Could not load friends',
-                    style: Theme.of(context).textTheme.titleMedium),
-              ],
+          return Padding(
+            padding: const EdgeInsets.only(bottom: kJamesStripClearance),
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.error_outline,
+                      size: 48,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant),
+                  const SizedBox(height: AppSpacing.md),
+                  Text('Could not load friends',
+                      style: Theme.of(context).textTheme.titleMedium),
+                ],
+              ),
             ),
           );
         }
         if (!userSnap.hasData) {
-          return const Center(child: CircularProgressIndicator(color: postalRed));
+          return const Padding(
+            padding: EdgeInsets.only(bottom: kJamesStripClearance),
+            child: Center(child: CircularProgressIndicator(color: postalRed)),
+          );
         }
 
         final userData = userSnap.data!.data();
@@ -430,30 +448,33 @@ class _FriendsLeaderboardListState extends State<_FriendsLeaderboardList> {
             <String>{};
 
         if (friendUids.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.group_outlined,
-                    size: 72,
-                    color: Theme.of(context)
-                        .colorScheme
-                        .onSurface
-                        .withValues(alpha: 0.2)),
-                const SizedBox(height: AppSpacing.md),
-                Text('No friends yet',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        )),
-                const SizedBox(height: AppSpacing.xs),
-                Text(
-                  'Add friends from the Friends tab to see how you compare.',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                ),
-              ],
+          return Padding(
+            padding: const EdgeInsets.only(bottom: kJamesStripClearance),
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.group_outlined,
+                      size: 72,
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withValues(alpha: 0.2)),
+                  const SizedBox(height: AppSpacing.md),
+                  Text('No friends yet',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          )),
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(
+                    'Add friends from the Friends tab to see how you compare.',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                  ),
+                ],
+              ),
             ),
           );
         }
@@ -479,21 +500,26 @@ class _FriendsLeaderboardListState extends State<_FriendsLeaderboardList> {
           builder: (context, snap) {
             if (snap.connectionState == ConnectionState.waiting &&
                 snap.data == null) {
-              return const Center(
-                  child: CircularProgressIndicator(color: postalRed));
+              return const Padding(
+                padding: EdgeInsets.only(bottom: kJamesStripClearance),
+                child: Center(child: CircularProgressIndicator(color: postalRed)),
+              );
             }
             if (snap.hasError) {
-              return Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.error_outline,
-                        size: 48,
-                        color: Theme.of(context).colorScheme.onSurfaceVariant),
-                    const SizedBox(height: AppSpacing.md),
-                    Text('Could not load leaderboard',
-                        style: Theme.of(context).textTheme.titleMedium),
-                  ],
+              return Padding(
+                padding: const EdgeInsets.only(bottom: kJamesStripClearance),
+                child: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.error_outline,
+                          size: 48,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant),
+                      const SizedBox(height: AppSpacing.md),
+                      Text('Could not load leaderboard',
+                          style: Theme.of(context).textTheme.titleMedium),
+                    ],
+                  ),
                 ),
               );
             }
@@ -501,33 +527,36 @@ class _FriendsLeaderboardListState extends State<_FriendsLeaderboardList> {
             final entries = snap.data ?? [];
 
             if (entries.isEmpty) {
-              return Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.leaderboard_outlined,
-                        size: 72,
-                        color: Theme.of(context)
-                            .colorScheme
-                            .onSurface
-                            .withValues(alpha: 0.2)),
-                    const SizedBox(height: AppSpacing.md),
-                    Text('No scores yet',
-                        style:
-                            Theme.of(context).textTheme.titleLarge?.copyWith(
-                                  fontWeight: FontWeight.bold,
-                                )),
-                    const SizedBox(height: AppSpacing.xs),
-                    Text(
-                      'Start claiming postboxes to appear here.',
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onSurfaceVariant,
-                          ),
-                    ),
-                  ],
+              return Padding(
+                padding: const EdgeInsets.only(bottom: kJamesStripClearance),
+                child: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.leaderboard_outlined,
+                          size: 72,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withValues(alpha: 0.2)),
+                      const SizedBox(height: AppSpacing.md),
+                      Text('No scores yet',
+                          style:
+                              Theme.of(context).textTheme.titleLarge?.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                  )),
+                      const SizedBox(height: AppSpacing.xs),
+                      Text(
+                        'Start claiming postboxes to appear here.',
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant,
+                            ),
+                      ),
+                    ],
+                  ),
                 ),
               );
             }

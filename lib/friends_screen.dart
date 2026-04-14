@@ -249,52 +249,60 @@ class _FriendsScreenState extends State<FriendsScreen> {
             stream: _friendsStream,
             builder: (context, snapshot) {
               if (snapshot.hasError) {
-                return Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.error_outline, size: 48,
-                          color: Theme.of(context).colorScheme.onSurfaceVariant),
-                      const SizedBox(height: AppSpacing.md),
-                      Text('Could not load friends list',
-                          style: Theme.of(context).textTheme.titleMedium),
-                    ],
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: kJamesStripClearance),
+                  child: Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.error_outline, size: 48,
+                            color: Theme.of(context).colorScheme.onSurfaceVariant),
+                        const SizedBox(height: AppSpacing.md),
+                        Text('Could not load friends list',
+                            style: Theme.of(context).textTheme.titleMedium),
+                      ],
+                    ),
                   ),
                 );
               }
               if (!snapshot.hasData) {
-                return const Center(
-                    child: CircularProgressIndicator(color: postalRed));
+                return const Padding(
+                  padding: EdgeInsets.only(bottom: kJamesStripClearance),
+                  child: Center(child: CircularProgressIndicator(color: postalRed)),
+                );
               }
               final data = snapshot.data!.data();
               final list = data?['friends'] as List<dynamic>? ?? [];
               if (list.isEmpty) {
-                return Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(AppSpacing.xl),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.people_outline, size: 72,
-                            color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.2)),
-                        const SizedBox(height: AppSpacing.md),
-                        Text(
-                          'No friends yet',
-                          style: Theme.of(context)
-                              .textTheme
-                              .titleLarge
-                              ?.copyWith(fontWeight: FontWeight.bold),
-                        ),
-                        const SizedBox(height: AppSpacing.xs),
-                        Text(
-                          'Share your UID (tap copy above) and ask friends to add you.',
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodySmall
-                              ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
-                          textAlign: TextAlign.center,
-                        ),
-                      ],
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: kJamesStripClearance),
+                  child: Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(AppSpacing.xl),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.people_outline, size: 72,
+                              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.2)),
+                          const SizedBox(height: AppSpacing.md),
+                          Text(
+                            'No friends yet',
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleLarge
+                                ?.copyWith(fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: AppSpacing.xs),
+                          Text(
+                            'Share your UID (tap copy above) and ask friends to add you.',
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodySmall
+                                ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 );

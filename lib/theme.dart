@@ -17,6 +17,11 @@ class AppSpacing {
   static const double xxl = 48;
 }
 
+/// Bottom clearance to use on empty/error states so that [Center] widgets
+/// appear visually centred in the visible viewport rather than behind the
+/// JamesStrip overlay (~72 px). Applied as [EdgeInsets.only(bottom: ...)].
+const double kJamesStripClearance = 80.0;
+
 class AppTheme {
   static ThemeData get light {
     final base = ThemeData(
