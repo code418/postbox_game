@@ -46,5 +46,13 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // ── meta collection ──────────────────────────────────────────────────────
+    // Read-only aggregate stats (e.g. meta/stats.totalPostboxes) used to
+    // compute lifetime leaderboard percentages. Written by import scripts only.
+    match /meta/{docId} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
   }
 }
