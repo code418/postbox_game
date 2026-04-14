@@ -198,6 +198,14 @@ class _FriendsScreenState extends State<FriendsScreen> {
                       prefixIcon: Icon(Icons.person_add_outlined),
                       hintText: 'Paste your friend\'s UID here',
                     ),
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    textInputAction: TextInputAction.done,
+                    onFieldSubmitted: (_) {
+                      if (_formKey.currentState?.validate() ?? false) {
+                        _addFriendByUid(_uidController.text.trim());
+                      }
+                    },
                     validator: (v) =>
                         (v == null || v.trim().isEmpty) ? 'Enter a UID' : null,
                   ),
