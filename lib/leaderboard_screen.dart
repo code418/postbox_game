@@ -243,12 +243,16 @@ class _LeaderboardListState extends State<_LeaderboardList> {
                   leading: _rankWidget(rank),
                   title: Text(
                     displayName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: isCurrentUser
                         ? const TextStyle(fontWeight: FontWeight.bold)
                         : null,
                   ),
                   trailing: Text(
                     trailingText,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.titleSmall?.copyWith(
                           color: isCurrentUser
                               ? postalRed
@@ -560,12 +564,16 @@ class _FriendsLeaderboardListState extends State<_FriendsLeaderboardList> {
                       leading: _friendsRankWidget(rank),
                       title: Text(
                         displayName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: isCurrentUser
                             ? const TextStyle(fontWeight: FontWeight.bold)
                             : null,
                       ),
                       trailing: Text(
                         trailingText,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: Theme.of(context)
                             .textTheme
                             .titleSmall
