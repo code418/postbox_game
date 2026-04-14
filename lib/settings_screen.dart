@@ -210,69 +210,72 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     children: [
                       TextField(
                         controller: currentPwCtrl,
-                      obscureText: !showCurrent,
-                      decoration: InputDecoration(
-                        labelText: 'Current password',
-                        prefixIcon: const Icon(Icons.lock_outline),
-                        errorText: currentError,
-                        suffixIcon: IconButton(
-                          icon: Icon(showCurrent
-                              ? Icons.visibility_off_outlined
-                              : Icons.visibility_outlined),
-                          onPressed: () =>
-                              setDialogState(() => showCurrent = !showCurrent),
+                        obscureText: !showCurrent,
+                        textInputAction: TextInputAction.next,
+                        decoration: InputDecoration(
+                          labelText: 'Current password',
+                          prefixIcon: const Icon(Icons.lock_outline),
+                          errorText: currentError,
+                          suffixIcon: IconButton(
+                            icon: Icon(showCurrent
+                                ? Icons.visibility_off_outlined
+                                : Icons.visibility_outlined),
+                            onPressed: () =>
+                                setDialogState(() => showCurrent = !showCurrent),
+                          ),
                         ),
+                        onChanged: (_) {
+                          if (currentError != null) {
+                            setDialogState(() => currentError = null);
+                          }
+                        },
                       ),
-                      onChanged: (_) {
-                        if (currentError != null) {
-                          setDialogState(() => currentError = null);
-                        }
-                      },
-                    ),
-                    const SizedBox(height: AppSpacing.md),
-                    TextField(
-                      controller: newPwCtrl,
-                      obscureText: !showNew,
-                      decoration: InputDecoration(
-                        labelText: 'New password',
-                        helperText: 'At least 6 characters',
-                        prefixIcon: const Icon(Icons.lock_outline),
-                        errorText: newError,
-                        suffixIcon: IconButton(
-                          icon: Icon(showNew
-                              ? Icons.visibility_off_outlined
-                              : Icons.visibility_outlined),
-                          onPressed: () =>
-                              setDialogState(() => showNew = !showNew),
+                      const SizedBox(height: AppSpacing.md),
+                      TextField(
+                        controller: newPwCtrl,
+                        obscureText: !showNew,
+                        textInputAction: TextInputAction.next,
+                        decoration: InputDecoration(
+                          labelText: 'New password',
+                          helperText: 'At least 6 characters',
+                          prefixIcon: const Icon(Icons.lock_outline),
+                          errorText: newError,
+                          suffixIcon: IconButton(
+                            icon: Icon(showNew
+                                ? Icons.visibility_off_outlined
+                                : Icons.visibility_outlined),
+                            onPressed: () =>
+                                setDialogState(() => showNew = !showNew),
+                          ),
                         ),
+                        onChanged: (_) {
+                          if (newError != null) setDialogState(() => newError = null);
+                        },
                       ),
-                      onChanged: (_) {
-                        if (newError != null) setDialogState(() => newError = null);
-                      },
-                    ),
-                    const SizedBox(height: AppSpacing.md),
-                    TextField(
-                      controller: confirmPwCtrl,
-                      obscureText: !showConfirm,
-                      decoration: InputDecoration(
-                        labelText: 'Confirm new password',
-                        prefixIcon: const Icon(Icons.lock_outline),
-                        errorText: confirmError,
-                        suffixIcon: IconButton(
-                          icon: Icon(showConfirm
-                              ? Icons.visibility_off_outlined
-                              : Icons.visibility_outlined),
-                          onPressed: () =>
-                              setDialogState(() => showConfirm = !showConfirm),
+                      const SizedBox(height: AppSpacing.md),
+                      TextField(
+                        controller: confirmPwCtrl,
+                        obscureText: !showConfirm,
+                        textInputAction: TextInputAction.done,
+                        decoration: InputDecoration(
+                          labelText: 'Confirm new password',
+                          prefixIcon: const Icon(Icons.lock_outline),
+                          errorText: confirmError,
+                          suffixIcon: IconButton(
+                            icon: Icon(showConfirm
+                                ? Icons.visibility_off_outlined
+                                : Icons.visibility_outlined),
+                            onPressed: () =>
+                                setDialogState(() => showConfirm = !showConfirm),
+                          ),
                         ),
+                        onChanged: (_) {
+                          if (confirmError != null) {
+                            setDialogState(() => confirmError = null);
+                          }
+                        },
+                        onSubmitted: (_) => trySubmit(),
                       ),
-                      onChanged: (_) {
-                        if (confirmError != null) {
-                          setDialogState(() => confirmError = null);
-                        }
-                      },
-                      onSubmitted: (_) => trySubmit(),
-                    ),
                   ],
                 ),
                 ),
