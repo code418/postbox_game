@@ -230,7 +230,12 @@ class _LoginFormState extends State<LoginForm> {
       );
       if (confirmed != true || !mounted) return;
       final email = emailController.text.trim();
-      if (email.isEmpty) return;
+      if (email.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please enter your email address.')),
+        );
+        return;
+      }
       await widget._userRepository.sendPasswordResetEmail(email);
       if (!mounted) return;
       ScaffoldMessenger.of(context)
