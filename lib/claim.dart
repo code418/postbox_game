@@ -379,11 +379,13 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
   }
 
   Widget _buildInitial(BuildContext context) {
-    return Center(
-      child: Padding(
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
         padding: const EdgeInsets.all(AppSpacing.xl),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
           children: [
             SvgPicture.asset(
               'assets/postbox.svg',
@@ -448,6 +450,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
             ),
           ],
         ),
+        ),
       ),
     );
   }
@@ -466,11 +469,13 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
   }
 
   Widget _buildEmpty(BuildContext context) {
-    return Center(
-      child: Padding(
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
         padding: const EdgeInsets.all(AppSpacing.xl),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(Icons.location_off, size: 80,
                 color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.2)),
@@ -504,6 +509,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
               child: const Text('Back'),
             ),
           ],
+        ),
         ),
       ),
     );
@@ -727,11 +733,13 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
   }
 
   Widget _buildQuizFailed(BuildContext context) {
-    return Center(
-      child: Padding(
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
         padding: const EdgeInsets.all(AppSpacing.xl),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(Icons.cancel_outlined, size: 80, color: Colors.red.shade400),
             const SizedBox(height: AppSpacing.lg),
@@ -764,6 +772,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
             ),
           ],
         ),
+        ),
       ),
     );
   }
@@ -786,11 +795,13 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
             colors: const [postalRed, postalGold, Colors.white, royalNavy],
           ),
         ),
-        Center(
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.xl),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+        LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            padding: const EdgeInsets.all(AppSpacing.xl),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
           children: [
             ScaleTransition(
               scale: _successScale,
@@ -851,7 +862,8 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
             ),
           ],
         ),
-      ),
+        ),
+        ),
         ),
       ],
     );

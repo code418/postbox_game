@@ -187,11 +187,13 @@ class NearbyState extends State<Nearby> {
   }
 
   Widget _buildInitial(BuildContext context) {
-    return Center(
-      child: Padding(
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
         padding: const EdgeInsets.all(AppSpacing.xl),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(Icons.location_searching,
                 size: 80,
@@ -220,6 +222,7 @@ class NearbyState extends State<Nearby> {
               label: const Text('Find nearby postboxes'),
             ),
           ],
+        ),
         ),
       ),
     );
