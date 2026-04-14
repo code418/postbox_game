@@ -780,21 +780,6 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
   Widget _buildClaimed(BuildContext context) {
     return Stack(
       children: [
-        Align(
-          alignment: Alignment.topCenter,
-          child: ConfettiWidget(
-            confettiController: _confettiController,
-            blastDirection: pi / 2,
-            blastDirectionality: BlastDirectionality.explosive,
-            particleDrag: 0.05,
-            emissionFrequency: 0.07,
-            numberOfParticles: 20,
-            maxBlastForce: 20,
-            minBlastForce: 8,
-            gravity: 0.3,
-            colors: const [postalRed, postalGold, Colors.white, royalNavy],
-          ),
-        ),
         LayoutBuilder(
           builder: (context, constraints) => SingleChildScrollView(
             padding: const EdgeInsets.all(AppSpacing.xl),
@@ -864,6 +849,22 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
         ),
         ),
         ),
+        ),
+        // Confetti is last in the Stack so it renders on top of the content.
+        Align(
+          alignment: Alignment.topCenter,
+          child: ConfettiWidget(
+            confettiController: _confettiController,
+            blastDirection: pi / 2,
+            blastDirectionality: BlastDirectionality.explosive,
+            particleDrag: 0.05,
+            emissionFrequency: 0.07,
+            numberOfParticles: 20,
+            maxBlastForce: 20,
+            minBlastForce: 8,
+            gravity: 0.3,
+            colors: const [postalRed, postalGold, Colors.white, royalNavy],
+          ),
         ),
       ],
     );
