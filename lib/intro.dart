@@ -188,11 +188,10 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
   }
 
   Widget _buildDialogue(String text) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -227,7 +226,6 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
             ),
           ],
         ),
-      ),
     );
   }
 

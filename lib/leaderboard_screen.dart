@@ -226,7 +226,7 @@ class _LeaderboardListState extends State<_LeaderboardList> {
               final pctText = (_isLifetime &&
                       _totalPostboxes != null &&
                       _totalPostboxes! > 0)
-                  ? ' (${(uniqueBoxes / _totalPostboxes! * 100).toStringAsFixed(4)}%)'
+                  ? ' (${(uniqueBoxes / _totalPostboxes! * 100).toStringAsFixed(1)}%)'
                   : '';
               final trailingText = _isLifetime
                   ? '$uniqueBoxes ${uniqueBoxes == 1 ? 'box' : 'boxes'}$pctText · $totalPoints pts'
@@ -544,7 +544,7 @@ class _FriendsLeaderboardListState extends State<_FriendsLeaderboardList> {
                   final uniqueBoxes = e['uniquePostboxesClaimed'] as int;
                   final totalPoints = e['totalPoints'] as int;
                   final pctText = (_totalPostboxes != null && _totalPostboxes! > 0)
-                      ? ' (${(uniqueBoxes / _totalPostboxes! * 100).toStringAsFixed(4)}%)'
+                      ? ' (${(uniqueBoxes / _totalPostboxes! * 100).toStringAsFixed(1)}%)'
                       : '';
                   final trailingText =
                       '$uniqueBoxes ${uniqueBoxes == 1 ? 'box' : 'boxes'}$pctText · $totalPoints pts';

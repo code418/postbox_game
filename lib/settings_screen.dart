@@ -204,11 +204,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
               return AlertDialog(
                 title: const Text('Change password'),
-                content: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextField(
-                      controller: currentPwCtrl,
+                content: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextField(
+                        controller: currentPwCtrl,
                       obscureText: !showCurrent,
                       decoration: InputDecoration(
                         labelText: 'Current password',
@@ -273,6 +274,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       onSubmitted: (_) => trySubmit(),
                     ),
                   ],
+                ),
                 ),
                 actions: [
                   TextButton(
