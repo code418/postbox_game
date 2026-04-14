@@ -40,6 +40,9 @@ class _PostmanJamesSvgState extends State<PostmanJamesSvg>
   List<String> _talkingFrames = const [];
   // Blink frames: same 4 strings but with eyes closed.
   List<String> _blinkFrames = const [];
+  // Star-eyes frames: same 4 strings but with ALL eye layers hidden so the
+  // star-eyes canvas overlay draws on a transparent background.
+  List<String> _starEyesFrames = const [];
 
   /// Toggles display visibility for the SVG element with [elementId].
   /// Handles elements that already have display:X, or whose style has no
@@ -89,15 +92,29 @@ class _PostmanJamesSvgState extends State<PostmanJamesSvg>
     return result;
   }
 
+  /// Returns an SVG string with ALL eye layers hidden so the star-eyes canvas
+  /// overlay appears on a transparent (background-coloured) area instead of
+  /// over a white eraser circle.
+  static String _applyHideEyes(String svg) {
+    var result = svg;
+    result = _setVisible(result, 'layer5', false);   // Left Eye open: hide
+    result = _setVisible(result, 'layer6', false);   // Right Eye open: hide
+    result = _setVisible(result, 'layer9', false);   // Left Eye Closed: hide
+    result = _setVisible(result, 'layer10', false);  // Right Eye Closed: hide
+    return result;
+  }
+
   Future<void> _loadSvgVariants() async {
     final base = await rootBundle.loadString('assets/postman_james.svg');
     if (!mounted) return;
     const cycle = ['path8', 'path17', 'path18', 'path23'];
     final talking = cycle.map((id) => _applyMouth(base, id)).toList();
     final blink = talking.map(_applyBlink).toList();
+    final starEyes = talking.map(_applyHideEyes).toList();
     setState(() {
       _talkingFrames = talking;
       _blinkFrames = blink;
+      _starEyesFrames = starEyes;
     });
   }
 
@@ -192,7 +209,7 @@ class _PostmanJamesSvgState extends State<PostmanJamesSvg>
   @override
   Widget build(BuildContext context) {
     // Show static asset while SVG variants are loading (first frame only).
-    if (_talkingFrames.isEmpty) {
+    if (_talkingFrames.isEmpty || _starEyesFrames.isEmpty) {
       return SizedBox(
         width: widget.size,
         height: widget.size,
@@ -213,9 +230,13 @@ class _PostmanJamesSvgState extends State<PostmanJamesSvg>
         final mouthIdx =
             (_mouthController.value * 4).floor().clamp(0, 3);
         final isBlinking = _blinkController.value > 0.05;
-        final svgFrame = isBlinking
-            ? _blinkFrames[mouthIdx]
-            : _talkingFrames[mouthIdx];
+        // Star-eyes take priority: use eye-hidden frames so the canvas overlay
+        // draws on a transparent background (no white eraser patches).
+        final svgFrame = widget.showStarEyes
+            ? _starEyesFrames[mouthIdx]
+            : isBlinking
+                ? _blinkFrames[mouthIdx]
+                : _talkingFrames[mouthIdx];
 
         return Transform.translate(
           offset: Offset(0, bob),
@@ -275,7 +296,6 @@ class _StarEyesOverlayPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final eraser = Paint()..color = Colors.white;
     final gold = Paint()
       ..color = const Color(0xFFFFB400)
       ..strokeWidth = size.width * 0.013
@@ -286,9 +306,6 @@ class _StarEyesOverlayPainter extends CustomPainter {
       final cx = size.width * centre.dx;
       final cy = size.height * centre.dy;
       final r = size.width * _starR * pulse;
-
-      // Erase iris.
-      canvas.drawCircle(Offset(cx, cy), r * 1.05, eraser);
 
       // 4-point star, rotated.
       for (int i = 0; i < 4; i++) {
