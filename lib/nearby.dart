@@ -158,6 +158,7 @@ class NearbyState extends State<Nearby> {
       final raw = e.toString();
       final isPermanentlyDenied = raw.contains('permanently denied');
       if (isPermanentlyDenied) {
+        unawaited(Analytics.locationPermissionPermanentlyDenied());
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: const Text('Location permission permanently denied.'),

@@ -139,6 +139,14 @@ class Analytics {
   static Future<void> friendRemoved() => _log('friend_removed');
 
   // ---------------------------------------------------------------------------
+  // Location
+  // ---------------------------------------------------------------------------
+
+  /// Location permission permanently denied — user was shown the "Open Settings" prompt.
+  static Future<void> locationPermissionPermanentlyDenied() =>
+      _log('location_permission_permanently_denied');
+
+  // ---------------------------------------------------------------------------
   // Navigation
   // ---------------------------------------------------------------------------
 

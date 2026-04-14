@@ -127,6 +127,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
       debugPrint('Error scanning: $e');
       final raw = e.toString();
       if (raw.contains('permanently denied')) {
+        unawaited(Analytics.locationPermissionPermanentlyDenied());
         _showPermissionDeniedSnackBar();
       } else {
         _showErrorSnackBar(raw.startsWith('Exception: ')
@@ -239,6 +240,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
           ? JamesMessages.nearbyErrorPermission.resolve()
           : JamesMessages.claimErrorGeneral.resolve();
       if (raw.contains('permanently denied')) {
+        unawaited(Analytics.locationPermissionPermanentlyDenied());
         _showPermissionDeniedSnackBar();
       } else {
         _showErrorSnackBar(isPermission
