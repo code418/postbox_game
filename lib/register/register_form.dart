@@ -78,6 +78,9 @@ class _RegisterFormState extends State<RegisterForm> {
                       ),
                       autocorrect: false,
                       keyboardType: TextInputType.emailAddress,
+                      textInputAction: TextInputAction.next,
+                      onFieldSubmitted: (_) =>
+                          FocusScope.of(context).nextFocus(),
                       validator: (_) {
                         return !state.isEmailValid ? 'Invalid email address' : null;
                       },
@@ -102,6 +105,10 @@ class _RegisterFormState extends State<RegisterForm> {
                       ),
                       obscureText: _obscurePassword,
                       autocorrect: false,
+                      textInputAction: TextInputAction.done,
+                      onFieldSubmitted: (_) {
+                        if (isRegisterButtonEnabled(state)) _onFormSubmitted();
+                      },
                       validator: (_) {
                         return !state.isPasswordValid
                             ? 'Password must be at least 6 characters'

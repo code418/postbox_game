@@ -82,6 +82,9 @@ class _LoginFormState extends State<LoginForm> {
                       ),
                       autocorrect: false,
                       keyboardType: TextInputType.emailAddress,
+                      textInputAction: TextInputAction.next,
+                      onFieldSubmitted: (_) =>
+                          FocusScope.of(context).nextFocus(),
                       validator: (_) {
                         return !state.isEmailValid ? 'Invalid email address' : null;
                       },
@@ -105,6 +108,10 @@ class _LoginFormState extends State<LoginForm> {
                       ),
                       obscureText: _obscurePassword,
                       autocorrect: false,
+                      textInputAction: TextInputAction.done,
+                      onFieldSubmitted: (_) {
+                        if (isLoginButtonEnabled(state)) _onFormSubmitted();
+                      },
                       validator: (_) {
                         return !state.isPasswordValid
                             ? 'Password must be at least 6 characters'
