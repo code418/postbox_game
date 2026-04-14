@@ -468,9 +468,14 @@ void main() {
 
     test('getPoints returns the mapped value for known ciphers', () {
       expect(MonarchInfo.getPoints('EIIR'), equals(2));
+      expect(MonarchInfo.getPoints('GR'), equals(4));
+      expect(MonarchInfo.getPoints('GVR'), equals(4));
+      expect(MonarchInfo.getPoints('GVIR'), equals(4));
+      expect(MonarchInfo.getPoints('SCOTTISH_CROWN'), equals(4));
+      expect(MonarchInfo.getPoints('VR'), equals(7));
+      expect(MonarchInfo.getPoints('EVIIR'), equals(9));
       expect(MonarchInfo.getPoints('CIIIR'), equals(9));
       expect(MonarchInfo.getPoints('EVIIIR'), equals(12));
-      expect(MonarchInfo.getPoints('VR'), equals(7));
     });
 
     test('getPoints returns 2 for unknown cipher', () {
