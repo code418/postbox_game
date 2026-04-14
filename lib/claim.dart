@@ -310,9 +310,9 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
       padding: const EdgeInsets.symmetric(
           horizontal: AppSpacing.md, vertical: AppSpacing.sm),
       decoration: BoxDecoration(
-        color: Colors.orange.shade50,
+        color: Colors.orange.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.orange.shade200),
+        border: Border.all(color: Colors.orange.withValues(alpha: 0.35)),
       ),
       child: Row(
         children: [
@@ -420,9 +420,9 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
                   padding: const EdgeInsets.symmetric(
                       horizontal: AppSpacing.md, vertical: AppSpacing.xs),
                   decoration: BoxDecoration(
-                    color: Colors.orange.shade50,
+                    color: Colors.orange.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: Colors.orange.shade200),
+                    border: Border.all(color: Colors.orange.withValues(alpha: 0.35)),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
