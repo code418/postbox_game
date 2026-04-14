@@ -129,6 +129,8 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
       if (raw.contains('permanently denied')) {
         unawaited(Analytics.locationPermissionPermanentlyDenied());
         _showPermissionDeniedSnackBar();
+      } else if (raw.contains('services are disabled')) {
+        _showLocationServicesDisabledSnackBar();
       } else {
         _showErrorSnackBar(raw.startsWith('Exception: ')
             ? raw.replaceFirst('Exception: ', '')
@@ -242,6 +244,8 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
       if (raw.contains('permanently denied')) {
         unawaited(Analytics.locationPermissionPermanentlyDenied());
         _showPermissionDeniedSnackBar();
+      } else if (raw.contains('services are disabled')) {
+        _showLocationServicesDisabledSnackBar();
       } else {
         _showErrorSnackBar(isPermission
             ? raw.replaceFirst('Exception: ', '')
@@ -376,6 +380,21 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
           label: 'Open Settings',
           textColor: Colors.white,
           onPressed: Geolocator.openAppSettings,
+        ),
+      ),
+    );
+  }
+
+  void _showLocationServicesDisabledSnackBar() {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text('Location services are disabled.'),
+        backgroundColor: Colors.red.shade700,
+        action: SnackBarAction(
+          label: 'Open Settings',
+          textColor: Colors.white,
+          onPressed: Geolocator.openLocationSettings,
         ),
       ),
     );

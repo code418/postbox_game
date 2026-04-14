@@ -157,6 +157,7 @@ class NearbyState extends State<Nearby> {
       // not be forwarded to the user.
       final raw = e.toString();
       final isPermanentlyDenied = raw.contains('permanently denied');
+      final isServicesDisabled = raw.contains('services are disabled');
       if (isPermanentlyDenied) {
         unawaited(Analytics.locationPermissionPermanentlyDenied());
         ScaffoldMessenger.of(context).showSnackBar(
@@ -167,6 +168,18 @@ class NearbyState extends State<Nearby> {
               label: 'Open Settings',
               textColor: Colors.white,
               onPressed: Geolocator.openAppSettings,
+            ),
+          ),
+        );
+      } else if (isServicesDisabled) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Location services are disabled.'),
+            backgroundColor: Colors.red.shade700,
+            action: SnackBarAction(
+              label: 'Open Settings',
+              textColor: Colors.white,
+              onPressed: Geolocator.openLocationSettings,
             ),
           ),
         );
