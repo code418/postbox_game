@@ -364,6 +364,75 @@ describe("updateUserLeaderboards (unit, mock Firestore)", () => {
     await updateUserLeaderboards("u1", "Alice", today, db);
     assert.strictEqual((lb("weekly")?.entries as Array<{ points: number }>)?.[0]?.points, 8);
   });
+
+  it("treats a claim doc with no points field as 0 points", async () => {
+    // Covers the `d.data().points ?? 0` null-coalescing branch (line 78 compiled JS)
+    // when a claim document is missing the points field.
+    const today = "2026-04-15";
+    const { db, lb } = makeMockDb([
+      // Claim doc with no `points` field — cast through unknown to satisfy TypeScript.
+      { userid: "u1", dailyDate: today } as unknown as { userid: string; dailyDate: string; points: number },
+    ]);
+    await updateUserLeaderboards("u1", "Alice", today, db);
+    // User has 0 effective points so should not appear in the leaderboard.
+    assert.strictEqual((lb("daily")?.entries as unknown[])?.length ?? 0, 0);
+  });
+
+  it("handles a leaderboard doc that has a matching periodKey but no entries field", async () => {
+    // Covers `data?.entries ?? []` null-coalescing branch (line 89 compiled JS)
+    // when the leaderboard doc has the right periodKey but entries is missing.
+    const today = "2026-04-15";
+    const { db, lb } = makeMockDb(
+      [{ userid: "u1", dailyDate: today, points: 5 }],
+      // Leaderboard doc has matching periodKey but no entries key at all.
+      { daily: { periodKey: today } as { periodKey: string; entries?: unknown[] } },
+    );
+    await updateUserLeaderboards("u1", "Alice", today, db);
+    // Entry should be created from scratch (treating existing entries as empty).
+    const entries = lb("daily")?.entries as Array<{ uid: string; points: number }>;
+    assert.strictEqual(entries?.length, 1);
+    assert.strictEqual(entries?.[0]?.uid, "u1");
+    assert.strictEqual(entries?.[0]?.points, 5);
+  });
+
+  it("does not throw when runTransaction rejects (allSettled absorbs the error)", async () => {
+    // Simulates a transient Firestore error on every period transaction.
+    // updateUserLeaderboards must complete without throwing; the rejection is
+    // only logged (console.error). This exercises the result.status === "rejected"
+    // branch in the post-allSettled loop.
+    const today = "2026-04-15";
+    const failingDb = {
+      collection: (name: string) => {
+        if (name === "claims") {
+          return {
+            where: (_f: string, _o: string, _v: unknown) => ({
+              where: (_f2: string, _o2: string, _v2: unknown) => ({
+                where: (_f3: string, _o3: string, _v3: unknown) => ({
+                  get: async () => ({ docs: [] }),
+                }),
+                get: async () => ({ docs: [] }),
+              }),
+              get: async () => ({ docs: [] }),
+            }),
+          };
+        }
+        if (name === "leaderboards") {
+          return { doc: (id: string) => ({ _id: id }) };
+        }
+        throw new Error(`Unexpected collection: ${name}`);
+      },
+      runTransaction: async (_fn: unknown) => {
+        throw new Error("simulated Firestore transaction failure");
+      },
+    };
+    // Must resolve without throwing despite all three period transactions failing.
+    await assert.doesNotReject(
+      updateUserLeaderboards(
+        "u1", "Alice", today,
+        failingDb as unknown as import("firebase-admin").firestore.Firestore,
+      ),
+    );
+  });
 });
 
 describe("setPrecision", () => {
