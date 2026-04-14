@@ -9,6 +9,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:postbox_game/app_preferences.dart';
 import 'package:postbox_game/james_controller.dart';
 import 'package:postbox_game/james_messages.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:postbox_game/location_service.dart';
 import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/analytics_service.dart';
@@ -125,11 +126,15 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
     } catch (e) {
       debugPrint('Error scanning: $e');
       final raw = e.toString();
-      _showErrorSnackBar(raw.startsWith('Exception: ')
-          ? raw.replaceFirst('Exception: ', '')
-          : 'Could not scan for postboxes. Please try again.');
+      if (raw.contains('permanently denied')) {
+        _showPermissionDeniedSnackBar();
+      } else {
+        _showErrorSnackBar(raw.startsWith('Exception: ')
+            ? raw.replaceFirst('Exception: ', '')
+            : 'Could not scan for postboxes. Please try again.');
+      }
       if (!mounted) return;
-      final msg = e.toString().contains('permission')
+      final msg = raw.contains('permission')
           ? JamesMessages.nearbyErrorPermission.resolve()
           : JamesMessages.claimErrorGeneral.resolve();
       JamesController.of(context)?.show(msg);
@@ -228,13 +233,18 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
       JamesController.of(context)?.show(msg);
     } catch (e) {
       debugPrint('Claim error: $e');
-      final isPermission = e.toString().contains('permission');
+      final raw = e.toString();
+      final isPermission = raw.contains('permission');
       final msg = isPermission
           ? JamesMessages.nearbyErrorPermission.resolve()
           : JamesMessages.claimErrorGeneral.resolve();
-      _showErrorSnackBar(isPermission
-          ? e.toString().replaceFirst('Exception: ', '')
-          : 'Could not claim postbox. Please try again.');
+      if (raw.contains('permanently denied')) {
+        _showPermissionDeniedSnackBar();
+      } else {
+        _showErrorSnackBar(isPermission
+            ? raw.replaceFirst('Exception: ', '')
+            : 'Could not claim postbox. Please try again.');
+      }
       if (!mounted) return;
       setState(() => _isClaiming = false);
       JamesController.of(context)?.show(msg);
@@ -350,6 +360,21 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
       SnackBar(
         content: Text(message),
         backgroundColor: Colors.red.shade700,
+      ),
+    );
+  }
+
+  void _showPermissionDeniedSnackBar() {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text('Location permission permanently denied.'),
+        backgroundColor: Colors.red.shade700,
+        action: SnackBarAction(
+          label: 'Open Settings',
+          textColor: Colors.white,
+          onPressed: Geolocator.openAppSettings,
+        ),
       ),
     );
   }

@@ -8,6 +8,7 @@ import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/app_preferences.dart';
 import 'package:postbox_game/james_controller.dart';
 import 'package:postbox_game/james_messages.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:postbox_game/location_service.dart';
 import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/theme.dart';
@@ -155,15 +156,30 @@ class NearbyState extends State<Nearby> {
       // and other types produce a 'PlatformException(...)' prefix and must
       // not be forwarded to the user.
       final raw = e.toString();
-      final userMsg = raw.startsWith('Exception: ')
-          ? raw.replaceFirst('Exception: ', '')
-          : 'Could not fetch postboxes. Please try again.';
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(userMsg),
-          backgroundColor: Colors.red.shade700,
-        ),
-      );
+      final isPermanentlyDenied = raw.contains('permanently denied');
+      if (isPermanentlyDenied) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Location permission permanently denied.'),
+            backgroundColor: Colors.red.shade700,
+            action: SnackBarAction(
+              label: 'Open Settings',
+              textColor: Colors.white,
+              onPressed: Geolocator.openAppSettings,
+            ),
+          ),
+        );
+      } else {
+        final userMsg = raw.startsWith('Exception: ')
+            ? raw.replaceFirst('Exception: ', '')
+            : 'Could not fetch postboxes. Please try again.';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(userMsg),
+            backgroundColor: Colors.red.shade700,
+          ),
+        );
+      }
       setState(() => currentStage = NearbyStage.initial);
     } finally {
       // Safety net: ensure we never get permanently stuck in 'searching' state
