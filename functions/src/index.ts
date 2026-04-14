@@ -3,5 +3,6 @@ import { nearbyPostboxes } from "./nearbyPostboxes";
 import { startScoring } from "./startScoring";
 import { onUserCreated } from "./onUserCreated";
 import { updateDisplayName } from "./updateDisplayName";
+import { newDayScoreboard } from "./newDayScoreboard";
 
-export { nearbyPostboxes, startScoring, onUserCreated, updateDisplayName };
+export { nearbyPostboxes, startScoring, onUserCreated, updateDisplayName, newDayScoreboard };
