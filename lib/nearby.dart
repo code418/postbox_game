@@ -234,14 +234,17 @@ class NearbyState extends State<Nearby> {
   }
 
   Widget _buildSearching(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const CircularProgressIndicator(color: postalRed),
-          const SizedBox(height: AppSpacing.md),
-          Text('Scanning ${AppPreferences.formatDistance(AppPreferences.nearbyRadiusMeters, _distanceUnit)} radius...'),
-        ],
+    return Padding(
+      padding: const EdgeInsets.only(bottom: kJamesStripClearance),
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const CircularProgressIndicator(color: postalRed),
+            const SizedBox(height: AppSpacing.md),
+            Text('Scanning ${AppPreferences.formatDistance(AppPreferences.nearbyRadiusMeters, _distanceUnit)} radius...'),
+          ],
+        ),
       ),
     );
   }
