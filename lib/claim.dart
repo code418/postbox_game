@@ -521,7 +521,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
         ListView(
           padding: const EdgeInsets.only(
             top: AppSpacing.md,
-            bottom: 100,
+            bottom: 164,
           ),
           children: [
             _summaryCard(context),
@@ -545,7 +545,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
         Positioned(
           left: AppSpacing.md,
           right: AppSpacing.md,
-          bottom: AppSpacing.md,
+          bottom: 100,
           child: _claimedToday == _count
               ? _buildAllClaimedBanner(context)
               : AbsorbPointer(
