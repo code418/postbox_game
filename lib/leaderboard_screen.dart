@@ -353,31 +353,37 @@ class _FriendsLeaderboardListState extends State<_FriendsLeaderboardList> {
     final visibleUids = <String>{
       if (_currentUid != null) _currentUid!,
       ...friendUids,
-    };
-    // Use individual try-catch so a single failed read doesn't prevent all
-    // other friends from appearing. Failed reads are silently omitted.
-    final docs = await Future.wait(
-      visibleUids.map((uid) async {
-        try {
-          return await FirebaseFirestore.instance
-              .collection('users')
-              .doc(uid)
-              .get();
-        } catch (_) {
-          return null;
-        }
-      }),
-    );
-    final entries = docs
-        .whereType<DocumentSnapshot<Map<String, dynamic>>>()
+    }.toList();
+
+    // Batch by 30 (Firestore whereIn limit). This reduces up to 200 individual
+    // reads to at most 7 batched queries — faster and cheaper than firing all
+    // reads in parallel. A failed batch is silently skipped so other batches
+    // still return results.
+    const batchSize = 30;
+    final allDocs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+    for (var i = 0; i < visibleUids.length; i += batchSize) {
+      final batch = visibleUids.sublist(
+          i, (i + batchSize).clamp(0, visibleUids.length));
+      try {
+        final snap = await FirebaseFirestore.instance
+            .collection('users')
+            .where(FieldPath.documentId, whereIn: batch)
+            .get();
+        allDocs.addAll(snap.docs);
+      } catch (_) {
+        // Silently skip this batch so other batches still appear.
+      }
+    }
+
+    final entries = allDocs
         .where((d) => d.exists)
         .map((d) => <String, dynamic>{
               'uid': d.id,
-              'displayName': d.data()?['displayName'] as String? ?? 'Unknown',
+              'displayName': d.data()['displayName'] as String? ?? 'Unknown',
               'uniquePostboxesClaimed':
-                  (d.data()?['uniquePostboxesClaimed'] as num?)?.toInt() ?? 0,
+                  (d.data()['uniquePostboxesClaimed'] as num?)?.toInt() ?? 0,
               'totalPoints':
-                  (d.data()?['lifetimePoints'] as num?)?.toInt() ?? 0,
+                  (d.data()['lifetimePoints'] as num?)?.toInt() ?? 0,
             })
         .toList();
     entries.sort((a, b) {
