@@ -859,11 +859,13 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
               stream: _streakStream,
               builder: (context, snap) {
                 final streak = snap.data ?? 0;
-                if (streak < 2) return const SizedBox.shrink();
+                if (streak <= 0) return const SizedBox.shrink();
                 return Padding(
                   padding: const EdgeInsets.only(top: AppSpacing.sm),
                   child: Text(
-                    '🔥 $streak-day streak!',
+                    streak == 1
+                        ? '🔥 Streak started!'
+                        : '🔥 $streak-day streak!',
                     style: Theme.of(context).textTheme.titleMedium,
                     textAlign: TextAlign.center,
                   ),
