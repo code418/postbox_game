@@ -293,7 +293,8 @@ class _FriendsScreenState extends State<FriendsScreen> {
               }
               return ListView.builder(
                 itemCount: list.length,
-                padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+                padding: const EdgeInsets.only(
+                    top: AppSpacing.sm, bottom: 100),
                 itemBuilder: (context, index) {
                   final friendUid = list[index] as String;
                   return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(

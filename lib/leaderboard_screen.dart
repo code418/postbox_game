@@ -179,7 +179,8 @@ class _LeaderboardListState extends State<_LeaderboardList> {
           },
           child: ListView.builder(
             physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+            padding: const EdgeInsets.only(
+                top: AppSpacing.sm, bottom: 100),
             // Extra item at the end when authenticated user is outside the list.
             itemCount: entries.length + (showFooter ? 1 : 0),
             itemBuilder: (context, index) {
@@ -531,8 +532,8 @@ class _FriendsLeaderboardListState extends State<_FriendsLeaderboardList> {
               },
               child: ListView.builder(
                 physics: const AlwaysScrollableScrollPhysics(),
-                padding:
-                    const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+                padding: const EdgeInsets.only(
+                    top: AppSpacing.sm, bottom: 100),
                 itemCount: entries.length,
                 itemBuilder: (context, index) {
                   final e = entries[index];
