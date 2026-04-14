@@ -54,6 +54,8 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
           color: Theme.of(context).colorScheme.surface,
           child: TabBar(
             controller: _tabController,
+            isScrollable: true,
+            tabAlignment: TabAlignment.start,
             tabs: _periods
                 .map((p) => Tab(text: p[0].toUpperCase() + p.substring(1)))
                 .toList(),
