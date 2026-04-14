@@ -165,14 +165,15 @@ class _LoginFormState extends State<LoginForm> {
         context: context,
         builder: (_) => AlertDialog(
           title: const Text('Reset password'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                  'Enter your email address and we\'ll send you a link to reset your password.'),
-              const SizedBox(height: AppSpacing.md),
-              TextFormField(
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                    'Enter your email address and we\'ll send you a link to reset your password.'),
+                const SizedBox(height: AppSpacing.md),
+                TextFormField(
                 controller: emailController,
                 autofocus: emailController.text.isEmpty,
                 keyboardType: TextInputType.emailAddress,
@@ -193,6 +194,7 @@ class _LoginFormState extends State<LoginForm> {
                 ),
               ),
             ],
+            ),
           ),
           actions: [
             TextButton(
