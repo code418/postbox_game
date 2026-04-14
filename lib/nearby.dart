@@ -189,9 +189,14 @@ class NearbyState extends State<Nearby> {
   Widget _buildInitial(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) => SingleChildScrollView(
-        padding: const EdgeInsets.all(AppSpacing.xl),
+        padding: const EdgeInsets.only(
+          top: AppSpacing.xl,
+          left: AppSpacing.xl,
+          right: AppSpacing.xl,
+          bottom: 100,
+        ),
         child: ConstrainedBox(
-          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+          constraints: BoxConstraints(minHeight: constraints.maxHeight - 100),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
           children: [

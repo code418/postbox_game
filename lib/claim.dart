@@ -381,9 +381,14 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
   Widget _buildInitial(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) => SingleChildScrollView(
-        padding: const EdgeInsets.all(AppSpacing.xl),
+        padding: const EdgeInsets.only(
+          top: AppSpacing.xl,
+          left: AppSpacing.xl,
+          right: AppSpacing.xl,
+          bottom: 100,
+        ),
         child: ConstrainedBox(
-          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+          constraints: BoxConstraints(minHeight: constraints.maxHeight - 100),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -471,9 +476,14 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
   Widget _buildEmpty(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) => SingleChildScrollView(
-        padding: const EdgeInsets.all(AppSpacing.xl),
+        padding: const EdgeInsets.only(
+          top: AppSpacing.xl,
+          left: AppSpacing.xl,
+          right: AppSpacing.xl,
+          bottom: 100,
+        ),
         child: ConstrainedBox(
-          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+          constraints: BoxConstraints(minHeight: constraints.maxHeight - 100),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -746,9 +756,14 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
   Widget _buildQuizFailed(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) => SingleChildScrollView(
-        padding: const EdgeInsets.all(AppSpacing.xl),
+        padding: const EdgeInsets.only(
+          top: AppSpacing.xl,
+          left: AppSpacing.xl,
+          right: AppSpacing.xl,
+          bottom: 100,
+        ),
         child: ConstrainedBox(
-          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+          constraints: BoxConstraints(minHeight: constraints.maxHeight - 100),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -793,9 +808,14 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
       children: [
         LayoutBuilder(
           builder: (context, constraints) => SingleChildScrollView(
-            padding: const EdgeInsets.all(AppSpacing.xl),
+            padding: const EdgeInsets.only(
+              top: AppSpacing.xl,
+              left: AppSpacing.xl,
+              right: AppSpacing.xl,
+              bottom: 100,
+            ),
             child: ConstrainedBox(
-              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              constraints: BoxConstraints(minHeight: constraints.maxHeight - 100),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
           children: [
