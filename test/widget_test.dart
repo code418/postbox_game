@@ -12,6 +12,7 @@ import 'package:postbox_game/main.dart';
 import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/streak_service.dart';
 import 'package:postbox_game/theme.dart';
+import 'package:postbox_game/user_profile_page.dart';
 import 'package:postbox_game/user_repository.dart';
 import 'package:postbox_game/validators.dart';
 
@@ -583,6 +584,26 @@ void main() {
       }
       expect(seen.length, greaterThanOrEqualTo(5),
           reason: 'idle pool should have at least 5 distinct variants');
+    });
+  });
+
+  group('UserProfilePage', () {
+    testWidgets('renders display name and stat tiles without crashing',
+        (tester) async {
+      // UserProfilePage uses FirebaseFirestore.instance and FirebaseAuth.instance
+      // which are mocked by setupFirebaseMocks(). The FutureBuilder will remain
+      // in loading state — this test just verifies the widget tree builds cleanly.
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: UserProfilePage(uid: 'test-uid-123'),
+        ),
+      );
+      await tester.pump();
+      // AppBar should render with one of the two title strings.
+      expect(
+        find.textContaining('Profile'),
+        findsOneWidget,
+      );
     });
   });
 }

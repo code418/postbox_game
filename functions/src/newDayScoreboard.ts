@@ -7,6 +7,7 @@ import {
   getWeekStart,
   getMonthStart,
   getPeriodKey,
+  getPeriodResetFields,
   LeaderboardEntry,
 } from "./_leaderboardUtils";
 
@@ -117,6 +118,33 @@ export const newDayScoreboard = onSchedule(
       logger.error("Monthly leaderboard rebuild failed:", monthlyResult.reason);
     } else {
       logger.info("Monthly leaderboard rebuilt");
+    }
+
+    // 3. Reset per-user period point fields.
+    // dailyPoints resets every day; weeklyPoints on Mondays; monthlyPoints on the 1st.
+    try {
+      const resetFields = getPeriodResetFields(today, weekStart, monthStart);
+      const usersSnap = await db.collection("users").get();
+      const BATCH_LIMIT = 499;
+      const batches: admin.firestore.WriteBatch[] = [];
+      let batch: admin.firestore.WriteBatch = db.batch();
+      let batchCount = 0;
+      for (const doc of usersSnap.docs) {
+        batch.set(doc.ref, resetFields, { merge: true });
+        batchCount++;
+        if (batchCount === BATCH_LIMIT) {
+          batches.push(batch);
+          batch = db.batch();
+          batchCount = 0;
+        }
+      }
+      if (batchCount > 0) batches.push(batch);
+      await Promise.all(batches.map((b) => b.commit()));
+      logger.info(
+        `Period fields reset: [${Object.keys(resetFields).join(", ")}] across ${usersSnap.docs.length} users`
+      );
+    } catch (resetErr) {
+      logger.error("Period point reset failed (non-fatal):", resetErr);
     }
   }
 );
