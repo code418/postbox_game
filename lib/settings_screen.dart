@@ -42,23 +42,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _loadNotifPrefs() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return;
-    final doc = await FirebaseFirestore.instance
-        .collection('users')
-        .doc(uid)
-        .get();
-    final raw = doc.data()?['notificationPrefs'] as Map<String, dynamic>?;
-    if (!mounted) return;
-    setState(() {
-      if (raw != null) {
-        _notifPrefs = {
-          'friendFirstScore': raw['friendFirstScore'] as bool? ?? true,
-          'friendOvertakes': raw['friendOvertakes'] as bool? ?? true,
-          'addedAsFriend': raw['addedAsFriend'] as bool? ?? true,
-        };
-      }
-      _notifPrefsLoaded = true;
-    });
+    if (uid == null) {
+      if (mounted) setState(() => _notifPrefsLoaded = true);
+      return;
+    }
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .get();
+      final raw = doc.data()?['notificationPrefs'] as Map<String, dynamic>?;
+      if (!mounted) return;
+      setState(() {
+        if (raw != null) {
+          _notifPrefs = {
+            'friendFirstScore': raw['friendFirstScore'] as bool? ?? true,
+            'friendOvertakes': raw['friendOvertakes'] as bool? ?? true,
+            'addedAsFriend': raw['addedAsFriend'] as bool? ?? true,
+          };
+        }
+        _notifPrefsLoaded = true;
+      });
+    } catch (_) {
+      // Non-fatal — show defaults if Firestore is unavailable.
+      if (mounted) setState(() => _notifPrefsLoaded = true);
+    }
   }
 
   Future<void> _setNotifPref(String key, bool value) async {
@@ -536,7 +544,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               secondary: const Icon(Icons.group_outlined),
               title: const Text('First friend to score today'),
               subtitle: const Text(
-                  "When you're first among your friends to find a postbox"),
+                  'When a friend is first among your group to find a postbox'),
               value: _notifPrefs['friendFirstScore']!,
               onChanged: (v) => _setNotifPref('friendFirstScore', v),
             ),
