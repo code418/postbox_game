@@ -535,31 +535,34 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList> {
             final entries = snap.data!;
 
             if (entries.isEmpty) {
-              return Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(AppSpacing.lg),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.group_outlined,
-                          size: 48,
-                          color: Theme.of(context).colorScheme.onSurfaceVariant),
-                      const SizedBox(height: AppSpacing.md),
-                      Text(
-                        'No scores yet',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: AppSpacing.sm),
-                      Text(
-                        'Add friends from the Friends tab to see how you compare.',
-                        textAlign: TextAlign.center,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .onSurfaceVariant,
-                            ),
-                      ),
-                    ],
+              return Padding(
+                padding: const EdgeInsets.only(bottom: kJamesStripClearance),
+                child: Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(AppSpacing.lg),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.group_outlined,
+                            size: 48,
+                            color: Theme.of(context).colorScheme.onSurfaceVariant),
+                        const SizedBox(height: AppSpacing.md),
+                        Text(
+                          'No scores yet',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: AppSpacing.sm),
+                        Text(
+                          'Add friends from the Friends tab to see how you compare.',
+                          textAlign: TextAlign.center,
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurfaceVariant,
+                              ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               );

@@ -27,7 +27,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
 
   Future<_ProfileData> _load() async {
     final db = FirebaseFirestore.instance;
-    final results = await Future.wait([
+    final results = await Future.wait<DocumentSnapshot<Map<String, dynamic>>>([
       db.collection('users').doc(widget.uid).get(),
       db.collection('leaderboards').doc('daily').get(),
       db.collection('leaderboards').doc('weekly').get(),
@@ -35,13 +35,13 @@ class _UserProfilePageState extends State<UserProfilePage> {
       db.collection('leaderboards').doc('lifetime').get(),
     ]);
 
-    final userSnap = results[0] as DocumentSnapshot<Map<String, dynamic>>;
+    final userSnap = results[0];
     final userData = userSnap.data() ?? {};
 
     final periods = ['daily', 'weekly', 'monthly', 'lifetime'];
     final Map<String, int?> ranks = {};
     for (var i = 0; i < periods.length; i++) {
-      final lbSnap = results[i + 1] as DocumentSnapshot<Map<String, dynamic>>;
+      final lbSnap = results[i + 1];
       final entries = lbSnap.data()?['entries'] as List<dynamic>? ?? [];
       int? rank;
       for (var j = 0; j < entries.length; j++) {
