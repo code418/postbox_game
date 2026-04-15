@@ -5,11 +5,14 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_core_platform_interface/test.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:postbox_game/app_preferences.dart';
+import 'package:postbox_game/authentication_bloc/bloc.dart';
 import 'package:postbox_game/fuzzy_compass.dart';
 import 'package:postbox_game/james_messages.dart';
 import 'package:postbox_game/main.dart';
 import 'package:postbox_game/monarch_info.dart';
+import 'package:postbox_game/settings_screen.dart';
 import 'package:postbox_game/streak_service.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/user_profile_page.dart';
@@ -604,6 +607,47 @@ void main() {
         find.textContaining('Profile'),
         findsOneWidget,
       );
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // SettingsScreen notification prefs tests
+  // ---------------------------------------------------------------------------
+
+  group('SettingsScreen notification prefs', () {
+    Widget buildSettings() {
+      final repo = UserRepository(
+        firebaseAuth: MockFirebaseAuth(),
+        firestore: FakeFirebaseFirestore(),
+      );
+      return MaterialApp(
+        home: BlocProvider<AuthenticationBloc>(
+          create: (_) => AuthenticationBloc(userRepository: repo),
+          child: const SettingsScreen(),
+        ),
+      );
+    }
+
+    testWidgets('Notifications section header is visible', (tester) async {
+      await tester.pumpWidget(buildSettings());
+      // Allow initState async calls (_loadPrefs, _loadNotifPrefs) to complete.
+      // No real user is signed in, so _loadNotifPrefs resolves immediately.
+      await tester.pump();
+      expect(find.text('Notifications'), findsOneWidget);
+    });
+
+    testWidgets('Three notification toggle titles appear after prefs load',
+        (tester) async {
+      await tester.pumpWidget(buildSettings());
+      await tester.pump();
+      // Use skipOffstage: false because the toggles may be below the fold in
+      // the default 800×600 test viewport.
+      expect(find.text('First friend to score today', skipOffstage: false),
+          findsOneWidget);
+      expect(find.text('Friend overtakes you', skipOffstage: false),
+          findsOneWidget);
+      expect(find.text('Added as a friend', skipOffstage: false),
+          findsOneWidget);
     });
   });
 }
