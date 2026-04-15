@@ -8,11 +8,15 @@ class NotificationService {
   static final _localNotifications = FlutterLocalNotificationsPlugin();
   static const _channelId = 'postbox_social';
   static const _channelName = 'Social Notifications';
+  static bool _initialized = false;
 
   /// Initialise FCM and register the device token with the backend.
   /// Safe to call multiple times — FirebaseMessaging deduplicates the
   /// onTokenRefresh listener internally.
   static Future<void> init() async {
+    if (_initialized) return;
+    _initialized = true;
+
     final messaging = FirebaseMessaging.instance;
 
     final settings = await messaging.requestPermission();
