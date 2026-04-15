@@ -130,7 +130,7 @@ export const newDayScoreboard = onSchedule(
       let batch: admin.firestore.WriteBatch = db.batch();
       let batchCount = 0;
       for (const doc of usersSnap.docs) {
-        batch.update(doc.ref, resetFields);
+        batch.set(doc.ref, resetFields, { merge: true });
         batchCount++;
         if (batchCount === BATCH_LIMIT) {
           batches.push(batch);
