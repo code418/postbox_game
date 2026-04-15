@@ -30,6 +30,8 @@ dependencies:
   geolocator: ^10.0.0
   google_sign_in: ^6.0.2
   flutter_compass: ^0.7.0
+  flutter_map: ^7.0.2
+  latlong2: ^0.9.1
   bloc: ^8.1.0
   flutter_bloc: ^8.1.1
   equatable: ^2.0.5
