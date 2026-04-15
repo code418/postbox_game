@@ -54,6 +54,17 @@ android {
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    flavorDimensions "device"
+    productFlavors {
+        phone {
+            dimension "device"
+        }
+        wear {
+            dimension "device"
+            minSdk 30 // Wear OS 3+ requires API 30
+        }
+    }
+
     signingConfigs {
         release {
             keyAlias keyProperties['keyAlias']

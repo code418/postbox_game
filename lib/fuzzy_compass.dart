@@ -85,7 +85,7 @@ class FuzzyCompass extends StatelessWidget {
               child: Transform.rotate(
                 angle: -rotation,
                 child: CustomPaint(
-                  painter: _FuzzyCompassPainter(
+                  painter: FuzzyCompassPainter(
                     sectors: order.map((d) => sectors[d] ?? 0).toList(),
                   ),
                 ),
@@ -123,10 +123,10 @@ class FuzzyCompass extends StatelessWidget {
   }
 }
 
-class _FuzzyCompassPainter extends CustomPainter {
+class FuzzyCompassPainter extends CustomPainter {
   final List<int> sectors;
 
-  _FuzzyCompassPainter({required this.sectors});
+  FuzzyCompassPainter({required this.sectors});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -206,6 +206,6 @@ class _FuzzyCompassPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _FuzzyCompassPainter old) =>
+  bool shouldRepaint(covariant FuzzyCompassPainter old) =>
       !listEquals(old.sectors, sectors);
 }
