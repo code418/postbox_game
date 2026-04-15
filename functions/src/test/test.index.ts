@@ -138,6 +138,26 @@ describe("mergePeriodEntries", () => {
     const result = mergePeriodEntries(existing, "extra", "Extra", 1);
     assert.strictEqual(result.length, 100);
   });
+
+  it("keeps a user with negative points (quiz penalty)", () => {
+    const result = mergePeriodEntries([alice, bob], "a", "Alice", -2);
+    assert.strictEqual(result.length, 2);
+    const entry = result.find(e => e.uid === "a");
+    assert.ok(entry);
+    assert.strictEqual(entry!.points, -2);
+  });
+
+  it("adds a new user with negative points", () => {
+    const result = mergePeriodEntries([], "a", "Alice", -2);
+    assert.strictEqual(result.length, 1);
+    assert.strictEqual(result[0].points, -2);
+  });
+
+  it("sorts negative-score users below positive-score users", () => {
+    const result = mergePeriodEntries([bob], "a", "Alice", -2);
+    assert.strictEqual(result[0].uid, "b");
+    assert.strictEqual(result[1].uid, "a");
+  });
 });
 
 describe("mergeLifetimeEntries", () => {
@@ -202,6 +222,20 @@ describe("mergeLifetimeEntries", () => {
   it("updates displayName when upserted", () => {
     const result = mergeLifetimeEntries([alice], "a", "Alice v2", 10, 50);
     assert.strictEqual(result[0].displayName, "Alice v2");
+  });
+
+  it("keeps a user with negative totalPoints (quiz penalty)", () => {
+    const result = mergeLifetimeEntries([], "a", "Alice", 0, -2);
+    assert.strictEqual(result.length, 1);
+    assert.strictEqual(result[0].totalPoints, -2);
+  });
+
+  it("keeps a user with uniqueBoxes > 0 and negative totalPoints", () => {
+    const result = mergeLifetimeEntries([bob], "a", "Alice", 3, -4);
+    const entry = result.find(e => e.uid === "a");
+    assert.ok(entry);
+    assert.strictEqual(entry!.totalPoints, -4);
+    assert.strictEqual(entry!.uniquePostboxesClaimed, 3);
   });
 });
 
@@ -573,6 +607,7 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
   const wrappedNearby = testEnv.wrap(myFunctions.nearbyPostboxes) as (data: unknown, context?: unknown) => Promise<unknown>;
   const wrappedStartScoring = testEnv.wrap(myFunctions.startScoring) as (data: unknown, context?: unknown) => Promise<unknown>;
   const wrappedUpdateDisplayName = testEnv.wrap(myFunctions.updateDisplayName) as (data: unknown, context?: unknown) => Promise<unknown>;
+  const wrappedQuizPenalty = testEnv.wrap(myFunctions.quizPenalty) as (data: unknown, context?: unknown) => Promise<unknown>;
 
   after(() => {
     testEnv.cleanup();
@@ -857,6 +892,80 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
         const err = e as { code?: string; message?: string };
         // Without an emulator, the Admin SDK calls will fail with permission-denied.
         // That's acceptable — we've validated the function reaches that point.
+        if (!(err.message ?? "").includes("PERMISSION_DENIED") &&
+            err.code !== "permission-denied" &&
+            err.code !== "internal") {
+          throw e;
+        }
+      }
+    });
+  });
+
+  describe("quizPenalty (onCall)", () => {
+    it("should throw unauthenticated when no auth context", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      const req = { data: { correctCipher: "EIIR", selectedCipher: "VR" } };
+      try {
+        await wrappedQuizPenalty(req);
+        assert.fail("Expected unauthenticated error");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "unauthenticated");
+      }
+    });
+
+    it("should throw invalid-argument when correctCipher is missing", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      const req = { data: { selectedCipher: "VR" }, auth: { uid: "test-uid" } };
+      try {
+        await wrappedQuizPenalty(req);
+        assert.fail("Expected invalid-argument error");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("should throw invalid-argument when selectedCipher is missing", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      const req = { data: { correctCipher: "EIIR" }, auth: { uid: "test-uid" } };
+      try {
+        await wrappedQuizPenalty(req);
+        assert.fail("Expected invalid-argument error");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("should throw invalid-argument when correctCipher is empty string", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      const req = { data: { correctCipher: "", selectedCipher: "VR" }, auth: { uid: "test-uid" } };
+      try {
+        await wrappedQuizPenalty(req);
+        assert.fail("Expected invalid-argument error");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("should throw invalid-argument when correctCipher is whitespace-only", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      const req = { data: { correctCipher: "   ", selectedCipher: "VR" }, auth: { uid: "test-uid" } };
+      try {
+        await wrappedQuizPenalty(req);
+        assert.fail("Expected invalid-argument error");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("should return penaltyApplied and pointsDeducted on success (or fail with permission-denied if no emulator)", async function (this: Mocha.Context) {
+      this.timeout(10000);
+      const req = { data: { correctCipher: "EIIR", selectedCipher: "VR" }, auth: { uid: "test-uid" } };
+      try {
+        const result = (await wrappedQuizPenalty(req)) as Record<string, unknown>;
+        assert.strictEqual(result.penaltyApplied, true);
+        assert.strictEqual(result.pointsDeducted, 2);
+      } catch (e: unknown) {
+        const err = e as { code?: string; message?: string };
         if (!(err.message ?? "").includes("PERMISSION_DENIED") &&
             err.code !== "permission-denied" &&
             err.code !== "internal") {

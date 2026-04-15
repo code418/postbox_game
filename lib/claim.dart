@@ -75,6 +75,8 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
       FirebaseFunctions.instance.httpsCallable('nearbyPostboxes');
   final HttpsCallable _claimCallable =
       FirebaseFunctions.instance.httpsCallable('startScoring');
+  final HttpsCallable _penaltyCallable =
+      FirebaseFunctions.instance.httpsCallable('quizPenalty');
   final StreakService _streakService = StreakService();
 
   Future<void> _startSearch() async {
@@ -316,8 +318,21 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
         correctCipher: _quizCipher!,
         selectedCipher: answer,
       );
+      Analytics.quizPenalty(
+        correctCipher: _quizCipher!,
+        selectedCipher: answer,
+        pointsDeducted: 2,
+      );
       HapticFeedback.heavyImpact();
       setState(() => currentStage = ClaimStage.quizFailed);
+      JamesController.of(context)?.show(JamesMessages.quizPenalty.resolve());
+      // Fire-and-forget: apply the 2-point penalty server-side.
+      _penaltyCallable.call(<String, dynamic>{
+        'correctCipher': _quizCipher!,
+        'selectedCipher': answer,
+      }).catchError((e) {
+        debugPrint('Quiz penalty call failed: $e');
+      });
     }
   }
 
@@ -823,6 +838,24 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
               style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                     fontWeight: FontWeight.bold,
                   ),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.lg,
+                vertical: AppSpacing.sm,
+              ),
+              decoration: BoxDecoration(
+                color: Colors.red.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(
+                '−2 points',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      color: Colors.red.shade700,
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
             ),
             const SizedBox(height: AppSpacing.sm),
             Text(

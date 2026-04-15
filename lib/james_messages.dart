@@ -196,6 +196,17 @@ abstract final class JamesMessages {
     ],
   );
 
+  // ── Quiz penalty ──────────────────────────────────────────────────────────
+
+  static const quizPenalty = JamesMessage(
+    'jamesQuizPenalty',
+    [
+      "That's cost you two points. Have a proper look next time.",
+      "Wrong cipher — minus two. You'll know it when you see it.",
+      "Ouch, two points gone. Perhaps squint a bit harder at the postbox?",
+    ],
+  );
+
   // ── Claim errors ─────────────────────────────────────────────────────────
 
   static const claimErrorAlreadyClaimed = JamesMessage(

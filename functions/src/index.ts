@@ -4,5 +4,6 @@ import { startScoring } from "./startScoring";
 import { onUserCreated } from "./onUserCreated";
 import { updateDisplayName } from "./updateDisplayName";
 import { newDayScoreboard } from "./newDayScoreboard";
+import { quizPenalty } from "./quizPenalty";
 
-export { nearbyPostboxes, startScoring, onUserCreated, updateDisplayName, newDayScoreboard };
+export { nearbyPostboxes, startScoring, onUserCreated, updateDisplayName, newDayScoreboard, quizPenalty };

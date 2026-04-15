@@ -42,8 +42,9 @@ export interface LeaderboardEntry {
  * with the existing snapshot entries, then writes the returned array.
  *
  * - Removes any prior entry for `uid`.
- * - Adds a new entry if `userPoints > 0`; omits it if zero (name-change
- *   before first claim in a period should not add a 0-point entry).
+ * - Adds a new entry if `userPoints !== 0`; omits it if exactly zero
+ *   (name-change before first claim in a period should not add a 0-point
+ *   entry). Negative scores (from quiz penalties) are kept.
  * - Sorts descending by points and caps at `limit` entries (default 100).
  */
 export function mergePeriodEntries(
@@ -56,7 +57,7 @@ export function mergePeriodEntries(
   const others = existing.filter((e) => e.uid !== uid);
   return [
     ...others,
-    ...(userPoints > 0 ? [{ uid, displayName, points: userPoints }] : []),
+    ...(userPoints !== 0 ? [{ uid, displayName, points: userPoints }] : []),
   ]
     .sort((a, b) => b.points - a.points)
     .slice(0, limit);
@@ -143,7 +144,7 @@ export interface LifetimeLeaderboardEntry {
  * Exported for unit testing.
  *
  * - Removes any prior entry for `uid`.
- * - Adds an entry if either `uniquePostboxesClaimed > 0` or `totalPoints > 0`.
+ * - Adds an entry if either `uniquePostboxesClaimed > 0` or `totalPoints !== 0`.
  * - Sorts descending by `uniquePostboxesClaimed` (secondary: totalPoints) and
  *   caps at `limit` entries (default 100).
  */
@@ -158,7 +159,7 @@ export function mergeLifetimeEntries(
   const others = existing.filter((e) => e.uid !== uid);
   return [
     ...others,
-    ...(uniquePostboxesClaimed > 0 || totalPoints > 0
+    ...(uniquePostboxesClaimed > 0 || totalPoints !== 0
       ? [{ uid, displayName, uniquePostboxesClaimed, totalPoints }]
       : []),
   ]

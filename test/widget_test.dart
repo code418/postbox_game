@@ -514,6 +514,7 @@ void main() {
         JamesMessages.claimErrorAlreadyClaimed,
         JamesMessages.claimErrorOutOfRange,
         JamesMessages.claimErrorGeneral,
+        JamesMessages.quizPenalty,
         JamesMessages.introStep2,
         JamesMessages.introStep3,
       ];
@@ -541,6 +542,7 @@ void main() {
         JamesMessages.claimErrorAlreadyClaimed,
         JamesMessages.claimErrorOutOfRange,
         JamesMessages.claimErrorGeneral,
+        JamesMessages.quizPenalty,
         JamesMessages.introStep2,
         JamesMessages.introStep3,
       ];

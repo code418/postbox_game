@@ -83,6 +83,18 @@ class Analytics {
         'selected_cipher': selectedCipher,
       });
 
+  /// User received a point penalty for a wrong quiz answer.
+  static Future<void> quizPenalty({
+    required String correctCipher,
+    required String selectedCipher,
+    required int pointsDeducted,
+  }) =>
+      _log('quiz_penalty', {
+        'correct_cipher': correctCipher,
+        'selected_cipher': selectedCipher,
+        'points_deducted': pointsDeducted,
+      });
+
   // ---------------------------------------------------------------------------
   // Claim events
   // ---------------------------------------------------------------------------
