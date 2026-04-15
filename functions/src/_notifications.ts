@@ -1,0 +1,209 @@
+import "./adminInit";
+import * as admin from "firebase-admin";
+import * as functions from "firebase-functions";
+import * as functionsV1 from "firebase-functions/v1";
+
+const database = admin.firestore();
+
+// ── Pure helpers (exported for unit testing) ──────────────────────────────
+
+/**
+ * Returns the updated fcmTokens array after adding `token`.
+ * Deduplicates and caps at `max` (dropping the oldest when over).
+ */
+export function updateFcmTokens(existing: string[], token: string, max = 5): string[] {
+  if (existing.includes(token)) return existing;
+  const updated = [...existing, token];
+  return updated.length > max ? updated.slice(updated.length - max) : updated;
+}
+
+/**
+ * Returns UIDs present in `after` but not in `before`.
+ */
+export function diffFriends(before: string[], after: string[]): string[] {
+  const beforeSet = new Set(before);
+  return after.filter((f) => !beforeSet.has(f));
+}
+
+// ── Internal FCM send helper ──────────────────────────────────────────────
+
+/**
+ * Sends a push notification to all valid FCM tokens registered for `uid`.
+ * Prunes any tokens that FCM reports as no longer registered.
+ */
+async function sendToUser(uid: string, title: string, body: string): Promise<void> {
+  const doc = await database.collection("users").doc(uid).get();
+  const tokens: string[] = (doc.data()?.fcmTokens as string[] | undefined) ?? [];
+  if (tokens.length === 0) return;
+
+  const response = await admin.messaging().sendEachForMulticast({
+    tokens,
+    notification: { title, body },
+  });
+
+  const staleTokens: string[] = [];
+  response.responses.forEach((r, idx) => {
+    if (
+      !r.success &&
+      r.error?.code === "messaging/registration-token-not-registered"
+    ) {
+      staleTokens.push(tokens[idx]);
+    }
+  });
+
+  if (staleTokens.length > 0) {
+    await database.collection("users").doc(uid).update({
+      fcmTokens: admin.firestore.FieldValue.arrayRemove(...staleTokens),
+    });
+  }
+}
+
+// ── Notification event functions ──────────────────────────────────────────
+
+/**
+ * Notifies all of `uid`'s friends that they were the first among the group
+ * to claim a postbox today. Only sends if none of those friends has
+ * dailyPoints > 0 yet.
+ *
+ * Call only when `uid` is making their first claim of the day
+ * (i.e. userClaimsSnap.docs.length === 0 in startScoring).
+ */
+export async function notifyFriendsFirstClaim(
+  uid: string,
+  displayName: string
+): Promise<void> {
+  const userDoc = await database.collection("users").doc(uid).get();
+  const friends: string[] = (userDoc.data()?.friends as string[] | undefined) ?? [];
+  if (friends.length === 0) return;
+
+  const friendDocs = await Promise.all(
+    friends.map((fuid) => database.collection("users").doc(fuid).get())
+  );
+
+  const anyFriendAlreadyScored = friendDocs.some(
+    (doc) => ((doc.data()?.dailyPoints as number | undefined) ?? 0) > 0
+  );
+  if (anyFriendAlreadyScored) return;
+
+  await Promise.allSettled(
+    friendDocs.map(async (doc) => {
+      const prefs = doc.data()?.notificationPrefs as
+        | Record<string, boolean>
+        | undefined;
+      if (prefs?.friendFirstScore === false) return;
+      await sendToUser(
+        doc.id,
+        "First find of the day!",
+        `${displayName} was the first of your friends to find a postbox today!`
+      );
+    })
+  );
+}
+
+/**
+ * Notifies friends in `uid`'s list whose dailyPoints are below `newDailyPoints`.
+ * This is the "someone just overtook you" notification.
+ */
+export async function notifyFriendOvertake(
+  uid: string,
+  displayName: string,
+  newDailyPoints: number
+): Promise<void> {
+  const userDoc = await database.collection("users").doc(uid).get();
+  const friends: string[] = (userDoc.data()?.friends as string[] | undefined) ?? [];
+  if (friends.length === 0) return;
+
+  const friendDocs = await Promise.all(
+    friends.map((fuid) => database.collection("users").doc(fuid).get())
+  );
+
+  await Promise.allSettled(
+    friendDocs.map(async (doc) => {
+      const fdata = doc.data();
+      if (!fdata) return;
+      const friendDaily = (fdata.dailyPoints as number | undefined) ?? 0;
+      if (newDailyPoints <= friendDaily) return;
+      const prefs = fdata.notificationPrefs as
+        | Record<string, boolean>
+        | undefined;
+      if (prefs?.friendOvertakes === false) return;
+      await sendToUser(
+        doc.id,
+        "Overtaken!",
+        `${displayName} just overtook you on today's leaderboard!`
+      );
+    })
+  );
+}
+
+/**
+ * Notifies `newFriendUid` that `adderDisplayName` added them as a friend.
+ */
+export async function notifyFriendOfAddition(
+  newFriendUid: string,
+  adderDisplayName: string
+): Promise<void> {
+  const doc = await database.collection("users").doc(newFriendUid).get();
+  const prefs = doc.data()?.notificationPrefs as
+    | Record<string, boolean>
+    | undefined;
+  if (prefs?.addedAsFriend === false) return;
+  await sendToUser(
+    newFriendUid,
+    "New friend!",
+    `${adderDisplayName} added you as a friend.`
+  );
+}
+
+// ── Callable: register device FCM token ──────────────────────────────────
+
+export const registerFcmToken = functions.https.onCall(async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) {
+    throw new functions.https.HttpsError(
+      "unauthenticated",
+      "Must be signed in to register a notification token"
+    );
+  }
+  const token = (request.data as { token?: unknown })?.token;
+  if (typeof token !== "string" || token.length === 0) {
+    throw new functions.https.HttpsError(
+      "invalid-argument",
+      "token must be a non-empty string"
+    );
+  }
+
+  const userRef = database.collection("users").doc(uid);
+  const userDoc = await userRef.get();
+  const existing: string[] = (userDoc.data()?.fcmTokens as string[] | undefined) ?? [];
+  const updated = updateFcmTokens(existing, token);
+
+  // updateFcmTokens returns the same array reference when token already exists.
+  if (updated === existing) return;
+  await userRef.set({ fcmTokens: updated }, { merge: true });
+});
+
+// ── Firestore trigger: friend added ──────────────────────────────────────
+
+export const onFriendAdded = functionsV1.firestore
+  .document("users/{uid}")
+  .onUpdate(async (change, context) => {
+    const uid: string = context.params.uid;
+    const before: string[] =
+      (change.before.data()?.friends as string[] | undefined) ?? [];
+    const after: string[] =
+      (change.after.data()?.friends as string[] | undefined) ?? [];
+
+    if (after.length <= before.length) return;
+
+    const newFriends = diffFriends(before, after);
+    if (newFriends.length === 0) return;
+
+    const adderDisplayName =
+      (change.after.data()?.displayName as string | undefined) ||
+      `Player_${uid.slice(0, 6)}`;
+
+    await Promise.allSettled(
+      newFriends.map((fuid) => notifyFriendOfAddition(fuid, adderDisplayName))
+    );
+  });
