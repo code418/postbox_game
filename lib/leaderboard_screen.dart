@@ -38,6 +38,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
 
   void _onTabChanged() {
     if (_tabController.indexIsChanging) return;
+    if (!mounted) return;
     if (_tabController.index == _periods.indexOf('lifetime')) {
       JamesController.of(context)
           ?.show(JamesMessages.navLifetimeScores.resolve());
@@ -262,7 +263,7 @@ class _LeaderboardListState extends State<_LeaderboardList> {
               final pctText = (_isLifetime &&
                       _totalPostboxes != null &&
                       _totalPostboxes! > 0)
-                  ? ' (${(uniqueBoxes / _totalPostboxes! * 100).toStringAsFixed(3)}%)'
+                  ? ' (${(uniqueBoxes / _totalPostboxes! * 100).toStringAsFixed(1)}%)'
                   : '';
               final trailingText = _isLifetime
                   ? '$uniqueBoxes ${uniqueBoxes == 1 ? 'box' : 'boxes'}$pctText · $totalPoints pts'
@@ -481,38 +482,6 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList> {
                 .toSet() ??
             <String>{};
 
-        if (friendUids.isEmpty) {
-          return Padding(
-            padding: const EdgeInsets.only(bottom: kJamesStripClearance),
-            child: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.group_outlined,
-                      size: 72,
-                      color: Theme.of(context)
-                          .colorScheme
-                          .onSurface
-                          .withValues(alpha: 0.2)),
-                  const SizedBox(height: AppSpacing.md),
-                  Text('No friends yet',
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          )),
-                  const SizedBox(height: AppSpacing.xs),
-                  Text(
-                    'Add friends from the Friends tab to see how you compare.',
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        }
-
         // Trigger a new fetch when the friends list changes OR when the
         // current user's own period scores change (e.g. after claiming).
         final scoreField = switch (widget.period) {
@@ -563,30 +532,26 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList> {
               );
             }
 
-            final entries = snap.data ?? [];
+            final entries = snap.data!;
 
             if (entries.isEmpty) {
-              return Padding(
-                padding: const EdgeInsets.only(bottom: kJamesStripClearance),
-                child: Center(
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(AppSpacing.lg),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.leaderboard_outlined,
-                          size: 72,
-                          color: Theme.of(context)
-                              .colorScheme
-                              .onSurface
-                              .withValues(alpha: 0.2)),
+                      Icon(Icons.group_outlined,
+                          size: 48,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant),
                       const SizedBox(height: AppSpacing.md),
-                      Text('No scores yet',
-                          style:
-                              Theme.of(context).textTheme.titleLarge?.copyWith(
-                                    fontWeight: FontWeight.bold,
-                                  )),
-                      const SizedBox(height: AppSpacing.xs),
                       Text(
-                        'Start claiming postboxes to appear here.',
+                        'No scores yet',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: AppSpacing.sm),
+                      Text(
+                        'Add friends from the Friends tab to see how you compare.',
                         textAlign: TextAlign.center,
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                               color: Theme.of(context)
@@ -626,7 +591,7 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList> {
                     final uniqueBoxes = e['uniquePostboxesClaimed'] as int;
                     final totalPoints = e['totalPoints'] as int;
                     final pctText = (_totalPostboxes != null && _totalPostboxes! > 0)
-                        ? ' (${(uniqueBoxes / _totalPostboxes! * 100).toStringAsFixed(3)}%)'
+                        ? ' (${(uniqueBoxes / _totalPostboxes! * 100).toStringAsFixed(1)}%)'
                         : '';
                     trailingText =
                         '$uniqueBoxes ${uniqueBoxes == 1 ? 'box' : 'boxes'}$pctText · $totalPoints pts';
