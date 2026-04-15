@@ -30,6 +30,9 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="postbox_social" />
     </application>
     <!-- Restrict to phones and tablets: require touchscreen and GPS hardware.
          This filters out Android TV, Wear OS, and non-GPS/non-touch devices
@@ -42,4 +45,5 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
 </manifest>
