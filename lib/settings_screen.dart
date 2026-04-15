@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -19,17 +20,55 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   DistanceUnit _distanceUnit = DistanceUnit.meters;
   bool _isSaving = false;
+  Map<String, bool> _notifPrefs = const {
+    'friendFirstScore': true,
+    'friendOvertakes': true,
+    'addedAsFriend': true,
+  };
+  bool _notifPrefsLoaded = false;
   final _userRepository = UserRepository();
 
   @override
   void initState() {
     super.initState();
     _loadPrefs();
+    _loadNotifPrefs();
   }
 
   Future<void> _loadPrefs() async {
     final unit = await AppPreferences.getDistanceUnit();
     if (mounted) setState(() => _distanceUnit = unit);
+  }
+
+  Future<void> _loadNotifPrefs() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    final doc = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .get();
+    final raw = doc.data()?['notificationPrefs'] as Map<String, dynamic>?;
+    if (!mounted) return;
+    setState(() {
+      if (raw != null) {
+        _notifPrefs = {
+          'friendFirstScore': raw['friendFirstScore'] as bool? ?? true,
+          'friendOvertakes': raw['friendOvertakes'] as bool? ?? true,
+          'addedAsFriend': raw['addedAsFriend'] as bool? ?? true,
+        };
+      }
+      _notifPrefsLoaded = true;
+    });
+  }
+
+  Future<void> _setNotifPref(String key, bool value) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    setState(() => _notifPrefs = {..._notifPrefs, key: value});
+    await FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .update({'notificationPrefs.$key': value});
   }
 
   Future<void> _editDisplayName() async {
@@ -484,6 +523,39 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 Text('Show distances in ${_distanceUnit.label.toLowerCase()}'),
             onTap: _chooseDistanceUnit,
           ),
+          const Divider(height: 24),
+          _sectionHeader('Notifications'),
+          if (!_notifPrefsLoaded)
+            const Padding(
+              padding: EdgeInsets.symmetric(
+                  horizontal: AppSpacing.md, vertical: AppSpacing.md),
+              child: LinearProgressIndicator(),
+            )
+          else ...[
+            SwitchListTile(
+              secondary: const Icon(Icons.group_outlined),
+              title: const Text('First friend to score today'),
+              subtitle: const Text(
+                  "When you're first among your friends to find a postbox"),
+              value: _notifPrefs['friendFirstScore']!,
+              onChanged: (v) => _setNotifPref('friendFirstScore', v),
+            ),
+            SwitchListTile(
+              secondary: const Icon(Icons.leaderboard_outlined),
+              title: const Text('Friend overtakes you'),
+              subtitle: const Text('When a friend beats your daily score'),
+              value: _notifPrefs['friendOvertakes']!,
+              onChanged: (v) => _setNotifPref('friendOvertakes', v),
+            ),
+            SwitchListTile(
+              secondary: const Icon(Icons.person_add_outlined),
+              title: const Text('Added as a friend'),
+              subtitle:
+                  const Text('When someone adds you to their friends list'),
+              value: _notifPrefs['addedAsFriend']!,
+              onChanged: (v) => _setNotifPref('addedAsFriend', v),
+            ),
+          ],
           const Divider(height: 24),
           _sectionHeader('About'),
           ListTile(
