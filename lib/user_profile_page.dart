@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:postbox_game/theme.dart';
 
-class UserProfilePage extends StatelessWidget {
+class UserProfilePage extends StatefulWidget {
   final String uid;
 
   const UserProfilePage({super.key, required this.uid});
@@ -12,10 +12,23 @@ class UserProfilePage extends StatelessWidget {
   static Route<void> route(String uid) =>
       MaterialPageRoute(builder: (_) => UserProfilePage(uid: uid));
 
+  @override
+  State<UserProfilePage> createState() => _UserProfilePageState();
+}
+
+class _UserProfilePageState extends State<UserProfilePage> {
+  late final Future<_ProfileData> _profileFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _profileFuture = _load();
+  }
+
   Future<_ProfileData> _load() async {
     final db = FirebaseFirestore.instance;
     final results = await Future.wait([
-      db.collection('users').doc(uid).get(),
+      db.collection('users').doc(widget.uid).get(),
       db.collection('leaderboards').doc('daily').get(),
       db.collection('leaderboards').doc('weekly').get(),
       db.collection('leaderboards').doc('monthly').get(),
@@ -33,7 +46,7 @@ class UserProfilePage extends StatelessWidget {
       int? rank;
       for (var j = 0; j < entries.length; j++) {
         final e = entries[j];
-        if (e is Map && e['uid'] == uid) {
+        if (e is Map && e['uid'] == widget.uid) {
           rank = j + 1;
           break;
         }
@@ -54,15 +67,18 @@ class UserProfilePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final currentUid = FirebaseAuth.instance.currentUser?.uid;
-    final isOwn = currentUid == uid;
+    final isOwn = currentUid == widget.uid;
 
     return Scaffold(
       appBar: AppBar(title: Text(isOwn ? 'Your Profile' : 'Player Profile')),
       body: FutureBuilder<_ProfileData>(
-        future: _load(),
+        future: _profileFuture,
         builder: (context, snap) {
           if (snap.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator(color: postalRed));
+            return const Padding(
+              padding: EdgeInsets.only(bottom: kJamesStripClearance),
+              child: Center(child: CircularProgressIndicator(color: postalRed)),
+            );
           }
           if (snap.hasError || snap.data == null) {
             return Padding(
