@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:postbox_game/analytics_service.dart';
+import 'package:postbox_game/user_profile_page.dart';
 import 'package:postbox_game/theme.dart';
 
 /// Friends list and add-friend by UID.
@@ -324,6 +325,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
                           : '?';
                       return Card(
                         child: ListTile(
+                          onTap: () => Navigator.of(context).push(UserProfilePage.route(friendUid)),
                           leading: CircleAvatar(
                             backgroundColor: postalRed,
                             child: isLoading
