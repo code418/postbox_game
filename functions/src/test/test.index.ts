@@ -1114,3 +1114,45 @@ describe("getPeriodResetFields", () => {
     assert.strictEqual(fields.monthlyPoints, 0);
   });
 });
+
+import { updateFcmTokens, diffFriends } from "../_notifications";
+
+describe("updateFcmTokens", () => {
+  it("adds a token to an empty list", () => {
+    assert.deepStrictEqual(updateFcmTokens([], "tok1"), ["tok1"]);
+  });
+  it("deduplicates an existing token", () => {
+    assert.deepStrictEqual(updateFcmTokens(["tok1"], "tok1"), ["tok1"]);
+  });
+  it("appends a new token", () => {
+    assert.deepStrictEqual(updateFcmTokens(["a", "b"], "c"), ["a", "b", "c"]);
+  });
+  it("drops the oldest token when cap is exceeded", () => {
+    assert.deepStrictEqual(
+      updateFcmTokens(["a", "b", "c", "d", "e"], "f"),
+      ["b", "c", "d", "e", "f"]
+    );
+  });
+  it("result never exceeds the default cap of 5", () => {
+    const result = updateFcmTokens(["a", "b", "c", "d", "e"], "f");
+    assert.strictEqual(result.length, 5);
+  });
+});
+
+describe("diffFriends", () => {
+  it("returns empty array when lists are identical", () => {
+    assert.deepStrictEqual(diffFriends(["a", "b"], ["a", "b"]), []);
+  });
+  it("returns empty array when a friend is removed (not an addition)", () => {
+    assert.deepStrictEqual(diffFriends(["a", "b"], ["a"]), []);
+  });
+  it("returns the single newly-added UID", () => {
+    assert.deepStrictEqual(diffFriends(["a"], ["a", "b"]), ["b"]);
+  });
+  it("returns multiple newly-added UIDs", () => {
+    assert.deepStrictEqual(diffFriends([], ["a", "b"]), ["a", "b"]);
+  });
+  it("ignores UIDs already present in before", () => {
+    assert.deepStrictEqual(diffFriends(["x"], ["x", "y", "z"]), ["y", "z"]);
+  });
+});
