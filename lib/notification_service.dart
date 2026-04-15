@@ -67,6 +67,10 @@ class NotificationService {
     });
   }
 
+  /// Resets the initialisation guard so [init] re-registers on the next sign-in.
+  /// Call this when the user signs out.
+  static void reset() => _initialized = false;
+
   static Future<void> _registerToken(String token) async {
     try {
       await FirebaseFunctions.instance

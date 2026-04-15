@@ -72,11 +72,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _setNotifPref(String key, bool value) async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
+    final previous = _notifPrefs;
     setState(() => _notifPrefs = {..._notifPrefs, key: value});
-    await FirebaseFirestore.instance
-        .collection('users')
-        .doc(uid)
-        .update({'notificationPrefs.$key': value});
+    try {
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .update({'notificationPrefs.$key': value});
+    } catch (_) {
+      // Rollback optimistic update on write failure.
+      if (mounted) setState(() => _notifPrefs = previous);
+    }
   }
 
   Future<void> _editDisplayName() async {

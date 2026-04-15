@@ -76,6 +76,8 @@ class _PostboxGameState extends State<PostboxGame> {
             listener: (context, state) {
               if (state is Authenticated) {
                 NotificationService.init();
+              } else if (state is Unauthenticated) {
+                NotificationService.reset();
               }
             },
             builder: (BuildContext context, AuthenticationState? state) {

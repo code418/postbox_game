@@ -122,7 +122,8 @@ export async function notifyFriendOvertake(
       const fdata = doc.data();
       if (!fdata) return;
       const friendDaily = (fdata.dailyPoints as number | undefined) ?? 0;
-      if (newDailyPoints <= friendDaily) return;
+      // Only notify for genuine overtakes — skip friends who haven't scored yet.
+      if (friendDaily === 0 || newDailyPoints <= friendDaily) return;
       const prefs = fdata.notificationPrefs as
         | Record<string, boolean>
         | undefined;
