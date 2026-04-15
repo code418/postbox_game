@@ -213,7 +213,17 @@ export const startScoring = functions.https.onCall(async (request) => {
         const newUnique = ((d.uniquePostboxesClaimed as number | undefined) ?? 0) + uniqueIncrement;
         const newLifetimePoints = ((d.lifetimePoints as number | undefined) ?? 0) + lifetimePointsIncrement;
 
-        tx.set(userRef, { uniquePostboxesClaimed: newUnique, lifetimePoints: newLifetimePoints }, { merge: true });
+        tx.set(
+          userRef,
+          {
+            uniquePostboxesClaimed: newUnique,
+            lifetimePoints: newLifetimePoints,
+            dailyPoints: admin.firestore.FieldValue.increment(lifetimePointsIncrement),
+            weeklyPoints: admin.firestore.FieldValue.increment(lifetimePointsIncrement),
+            monthlyPoints: admin.firestore.FieldValue.increment(lifetimePointsIncrement),
+          },
+          { merge: true }
+        );
 
         const existingEntries = (lifetimeSnap.data()?.entries ?? []) as LifetimeLeaderboardEntry[];
         const updatedEntries = mergeLifetimeEntries(existingEntries, userid, displayName, newUnique, newLifetimePoints);
