@@ -3,7 +3,7 @@ import test from "firebase-functions-test";
 import * as myFunctions from "../index";
 import { getPoints } from "../_getPoints";
 import { getTodayLondon } from "../_dateUtils";
-import { getWeekStart, getMonthStart, getPeriodKey, mergePeriodEntries, mergeLifetimeEntries, updateUserLeaderboards } from "../_leaderboardUtils";
+import { getWeekStart, getMonthStart, getPeriodKey, mergePeriodEntries, mergeLifetimeEntries, updateUserLeaderboards, getPeriodResetFields } from "../_leaderboardUtils";
 import { setPrecision, getLatLng } from "../_lookupPostboxes";
 import { applyUserClaims } from "../_nearbyUtils";
 import { computeNewStreak } from "../_streakUtils";
@@ -1078,5 +1078,81 @@ describe("applyUserClaims", () => {
     assert.strictEqual(updatedPoints.min, 0);
     assert.strictEqual(updatedPoints.max, 0);
     assert.strictEqual(Object.keys(updatedCompass).length, 0);
+  });
+});
+
+describe("getPeriodResetFields", () => {
+  it("always resets dailyPoints", () => {
+    const fields = getPeriodResetFields("2026-04-15", "2026-04-13", "2026-04-01");
+    assert.strictEqual(fields.dailyPoints, 0);
+  });
+
+  it("does not reset weeklyPoints on a non-Monday", () => {
+    const fields = getPeriodResetFields("2026-04-15", "2026-04-13", "2026-04-01");
+    assert.strictEqual(fields.weeklyPoints, undefined);
+  });
+
+  it("resets weeklyPoints when today equals weekStart (Monday)", () => {
+    const fields = getPeriodResetFields("2026-04-14", "2026-04-14", "2026-04-01");
+    assert.strictEqual(fields.weeklyPoints, 0);
+  });
+
+  it("does not reset monthlyPoints mid-month", () => {
+    const fields = getPeriodResetFields("2026-04-15", "2026-04-13", "2026-04-01");
+    assert.strictEqual(fields.monthlyPoints, undefined);
+  });
+
+  it("resets monthlyPoints when today equals monthStart (1st)", () => {
+    const fields = getPeriodResetFields("2026-05-01", "2026-05-01", "2026-05-01");
+    assert.strictEqual(fields.monthlyPoints, 0);
+  });
+
+  it("resets both weeklyPoints and monthlyPoints on Monday the 1st", () => {
+    // 2026-06-01 is a Monday
+    const fields = getPeriodResetFields("2026-06-01", "2026-06-01", "2026-06-01");
+    assert.strictEqual(fields.weeklyPoints, 0);
+    assert.strictEqual(fields.monthlyPoints, 0);
+  });
+});
+
+import { updateFcmTokens, diffFriends } from "../_notifications";
+
+describe("updateFcmTokens", () => {
+  it("adds a token to an empty list", () => {
+    assert.deepStrictEqual(updateFcmTokens([], "tok1"), ["tok1"]);
+  });
+  it("deduplicates an existing token", () => {
+    assert.deepStrictEqual(updateFcmTokens(["tok1"], "tok1"), ["tok1"]);
+  });
+  it("appends a new token", () => {
+    assert.deepStrictEqual(updateFcmTokens(["a", "b"], "c"), ["a", "b", "c"]);
+  });
+  it("drops the oldest token when cap is exceeded", () => {
+    assert.deepStrictEqual(
+      updateFcmTokens(["a", "b", "c", "d", "e"], "f"),
+      ["b", "c", "d", "e", "f"]
+    );
+  });
+  it("result never exceeds the default cap of 5", () => {
+    const result = updateFcmTokens(["a", "b", "c", "d", "e"], "f");
+    assert.strictEqual(result.length, 5);
+  });
+});
+
+describe("diffFriends", () => {
+  it("returns empty array when lists are identical", () => {
+    assert.deepStrictEqual(diffFriends(["a", "b"], ["a", "b"]), []);
+  });
+  it("returns empty array when a friend is removed (not an addition)", () => {
+    assert.deepStrictEqual(diffFriends(["a", "b"], ["a"]), []);
+  });
+  it("returns the single newly-added UID", () => {
+    assert.deepStrictEqual(diffFriends(["a"], ["a", "b"]), ["b"]);
+  });
+  it("returns multiple newly-added UIDs", () => {
+    assert.deepStrictEqual(diffFriends([], ["a", "b"]), ["a", "b"]);
+  });
+  it("ignores UIDs already present in before", () => {
+    assert.deepStrictEqual(diffFriends(["x"], ["x", "y", "z"]), ["y", "z"]);
   });
 });

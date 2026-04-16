@@ -19,6 +19,7 @@ import 'package:firebase_app_check/firebase_app_check.dart';
 import 'firebase_options.dart';
 import 'secrets.dart';
 import 'analytics_service.dart';
+import 'package:postbox_game/notification_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -71,7 +72,14 @@ class _PostboxGameState extends State<PostboxGame> {
           darkTheme: AppTheme.dark,
           themeMode: ThemeMode.system,
           navigatorObservers: [Analytics.observer],
-          home: BlocBuilder<AuthenticationBloc, AuthenticationState?>(
+          home: BlocConsumer<AuthenticationBloc, AuthenticationState?>(
+            listener: (context, state) {
+              if (state is Authenticated) {
+                NotificationService.init();
+              } else if (state is Unauthenticated) {
+                NotificationService.reset();
+              }
+            },
             builder: (BuildContext context, AuthenticationState? state) {
               if (state is Uninitialized) {
                 return const Splash();

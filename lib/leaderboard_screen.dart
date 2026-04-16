@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:postbox_game/james_controller.dart';
 import 'package:postbox_game/james_messages.dart';
 import 'package:postbox_game/theme.dart';
+import 'package:postbox_game/user_profile_page.dart';
 
 /// Leaderboard with Daily, Weekly, Monthly, Lifetime tabs.
 /// Reads from Firestore leaderboards/{period}; backend aggregates via Cloud Function.
@@ -17,7 +18,8 @@ class LeaderboardScreen extends StatefulWidget {
 
 class _LeaderboardScreenState extends State<LeaderboardScreen>
     with SingleTickerProviderStateMixin {
-  static const List<String> _periods = ['daily', 'weekly', 'monthly', 'lifetime', 'friends'];
+  static const List<String> _periods = ['daily', 'weekly', 'monthly', 'lifetime'];
+  bool _friendsOnly = true;
   late final TabController _tabController;
 
   @override
@@ -36,13 +38,10 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
 
   void _onTabChanged() {
     if (_tabController.indexIsChanging) return;
-    final idx = _tabController.index;
-    if (idx == _periods.indexOf('lifetime')) {
+    if (!mounted) return;
+    if (_tabController.index == _periods.indexOf('lifetime')) {
       JamesController.of(context)
           ?.show(JamesMessages.navLifetimeScores.resolve());
-    } else if (idx == _periods.indexOf('friends')) {
-      JamesController.of(context)
-          ?.show(JamesMessages.navFriendsLeaderboard.resolve());
     }
   }
 
@@ -61,12 +60,38 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
                 .toList(),
           ),
         ),
+        // Friends-only toggle row
+        Padding(
+          padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.md, vertical: AppSpacing.xs),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Friends only',
+                  style: Theme.of(context).textTheme.bodyMedium),
+              Switch(
+                value: _friendsOnly,
+                activeColor: postalRed,
+                onChanged: (v) => setState(() => _friendsOnly = v),
+              ),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
         Expanded(
           child: TabBarView(
             controller: _tabController,
-            children: _periods.map((period) {
-              if (period == 'friends') return const _FriendsLeaderboardList();
-              return _LeaderboardList(period: period);
+            children: _periods.map<Widget>((period) {
+              if (_friendsOnly) {
+                return _FriendsPeriodList(
+                  key: ValueKey('friends_$period'),
+                  period: period,
+                );
+              }
+              return _LeaderboardList(
+                key: ValueKey('global_$period'),
+                period: period,
+              );
             }).toList(),
           ),
         ),
@@ -78,7 +103,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
 class _LeaderboardList extends StatefulWidget {
   final String period;
 
-  const _LeaderboardList({required this.period});
+  const _LeaderboardList({super.key, required this.period});
 
   @override
   State<_LeaderboardList> createState() => _LeaderboardListState();
@@ -249,6 +274,9 @@ class _LeaderboardListState extends State<_LeaderboardList> {
                     ? postalRed.withValues(alpha: 0.08)
                     : null,
                 child: ListTile(
+                  onTap: entryUid != null
+                      ? () => Navigator.of(context).push(UserProfilePage.route(entryUid))
+                      : null,
                   leading: _rankWidget(rank),
                   title: Text(
                     displayName,
@@ -303,17 +331,17 @@ class _LeaderboardListState extends State<_LeaderboardList> {
 }
 
 /// Leaderboard tab showing the current user alongside their friends,
-/// ranked by lifetime score. Fetches scores from user documents
+/// ranked by the given period's score. Fetches scores from user documents
 /// directly so all friends are visible regardless of global ranking.
-class _FriendsLeaderboardList extends StatefulWidget {
-  const _FriendsLeaderboardList();
+class _FriendsPeriodList extends StatefulWidget {
+  final String period;
+  const _FriendsPeriodList({super.key, required this.period});
 
   @override
-  State<_FriendsLeaderboardList> createState() =>
-      _FriendsLeaderboardListState();
+  State<_FriendsPeriodList> createState() => _FriendsPeriodListState();
 }
 
-class _FriendsLeaderboardListState extends State<_FriendsLeaderboardList> {
+class _FriendsPeriodListState extends State<_FriendsPeriodList> {
   final String? _currentUid = FirebaseAuth.instance.currentUser?.uid;
 
   int? _totalPostboxes;
@@ -327,11 +355,10 @@ class _FriendsLeaderboardListState extends State<_FriendsLeaderboardList> {
   // the FutureBuilder and never drives setState directly.
   Future<List<Map<String, dynamic>>>? _scoreFuture;
   Set<String> _lastFriendUids = const {};
-  // Track the current user's own lifetime scores so that the Friends
-  // leaderboard auto-refreshes after the user claims a postbox (their
-  // uniquePostboxesClaimed/lifetimePoints change in the user stream).
-  int _lastUniqueBoxes = -1;
-  int _lastLifetimePoints = -1;
+  // Track the current user's own period scores so that the Friends
+  // leaderboard auto-refreshes after the user claims a postbox.
+  int _lastPeriodScore = -1;
+  int _lastSecondaryScore = -1;
 
   @override
   void initState() {
@@ -364,10 +391,6 @@ class _FriendsLeaderboardListState extends State<_FriendsLeaderboardList> {
       ...friendUids,
     }.toList();
 
-    // Batch by 30 (Firestore whereIn limit). This reduces up to 200 individual
-    // reads to at most 7 batched queries — faster and cheaper than firing all
-    // reads in parallel. A failed batch is silently skipped so other batches
-    // still return results.
     const batchSize = 30;
     final allDocs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
     for (var i = 0; i < visibleUids.length; i += batchSize) {
@@ -379,28 +402,40 @@ class _FriendsLeaderboardListState extends State<_FriendsLeaderboardList> {
             .where(FieldPath.documentId, whereIn: batch)
             .get();
         allDocs.addAll(snap.docs);
-      } catch (_) {
-        // Silently skip this batch so other batches still appear.
-      }
+      } catch (_) {}
     }
+
+    final isLifetime = widget.period == 'lifetime';
+    final scoreField = switch (widget.period) {
+      'daily' => 'dailyPoints',
+      'weekly' => 'weeklyPoints',
+      'monthly' => 'monthlyPoints',
+      _ => 'uniquePostboxesClaimed', // lifetime
+    };
 
     final entries = allDocs
         .where((d) => d.exists)
         .map((d) => <String, dynamic>{
               'uid': d.id,
               'displayName': d.data()['displayName'] as String? ?? 'Unknown',
+              'score': (d.data()[scoreField] as num?)?.toInt() ?? 0,
               'uniquePostboxesClaimed':
                   (d.data()['uniquePostboxesClaimed'] as num?)?.toInt() ?? 0,
               'totalPoints':
                   (d.data()['lifetimePoints'] as num?)?.toInt() ?? 0,
             })
         .toList();
-    entries.sort((a, b) {
-      final ua = a['uniquePostboxesClaimed'] as int;
-      final ub = b['uniquePostboxesClaimed'] as int;
-      if (ub != ua) return ub - ua;
-      return (b['totalPoints'] as int) - (a['totalPoints'] as int);
-    });
+
+    if (isLifetime) {
+      entries.sort((a, b) {
+        final ua = a['uniquePostboxesClaimed'] as int;
+        final ub = b['uniquePostboxesClaimed'] as int;
+        if (ub != ua) return ub - ua;
+        return (b['totalPoints'] as int) - (a['totalPoints'] as int);
+      });
+    } else {
+      entries.sort((a, b) => (b['score'] as int) - (a['score'] as int));
+    }
     return entries;
   }
 
@@ -447,51 +482,24 @@ class _FriendsLeaderboardListState extends State<_FriendsLeaderboardList> {
                 .toSet() ??
             <String>{};
 
-        if (friendUids.isEmpty) {
-          return Padding(
-            padding: const EdgeInsets.only(bottom: kJamesStripClearance),
-            child: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.group_outlined,
-                      size: 72,
-                      color: Theme.of(context)
-                          .colorScheme
-                          .onSurface
-                          .withValues(alpha: 0.2)),
-                  const SizedBox(height: AppSpacing.md),
-                  Text('No friends yet',
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          )),
-                  const SizedBox(height: AppSpacing.xs),
-                  Text(
-                    'Add friends from the Friends tab to see how you compare.',
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        }
-
         // Trigger a new fetch when the friends list changes OR when the
-        // current user's own lifetime scores change (e.g. after claiming).
-        final myUniqueBoxes =
-            (userData?['uniquePostboxesClaimed'] as num?)?.toInt() ?? 0;
-        final myLifetimePoints =
+        // current user's own period scores change (e.g. after claiming).
+        final scoreField = switch (widget.period) {
+          'daily' => 'dailyPoints',
+          'weekly' => 'weeklyPoints',
+          'monthly' => 'monthlyPoints',
+          _ => 'uniquePostboxesClaimed',
+        };
+        final myPeriodScore = (userData?[scoreField] as num?)?.toInt() ?? 0;
+        final mySecondaryScore =
             (userData?['lifetimePoints'] as num?)?.toInt() ?? 0;
         final friendsChanged = !setEquals(_lastFriendUids, friendUids);
-        final scoresChanged = myUniqueBoxes != _lastUniqueBoxes ||
-            myLifetimePoints != _lastLifetimePoints;
+        final scoresChanged = myPeriodScore != _lastPeriodScore ||
+            mySecondaryScore != _lastSecondaryScore;
         if (friendsChanged || scoresChanged) {
           _lastFriendUids = friendUids;
-          _lastUniqueBoxes = myUniqueBoxes;
-          _lastLifetimePoints = myLifetimePoints;
+          _lastPeriodScore = myPeriodScore;
+          _lastSecondaryScore = mySecondaryScore;
           _scoreFuture = _fetchScores(friendUids);
         }
 
@@ -524,38 +532,37 @@ class _FriendsLeaderboardListState extends State<_FriendsLeaderboardList> {
               );
             }
 
-            final entries = snap.data ?? [];
+            final entries = snap.data!;
 
             if (entries.isEmpty) {
               return Padding(
                 padding: const EdgeInsets.only(bottom: kJamesStripClearance),
                 child: Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.leaderboard_outlined,
-                          size: 72,
-                          color: Theme.of(context)
-                              .colorScheme
-                              .onSurface
-                              .withValues(alpha: 0.2)),
-                      const SizedBox(height: AppSpacing.md),
-                      Text('No scores yet',
-                          style:
-                              Theme.of(context).textTheme.titleLarge?.copyWith(
-                                    fontWeight: FontWeight.bold,
-                                  )),
-                      const SizedBox(height: AppSpacing.xs),
-                      Text(
-                        'Start claiming postboxes to appear here.',
-                        textAlign: TextAlign.center,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .onSurfaceVariant,
-                            ),
-                      ),
-                    ],
+                  child: Padding(
+                    padding: const EdgeInsets.all(AppSpacing.lg),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.group_outlined,
+                            size: 48,
+                            color: Theme.of(context).colorScheme.onSurfaceVariant),
+                        const SizedBox(height: AppSpacing.md),
+                        Text(
+                          'No scores yet',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: AppSpacing.sm),
+                        Text(
+                          'Add friends from the Friends tab to see how you compare.',
+                          textAlign: TextAlign.center,
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurfaceVariant,
+                              ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               );
@@ -577,25 +584,32 @@ class _FriendsLeaderboardListState extends State<_FriendsLeaderboardList> {
                 itemBuilder: (context, index) {
                   final e = entries[index];
                   final rank = index + 1;
-                  final displayName =
-                      e['displayName'] as String? ?? 'Unknown';
+                  final displayName = e['displayName'] as String? ?? 'Unknown';
                   final entryUid = e['uid'] as String?;
-                  final isCurrentUser =
-                      entryUid != null && entryUid == _currentUid;
+                  final isCurrentUser = entryUid != null && entryUid == _currentUid;
+                  final isLifetime = widget.period == 'lifetime';
 
-                  final uniqueBoxes = e['uniquePostboxesClaimed'] as int;
-                  final totalPoints = e['totalPoints'] as int;
-                  final pctText = (_totalPostboxes != null && _totalPostboxes! > 0)
-                      ? ' (${(uniqueBoxes / _totalPostboxes! * 100).toStringAsFixed(3)}%)'
-                      : '';
-                  final trailingText =
-                      '$uniqueBoxes ${uniqueBoxes == 1 ? 'box' : 'boxes'}$pctText · $totalPoints pts';
+                  final String trailingText;
+                  if (isLifetime) {
+                    final uniqueBoxes = e['uniquePostboxesClaimed'] as int;
+                    final totalPoints = e['totalPoints'] as int;
+                    final pctText = (_totalPostboxes != null && _totalPostboxes! > 0)
+                        ? ' (${(uniqueBoxes / _totalPostboxes! * 100).toStringAsFixed(3)}%)'
+                        : '';
+                    trailingText =
+                        '$uniqueBoxes ${uniqueBoxes == 1 ? 'box' : 'boxes'}$pctText · $totalPoints pts';
+                  } else {
+                    final score = e['score'] as int;
+                    trailingText = '$score pts';
+                  }
 
                   return Card(
-                    color: isCurrentUser
-                        ? postalRed.withValues(alpha: 0.08)
-                        : null,
+                    color: isCurrentUser ? postalRed.withValues(alpha: 0.08) : null,
                     child: ListTile(
+                      onTap: entryUid != null
+                          ? () => Navigator.of(context)
+                              .push(UserProfilePage.route(entryUid))
+                          : null,
                       leading: _friendsRankWidget(rank),
                       title: Text(
                         displayName,
@@ -609,18 +623,12 @@ class _FriendsLeaderboardListState extends State<_FriendsLeaderboardList> {
                         trailingText,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context)
-                            .textTheme
-                            .titleSmall
-                            ?.copyWith(
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
                               color: isCurrentUser
                                   ? postalRed
-                                  : Theme.of(context)
-                                      .colorScheme
-                                      .onSurfaceVariant,
-                              fontWeight: isCurrentUser
-                                  ? FontWeight.bold
-                                  : FontWeight.normal,
+                                  : Theme.of(context).colorScheme.onSurfaceVariant,
+                              fontWeight:
+                                  isCurrentUser ? FontWeight.bold : FontWeight.normal,
                             ),
                       ),
                     ),

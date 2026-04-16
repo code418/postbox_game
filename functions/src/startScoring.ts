@@ -6,6 +6,7 @@ import { getTodayLondon } from "./_dateUtils";
 import { lookupPostboxes } from "./_lookupPostboxes";
 import { updateUserLeaderboards, mergeLifetimeEntries, LifetimeLeaderboardEntry } from "./_leaderboardUtils";
 import { computeNewStreak } from "./_streakUtils";
+import { notifyFriendsFirstClaim, notifyFriendOvertake } from "./_notifications";
 
 const database = admin.firestore();
 
@@ -191,6 +192,8 @@ export const startScoring = functions.https.onCall(async (request) => {
     // concurrent claim from another device could increment the counter
     // between our write and our read, causing the leaderboard to reflect
     // the other session's total instead of ours.
+    const lifetimePointsIncrement = earnedPoints.reduce((s, p) => s + p, 0);
+
     try {
       for (const r of uniqueCheckResults) {
         if (r.status === "rejected") {
@@ -200,7 +203,6 @@ export const startScoring = functions.https.onCall(async (request) => {
       const uniqueIncrement = uniqueCheckResults
         .filter((r) => r.status === "fulfilled")
         .reduce((a, r) => a + (r as PromiseFulfilledResult<number>).value, 0);
-      const lifetimePointsIncrement = earnedPoints.reduce((s, p) => s + p, 0);
 
       const lifetimeRef = database.collection("leaderboards").doc("lifetime");
 
@@ -213,7 +215,17 @@ export const startScoring = functions.https.onCall(async (request) => {
         const newUnique = ((d.uniquePostboxesClaimed as number | undefined) ?? 0) + uniqueIncrement;
         const newLifetimePoints = ((d.lifetimePoints as number | undefined) ?? 0) + lifetimePointsIncrement;
 
-        tx.set(userRef, { uniquePostboxesClaimed: newUnique, lifetimePoints: newLifetimePoints }, { merge: true });
+        tx.set(
+          userRef,
+          {
+            uniquePostboxesClaimed: newUnique,
+            lifetimePoints: newLifetimePoints,
+            dailyPoints: admin.firestore.FieldValue.increment(lifetimePointsIncrement),
+            weeklyPoints: admin.firestore.FieldValue.increment(lifetimePointsIncrement),
+            monthlyPoints: admin.firestore.FieldValue.increment(lifetimePointsIncrement),
+          },
+          { merge: true }
+        );
 
         const existingEntries = (lifetimeSnap.data()?.entries ?? []) as LifetimeLeaderboardEntry[];
         const updatedEntries = mergeLifetimeEntries(existingEntries, userid, displayName, newUnique, newLifetimePoints);
@@ -222,6 +234,26 @@ export const startScoring = functions.https.onCall(async (request) => {
     } catch (lifetimeErr) {
       console.error("lifetime leaderboard update failed (non-fatal):", lifetimeErr);
     }
+
+    // Fire-and-forget social notifications — not awaited so claim latency is
+    // unaffected. userClaimsSnap.docs.length === 0 means this is the user's
+    // first claim of the day.
+    void (async () => {
+      try {
+        const isFirstClaimToday = userClaimsSnap.docs.length === 0;
+        const prevDailyPoints =
+          (userDoc.data()?.dailyPoints as number | undefined) ?? 0;
+        const newDailyPoints = prevDailyPoints + lifetimePointsIncrement;
+        await Promise.allSettled([
+          ...(isFirstClaimToday
+            ? [notifyFriendsFirstClaim(userid, displayName)]
+            : []),
+          notifyFriendOvertake(userid, displayName, newDailyPoints),
+        ]);
+      } catch (notifErr) {
+        console.error("notification error (non-fatal):", notifErr);
+      }
+    })();
   }
 
   return {

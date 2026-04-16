@@ -22,7 +22,15 @@ export const onUserCreated = functions.auth.user().onCreate(async (user) => {
   // it is only accessible via Firebase Auth to prevent other authenticated
   // users from reading it through friend/leaderboard name lookups.
   await admin.firestore().collection("users").doc(user.uid).set(
-    { displayName, createdAt: admin.firestore.Timestamp.now() },
+    {
+      displayName,
+      createdAt: admin.firestore.Timestamp.now(),
+      notificationPrefs: {
+        friendFirstScore: true,
+        friendOvertakes: true,
+        addedAsFriend: true,
+      },
+    },
     { merge: true }
   );
 });
