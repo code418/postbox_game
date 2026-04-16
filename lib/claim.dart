@@ -5,16 +5,20 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:confetti/confetti.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/app_preferences.dart';
 import 'package:postbox_game/james_controller.dart';
 import 'package:postbox_game/james_messages.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:postbox_game/location_service.dart';
 import 'package:postbox_game/monarch_info.dart';
-import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/streak_service.dart';
 import 'package:postbox_game/theme.dart';
+import 'package:postbox_game/widgets/postbox_map.dart';
+import 'package:postbox_game/widgets/postbox_marker.dart';
 
 enum ClaimStage { initial, searching, results, empty, quiz, quizFailed, claimed }
 
@@ -25,7 +29,7 @@ class Claim extends StatefulWidget {
   ClaimState createState() => ClaimState();
 }
 
-class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
+class ClaimState extends State<Claim> with TickerProviderStateMixin {
   int _count = 0;
   int _maxPoints = 0;
   int _minPoints = 0;
@@ -38,11 +42,14 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
   int _pointsEarned = 0;
   int _claimedCount = 0;
   bool _isClaiming = false;
+  Position? _scanPosition;
 
   ClaimStage currentStage = ClaimStage.initial;
 
   late AnimationController _successController;
   late Animation<double> _successScale;
+  late AnimationController _pulseController;
+  late Animation<double> _pulseAnim;
   late ConfettiController _confettiController;
   // Cached so StreamBuilder doesn't re-subscribe on every rebuild.
   late final Stream<int?> _streakStream = _streakService.streakStream();
@@ -59,6 +66,11 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
       curve: Curves.elasticOut,
     );
     _confettiController = ConfettiController(duration: const Duration(seconds: 3));
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..repeat(reverse: true);
+    _pulseAnim = CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut);
     AppPreferences.getDistanceUnit().then((unit) {
       if (mounted) setState(() => _distanceUnit = unit);
     });
@@ -67,6 +79,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
   @override
   void dispose() {
     _successController.dispose();
+    _pulseController.dispose();
     _confettiController.dispose();
     super.dispose();
   }
@@ -86,6 +99,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
     try {
       _distanceUnit = await AppPreferences.getDistanceUnit();
       final position = await getPosition();
+      if (mounted) setState(() => _scanPosition = position);
       final result = await _callable.call(<String, dynamic>{
         'lat': position.latitude,
         'lng': position.longitude,
@@ -321,6 +335,69 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
     }
   }
 
+  Widget _claimRadiusMap(Position position, {bool scanning = false, bool success = false}) {
+    final center = LatLng(position.latitude, position.longitude);
+    if (scanning) {
+      return AnimatedBuilder(
+        animation: _pulseAnim,
+        builder: (_, __) {
+          final alpha = 0.35 + _pulseAnim.value * 0.45;
+          final strokeWidth = 2.0 + _pulseAnim.value * 3.0;
+          return Card(
+            clipBehavior: Clip.antiAlias,
+            child: SizedBox(
+              height: 180,
+              child: PostboxMap(
+                center: center,
+                zoom: 17,
+                interactionOptions: const InteractionOptions(flags: InteractiveFlag.none),
+                circleMarkers: [
+                  CircleMarker(
+                    point: center,
+                    radius: AppPreferences.claimRadiusMeters,
+                    useRadiusInMeter: true,
+                    color: postalRed.withValues(alpha: 0.1),
+                    borderColor: postalRed.withValues(alpha: 0.4 + alpha * 0.5),
+                    borderStrokeWidth: strokeWidth,
+                  ),
+                ],
+                markers: [userPositionMarker(center)],
+                bottomPadding: 0,
+              ),
+            ),
+          );
+        },
+      );
+    }
+    final borderColor = success
+        ? postalGold.withValues(alpha: 0.7)
+        : Colors.grey.withValues(alpha: 0.5);
+    final fillColor = success ? postalGold : Colors.grey;
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: SizedBox(
+        height: 180,
+        child: PostboxMap(
+          center: center,
+          zoom: 17,
+          interactionOptions: const InteractionOptions(flags: InteractiveFlag.none),
+          circleMarkers: [
+            CircleMarker(
+              point: center,
+              radius: AppPreferences.claimRadiusMeters,
+              useRadiusInMeter: true,
+              color: fillColor.withValues(alpha: 0.12),
+              borderColor: borderColor,
+              borderStrokeWidth: 3,
+            ),
+          ],
+          markers: [userPositionMarker(center)],
+          bottomPadding: 0,
+        ),
+      ),
+    );
+  }
+
   Widget _buildAllClaimedBanner(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(
@@ -507,17 +584,21 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
   }
 
   Widget _buildSearching(BuildContext context) {
+    final pos = _scanPosition;
     return Padding(
-      padding: const EdgeInsets.only(bottom: kJamesStripClearance),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const CircularProgressIndicator(color: postalRed),
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.md, AppSpacing.lg, AppSpacing.md, kJamesStripClearance),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          if (pos != null) ...[
+            _claimRadiusMap(pos, scanning: true),
             const SizedBox(height: AppSpacing.md),
-            Text('Scanning within ${AppPreferences.formatShortDistance(AppPreferences.claimRadiusMeters, _distanceUnit)}...'),
           ],
-        ),
+          const CircularProgressIndicator(color: postalRed),
+          const SizedBox(height: AppSpacing.md),
+          Text('Scanning within ${AppPreferences.formatShortDistance(AppPreferences.claimRadiusMeters, _distanceUnit)}...'),
+        ],
       ),
     );
   }
@@ -536,6 +617,10 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            if (_scanPosition != null) ...[
+              _claimRadiusMap(_scanPosition!),
+              const SizedBox(height: AppSpacing.md),
+            ],
             Icon(Icons.location_off, size: 80,
                 color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.2)),
             const SizedBox(height: AppSpacing.md),
@@ -583,6 +668,13 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
             bottom: 164,
           ),
           children: [
+            if (_scanPosition != null) ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.md, 0, AppSpacing.md, AppSpacing.sm),
+                child: _claimRadiusMap(_scanPosition!, success: _claimedToday < _count),
+              ),
+            ],
             _summaryCard(context),
             const SizedBox(height: AppSpacing.sm),
             Padding(
