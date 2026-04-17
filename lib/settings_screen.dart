@@ -78,7 +78,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       await FirebaseFirestore.instance
           .collection('users')
           .doc(uid)
-          .update({'notificationPrefs.$key': value});
+          .set({'notificationPrefs': {key: value}}, SetOptions(merge: true));
     } catch (_) {
       // Rollback optimistic update on write failure.
       if (mounted) setState(() => _notifPrefs = previous);
