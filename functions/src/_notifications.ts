@@ -192,8 +192,6 @@ export const onFriendAdded = functionsV1.firestore
     const after: string[] =
       (change.after.data()?.friends as string[] | undefined) ?? [];
 
-    if (after.length <= before.length) return;
-
     const newFriends = diffFriends(before, after);
     if (newFriends.length === 0) return;
 
