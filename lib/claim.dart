@@ -120,6 +120,10 @@ class ClaimState extends State<Claim> with TickerProviderStateMixin {
           minPoints: _minPoints,
           maxPoints: _maxPoints,
         );
+        if (mounted && _claimedToday == _count) {
+          JamesController.of(context)
+              ?.show(JamesMessages.claimErrorAlreadyClaimed.resolve());
+        }
       } else {
         Analytics.scanEmpty();
         if (mounted) {
