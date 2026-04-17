@@ -573,6 +573,7 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
   const wrappedNearby = testEnv.wrap(myFunctions.nearbyPostboxes) as (data: unknown, context?: unknown) => Promise<unknown>;
   const wrappedStartScoring = testEnv.wrap(myFunctions.startScoring) as (data: unknown, context?: unknown) => Promise<unknown>;
   const wrappedUpdateDisplayName = testEnv.wrap(myFunctions.updateDisplayName) as (data: unknown, context?: unknown) => Promise<unknown>;
+  const wrappedRegisterFcmToken = testEnv.wrap(myFunctions.registerFcmToken) as (data: unknown, context?: unknown) => Promise<unknown>;
 
   after(() => {
     testEnv.cleanup();
@@ -862,6 +863,52 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
             err.code !== "internal") {
           throw e;
         }
+      }
+    });
+  });
+
+  describe("registerFcmToken (onCall)", () => {
+    it("should throw unauthenticated when no auth context", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      const req = { data: { token: "some-fcm-token" } };
+      try {
+        await wrappedRegisterFcmToken(req);
+        assert.fail("Expected unauthenticated error");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "unauthenticated");
+      }
+    });
+
+    it("should throw invalid-argument when token is missing", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      const req = { data: {}, auth: { uid: "test-uid" } };
+      try {
+        await wrappedRegisterFcmToken(req);
+        assert.fail("Expected invalid-argument error");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("should throw invalid-argument when token is empty string", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      const req = { data: { token: "" }, auth: { uid: "test-uid" } };
+      try {
+        await wrappedRegisterFcmToken(req);
+        assert.fail("Expected invalid-argument error");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("should throw invalid-argument when token is not a string", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      const req = { data: { token: 12345 }, auth: { uid: "test-uid" } };
+      try {
+        await wrappedRegisterFcmToken(req);
+        assert.fail("Expected invalid-argument error");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
       }
     });
   });
