@@ -47,7 +47,7 @@ async function rebuildPeriodLeaderboard(
   for (const doc of claimsSnap.docs) {
     const d = doc.data();
     const uid = d.userid as string;
-    const pts = (d.points as number) ?? 0;
+    const pts = (d.points as number | undefined) ?? 0;
     userPoints.set(uid, (userPoints.get(uid) ?? 0) + pts);
   }
 

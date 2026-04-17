@@ -49,7 +49,7 @@ export const nearbyPostboxes = functions.https.onCall(async (request) => {
     userClaimsSnap.docs
       .map(d => d.data().postboxes as string | undefined)
       .filter((ref): ref is string => typeof ref === "string")
-      .map(ref => ref.replace("/postbox/", ""))
+      .map(ref => ref.replace(/^\/postbox\//, ""))
   );
 
   const { slimPostboxes, updatedCounts, updatedPoints, updatedCompass } =
