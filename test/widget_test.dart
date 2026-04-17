@@ -29,6 +29,31 @@ Future<void> setupFirebaseMocks() async {
   await Firebase.initializeApp();
 }
 
+// Mirrors the private London-date logic in streak_service.dart so tests can
+// assert on "today" / "yesterday" without pinning to a hard-coded date.
+String _fmtLondon(DateTime utc) {
+  final offset = _isBst(utc) ? const Duration(hours: 1) : Duration.zero;
+  final london = utc.add(offset);
+  final y = london.year.toString().padLeft(4, '0');
+  final m = london.month.toString().padLeft(2, '0');
+  final d = london.day.toString().padLeft(2, '0');
+  return '$y-$m-$d';
+}
+
+bool _isBst(DateTime utc) {
+  final year = utc.year;
+  final bstStart = _lastSundayOfMonthUtcAt01(year, 3);
+  final bstEnd = _lastSundayOfMonthUtcAt01(year, 10);
+  return !utc.isBefore(bstStart) && utc.isBefore(bstEnd);
+}
+
+DateTime _lastSundayOfMonthUtcAt01(int year, int month) {
+  final lastDay = DateTime.utc(year, month + 1, 0);
+  final offsetToSunday = lastDay.weekday % 7;
+  final sunday = lastDay.subtract(Duration(days: offsetToSunday));
+  return DateTime.utc(sunday.year, sunday.month, sunday.day, 1);
+}
+
 // ---------------------------------------------------------------------------
 // Widget-level smoke tests
 // ---------------------------------------------------------------------------
@@ -275,6 +300,14 @@ void main() {
       uid = mockAuth.currentUser!.uid;
     });
 
+    // streakStream reports 0 when lastClaimDate is older than yesterday
+    // (London time) to reflect a broken streak before the next claim overwrites
+    // the stored value server-side. These helpers mirror the private London-date
+    // logic in streak_service.dart so the tests stay in sync with "today".
+    String todayLondon() => _fmtLondon(DateTime.now().toUtc());
+    String yesterdayLondon() => _fmtLondon(
+        DateTime.now().toUtc().subtract(const Duration(days: 1)));
+
     // Streak writes (lastClaimDate, streak) are performed server-side in
     // startScoring (Admin SDK) because Firestore rules restrict client writes
     // on users/{uid} to the friends array only. Only the read-side (streakStream)
@@ -294,7 +327,7 @@ void main() {
       await fakeFirestore
           .collection('users')
           .doc(uid)
-          .set({'streak': 7, 'lastClaimDate': '2026-01-01'});
+          .set({'streak': 7, 'lastClaimDate': todayLondon()});
 
       final value = await streakService.streakStream().first;
       expect(value, equals(7));
@@ -315,11 +348,48 @@ void main() {
       await fakeFirestore
           .collection('users')
           .doc(uid)
-          .set({'streak': 3.0, 'lastClaimDate': '2026-01-01'});
+          .set({'streak': 3.0, 'lastClaimDate': todayLondon()});
 
       final value = await streakService.streakStream().first;
       expect(value, equals(3));
       expect(value, isA<int>());
+    });
+
+    test('streakStream returns stored streak when last claim was yesterday',
+        () async {
+      await fakeFirestore
+          .collection('users')
+          .doc(uid)
+          .set({'streak': 4, 'lastClaimDate': yesterdayLondon()});
+
+      final value = await streakService.streakStream().first;
+      expect(value, equals(4));
+    });
+
+    test('streakStream returns 0 when last claim is older than yesterday',
+        () async {
+      // A user who last claimed three days ago has a broken streak; the UI
+      // must reflect that immediately rather than showing the stale value.
+      await fakeFirestore
+          .collection('users')
+          .doc(uid)
+          .set({'streak': 9, 'lastClaimDate': '2024-06-01'});
+
+      final value = await streakService.streakStream().first;
+      expect(value, equals(0));
+    });
+
+    test('streakStream returns 0 when lastClaimDate is missing but streak set',
+        () async {
+      // Defensive: if streak is present without lastClaimDate we cannot verify
+      // freshness so treat the streak as broken.
+      await fakeFirestore
+          .collection('users')
+          .doc(uid)
+          .set({'streak': 5});
+
+      final value = await streakService.streakStream().first;
+      expect(value, equals(0));
     });
   });
 
