@@ -73,6 +73,9 @@ class NotificationService {
 
   /// Resets the initialisation guard so [init] re-registers on the next sign-in.
   /// Cancels active FCM listeners to prevent duplicates across sign-in cycles.
+  /// Deletes the FCM token so it is no longer deliverable to the signed-out
+  /// user's account — FCM will return not-registered on the next delivery
+  /// attempt, triggering stale-token pruning on the backend.
   /// Call this when the user signs out.
   static Future<void> reset() async {
     await _tokenRefreshSub?.cancel();
@@ -80,6 +83,11 @@ class NotificationService {
     _tokenRefreshSub = null;
     _onMessageSub = null;
     _initialized = false;
+    try {
+      await FirebaseMessaging.instance.deleteToken();
+    } catch (_) {
+      // Token deletion is best-effort; failure does not block sign-out.
+    }
   }
 
   static Future<void> _registerToken(String token) async {
