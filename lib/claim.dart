@@ -123,6 +123,12 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
             : JamesMessages.claimErrorGeneral.resolve(),
       );
       setState(() => currentStage = ClaimStage.initial);
+    } on TimeoutException {
+      _showErrorSnackBar(
+          'GPS signal timed out. Move to an open area and try again.');
+      if (!mounted) return;
+      JamesController.of(context)?.show(JamesMessages.claimErrorGeneral.resolve());
+      setState(() => currentStage = ClaimStage.initial);
     } catch (e) {
       debugPrint('Error scanning: $e');
       final raw = e.toString();

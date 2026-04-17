@@ -144,6 +144,17 @@ class NearbyState extends State<Nearby> {
         ),
       );
       setState(() => currentStage = NearbyStage.initial);
+    } on TimeoutException {
+      if (!mounted) return;
+      JamesController.of(context)?.show(JamesMessages.nearbyErrorGeneral.resolve());
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text(
+              'GPS signal timed out. Move to an open area and try again.'),
+          backgroundColor: Colors.red.shade700,
+        ),
+      );
+      setState(() => currentStage = NearbyStage.initial);
     } catch (e) {
       debugPrint('Error: $e');
       if (!mounted) return;
