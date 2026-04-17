@@ -40,9 +40,18 @@ class _UserProfilePageState extends State<UserProfilePage> {
     final userData = userSnap.data() ?? {};
 
     final periods = ['daily', 'weekly', 'monthly', 'lifetime'];
+    final today = todayLondon();
     final Map<String, int?> ranks = {};
     for (var i = 0; i < periods.length; i++) {
       final lbSnap = results[i + 1];
+      // Skip stale leaderboards (periodKey mismatch) so a delayed or failed
+      // newDayScoreboard doesn't surface yesterday's rankings as today's.
+      final storedPeriodKey = lbSnap.data()?['periodKey'] as String?;
+      final expectedKey = expectedPeriodKey(periods[i], today);
+      if (expectedKey != null && storedPeriodKey != expectedKey) {
+        ranks[periods[i]] = null;
+        continue;
+      }
       final entries = lbSnap.data()?['entries'] as List<dynamic>? ?? [];
       int? rank;
       for (var j = 0; j < entries.length; j++) {
@@ -60,7 +69,6 @@ class _UserProfilePageState extends State<UserProfilePage> {
     // otherwise show the old value until that happens.
     final storedStreak = (userData['streak'] as num?)?.toInt() ?? 0;
     final lastClaimDate = userData['lastClaimDate'] as String?;
-    final today = todayLondon();
     final yesterday = yesterdayLondon();
     final streak = (storedStreak > 0 &&
             (lastClaimDate == today || lastClaimDate == yesterday))

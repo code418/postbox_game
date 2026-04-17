@@ -180,7 +180,17 @@ class _LeaderboardListState extends State<_LeaderboardList>
           );
         }
         final data = snapshot.data!.data();
-        final entries = data?['entries'] as List<dynamic>? ?? [];
+        // Discard entries if the stored periodKey is stale (e.g.
+        // newDayScoreboard failed or hasn't yet run at midnight London).
+        // Without this, yesterday's rankings would linger on Daily until the
+        // first claim of today triggers the server-side periodKey reset.
+        final storedPeriodKey = data?['periodKey'] as String?;
+        final expectedKey = expectedPeriodKey(widget.period, todayLondon());
+        final keyMatches =
+            expectedKey == null || storedPeriodKey == expectedKey;
+        final entries = keyMatches
+            ? (data?['entries'] as List<dynamic>? ?? [])
+            : const <dynamic>[];
         if (entries.isEmpty) {
           return Padding(
             padding: const EdgeInsets.only(bottom: kJamesStripClearance),

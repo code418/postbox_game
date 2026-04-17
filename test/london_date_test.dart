@@ -31,4 +31,22 @@ void main() {
       expect(monthStartLondon('2026-02-28'), '2026-02-01');
     });
   });
+
+  group('expectedPeriodKey', () {
+    test('daily returns today', () {
+      expect(expectedPeriodKey('daily', '2026-04-17'), '2026-04-17');
+    });
+    test('weekly returns week:<Monday>', () {
+      expect(expectedPeriodKey('weekly', '2026-04-17'), 'week:2026-04-13');
+    });
+    test('monthly returns month:<YYYY-MM>', () {
+      expect(expectedPeriodKey('monthly', '2026-04-17'), 'month:2026-04');
+    });
+    test('lifetime returns lifetime', () {
+      expect(expectedPeriodKey('lifetime', '2026-04-17'), 'lifetime');
+    });
+    test('unknown period returns null', () {
+      expect(expectedPeriodKey('yearly', '2026-04-17'), isNull);
+    });
+  });
 }

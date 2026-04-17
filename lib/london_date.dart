@@ -31,6 +31,24 @@ String weekStartLondon(String today) {
 /// Returns YYYY-MM-DD of the 1st of the month containing [today].
 String monthStartLondon(String today) => '${today.substring(0, 7)}-01';
 
+/// Expected `periodKey` for the leaderboard doc of the given [period]
+/// (`daily`/`weekly`/`monthly`/`lifetime`) on [today]. Mirrors `getPeriodKey`
+/// in `functions/src/_leaderboardUtils.ts`; used by clients to detect stale
+/// leaderboard snapshots if `newDayScoreboard` is delayed or has failed.
+String? expectedPeriodKey(String period, String today) {
+  switch (period) {
+    case 'daily':
+      return today;
+    case 'weekly':
+      return 'week:${weekStartLondon(today)}';
+    case 'monthly':
+      return 'month:${today.substring(0, 7)}';
+    case 'lifetime':
+      return 'lifetime';
+  }
+  return null;
+}
+
 /// Formats [utc] as a Europe/London date string `YYYY-MM-DD`.
 String formatLondon(DateTime utc) {
   final offset = _isBst(utc) ? const Duration(hours: 1) : Duration.zero;
