@@ -136,10 +136,15 @@ class NearbyState extends State<Nearby> {
       } else {
         Analytics.nearbyEmpty();
       }
-      final box = _count == 1 ? 'postbox' : 'postboxes';
-      final msg = _count > 0
-          ? JamesMessages.nearbyFound(_count, box)
-          : JamesMessages.nearbyNoneFound.resolve();
+      final String msg;
+      if (_count == 0) {
+        msg = JamesMessages.nearbyNoneFound.resolve();
+      } else if (_claimedToday == _count) {
+        msg = JamesMessages.claimErrorAlreadyClaimed.resolve();
+      } else {
+        final box = _count == 1 ? 'postbox' : 'postboxes';
+        msg = JamesMessages.nearbyFound(_count, box);
+      }
       if (mounted) JamesController.of(context)?.show(msg);
     } on FirebaseFunctionsException catch (e) {
       debugPrint('Firebase functions error: ${e.code} ${e.message}');

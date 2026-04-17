@@ -19,6 +19,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
   final _uidController = TextEditingController();
   final _firestore = FirebaseFirestore.instance;
   bool _isAdding = false;
+  final Set<String> _removingUids = {};
 
   // Cache name lookups so FutureBuilder doesn't re-fetch on every rebuild.
   final Map<String, Future<DocumentSnapshot<Map<String, dynamic>>>> _nameCache = {};
@@ -119,8 +120,10 @@ class _FriendsScreenState extends State<FriendsScreen> {
   }
 
   Future<void> _removeFriend(String friendUid) async {
+    if (_removingUids.contains(friendUid)) return;
     final uid = _currentUid;
     if (uid == null) return;
+    setState(() => _removingUids.add(friendUid));
     try {
       await _firestore.collection('users').doc(uid).update({
         'friends': FieldValue.arrayRemove([friendUid]),
@@ -139,6 +142,8 @@ class _FriendsScreenState extends State<FriendsScreen> {
           const SnackBar(content: Text('Failed to remove friend. Please try again.')),
         );
       }
+    } finally {
+      if (mounted) setState(() => _removingUids.remove(friendUid));
     }
   }
 
