@@ -1155,4 +1155,10 @@ describe("diffFriends", () => {
   it("ignores UIDs already present in before", () => {
     assert.deepStrictEqual(diffFriends(["x"], ["x", "y", "z"]), ["y", "z"]);
   });
+  it("detects new friend even when list length is unchanged (simultaneous add+remove)", () => {
+    // This is the edge case that the removed `after.length <= before.length`
+    // guard would have incorrectly silenced: removing "a" and adding "c"
+    // leaves length == 2, but "c" is still a new friend who should be notified.
+    assert.deepStrictEqual(diffFriends(["a", "b"], ["b", "c"]), ["c"]);
+  });
 });
