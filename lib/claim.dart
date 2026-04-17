@@ -337,6 +337,10 @@ class ClaimState extends State<Claim> with TickerProviderStateMixin {
       );
       HapticFeedback.heavyImpact();
       setState(() => currentStage = ClaimStage.quizFailed);
+      if (mounted) {
+        JamesController.of(context)
+            ?.show(JamesMessages.quizFailed.resolve());
+      }
     }
   }
 

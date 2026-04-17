@@ -224,6 +224,18 @@ abstract final class JamesMessages {
     ],
   );
 
+  // ── Quiz ─────────────────────────────────────────────────────────────────
+
+  static const quizFailed = JamesMessage(
+    'jamesQuizFailed',
+    [
+      "Not quite. Have another look at the cipher on the postbox.",
+      "Ooh, unlucky. The cipher is the emblem stamped on the front.",
+      "That's not it. Each monarch had their own design... worth a second look.",
+      "Wrong answer, I'm afraid. Don't worry, the postbox isn't going anywhere.",
+    ],
+  );
+
   // ── Intro dialogue ───────────────────────────────────────────────────────
 
   static const introStep2 = JamesMessage(
