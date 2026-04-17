@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/material.dart';
 import 'package:postbox_game/james_controller.dart';
 import 'package:postbox_game/james_messages.dart';
+import 'package:postbox_game/london_date.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/user_profile_page.dart';
 
@@ -428,12 +429,34 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList>
       _ => 'uniquePostboxesClaimed', // lifetime
     };
 
+    // Compute the start of the current period (London time) so we can zero out
+    // stale stored totals from a prior period — e.g. a friend who claimed
+    // yesterday still has dailyPoints>0 until newDayScoreboard runs at
+    // midnight, which would otherwise inflate today's friends leaderboard.
+    // The server-side startScoring SETs (not increments) on first-of-period,
+    // so a valid lastClaimDate within the period means the stored score is
+    // trustworthy. Lifetime fields are cumulative and never need zeroing.
+    final String? periodStart = switch (widget.period) {
+      'daily' => todayLondon(),
+      'weekly' => weekStartLondon(todayLondon()),
+      'monthly' => monthStartLondon(todayLondon()),
+      _ => null,
+    };
+
+    int scoreFor(Map<String, dynamic> data) {
+      final stored = (data[scoreField] as num?)?.toInt() ?? 0;
+      if (periodStart == null) return stored;
+      final lastClaim = data['lastClaimDate'] as String?;
+      if (lastClaim == null || lastClaim.compareTo(periodStart) < 0) return 0;
+      return stored;
+    }
+
     final entries = allDocs
         .where((d) => d.exists)
         .map((d) => <String, dynamic>{
               'uid': d.id,
               'displayName': d.data()['displayName'] as String? ?? 'Unknown',
-              'score': (d.data()[scoreField] as num?)?.toInt() ?? 0,
+              'score': scoreFor(d.data()),
               'uniquePostboxesClaimed':
                   (d.data()['uniquePostboxesClaimed'] as num?)?.toInt() ?? 0,
               'totalPoints':

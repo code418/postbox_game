@@ -12,6 +12,25 @@ String todayLondon() => formatLondon(DateTime.now().toUtc());
 String yesterdayLondon() =>
     formatLondon(DateTime.now().toUtc().subtract(const Duration(days: 1)));
 
+/// Returns YYYY-MM-DD of the Monday of the week containing [today].
+/// Mirrors `getWeekStart` in `functions/src/_leaderboardUtils.ts`.
+String weekStartLondon(String today) {
+  final d = DateTime.utc(
+      int.parse(today.substring(0, 4)),
+      int.parse(today.substring(5, 7)),
+      int.parse(today.substring(8, 10)));
+  final day = d.weekday; // 1=Mon..7=Sun
+  final diff = day == 7 ? -6 : 1 - day;
+  final mon = d.add(Duration(days: diff));
+  final y = mon.year.toString().padLeft(4, '0');
+  final m = mon.month.toString().padLeft(2, '0');
+  final dd = mon.day.toString().padLeft(2, '0');
+  return '$y-$m-$dd';
+}
+
+/// Returns YYYY-MM-DD of the 1st of the month containing [today].
+String monthStartLondon(String today) => '${today.substring(0, 7)}-01';
+
 /// Formats [utc] as a Europe/London date string `YYYY-MM-DD`.
 String formatLondon(DateTime utc) {
   final offset = _isBst(utc) ? const Duration(hours: 1) : Duration.zero;
