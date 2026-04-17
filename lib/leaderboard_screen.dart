@@ -384,7 +384,7 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList>
           .doc(_currentUid)
           .snapshots();
     }
-    _loadTotalPostboxes();
+    if (widget.period == 'lifetime') _loadTotalPostboxes();
   }
 
   Future<void> _loadTotalPostboxes() async {
