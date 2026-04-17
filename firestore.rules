@@ -28,8 +28,9 @@ service cloud.firestore {
       allow read: if request.auth != null;
       // The friends array and notificationPrefs map are the only fields clients
       // may modify on their own document. All other fields (displayName, streak,
-      // lastClaimDate, createdAt, fcmTokens, points) are written by Cloud Functions
-      // using the Admin SDK, which bypasses these rules.
+      // lastClaimDate, createdAt, points) are written by Cloud Functions using
+      // the Admin SDK, which bypasses these rules. FCM tokens live in the
+      // separate fcmTokens/{uid} collection to avoid exposure here.
       // friends is capped at 200 entries to prevent O(n) leaderboard read abuse.
       // notificationPrefs must be a map (type-validated to prevent garbage writes).
       allow update: if request.auth != null && request.auth.uid == uid
@@ -59,6 +60,16 @@ service cloud.firestore {
     // compute lifetime leaderboard percentages. Written by import scripts only.
     match /meta/{docId} {
       allow read: if request.auth != null;
+      allow write: if false;
+    }
+
+    // ── fcmTokens collection ─────────────────────────────────────────────────
+    // Stores FCM device tokens separate from the world-readable users collection
+    // so that tokens are not exposed to other authenticated users. Written
+    // exclusively by the registerFcmToken Cloud Function (Admin SDK).
+    // Users may only read their own token document.
+    match /fcmTokens/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
       allow write: if false;
     }
 

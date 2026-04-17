@@ -30,10 +30,14 @@ export function diffFriends(before: string[], after: string[]): string[] {
 /**
  * Sends a push notification to all valid FCM tokens registered for `uid`.
  * Prunes any tokens that FCM reports as no longer registered.
+ *
+ * Tokens are stored in a separate `fcmTokens/{uid}` collection rather than
+ * on the user document so they are not exposed to other authenticated users
+ * through the world-readable `users/{uid}` Firestore rules.
  */
 async function sendToUser(uid: string, title: string, body: string): Promise<void> {
-  const doc = await database.collection("users").doc(uid).get();
-  const tokens: string[] = (doc.data()?.fcmTokens as string[] | undefined) ?? [];
+  const doc = await database.collection("fcmTokens").doc(uid).get();
+  const tokens: string[] = (doc.data()?.tokens as string[] | undefined) ?? [];
   if (tokens.length === 0) return;
 
   const response = await admin.messaging().sendEachForMulticast({
@@ -52,8 +56,8 @@ async function sendToUser(uid: string, title: string, body: string): Promise<voi
   });
 
   if (staleTokens.length > 0) {
-    await database.collection("users").doc(uid).update({
-      fcmTokens: admin.firestore.FieldValue.arrayRemove(...staleTokens),
+    await database.collection("fcmTokens").doc(uid).update({
+      tokens: admin.firestore.FieldValue.arrayRemove(...staleTokens),
     });
   }
 }
@@ -174,14 +178,14 @@ export const registerFcmToken = functions.https.onCall(async (request) => {
     );
   }
 
-  const userRef = database.collection("users").doc(uid);
-  const userDoc = await userRef.get();
-  const existing: string[] = (userDoc.data()?.fcmTokens as string[] | undefined) ?? [];
+  const tokenRef = database.collection("fcmTokens").doc(uid);
+  const tokenDoc = await tokenRef.get();
+  const existing: string[] = (tokenDoc.data()?.tokens as string[] | undefined) ?? [];
   const updated = updateFcmTokens(existing, token);
 
   // updateFcmTokens returns the same array reference when token already exists.
   if (updated === existing) return;
-  await userRef.set({ fcmTokens: updated }, { merge: true });
+  await tokenRef.set({ tokens: updated }, { merge: true });
 });
 
 // ── Firestore trigger: friend added ──────────────────────────────────────
