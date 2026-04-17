@@ -194,13 +194,18 @@ export const registerFcmToken = functions.https.onCall(async (request) => {
   }
 
   const tokenRef = database.collection("fcmTokens").doc(uid);
-  const tokenDoc = await tokenRef.get();
-  const existing: string[] = (tokenDoc.data()?.tokens as string[] | undefined) ?? [];
-  const updated = updateFcmTokens(existing, token);
-
-  // updateFcmTokens returns the same array reference when token already exists.
-  if (updated === existing) return;
-  await tokenRef.set({ tokens: updated }, { merge: true });
+  // Transaction prevents a race when the same user signs in on two devices
+  // concurrently — a plain read-modify-write would drop whichever write
+  // committed first. updateFcmTokens returns the same reference when the token
+  // already exists, so we skip the write in that case to avoid a needless
+  // transaction commit.
+  await database.runTransaction(async (tx) => {
+    const tokenDoc = await tx.get(tokenRef);
+    const existing: string[] = (tokenDoc.data()?.tokens as string[] | undefined) ?? [];
+    const updated = updateFcmTokens(existing, token);
+    if (updated === existing) return;
+    tx.set(tokenRef, { tokens: updated }, { merge: true });
+  });
 });
 
 // ── Firestore trigger: friend added ──────────────────────────────────────
