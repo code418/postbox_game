@@ -23,57 +23,63 @@ class NotificationService {
 
     final messaging = FirebaseMessaging.instance;
 
-    final settings = await messaging.requestPermission();
-    if (settings.authorizationStatus == AuthorizationStatus.denied) {
-      // Reset guard so re-initialisation is attempted on next sign-in cycle,
-      // in case the user grants permission later via system settings.
-      _initialized = false;
-      return;
-    }
+    try {
+      final settings = await messaging.requestPermission();
+      if (settings.authorizationStatus == AuthorizationStatus.denied) {
+        // Reset guard so re-initialisation is attempted on next sign-in cycle,
+        // in case the user grants permission later via system settings.
+        _initialized = false;
+        return;
+      }
 
-    final token = await messaging.getToken();
-    if (token != null) {
-      await _registerToken(token);
-    }
+      final token = await messaging.getToken();
+      if (token != null) {
+        await _registerToken(token);
+      }
 
-    _tokenRefreshSub = messaging.onTokenRefresh.listen(_registerToken);
+      _tokenRefreshSub = messaging.onTokenRefresh.listen(_registerToken);
 
-    // Configure flutter_local_notifications so FCM messages display when the
-    // app is in the foreground (FCM does not auto-show system notifications
-    // in the foreground on Android or iOS).
-    const initSettings = InitializationSettings(
-      android: AndroidInitializationSettings('@mipmap/ic_launcher'),
-      iOS: DarwinInitializationSettings(),
-    );
-    await _localNotifications.initialize(initSettings);
+      // Configure flutter_local_notifications so FCM messages display when the
+      // app is in the foreground (FCM does not auto-show system notifications
+      // in the foreground on Android or iOS).
+      const initSettings = InitializationSettings(
+        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+        iOS: DarwinInitializationSettings(),
+      );
+      await _localNotifications.initialize(initSettings);
 
-    await _localNotifications
-        .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>()
-        ?.createNotificationChannel(
-          const AndroidNotificationChannel(
-            _channelId,
-            _channelName,
-            importance: Importance.defaultImportance,
+      await _localNotifications
+          .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>()
+          ?.createNotificationChannel(
+            const AndroidNotificationChannel(
+              _channelId,
+              _channelName,
+              importance: Importance.defaultImportance,
+            ),
+          );
+
+      _onMessageSub = FirebaseMessaging.onMessage.listen((message) {
+        final notification = message.notification;
+        if (notification == null) return;
+        _localNotifications.show(
+          notification.hashCode,
+          notification.title,
+          notification.body,
+          const NotificationDetails(
+            android: AndroidNotificationDetails(
+              _channelId,
+              _channelName,
+              importance: Importance.defaultImportance,
+            ),
           ),
         );
-
-    _onMessageSub = FirebaseMessaging.onMessage.listen((message) {
-      final notification = message.notification;
-      if (notification == null) return;
-      _localNotifications.show(
-        notification.hashCode,
-        notification.title,
-        notification.body,
-        const NotificationDetails(
-          android: AndroidNotificationDetails(
-            _channelId,
-            _channelName,
-            importance: Importance.defaultImportance,
-          ),
-        ),
-      );
-    });
+      });
+    } catch (_) {
+      // Reset guard so init() retries on the next sign-in cycle (e.g. if the
+      // initial token fetch failed due to no network connectivity).
+      _initialized = false;
+    }
   }
 
   /// Resets the initialisation guard so [init] re-registers on the next sign-in.
