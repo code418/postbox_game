@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:postbox_game/london_date.dart';
 import 'package:postbox_game/theme.dart';
 
 class UserProfilePage extends StatefulWidget {
@@ -54,10 +55,22 @@ class _UserProfilePageState extends State<UserProfilePage> {
       ranks[periods[i]] = rank;
     }
 
+    // Staleness check: the stored `streak` is only reset server-side on the
+    // user's next claim, so a profile viewed after a broken streak would
+    // otherwise show the old value until that happens.
+    final storedStreak = (userData['streak'] as num?)?.toInt() ?? 0;
+    final lastClaimDate = userData['lastClaimDate'] as String?;
+    final today = todayLondon();
+    final yesterday = yesterdayLondon();
+    final streak = (storedStreak > 0 &&
+            (lastClaimDate == today || lastClaimDate == yesterday))
+        ? storedStreak
+        : 0;
+
     return _ProfileData(
       displayName: userData['displayName'] as String? ?? 'Unknown',
       createdAt: (userData['createdAt'] as Timestamp?)?.toDate(),
-      streak: (userData['streak'] as num?)?.toInt() ?? 0,
+      streak: streak,
       uniqueBoxes: (userData['uniquePostboxesClaimed'] as num?)?.toInt() ?? 0,
       lifetimePoints: (userData['lifetimePoints'] as num?)?.toInt() ?? 0,
       ranks: ranks,

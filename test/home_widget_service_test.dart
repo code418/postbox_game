@@ -4,27 +4,8 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_core_platform_interface/test.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:postbox_game/london_date.dart';
 import 'package:postbox_game/services/home_widget_service.dart';
-
-/// Today's date in London (YYYY-MM-DD). Mirrors the private helper inside
-/// [HomeWidgetService] so tests can seed Firestore docs with a matching
-/// `lastClaimDate` without exposing the helper publicly.
-String _todayLondonForTest() {
-  final nowUtc = DateTime.now().toUtc();
-  // Mirror the BST logic from home_widget_service.dart.
-  DateTime lastSundayAt01(int year, int month) {
-    final lastDay = DateTime.utc(year, month + 1, 0);
-    final sunday = lastDay.subtract(Duration(days: lastDay.weekday % 7));
-    return DateTime.utc(sunday.year, sunday.month, sunday.day, 1);
-  }
-  final bstStart = lastSundayAt01(nowUtc.year, 3);
-  final bstEnd = lastSundayAt01(nowUtc.year, 10);
-  final inBst = !nowUtc.isBefore(bstStart) && nowUtc.isBefore(bstEnd);
-  final london = nowUtc.add(inBst ? const Duration(hours: 1) : Duration.zero);
-  return '${london.year.toString().padLeft(4, '0')}-'
-      '${london.month.toString().padLeft(2, '0')}-'
-      '${london.day.toString().padLeft(2, '0')}';
-}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -80,7 +61,7 @@ void main() {
       await firestore.collection('users').doc('u1').set({
         'streak': 7,
         'dailyPoints': 21,
-        'lastClaimDate': _todayLondonForTest(),
+        'lastClaimDate': todayLondon(),
       });
 
       final service = HomeWidgetService(firestore: firestore, auth: auth);
@@ -92,7 +73,11 @@ void main() {
       expect(saved[HomeWidgetService.keyTodayPoints], 21);
     });
 
-    test('stale lastClaimDate forces todayPoints=0', () async {
+    test('stale lastClaimDate forces both todayPoints and streak to 0',
+        () async {
+      // A lastClaimDate older than yesterday means the user's streak has
+      // broken; the widget must reflect that immediately rather than showing
+      // the stale stored value until the next claim overwrites it.
       final firestore = FakeFirebaseFirestore();
       final auth = MockFirebaseAuth(
         signedIn: true,
@@ -109,7 +94,31 @@ void main() {
 
       final saved = _savedValues(calls);
       expect(saved[HomeWidgetService.keySignedIn], true);
-      expect(saved[HomeWidgetService.keyStreak], 3);
+      expect(saved[HomeWidgetService.keyStreak], 0);
+      expect(saved[HomeWidgetService.keyTodayPoints], 0);
+    });
+
+    test('yesterday lastClaimDate keeps streak visible, today points 0',
+        () async {
+      // User claimed yesterday but not today yet — streak is still alive
+      // (won't break until a whole day passes with no claim), and today's
+      // points should read 0 because no claim today.
+      final firestore = FakeFirebaseFirestore();
+      final auth = MockFirebaseAuth(
+        signedIn: true,
+        mockUser: MockUser(uid: 'u3'),
+      );
+      await firestore.collection('users').doc('u3').set({
+        'streak': 5,
+        'dailyPoints': 42,
+        'lastClaimDate': yesterdayLondon(),
+      });
+
+      final service = HomeWidgetService(firestore: firestore, auth: auth);
+      await service.refresh();
+
+      final saved = _savedValues(calls);
+      expect(saved[HomeWidgetService.keyStreak], 5);
       expect(saved[HomeWidgetService.keyTodayPoints], 0);
     });
 

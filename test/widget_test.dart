@@ -10,6 +10,7 @@ import 'package:postbox_game/app_preferences.dart';
 import 'package:postbox_game/authentication_bloc/bloc.dart';
 import 'package:postbox_game/fuzzy_compass.dart';
 import 'package:postbox_game/james_messages.dart';
+import 'package:postbox_game/london_date.dart';
 import 'package:postbox_game/main.dart';
 import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/settings_screen.dart';
@@ -27,31 +28,6 @@ Future<void> setupFirebaseMocks() async {
   TestWidgetsFlutterBinding.ensureInitialized();
   setupFirebaseCoreMocks();
   await Firebase.initializeApp();
-}
-
-// Mirrors the private London-date logic in streak_service.dart so tests can
-// assert on "today" / "yesterday" without pinning to a hard-coded date.
-String _fmtLondon(DateTime utc) {
-  final offset = _isBst(utc) ? const Duration(hours: 1) : Duration.zero;
-  final london = utc.add(offset);
-  final y = london.year.toString().padLeft(4, '0');
-  final m = london.month.toString().padLeft(2, '0');
-  final d = london.day.toString().padLeft(2, '0');
-  return '$y-$m-$d';
-}
-
-bool _isBst(DateTime utc) {
-  final year = utc.year;
-  final bstStart = _lastSundayOfMonthUtcAt01(year, 3);
-  final bstEnd = _lastSundayOfMonthUtcAt01(year, 10);
-  return !utc.isBefore(bstStart) && utc.isBefore(bstEnd);
-}
-
-DateTime _lastSundayOfMonthUtcAt01(int year, int month) {
-  final lastDay = DateTime.utc(year, month + 1, 0);
-  final offsetToSunday = lastDay.weekday % 7;
-  final sunday = lastDay.subtract(Duration(days: offsetToSunday));
-  return DateTime.utc(sunday.year, sunday.month, sunday.day, 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -299,14 +275,6 @@ void main() {
       streakService = StreakService(firestore: fakeFirestore, auth: mockAuth);
       uid = mockAuth.currentUser!.uid;
     });
-
-    // streakStream reports 0 when lastClaimDate is older than yesterday
-    // (London time) to reflect a broken streak before the next claim overwrites
-    // the stored value server-side. These helpers mirror the private London-date
-    // logic in streak_service.dart so the tests stay in sync with "today".
-    String todayLondon() => _fmtLondon(DateTime.now().toUtc());
-    String yesterdayLondon() => _fmtLondon(
-        DateTime.now().toUtc().subtract(const Duration(days: 1)));
 
     // Streak writes (lastClaimDate, streak) are performed server-side in
     // startScoring (Admin SDK) because Firestore rules restrict client writes
