@@ -147,6 +147,14 @@ class _FriendsScreenState extends State<FriendsScreen> {
     }
   }
 
+  String _initials(String name) {
+    final t = name.trim();
+    if (t.isEmpty) return '?';
+    final parts = t.split(' ').where((p) => p.isNotEmpty).toList();
+    if (parts.length >= 2) return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+    return t.substring(0, t.length.clamp(0, 2)).toUpperCase();
+  }
+
   void _copyUid() {
     final uid = _currentUid ?? '';
     Clipboard.setData(ClipboardData(text: uid));
@@ -332,9 +340,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
                     builder: (context, nameSnap) {
                       final isLoading = nameSnap.connectionState == ConnectionState.waiting;
                       final displayName = nameSnap.data?.data()?['displayName'] as String?;
-                      final initials = displayName != null && displayName.length >= 2
-                          ? displayName.substring(0, 2).toUpperCase()
-                          : '?';
+                      final initials = _initials(displayName ?? '');
                       return Card(
                         child: ListTile(
                           onTap: () => Navigator.of(context).push(UserProfilePage.route(friendUid)),
