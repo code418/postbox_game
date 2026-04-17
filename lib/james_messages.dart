@@ -164,6 +164,17 @@ abstract final class JamesMessages {
     ["No signal out here. Find some Wi-Fi and give it another go."],
   );
 
+  // ── Claim scan found nothing (30 m radius empty) ─────────────────────────
+
+  static const claimScanEmpty = JamesMessage(
+    'jamesClaimScanEmpty',
+    [
+      "Nothing within range. You need to be right next to a postbox.",
+      "No postboxes in your immediate area. A few steps might make all the difference.",
+      "I'm not detecting any postboxes here. Move closer and try again.",
+    ],
+  );
+
   // ── Claim out-of-range ───────────────────────────────────────────────────
 
   static const claimOutOfRange = JamesMessage(

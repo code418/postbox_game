@@ -122,6 +122,10 @@ class ClaimState extends State<Claim> with TickerProviderStateMixin {
         );
       } else {
         Analytics.scanEmpty();
+        if (mounted) {
+          JamesController.of(context)
+              ?.show(JamesMessages.claimScanEmpty.resolve());
+        }
       }
     } on FirebaseFunctionsException catch (e) {
       debugPrint('Firebase functions error: ${e.code} ${e.message}');
