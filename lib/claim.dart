@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' show pi;
 
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:confetti/confetti.dart';
@@ -1035,7 +1034,6 @@ class ClaimState extends State<Claim> with TickerProviderStateMixin {
           alignment: Alignment.topCenter,
           child: ConfettiWidget(
             confettiController: _confettiController,
-            blastDirection: pi / 2,
             blastDirectionality: BlastDirectionality.explosive,
             particleDrag: 0.05,
             emissionFrequency: 0.07,
