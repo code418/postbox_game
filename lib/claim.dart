@@ -30,10 +30,10 @@ class Claim extends StatefulWidget {
   final bool autoScan;
 
   @override
-  ClaimState createState() => ClaimState();
+  State<Claim> createState() => _ClaimState();
 }
 
-class ClaimState extends State<Claim> with TickerProviderStateMixin {
+class _ClaimState extends State<Claim> with TickerProviderStateMixin {
   int _count = 0;
   int _maxPoints = 0;
   int _minPoints = 0;
