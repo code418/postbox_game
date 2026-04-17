@@ -91,6 +91,9 @@ class PostboxMap extends StatelessWidget {
       options: MapOptions(
         initialCenter: center,
         initialZoom: zoom,
+        // Hard cap: OSM tiles show postbox POI icons at zoom ≥ 18, which would
+        // reveal exact postbox locations. 17 is the maximum safe level.
+        maxZoom: 17,
         onTap: onTap,
         interactionOptions: interactionOptions ?? const InteractionOptions(),
       ),
@@ -98,6 +101,10 @@ class PostboxMap extends StatelessWidget {
         TileLayer(
           urlTemplate: _defaultTileUrl,
           userAgentPackageName: 'com.postboxgame.app',
+          // maxNativeZoom matches maxZoom so tiles are never upscaled past 17
+          // and no higher-zoom tile requests are ever made.
+          maxNativeZoom: 17,
+          maxZoom: 17,
           tileBuilder: isDark ? _darkTileBuilder : null,
         ),
         if (polygons.isNotEmpty) PolygonLayer(polygons: polygons),
