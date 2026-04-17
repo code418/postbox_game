@@ -11,6 +11,7 @@ export interface UserSpecificResult {
   updatedCounts: Record<string, number>;
   updatedPoints: { min: number; max: number };
   updatedCompass: Record<string, number>;
+  claimedCompass: Record<string, number>;
 }
 
 /**
@@ -71,16 +72,18 @@ export function applyUserClaims(
     max: unclaimedMax,
   };
 
-  // Compass: unclaimed postboxes only.
+  // Compass: split into unclaimed and claimed directions.
   const updatedCompass: Record<string, number> = {};
+  const claimedCompass: Record<string, number> = {};
   for (const [id, pb] of Object.entries(full.postboxes)) {
-    if (!userClaimedKeys.has(id)) {
-      const dir = pb.compass?.exact;
-      if (dir) {
-        updatedCompass[dir] = (updatedCompass[dir] ?? 0) + 1;
-      }
+    const dir = pb.compass?.exact;
+    if (!dir) continue;
+    if (userClaimedKeys.has(id)) {
+      claimedCompass[dir] = (claimedCompass[dir] ?? 0) + 1;
+    } else {
+      updatedCompass[dir] = (updatedCompass[dir] ?? 0) + 1;
     }
   }
 
-  return { slimPostboxes, updatedCounts, updatedPoints, updatedCompass };
+  return { slimPostboxes, updatedCounts, updatedPoints, updatedCompass, claimedCompass };
 }

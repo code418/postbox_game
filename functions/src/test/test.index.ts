@@ -934,6 +934,7 @@ describe("applyUserClaims", () => {
     assert.ok("updatedCounts" in result);
     assert.ok("updatedPoints" in result);
     assert.ok("updatedCompass" in result);
+    assert.ok("claimedCompass" in result);
   });
 
   it("all postboxes have claimedToday=false when user has no claims", () => {
@@ -1125,6 +1126,40 @@ describe("applyUserClaims", () => {
     assert.strictEqual(updatedPoints.min, 0);
     assert.strictEqual(updatedPoints.max, 0);
     assert.strictEqual(Object.keys(updatedCompass).length, 0);
+  });
+
+  it("claimedCompass is empty when user has no claims", () => {
+    const { claimedCompass } = applyUserClaims(makeFull(), new Set());
+    assert.strictEqual(Object.keys(claimedCompass).length, 0);
+  });
+
+  it("claimedCompass contains direction of claimed postbox", () => {
+    // box1 is at N; user has claimed it
+    const { claimedCompass } = applyUserClaims(makeFull(), new Set(["box1"]));
+    assert.strictEqual(claimedCompass["N"], 1);
+    assert.strictEqual(claimedCompass["S"] ?? 0, 0);
+  });
+
+  it("claimedCompass contains all claimed directions; updatedCompass has none", () => {
+    // Both boxes claimed: N (box1) and S (box2)
+    const { claimedCompass, updatedCompass } =
+      applyUserClaims(makeFull(), new Set(["box1", "box2"]));
+    assert.strictEqual(claimedCompass["N"], 1);
+    assert.strictEqual(claimedCompass["S"], 1);
+    assert.strictEqual(Object.keys(updatedCompass).length, 0);
+  });
+
+  it("claimed postbox without compass.exact is not added to claimedCompass", () => {
+    const full = {
+      postboxes: {
+        noCompass: { monarch: "EIIR" },
+      },
+      counts: { total: 1, claimedToday: 0 },
+      points: { min: 2, max: 2 },
+      compass: {},
+    };
+    const { claimedCompass } = applyUserClaims(full, new Set(["noCompass"]));
+    assert.strictEqual(Object.keys(claimedCompass).length, 0);
   });
 });
 

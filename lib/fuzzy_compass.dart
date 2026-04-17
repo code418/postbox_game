@@ -8,9 +8,15 @@ import 'package:postbox_game/theme.dart';
 /// Presents nearby postbox directions in a deliberately imprecise way:
 /// 8-wind sectors (N, NE, E, SE, S, SW, W, NW), vague intensity labels.
 /// No exact bearings or distances — encourages exploration.
+///
+/// Shows unclaimed postboxes in red and claimed postboxes in grey so the
+/// user can see both where they've already been and where to explore next.
 class FuzzyCompass extends StatelessWidget {
-  /// 16-wind counts from backend (N, NNE, NE, ...). Will be merged to 8 sectors.
+  /// 16-wind counts for unclaimed postboxes (N, NNE, NE, ...). Merged to 8 sectors.
   final Map<String, int> compassCounts;
+
+  /// 16-wind counts for postboxes already claimed today. Merged to 8 sectors.
+  final Map<String, int> claimedCompassCounts;
 
   /// Device heading in degrees (0 = N). Optional; if null, no rotation applied.
   final double? headingDegrees;
@@ -18,6 +24,7 @@ class FuzzyCompass extends StatelessWidget {
   const FuzzyCompass({
     super.key,
     required this.compassCounts,
+    this.claimedCompassCounts = const {},
     this.headingDegrees,
   });
 
@@ -50,12 +57,13 @@ class FuzzyCompass extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final sectors = to8Sectors(compassCounts);
+    final claimedSectors = to8Sectors(claimedCompassCounts);
     final order = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
     final rotation =
         headingDegrees != null ? (headingDegrees! * pi / 180) : 0.0;
 
-    // Only show chips for non-zero sectors
     final activeOrder = order.where((d) => (sectors[d] ?? 0) > 0).toList();
+    final hasAnyClaimed = claimedSectors.values.any((v) => v > 0);
 
     return Card(
       margin: const EdgeInsets.symmetric(
@@ -87,10 +95,32 @@ class FuzzyCompass extends StatelessWidget {
                 child: CustomPaint(
                   painter: _FuzzyCompassPainter(
                     sectors: order.map((d) => sectors[d] ?? 0).toList(),
+                    claimedSectors: order.map((d) => claimedSectors[d] ?? 0).toList(),
                   ),
                 ),
               ),
             ),
+            if (hasAnyClaimed) ...[
+              const SizedBox(height: AppSpacing.xs),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _LegendDot(color: postalRed.withValues(alpha: 0.7)),
+                  const SizedBox(width: AppSpacing.xs),
+                  Text(
+                    'To find',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(width: AppSpacing.md),
+                  _LegendDot(color: Colors.grey.withValues(alpha: 0.6)),
+                  const SizedBox(width: AppSpacing.xs),
+                  Text(
+                    'Already claimed',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
+            ],
             if (activeOrder.isNotEmpty) ...[
               const SizedBox(height: AppSpacing.sm),
               Wrap(
@@ -123,23 +153,40 @@ class FuzzyCompass extends StatelessWidget {
   }
 }
 
+class _LegendDot extends StatelessWidget {
+  const _LegendDot({required this.color});
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 10,
+      height: 10,
+      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+    );
+  }
+}
+
 class _FuzzyCompassPainter extends CustomPainter {
   final List<int> sectors;
+  final List<int> claimedSectors;
 
-  _FuzzyCompassPainter({required this.sectors});
+  _FuzzyCompassPainter({required this.sectors, this.claimedSectors = const []});
 
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
     final radius = size.shortestSide / 2 - 8;
-    final maxCount = sectors.isEmpty
+    final allCounts = [...sectors, ...claimedSectors];
+    final maxCount = allCounts.isEmpty
         ? 1
-        : sectors.reduce((a, b) => a > b ? a : b).clamp(1, 999);
+        : allCounts.reduce((a, b) => a > b ? a : b).clamp(1, 999);
 
     for (var i = 0; i < 8; i++) {
       final startAngle = -pi / 2 + i * (2 * pi / 8);
       final sweepAngle = 2 * pi / 8;
       final count = i < sectors.length ? sectors[i] : 0;
+      final claimed = i < claimedSectors.length ? claimedSectors[i] : 0;
 
       // Grey background: full sector for every direction so the compass ring
       // is always visible even when a direction has no postboxes.
@@ -155,10 +202,33 @@ class _FuzzyCompassPainter extends CustomPainter {
           ..style = PaintingStyle.fill,
       );
 
+      // Draw claimed postboxes first (grey, inner layer).
+      if (claimed > 0) {
+        final extent = (0.3 + 0.7 * (claimed / maxCount)).clamp(0.0, 1.0);
+        final r = radius * extent;
+        final claimedPath = Path()
+          ..moveTo(center.dx, center.dy)
+          ..arcTo(Rect.fromCircle(center: center, radius: r),
+              startAngle, sweepAngle, false)
+          ..close();
+        canvas.drawPath(
+          claimedPath,
+          Paint()
+            ..color = Colors.grey.withValues(alpha: 0.2 + 0.3 * (claimed / maxCount))
+            ..style = PaintingStyle.fill,
+        );
+        canvas.drawPath(
+          claimedPath,
+          Paint()
+            ..color = Colors.grey.withValues(alpha: 0.4)
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1,
+        );
+      }
+
+      // Draw unclaimed postboxes on top (red).
       if (count > 0) {
         // Red fill grows OUTWARD from center — more postboxes → larger sector.
-        // Previously the code used a donut (inner radius = extent * radius) which
-        // inverted the mapping: maximum count produced a zero-width ring.
         final extent =
             (0.3 + 0.7 * (count / maxCount)).clamp(0.0, 1.0);
         final r = radius * extent;
@@ -207,5 +277,6 @@ class _FuzzyCompassPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _FuzzyCompassPainter old) =>
-      !listEquals(old.sectors, sectors);
+      !listEquals(old.sectors, sectors) ||
+      !listEquals(old.claimedSectors, claimedSectors);
 }
