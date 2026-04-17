@@ -26,10 +26,10 @@ class Nearby extends StatefulWidget {
   const Nearby({super.key});
 
   @override
-  NearbyState createState() => NearbyState();
+  State<Nearby> createState() => _NearbyState();
 }
 
-class NearbyState extends State<Nearby> {
+class _NearbyState extends State<Nearby> {
   int _count = 0;
   int _maxPoints = 0;
   int _minPoints = 0;
