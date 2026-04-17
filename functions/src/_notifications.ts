@@ -2,6 +2,7 @@ import "./adminInit";
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions";
 import * as functionsV1 from "firebase-functions/v1";
+import { getTodayLondon } from "./_dateUtils";
 
 const database = admin.firestore();
 
@@ -68,11 +69,21 @@ type UserData = Record<string, unknown> | undefined;
 
 /**
  * Returns true if a friend should receive the "first claim of the day"
- * notification. False when the friend has already scored today (dailyPoints > 0)
- * or has explicitly disabled the notification.
+ * notification. False when the friend has already claimed today or has
+ * explicitly disabled the notification.
+ *
+ * Treats today's claim as lastClaimDate === todayLondon rather than
+ * dailyPoints > 0: newDayScoreboard resets dailyPoints at midnight London,
+ * but between the day boundary and that sweep completing, a stale
+ * non-zero dailyPoints from yesterday would otherwise suppress the
+ * notification for friends who haven't actually claimed today.
  */
-export function shouldNotifyFirstClaim(fdata: UserData): boolean {
-  if (((fdata?.dailyPoints as number | undefined) ?? 0) > 0) return false;
+export function shouldNotifyFirstClaim(fdata: UserData, todayLondon?: string): boolean {
+  const lastClaimDate = fdata?.lastClaimDate as string | undefined;
+  const hasClaimedToday = todayLondon !== undefined
+    ? lastClaimDate === todayLondon
+    : ((fdata?.dailyPoints as number | undefined) ?? 0) > 0;
+  if (hasClaimedToday) return false;
   const prefs = fdata?.notificationPrefs as Record<string, boolean> | undefined;
   if (prefs?.friendFirstScore === false) return false;
   return true;
@@ -85,17 +96,25 @@ export function shouldNotifyFirstClaim(fdata: UserData): boolean {
  * AND `newDailyPoints > friendDaily`. Without the prev check, a user already ahead
  * of a friend would re-trigger the notification on every subsequent claim of the day.
  *
- * Returns false when the friend hasn't scored yet (dailyPoints === 0), the user
- * was already ahead before this claim, the new score doesn't exceed the friend's
- * score, or the friend has disabled the notification.
+ * When `todayLondon` is provided, friends whose `lastClaimDate` is not today are
+ * treated as having 0 daily points regardless of stored value. This guards
+ * against stale `dailyPoints` from before the midnight `newDayScoreboard` sweep
+ * inflating the threshold and either suppressing legitimate overtakes or
+ * firing a notification against a friend who hasn't actually scored today.
  */
 export function shouldNotifyOvertake(
   fdata: UserData,
   prevDailyPoints: number,
-  newDailyPoints: number
+  newDailyPoints: number,
+  todayLondon?: string
 ): boolean {
   if (!fdata) return false;
-  const friendDaily = (fdata.dailyPoints as number | undefined) ?? 0;
+  const friendClaimedToday = todayLondon === undefined
+    ? true
+    : (fdata.lastClaimDate as string | undefined) === todayLondon;
+  const friendDaily = friendClaimedToday
+    ? ((fdata.dailyPoints as number | undefined) ?? 0)
+    : 0;
   if (friendDaily === 0 || newDailyPoints <= friendDaily) return false;
   // Already ahead before this claim — notification already fired (or should have).
   if (prevDailyPoints > friendDaily) return false;
@@ -121,6 +140,8 @@ export async function notifyFriendsFirstClaim(
   const friends: string[] = (userDoc.data()?.friends as string[] | undefined) ?? [];
   if (friends.length === 0) return;
 
+  const todayLondon = getTodayLondon();
+
   const friendDocs = await Promise.all(
     friends.map((fuid) => database.collection("users").doc(fuid).get())
   );
@@ -128,7 +149,7 @@ export async function notifyFriendsFirstClaim(
   await Promise.allSettled(
     friendDocs.map(async (doc) => {
       const fdata = doc.data();
-      if (!shouldNotifyFirstClaim(fdata)) return;
+      if (!shouldNotifyFirstClaim(fdata, todayLondon)) return;
       await sendToUser(
         doc.id,
         "First find of the day!",
@@ -155,6 +176,8 @@ export async function notifyFriendOvertake(
   const friends: string[] = (userDoc.data()?.friends as string[] | undefined) ?? [];
   if (friends.length === 0) return;
 
+  const todayLondon = getTodayLondon();
+
   const friendDocs = await Promise.all(
     friends.map((fuid) => database.collection("users").doc(fuid).get())
   );
@@ -162,7 +185,7 @@ export async function notifyFriendOvertake(
   await Promise.allSettled(
     friendDocs.map(async (doc) => {
       const fdata = doc.data();
-      if (!shouldNotifyOvertake(fdata, prevDailyPoints, newDailyPoints)) return;
+      if (!shouldNotifyOvertake(fdata, prevDailyPoints, newDailyPoints, todayLondon)) return;
       await sendToUser(
         doc.id,
         "Overtaken!",

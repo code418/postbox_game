@@ -1424,6 +1424,33 @@ describe("shouldNotifyFirstClaim", () => {
 
   it("returns false when dailyPoints is stored as a float (e.g. 3.5)", () =>
     assert.strictEqual(shouldNotifyFirstClaim({ dailyPoints: 3.5 }), false));
+
+  // With todayLondon provided, lastClaimDate becomes the authoritative source
+  // of "has claimed today" (guards against stale dailyPoints surviving past
+  // the midnight newDayScoreboard sweep).
+  it("returns true when lastClaimDate != today even if stale dailyPoints > 0", () =>
+    assert.strictEqual(
+      shouldNotifyFirstClaim(
+        { dailyPoints: 10, lastClaimDate: "2026-04-16" },
+        "2026-04-17"
+      ),
+      true
+    ));
+
+  it("returns false when lastClaimDate === today (regardless of dailyPoints)", () =>
+    assert.strictEqual(
+      shouldNotifyFirstClaim(
+        { dailyPoints: 0, lastClaimDate: "2026-04-17" },
+        "2026-04-17"
+      ),
+      false
+    ));
+
+  it("returns true when lastClaimDate is missing and todayLondon provided", () =>
+    assert.strictEqual(
+      shouldNotifyFirstClaim({ dailyPoints: 5 }, "2026-04-17"),
+      true
+    ));
 });
 
 describe("shouldNotifyOvertake", () => {
@@ -1471,4 +1498,36 @@ describe("shouldNotifyOvertake", () => {
 
   it("returns true when user was tied before and this claim breaks the tie", () =>
     assert.strictEqual(shouldNotifyOvertake({ dailyPoints: 5 }, 5, 6), true));
+
+  // With todayLondon provided, a friend whose lastClaimDate isn't today is
+  // treated as 0 dailyPoints — so stale dailyPoints from yesterday can't
+  // incorrectly suppress the notification or fire it against someone who
+  // hasn't actually claimed today.
+  it("returns false when friend's lastClaimDate != today even with stale dailyPoints > 0", () =>
+    assert.strictEqual(
+      shouldNotifyOvertake(
+        { dailyPoints: 10, lastClaimDate: "2026-04-16" },
+        0,
+        5,
+        "2026-04-17"
+      ),
+      false
+    ));
+
+  it("returns true when friend claimed today and we cross their score", () =>
+    assert.strictEqual(
+      shouldNotifyOvertake(
+        { dailyPoints: 3, lastClaimDate: "2026-04-17" },
+        0,
+        5,
+        "2026-04-17"
+      ),
+      true
+    ));
+
+  it("returns false when friend has no lastClaimDate field (treated as hasn't claimed today)", () =>
+    assert.strictEqual(
+      shouldNotifyOvertake({ dailyPoints: 5 }, 0, 10, "2026-04-17"),
+      false
+    ));
 });
