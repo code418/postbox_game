@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:bloc/bloc.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/register/bloc/bloc.dart';
 import 'package:postbox_game/user_repository.dart';
 import 'package:postbox_game/validators.dart';
@@ -41,10 +42,13 @@ class RegisterBloc extends Bloc<RegisterEvent, RegisterState> {
         email: event.email,
         password: event.password,
       );
+      unawaited(Analytics.signUp(method: 'email'));
       emit(RegisterState.success());
     } on FirebaseAuthException catch (e) {
+      unawaited(Analytics.signUpFailed(method: 'email', errorCode: e.code.isNotEmpty ? e.code : 'unknown'));
       emit(RegisterState.failure(message: _mapFirebaseError(e.code), code: e.code));
     } catch (_) {
+      unawaited(Analytics.signUpFailed(method: 'email', errorCode: 'unknown'));
       emit(RegisterState.failure());
     }
   }
