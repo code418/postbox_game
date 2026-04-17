@@ -4,6 +4,8 @@ const String _keyDistanceUnit = 'distance_unit';
 
 enum DistanceUnit { meters, miles }
 
+enum ViewMode { list, map }
+
 extension DistanceUnitX on DistanceUnit {
   String get label => this == DistanceUnit.meters ? 'Meters' : 'Miles';
   String get short => this == DistanceUnit.meters ? 'm' : 'mi';

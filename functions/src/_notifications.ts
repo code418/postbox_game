@@ -61,9 +61,8 @@ async function sendToUser(uid: string, title: string, body: string): Promise<voi
 // ── Notification event functions ──────────────────────────────────────────
 
 /**
- * Notifies all of `uid`'s friends that they were the first among the group
- * to claim a postbox today. Only sends if none of those friends has
- * dailyPoints > 0 yet.
+ * Notifies `uid`'s friends who haven't yet scored today that they were beaten
+ * to the first claim. Skips friends who already have dailyPoints > 0.
  *
  * Call only when `uid` is making their first claim of the day
  * (i.e. userClaimsSnap.docs.length === 0 in startScoring).
@@ -80,13 +79,11 @@ export async function notifyFriendsFirstClaim(
     friends.map((fuid) => database.collection("users").doc(fuid).get())
   );
 
-  const anyFriendAlreadyScored = friendDocs.some(
-    (doc) => ((doc.data()?.dailyPoints as number | undefined) ?? 0) > 0
-  );
-  if (anyFriendAlreadyScored) return;
-
   await Promise.allSettled(
     friendDocs.map(async (doc) => {
+      // Only notify friends who haven't scored yet today.
+      const friendDaily = (doc.data()?.dailyPoints as number | undefined) ?? 0;
+      if (friendDaily > 0) return;
       const prefs = doc.data()?.notificationPrefs as
         | Record<string, boolean>
         | undefined;

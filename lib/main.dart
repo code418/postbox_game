@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -77,7 +79,7 @@ class _PostboxGameState extends State<PostboxGame> {
               if (state is Authenticated) {
                 NotificationService.init();
               } else if (state is Unauthenticated) {
-                NotificationService.reset();
+                unawaited(NotificationService.reset());
               }
             },
             builder: (BuildContext context, AuthenticationState? state) {
