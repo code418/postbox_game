@@ -136,7 +136,7 @@ class _ProfileBody extends StatelessWidget {
   String _initials() {
     final name = data.displayName.trim();
     if (name.isEmpty) return '?';
-    final parts = name.split(' ');
+    final parts = name.split(' ').where((p) => p.isNotEmpty).toList();
     if (parts.length >= 2) {
       return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
     }
