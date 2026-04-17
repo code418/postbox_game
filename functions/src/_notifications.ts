@@ -83,15 +83,13 @@ export async function notifyFriendsFirstClaim(
     friends.map((fuid) => database.collection("users").doc(fuid).get())
   );
 
-  // If any friend has already scored today the claimant is not first — abort.
-  const anyFriendScoredToday = friendDocs.some(
-    (doc) => ((doc.data()?.dailyPoints as number | undefined) ?? 0) > 0
-  );
-  if (anyFriendScoredToday) return;
-
   await Promise.allSettled(
     friendDocs.map(async (doc) => {
-      const prefs = doc.data()?.notificationPrefs as
+      const fdata = doc.data();
+      // Only notify friends who haven't scored today — they're the ones being
+      // beaten to the first claim. Friends who already scored don't need the nudge.
+      if (((fdata?.dailyPoints as number | undefined) ?? 0) > 0) return;
+      const prefs = fdata?.notificationPrefs as
         | Record<string, boolean>
         | undefined;
       if (prefs?.friendFirstScore === false) return;

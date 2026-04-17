@@ -140,7 +140,7 @@ class NearbyState extends State<Nearby> {
       final msg = _count > 0
           ? JamesMessages.nearbyFound(_count, box)
           : JamesMessages.nearbyNoneFound.resolve();
-      JamesController.of(context)?.show(msg);
+      if (mounted) JamesController.of(context)?.show(msg);
     } on FirebaseFunctionsException catch (e) {
       debugPrint('Firebase functions error: ${e.code} ${e.message}');
       if (!mounted) return;
