@@ -24,7 +24,12 @@ class NotificationService {
     final messaging = FirebaseMessaging.instance;
 
     final settings = await messaging.requestPermission();
-    if (settings.authorizationStatus == AuthorizationStatus.denied) return;
+    if (settings.authorizationStatus == AuthorizationStatus.denied) {
+      // Reset guard so re-initialisation is attempted on next sign-in cycle,
+      // in case the user grants permission later via system settings.
+      _initialized = false;
+      return;
+    }
 
     final token = await messaging.getToken();
     if (token != null) {
