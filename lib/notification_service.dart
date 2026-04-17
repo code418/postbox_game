@@ -78,6 +78,12 @@ class NotificationService {
     } catch (_) {
       // Reset guard so init() retries on the next sign-in cycle (e.g. if the
       // initial token fetch failed due to no network connectivity).
+      // Cancel any subscriptions that were set up before the throw so the
+      // retry does not leave duplicate FCM listeners attached.
+      await _tokenRefreshSub?.cancel();
+      await _onMessageSub?.cancel();
+      _tokenRefreshSub = null;
+      _onMessageSub = null;
       _initialized = false;
     }
   }
