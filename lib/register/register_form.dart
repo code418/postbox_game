@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/authentication_bloc/bloc.dart';
 import 'package:postbox_game/register/bloc/bloc.dart';
 import 'package:postbox_game/register/register_button.dart';
@@ -42,7 +41,7 @@ class _RegisterFormState extends State<RegisterForm> {
       listener: (BuildContext context, RegisterState state) {
         if (!context.mounted) return;
         if (state.isSuccess) {
-          Analytics.signUp(method: 'email');
+          // Analytics.signUp() is fired inside RegisterBloc (where the method is known).
           BlocProvider.of<AuthenticationBloc>(context).add(LoggedIn());
           // Do NOT pop here: LoggedIn() → Authenticated emitted by AuthenticationBloc
           // causes main.dart's BlocBuilder to replace the entire tree with Home.
@@ -50,7 +49,7 @@ class _RegisterFormState extends State<RegisterForm> {
           // surface the LoginScreen for one frame (same issue as fixed in session 13).
         }
         if (state.isFailure) {
-          Analytics.signUpFailed(method: 'email', errorCode: state.errorCode.isNotEmpty ? state.errorCode : 'unknown');
+          // Analytics.signUpFailed() is fired inside RegisterBloc (where the error code is known).
           ScaffoldMessenger.of(context)
             ..hideCurrentSnackBar()
             ..showSnackBar(
