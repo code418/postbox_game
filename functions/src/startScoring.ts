@@ -226,6 +226,12 @@ export const startScoring = functions.https.onCall(async (request) => {
         const newLifetimePoints = ((d.lifetimePoints as number | undefined) ?? 0) + lifetimePointsIncrement;
         committedPrevDailyPoints = (d.dailyPoints as number | undefined) ?? 0;
         committedDailyPoints = committedPrevDailyPoints + lifetimePointsIncrement;
+        // Read displayName inside the transaction so a concurrent
+        // updateDisplayName that commits between this function's earlier
+        // userRef.get() and the tx commit doesn't get overwritten with the
+        // stale pre-fetched name when we write the lifetime entry below.
+        const freshDisplayName =
+          (d.displayName as string | undefined) || displayName;
 
         tx.set(
           userRef,
@@ -240,7 +246,7 @@ export const startScoring = functions.https.onCall(async (request) => {
         );
 
         const existingEntries = (lifetimeSnap.data()?.entries ?? []) as LifetimeLeaderboardEntry[];
-        const updatedEntries = mergeLifetimeEntries(existingEntries, userid, displayName, newUnique, newLifetimePoints);
+        const updatedEntries = mergeLifetimeEntries(existingEntries, userid, freshDisplayName, newUnique, newLifetimePoints);
         tx.set(lifetimeRef, { periodKey: "lifetime", entries: updatedEntries }, { merge: false });
       });
 
