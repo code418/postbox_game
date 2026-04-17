@@ -13,13 +13,18 @@ import 'package:geolocator/geolocator.dart';
 import 'package:postbox_game/location_service.dart';
 import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/analytics_service.dart';
+import 'package:postbox_game/services/home_widget_service.dart';
 import 'package:postbox_game/streak_service.dart';
 import 'package:postbox_game/theme.dart';
 
 enum ClaimStage { initial, searching, results, empty, quiz, quizFailed, claimed }
 
 class Claim extends StatefulWidget {
-  const Claim({super.key});
+  const Claim({super.key, this.autoScan = false});
+
+  /// When true, a scan is kicked off automatically on first build. Used by
+  /// the Android home-screen widget deep-link.
+  final bool autoScan;
 
   @override
   ClaimState createState() => ClaimState();
@@ -62,6 +67,11 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
     AppPreferences.getDistanceUnit().then((unit) {
       if (mounted) setState(() => _distanceUnit = unit);
     });
+    if (widget.autoScan) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_startSearch());
+      });
+    }
   }
 
   @override
@@ -76,6 +86,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
   final HttpsCallable _claimCallable =
       FirebaseFunctions.instance.httpsCallable('startScoring');
   final StreakService _streakService = StreakService();
+  final HomeWidgetService _homeWidgetService = HomeWidgetService();
 
   Future<void> _startSearch() async {
     // Guard against concurrent calls (e.g. pull-to-refresh + Refresh button
@@ -203,6 +214,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
         _isClaiming = false;
         currentStage = ClaimStage.claimed;
       });
+      unawaited(_homeWidgetService.refresh());
       _successController.forward(from: 0);
       _confettiController.play();
       // Streak update is performed server-side in startScoring (Admin SDK),

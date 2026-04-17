@@ -13,11 +13,13 @@ import 'package:postbox_game/intro.dart';
 import 'package:postbox_game/intro_preferences.dart';
 import 'package:postbox_game/login/login_screen.dart';
 import 'package:postbox_game/nearby.dart';
+import 'package:postbox_game/services/home_widget_service.dart';
 import 'package:postbox_game/settings_screen.dart';
 import 'package:postbox_game/splash.dart';
 import 'package:postbox_game/user_repository.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
+import 'package:home_widget/home_widget.dart';
 import 'firebase_options.dart';
 import 'secrets.dart';
 import 'analytics_service.dart';
@@ -37,7 +39,26 @@ void main() async {
         : const AndroidPlayIntegrityProvider(),
     providerApple: const AppleAppAttestProvider(),
   );
+  await HomeWidgetService.init();
+  await _checkInitialWidgetLaunch();
   runApp(const PostboxGame());
+}
+
+/// True when the process was launched from the home-screen widget deep link
+/// (postbox://claim?source=widget). Consumed once by [_PostboxGameState] to
+/// open the Claim tab and auto-scan, then cleared.
+bool _pendingWidgetAutoScan = false;
+
+Future<void> _checkInitialWidgetLaunch() async {
+  try {
+    final uri = await HomeWidget.initiallyLaunchedFromHomeWidget();
+    if (uri != null && uri.host == 'claim' &&
+        uri.queryParameters['source'] == 'widget') {
+      _pendingWidgetAutoScan = true;
+    }
+  } catch (_) {
+    // Not supported on this platform; ignore.
+  }
 }
 
 class PostboxGame extends StatefulWidget {
@@ -49,6 +70,34 @@ class PostboxGame extends StatefulWidget {
 
 class _PostboxGameState extends State<PostboxGame> {
   final UserRepository _userRepository = UserRepository();
+  final HomeWidgetService _homeWidgetService = HomeWidgetService();
+  StreamSubscription<Uri?>? _widgetClickSub;
+  bool _autoScanFromWidget = _pendingWidgetAutoScan;
+
+  @override
+  void initState() {
+    super.initState();
+    // Consume the one-shot flag so a cold-start deep-link fires a single
+    // auto-scan. Subsequent widget taps (while the app is in memory) are
+    // handled by the widgetClicked stream below.
+    _pendingWidgetAutoScan = false;
+    try {
+      _widgetClickSub = HomeWidget.widgetClicked.listen((uri) {
+        if (uri != null && uri.host == 'claim' &&
+            uri.queryParameters['source'] == 'widget') {
+          setState(() => _autoScanFromWidget = true);
+        }
+      });
+    } catch (_) {
+      // home_widget unsupported on this platform.
+    }
+  }
+
+  @override
+  void dispose() {
+    _widgetClickSub?.cancel();
+    super.dispose();
+  }
 
   /// Redirects to login when accessing protected named routes while unauthenticated.
   /// Uses BlocBuilder so the route rebuilds if auth state changes after it is first pushed
@@ -78,8 +127,10 @@ class _PostboxGameState extends State<PostboxGame> {
             listener: (context, state) {
               if (state is Authenticated) {
                 NotificationService.init();
+                unawaited(_homeWidgetService.refresh());
               } else if (state is Unauthenticated) {
                 unawaited(NotificationService.reset());
+                unawaited(_homeWidgetService.refresh());
               }
             },
             builder: (BuildContext context, AuthenticationState? state) {
@@ -90,6 +141,16 @@ class _PostboxGameState extends State<PostboxGame> {
                 return _UnauthGate(userRepository: _userRepository);
               }
               if (state is Authenticated) {
+                if (_autoScanFromWidget) {
+                  // One-shot: the Home builder below will consume the flag and
+                  // configure the Claim tab to auto-scan. Reset so rebuilds
+                  // (theme change, locale, etc.) don't re-trigger a scan.
+                  final home = const Home(initialIndex: 1, autoScan: true);
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted) setState(() => _autoScanFromWidget = false);
+                  });
+                  return home;
+                }
                 return const Home();
               }
               return const Splash();
