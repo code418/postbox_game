@@ -116,12 +116,21 @@ class _ClaimState extends State<Claim> with TickerProviderStateMixin {
         'meters': AppPreferences.claimRadiusMeters,
       });
       if (!mounted) return;
+      final data = Map<String, dynamic>.from(result.data as Map);
+      final counts = Map<String, dynamic>.from(data['counts'] as Map);
+      final points = Map<String, dynamic>.from(data['points'] as Map);
+      final rawPostboxes = data['postboxes'] as Map? ?? {};
+      final postboxes = <String, dynamic>{};
+      for (final entry in rawPostboxes.entries) {
+        postboxes[entry.key as String] =
+            Map<String, dynamic>.from(entry.value as Map);
+      }
       setState(() {
-        _count = result.data['counts']['total'] ?? 0;
-        _maxPoints = result.data['points']['max'] ?? 0;
-        _minPoints = result.data['points']['min'] ?? 0;
-        _claimedToday = result.data['counts']['claimedToday'] ?? 0;
-        _postboxes = Map<String, dynamic>.from(result.data['postboxes'] ?? {});
+        _count = counts['total'] ?? 0;
+        _maxPoints = points['max'] ?? 0;
+        _minPoints = points['min'] ?? 0;
+        _claimedToday = counts['claimedToday'] ?? 0;
+        _postboxes = postboxes;
         currentStage = _count > 0 ? ClaimStage.results : ClaimStage.empty;
       });
       if (_count > 0) {
@@ -202,9 +211,10 @@ class _ClaimState extends State<Claim> with TickerProviderStateMixin {
         'lat': position.latitude,
         'lng': position.longitude,
       });
-      final found = result.data?['found'] == true;
-      final allClaimedToday = result.data?['allClaimedToday'] == true;
-      final rawClaimed = result.data?['claimed'] ?? 0;
+      final claimData = Map<String, dynamic>.from(result.data as Map);
+      final found = claimData['found'] == true;
+      final allClaimedToday = claimData['allClaimedToday'] == true;
+      final rawClaimed = claimData['claimed'] ?? 0;
       final claimedCount = rawClaimed is int ? rawClaimed : (rawClaimed as num).toInt();
 
       if (!found) {
@@ -225,7 +235,7 @@ class _ClaimState extends State<Claim> with TickerProviderStateMixin {
         await _startSearch();
         return;
       }
-      final points = result.data?['points'] ?? 0;
+      final points = claimData['points'] ?? 0;
       if (!mounted) return;
       final earnedPts = points is int ? points : (points as num).toInt();
       Analytics.claimSuccess(pointsEarned: earnedPts, claimedCount: claimedCount);

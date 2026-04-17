@@ -104,25 +104,32 @@ class _NearbyState extends State<Nearby> {
         'meters': AppPreferences.nearbyRadiusMeters,
       });
       if (!mounted) return;
+      final data = Map<String, dynamic>.from(result.data as Map);
+      final counts = Map<String, dynamic>.from(data['counts'] as Map);
+      final pts = Map<String, dynamic>.from(data['points'] as Map);
+      final compass = data['compass'] != null
+          ? Map<String, dynamic>.from(data['compass'] as Map)
+          : <String, dynamic>{};
+      final claimedCompass = data['claimedCompass'] != null
+          ? Map<String, dynamic>.from(data['claimedCompass'] as Map)
+          : <String, dynamic>{};
       setState(() {
-        _count = result.data['counts']['total'] ?? 0;
-        _maxPoints = result.data['points']['max'] ?? 0;
-        _minPoints = result.data['points']['min'] ?? 0;
+        _count = counts['total'] ?? 0;
+        _maxPoints = pts['max'] ?? 0;
+        _minPoints = pts['min'] ?? 0;
         currentStage = NearbyStage.results;
         for (final dir in const [
           'N', 'NNE', 'NE', 'ENE', 'E', 'ESE',
           'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW',
           'W', 'WNW', 'NW', 'NNW',
         ]) {
-          _compassCounts[dir] =
-              (result.data['compass'] as Map<String, dynamic>?)?[dir] ?? 0;
-          _claimedCompassCounts[dir] =
-              (result.data['claimedCompass'] as Map<String, dynamic>?)?[dir] ?? 0;
+          _compassCounts[dir] = compass[dir] ?? 0;
+          _claimedCompassCounts[dir] = claimedCompass[dir] ?? 0;
         }
-        _claimedToday = result.data['counts']['claimedToday'] ?? 0;
+        _claimedToday = counts['claimedToday'] ?? 0;
         for (final cipher in MonarchInfo.all) {
-          _cipherTotals[cipher] = result.data['counts'][cipher] ?? 0;
-          _cipherClaimed[cipher] = result.data['counts']['${cipher}_claimed'] ?? 0;
+          _cipherTotals[cipher] = counts[cipher] ?? 0;
+          _cipherClaimed[cipher] = counts['${cipher}_claimed'] ?? 0;
         }
         _lastScanned = DateTime.now();
       });
