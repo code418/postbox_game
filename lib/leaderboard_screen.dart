@@ -72,7 +72,13 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
               Switch(
                 value: _friendsOnly,
                 activeColor: postalRed,
-                onChanged: (v) => setState(() => _friendsOnly = v),
+                onChanged: (v) {
+                  setState(() => _friendsOnly = v);
+                  if (v) {
+                    JamesController.of(context)
+                        ?.show(JamesMessages.navFriendsLeaderboard.resolve());
+                  }
+                },
               ),
             ],
           ),
