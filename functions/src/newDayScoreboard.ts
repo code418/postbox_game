@@ -19,24 +19,27 @@ const db = admin.firestore();
  *
  * If startDate > endDate (i.e. a brand-new period with no days elapsed yet),
  * the leaderboard is written as empty with the new periodKey.
+ *
+ * Exported for unit testing; production callers pass the module-level `db`.
  */
-async function rebuildPeriodLeaderboard(
+export async function rebuildPeriodLeaderboard(
   name: string,
   startDate: string,
-  endDate: string
+  endDate: string,
+  database: admin.firestore.Firestore = db
 ): Promise<void> {
   const periodKey = getPeriodKey(name, startDate);
 
   if (startDate > endDate) {
     // New period (e.g. Monday for weekly, 1st for monthly) — no claims yet.
-    await db.collection("leaderboards").doc(name).set(
+    await database.collection("leaderboards").doc(name).set(
       { periodKey, entries: [] },
       { merge: false }
     );
     return;
   }
 
-  const claimsSnap = await db
+  const claimsSnap = await database
     .collection("claims")
     .where("dailyDate", ">=", startDate)
     .where("dailyDate", "<=", endDate)
@@ -54,7 +57,7 @@ async function rebuildPeriodLeaderboard(
   // Fetch display names in parallel.
   const uids = Array.from(userPoints.keys());
   const userDocs = await Promise.all(
-    uids.map((uid) => db.collection("users").doc(uid).get())
+    uids.map((uid) => database.collection("users").doc(uid).get())
   );
 
   const entries: LeaderboardEntry[] = [];
@@ -70,7 +73,7 @@ async function rebuildPeriodLeaderboard(
 
   entries.sort((a, b) => b.points - a.points);
 
-  await db.collection("leaderboards").doc(name).set(
+  await database.collection("leaderboards").doc(name).set(
     { periodKey, entries: entries.slice(0, 100) },
     { merge: false }
   );

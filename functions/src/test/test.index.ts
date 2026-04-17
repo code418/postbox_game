@@ -1197,6 +1197,155 @@ describe("getPeriodResetFields", () => {
   });
 });
 
+import { rebuildPeriodLeaderboard } from "../newDayScoreboard";
+
+describe("rebuildPeriodLeaderboard (unit, mock Firestore)", () => {
+  type ClaimDoc = { userid: string; dailyDate: string; points: number };
+  type UserDoc  = { displayName?: string };
+  type LbDoc    = { periodKey?: string; entries?: unknown[] };
+
+  function makeMockDb(
+    claims: ClaimDoc[],
+    users: Record<string, UserDoc> = {}
+  ) {
+    let writtenLb: { periodKey?: string; entries?: unknown[] } | undefined;
+
+    const db = {
+      collection: (name: string) => {
+        if (name === "claims") {
+          let preds: Array<{ field: string; op: string; val: unknown }> = [];
+          const q = {
+            where(f: string, o: string, v: unknown) {
+              preds = [...preds, { field: f, op: o, val: v }];
+              return q;
+            },
+            async get() {
+              return {
+                docs: claims
+                  .filter(doc =>
+                    preds.every(({ field, op, val }) => {
+                      const v = (doc as Record<string, unknown>)[field];
+                      if (op === "==") return v === val;
+                      if (op === ">=") return typeof v === "string" && typeof val === "string" && v >= val;
+                      if (op === "<=") return typeof v === "string" && typeof val === "string" && v <= val;
+                      return false;
+                    })
+                  )
+                  .map(d => ({ data: () => d as Record<string, unknown> })),
+              };
+            },
+          };
+          return q;
+        }
+        if (name === "users") {
+          return {
+            doc: (uid: string) => ({
+              async get() {
+                const u = users[uid];
+                return { data: () => u as Record<string, unknown> | undefined };
+              },
+            }),
+          };
+        }
+        if (name === "leaderboards") {
+          return {
+            doc: (_id: string) => ({
+              async set(data: LbDoc) { writtenLb = data; },
+            }),
+          };
+        }
+        throw new Error(`Unexpected collection: ${name}`);
+      },
+    };
+
+    return {
+      db: db as unknown as import("firebase-admin").firestore.Firestore,
+      getWrittenLb: () => writtenLb,
+    };
+  }
+
+  it("writes empty entries with correct periodKey when startDate > endDate (new period)", async () => {
+    const { db, getWrittenLb } = makeMockDb([]);
+    await rebuildPeriodLeaderboard("weekly", "2026-04-20", "2026-04-19", db);
+    const written = getWrittenLb();
+    assert.ok(written, "should have written a leaderboard document");
+    assert.strictEqual(written!.periodKey, "week:2026-04-20");
+    assert.deepStrictEqual(written!.entries, []);
+  });
+
+  it("aggregates claims from multiple days and sorts by points descending", async () => {
+    const { db, getWrittenLb } = makeMockDb(
+      [
+        { userid: "u1", dailyDate: "2026-04-13", points: 5 },
+        { userid: "u1", dailyDate: "2026-04-14", points: 3 },
+        { userid: "u2", dailyDate: "2026-04-13", points: 10 },
+      ],
+      { u1: { displayName: "Alice" }, u2: { displayName: "Bob" } }
+    );
+    await rebuildPeriodLeaderboard("weekly", "2026-04-13", "2026-04-15", db);
+    const entries = getWrittenLb()!.entries as Array<{ uid: string; displayName: string; points: number }>;
+    assert.strictEqual(entries.length, 2);
+    assert.strictEqual(entries[0].uid, "u2");
+    assert.strictEqual(entries[0].points, 10);
+    assert.strictEqual(entries[1].uid, "u1");
+    assert.strictEqual(entries[1].points, 8);
+  });
+
+  it("uses fallback display name when user doc is missing", async () => {
+    const { db, getWrittenLb } = makeMockDb(
+      [{ userid: "abc123xyz", dailyDate: "2026-04-13", points: 4 }],
+      {} // no user docs
+    );
+    await rebuildPeriodLeaderboard("daily", "2026-04-13", "2026-04-13", db);
+    const entries = getWrittenLb()!.entries as Array<{ displayName: string }>;
+    assert.strictEqual(entries[0].displayName, "Player_abc123");
+  });
+
+  it("excludes claims outside the date range", async () => {
+    const { db, getWrittenLb } = makeMockDb(
+      [
+        { userid: "u1", dailyDate: "2026-04-12", points: 100 }, // before start
+        { userid: "u1", dailyDate: "2026-04-13", points: 5 },   // in range
+        { userid: "u1", dailyDate: "2026-04-16", points: 100 }, // after end
+      ],
+      { u1: { displayName: "Alice" } }
+    );
+    await rebuildPeriodLeaderboard("weekly", "2026-04-13", "2026-04-15", db);
+    const entries = getWrittenLb()!.entries as Array<{ points: number }>;
+    assert.strictEqual(entries[0].points, 5);
+  });
+
+  it("omits users with 0 total points", async () => {
+    const { db, getWrittenLb } = makeMockDb(
+      [{ userid: "u1", dailyDate: "2026-04-13", points: 0 }],
+      { u1: { displayName: "Alice" } }
+    );
+    await rebuildPeriodLeaderboard("daily", "2026-04-13", "2026-04-13", db);
+    assert.deepStrictEqual(getWrittenLb()!.entries, []);
+  });
+
+  it("caps entries at 100", async () => {
+    const claims = Array.from({ length: 120 }, (_, i) => ({
+      userid: `u${i}`,
+      dailyDate: "2026-04-13",
+      points: 120 - i,
+    }));
+    const users = Object.fromEntries(claims.map(c => [c.userid, { displayName: `Player ${c.userid}` }]));
+    const { db, getWrittenLb } = makeMockDb(claims, users);
+    await rebuildPeriodLeaderboard("monthly", "2026-04-01", "2026-04-13", db);
+    assert.strictEqual((getWrittenLb()!.entries as unknown[]).length, 100);
+  });
+
+  it("sets correct periodKey for daily period", async () => {
+    const { db, getWrittenLb } = makeMockDb(
+      [{ userid: "u1", dailyDate: "2026-04-17", points: 2 }],
+      { u1: { displayName: "Alice" } }
+    );
+    await rebuildPeriodLeaderboard("daily", "2026-04-17", "2026-04-17", db);
+    assert.strictEqual(getWrittenLb()!.periodKey, "2026-04-17");
+  });
+});
+
 import { updateFcmTokens, diffFriends } from "../_notifications";
 
 describe("updateFcmTokens", () => {
