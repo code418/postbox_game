@@ -12,14 +12,21 @@ import 'package:postbox_game/nearby.dart';
 import 'package:postbox_game/theme.dart';
 
 class Home extends StatefulWidget {
-  const Home({super.key});
+  const Home({super.key, this.initialIndex = 0, this.autoScan = false});
+
+  /// Index of the tab to show on first build. 0=Nearby, 1=Claim, 2=Scores, 3=Friends.
+  final int initialIndex;
+
+  /// When true, the Claim tab kicks off a scan automatically on first build.
+  /// Used by the Android home-screen widget deep-link.
+  final bool autoScan;
 
   @override
   State<Home> createState() => _HomeState();
 }
 
 class _HomeState extends State<Home> {
-  int _selectedIndex = 0;
+  late int _selectedIndex = widget.initialIndex;
   late final JamesController _jamesController = JamesController();
 
   static const _destinations = [
@@ -45,12 +52,14 @@ class _HomeState extends State<Home> {
     ),
   ];
 
-  // Keep screens alive via IndexedStack
-  static const _pages = [
-    Nearby(),
-    Claim(),
-    LeaderboardScreen(),
-    FriendsScreen(),
+  // Keep screens alive via IndexedStack. `autoScan` is only forwarded on
+  // first build; re-entering the Claim tab later won't retrigger a scan
+  // because the widget is preserved by IndexedStack.
+  late final List<Widget> _pages = [
+    const Nearby(),
+    Claim(autoScan: widget.autoScan),
+    const LeaderboardScreen(),
+    const FriendsScreen(),
   ];
 
   @override
