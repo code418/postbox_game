@@ -1346,7 +1346,7 @@ describe("rebuildPeriodLeaderboard (unit, mock Firestore)", () => {
   });
 });
 
-import { updateFcmTokens, diffFriends } from "../_notifications";
+import { updateFcmTokens, diffFriends, shouldNotifyFirstClaim, shouldNotifyOvertake } from "../_notifications";
 
 describe("updateFcmTokens", () => {
   it("adds a token to an empty list", () => {
@@ -1392,4 +1392,74 @@ describe("diffFriends", () => {
     // leaves length == 2, but "c" is still a new friend who should be notified.
     assert.deepStrictEqual(diffFriends(["a", "b"], ["b", "c"]), ["c"]);
   });
+});
+
+describe("shouldNotifyFirstClaim", () => {
+  it("returns true when friend has no dailyPoints (undefined)", () =>
+    assert.strictEqual(shouldNotifyFirstClaim({}), true));
+
+  it("returns true when friend dailyPoints is 0", () =>
+    assert.strictEqual(shouldNotifyFirstClaim({ dailyPoints: 0 }), true));
+
+  it("returns false when friend dailyPoints > 0 (already scored today)", () =>
+    assert.strictEqual(shouldNotifyFirstClaim({ dailyPoints: 5 }), false));
+
+  it("returns false when friendFirstScore pref is explicitly false", () =>
+    assert.strictEqual(
+      shouldNotifyFirstClaim({ dailyPoints: 0, notificationPrefs: { friendFirstScore: false } }),
+      false
+    ));
+
+  it("returns true when friendFirstScore pref is true (opt-in)", () =>
+    assert.strictEqual(
+      shouldNotifyFirstClaim({ dailyPoints: 0, notificationPrefs: { friendFirstScore: true } }),
+      true
+    ));
+
+  it("returns true when notificationPrefs is absent", () =>
+    assert.strictEqual(shouldNotifyFirstClaim({ dailyPoints: 0 }), true));
+
+  it("returns false for undefined fdata", () =>
+    assert.strictEqual(shouldNotifyFirstClaim(undefined), true));
+
+  it("returns false when dailyPoints is stored as a float (e.g. 3.5)", () =>
+    assert.strictEqual(shouldNotifyFirstClaim({ dailyPoints: 3.5 }), false));
+});
+
+describe("shouldNotifyOvertake", () => {
+  it("returns false for undefined fdata", () =>
+    assert.strictEqual(shouldNotifyOvertake(undefined, 10), false));
+
+  it("returns false when friend has 0 dailyPoints (hasn't scored)", () =>
+    assert.strictEqual(shouldNotifyOvertake({ dailyPoints: 0 }, 10), false));
+
+  it("returns false when friend dailyPoints is missing (treated as 0)", () =>
+    assert.strictEqual(shouldNotifyOvertake({}, 10), false));
+
+  it("returns false when newDailyPoints equals friend's score (tie, not an overtake)", () =>
+    assert.strictEqual(shouldNotifyOvertake({ dailyPoints: 10 }, 10), false));
+
+  it("returns false when newDailyPoints is less than friend's score", () =>
+    assert.strictEqual(shouldNotifyOvertake({ dailyPoints: 15 }, 10), false));
+
+  it("returns true when newDailyPoints strictly exceeds friend's non-zero score", () =>
+    assert.strictEqual(shouldNotifyOvertake({ dailyPoints: 8 }, 10), true));
+
+  it("returns false when friendOvertakes pref is explicitly false", () =>
+    assert.strictEqual(
+      shouldNotifyOvertake({ dailyPoints: 8, notificationPrefs: { friendOvertakes: false } }, 10),
+      false
+    ));
+
+  it("returns true when friendOvertakes pref is true (opt-in)", () =>
+    assert.strictEqual(
+      shouldNotifyOvertake({ dailyPoints: 8, notificationPrefs: { friendOvertakes: true } }, 10),
+      true
+    ));
+
+  it("returns true when notificationPrefs is absent and score genuinely overtakes", () =>
+    assert.strictEqual(shouldNotifyOvertake({ dailyPoints: 3 }, 7), true));
+
+  it("returns false when newDailyPoints is 0 (user has no score, cannot overtake)", () =>
+    assert.strictEqual(shouldNotifyOvertake({ dailyPoints: 5 }, 0), false));
 });

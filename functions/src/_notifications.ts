@@ -62,6 +62,36 @@ async function sendToUser(uid: string, title: string, body: string): Promise<voi
   }
 }
 
+// ── Notification eligibility helpers (exported for unit testing) ─────────
+
+type UserData = Record<string, unknown> | undefined;
+
+/**
+ * Returns true if a friend should receive the "first claim of the day"
+ * notification. False when the friend has already scored today (dailyPoints > 0)
+ * or has explicitly disabled the notification.
+ */
+export function shouldNotifyFirstClaim(fdata: UserData): boolean {
+  if (((fdata?.dailyPoints as number | undefined) ?? 0) > 0) return false;
+  const prefs = fdata?.notificationPrefs as Record<string, boolean> | undefined;
+  if (prefs?.friendFirstScore === false) return false;
+  return true;
+}
+
+/**
+ * Returns true if a friend should receive the "overtaken" notification.
+ * False when the friend hasn't scored yet (dailyPoints === 0), the new score
+ * doesn't exceed the friend's score, or the friend has disabled the notification.
+ */
+export function shouldNotifyOvertake(fdata: UserData, newDailyPoints: number): boolean {
+  if (!fdata) return false;
+  const friendDaily = (fdata.dailyPoints as number | undefined) ?? 0;
+  if (friendDaily === 0 || newDailyPoints <= friendDaily) return false;
+  const prefs = fdata.notificationPrefs as Record<string, boolean> | undefined;
+  if (prefs?.friendOvertakes === false) return false;
+  return true;
+}
+
 // ── Notification event functions ──────────────────────────────────────────
 
 /**
@@ -86,13 +116,7 @@ export async function notifyFriendsFirstClaim(
   await Promise.allSettled(
     friendDocs.map(async (doc) => {
       const fdata = doc.data();
-      // Only notify friends who haven't scored today — they're the ones being
-      // beaten to the first claim. Friends who already scored don't need the nudge.
-      if (((fdata?.dailyPoints as number | undefined) ?? 0) > 0) return;
-      const prefs = fdata?.notificationPrefs as
-        | Record<string, boolean>
-        | undefined;
-      if (prefs?.friendFirstScore === false) return;
+      if (!shouldNotifyFirstClaim(fdata)) return;
       await sendToUser(
         doc.id,
         "First find of the day!",
@@ -122,14 +146,7 @@ export async function notifyFriendOvertake(
   await Promise.allSettled(
     friendDocs.map(async (doc) => {
       const fdata = doc.data();
-      if (!fdata) return;
-      const friendDaily = (fdata.dailyPoints as number | undefined) ?? 0;
-      // Only notify for genuine overtakes — skip friends who haven't scored yet.
-      if (friendDaily === 0 || newDailyPoints <= friendDaily) return;
-      const prefs = fdata.notificationPrefs as
-        | Record<string, boolean>
-        | undefined;
-      if (prefs?.friendOvertakes === false) return;
+      if (!shouldNotifyOvertake(fdata, newDailyPoints)) return;
       await sendToUser(
         doc.id,
         "Overtaken!",
