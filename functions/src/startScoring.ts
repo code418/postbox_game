@@ -194,6 +194,7 @@ export const startScoring = functions.https.onCall(async (request) => {
     // the other session's total instead of ours.
     const lifetimePointsIncrement = earnedPoints.reduce((s, p) => s + p, 0);
     let capturedNewDailyPoints: number | null = null;
+    let capturedPrevDailyPoints: number | null = null;
 
     try {
       for (const r of uniqueCheckResults) {
@@ -212,6 +213,7 @@ export const startScoring = functions.https.onCall(async (request) => {
       // function's initial userRef.get() (above) and the transaction would
       // otherwise leave prevDailyPoints stale and the overtake notification
       // computed against an understated score.
+      let committedPrevDailyPoints: number | null = null;
       let committedDailyPoints: number | null = null;
 
       await database.runTransaction(async (tx) => {
@@ -222,7 +224,8 @@ export const startScoring = functions.https.onCall(async (request) => {
         const d = userSnap.data() ?? {};
         const newUnique = ((d.uniquePostboxesClaimed as number | undefined) ?? 0) + uniqueIncrement;
         const newLifetimePoints = ((d.lifetimePoints as number | undefined) ?? 0) + lifetimePointsIncrement;
-        committedDailyPoints = ((d.dailyPoints as number | undefined) ?? 0) + lifetimePointsIncrement;
+        committedPrevDailyPoints = (d.dailyPoints as number | undefined) ?? 0;
+        committedDailyPoints = committedPrevDailyPoints + lifetimePointsIncrement;
 
         tx.set(
           userRef,
@@ -242,6 +245,7 @@ export const startScoring = functions.https.onCall(async (request) => {
       });
 
       capturedNewDailyPoints = committedDailyPoints;
+      capturedPrevDailyPoints = committedPrevDailyPoints;
     } catch (lifetimeErr) {
       console.error("lifetime leaderboard update failed (non-fatal):", lifetimeErr);
     }
@@ -252,16 +256,18 @@ export const startScoring = functions.https.onCall(async (request) => {
     void (async () => {
       try {
         const isFirstClaimToday = userClaimsSnap.docs.length === 0;
-        // Prefer the value captured inside the lifetime transaction (fresh).
+        // Prefer values captured inside the lifetime transaction (fresh).
         // Fall back to the pre-transaction estimate only if the transaction
         // failed — in that case the leaderboard wasn't updated either.
+        const prevDailyPoints = capturedPrevDailyPoints ??
+          ((userDoc.data()?.dailyPoints as number | undefined) ?? 0);
         const newDailyPoints = capturedNewDailyPoints ??
-          ((userDoc.data()?.dailyPoints as number | undefined) ?? 0) + lifetimePointsIncrement;
+          prevDailyPoints + lifetimePointsIncrement;
         await Promise.allSettled([
           ...(isFirstClaimToday
             ? [notifyFriendsFirstClaim(userid, displayName)]
             : []),
-          notifyFriendOvertake(userid, displayName, newDailyPoints),
+          notifyFriendOvertake(userid, displayName, prevDailyPoints, newDailyPoints),
         ]);
       } catch (notifErr) {
         console.error("notification error (non-fatal):", notifErr);

@@ -80,13 +80,25 @@ export function shouldNotifyFirstClaim(fdata: UserData): boolean {
 
 /**
  * Returns true if a friend should receive the "overtaken" notification.
- * False when the friend hasn't scored yet (dailyPoints === 0), the new score
- * doesn't exceed the friend's score, or the friend has disabled the notification.
+ *
+ * Fires only when this claim crossed the threshold: `prevDailyPoints <= friendDaily`
+ * AND `newDailyPoints > friendDaily`. Without the prev check, a user already ahead
+ * of a friend would re-trigger the notification on every subsequent claim of the day.
+ *
+ * Returns false when the friend hasn't scored yet (dailyPoints === 0), the user
+ * was already ahead before this claim, the new score doesn't exceed the friend's
+ * score, or the friend has disabled the notification.
  */
-export function shouldNotifyOvertake(fdata: UserData, newDailyPoints: number): boolean {
+export function shouldNotifyOvertake(
+  fdata: UserData,
+  prevDailyPoints: number,
+  newDailyPoints: number
+): boolean {
   if (!fdata) return false;
   const friendDaily = (fdata.dailyPoints as number | undefined) ?? 0;
   if (friendDaily === 0 || newDailyPoints <= friendDaily) return false;
+  // Already ahead before this claim — notification already fired (or should have).
+  if (prevDailyPoints > friendDaily) return false;
   const prefs = fdata.notificationPrefs as Record<string, boolean> | undefined;
   if (prefs?.friendOvertakes === false) return false;
   return true;
@@ -127,12 +139,16 @@ export async function notifyFriendsFirstClaim(
 }
 
 /**
- * Notifies friends in `uid`'s list whose dailyPoints are below `newDailyPoints`.
- * This is the "someone just overtook you" notification.
+ * Notifies friends in `uid`'s list whom this claim just overtook.
+ *
+ * `prevDailyPoints` is the user's total BEFORE this claim session; `newDailyPoints`
+ * is the total AFTER. The notification fires only for friends whose score sits in
+ * the `(prevDailyPoints, newDailyPoints]` range — those the user just crossed.
  */
 export async function notifyFriendOvertake(
   uid: string,
   displayName: string,
+  prevDailyPoints: number,
   newDailyPoints: number
 ): Promise<void> {
   const userDoc = await database.collection("users").doc(uid).get();
@@ -146,7 +162,7 @@ export async function notifyFriendOvertake(
   await Promise.allSettled(
     friendDocs.map(async (doc) => {
       const fdata = doc.data();
-      if (!shouldNotifyOvertake(fdata, newDailyPoints)) return;
+      if (!shouldNotifyOvertake(fdata, prevDailyPoints, newDailyPoints)) return;
       await sendToUser(
         doc.id,
         "Overtaken!",
