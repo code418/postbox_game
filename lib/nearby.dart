@@ -103,7 +103,8 @@ class NearbyState extends State<Nearby> {
           'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW',
           'W', 'WNW', 'NW', 'NNW',
         ]) {
-          _compassCounts[dir] = result.data['compass'][dir] ?? 0;
+          _compassCounts[dir] =
+              (result.data['compass'] as Map<String, dynamic>?)?[dir] ?? 0;
           _claimedCompassCounts[dir] =
               (result.data['claimedCompass'] as Map<String, dynamic>?)?[dir] ?? 0;
         }

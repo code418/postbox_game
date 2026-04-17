@@ -139,7 +139,7 @@ class FuzzyCompass extends StatelessWidget {
             ] else ...[
               const SizedBox(height: AppSpacing.sm),
               Text(
-                'No postboxes in this area',
+                hasAnyClaimed ? 'All found today!' : 'No postboxes in this area',
                 style: Theme.of(context)
                     .textTheme
                     .bodySmall
