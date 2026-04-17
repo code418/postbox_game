@@ -113,7 +113,7 @@ export async function updateUserLeaderboards(
       const claimsForPeriod = claimsSnap.docs;
 
       const userPoints = claimsForPeriod.reduce(
-        (sum, d) => sum + ((d.data().points as number) ?? 0),
+        (sum, d) => sum + ((d.data().points as number | undefined) ?? 0),
         0
       );
 

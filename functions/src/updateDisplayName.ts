@@ -92,7 +92,7 @@ export const updateDisplayName = functions.https.onCall(async (request) => {
       const lifetimePoints = ((d.lifetimePoints as number | undefined) ?? 0);
       const existing = (lifetimeSnap.data()?.entries ?? []) as LifetimeLeaderboardEntry[];
       const updated = mergeLifetimeEntries(existing, uid, name, uniquePostboxesClaimed, lifetimePoints);
-      tx.set(lifetimeRef, { periodKey: "lifetime", entries: updated }, { merge: false });
+      tx.set(lifetimeRef, { periodKey: "lifetime", entries: updated }, { merge: true });
     });
   } catch (lifetimeErr) {
     console.error("lifetime leaderboard display name update failed (non-fatal):", lifetimeErr);

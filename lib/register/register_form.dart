@@ -40,6 +40,7 @@ class _RegisterFormState extends State<RegisterForm> {
     return BlocListener(
       bloc: _registerBloc,
       listener: (BuildContext context, RegisterState state) {
+        if (!context.mounted) return;
         if (state.isSuccess) {
           Analytics.signUp(method: 'email');
           BlocProvider.of<AuthenticationBloc>(context).add(LoggedIn());

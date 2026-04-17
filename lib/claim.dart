@@ -272,7 +272,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
     // quiz varies when multiple postboxes with different ciphers are nearby.
     final ciphers = <String>[];
     for (final p in _postboxes.values) {
-      final map = p as Map<dynamic, dynamic>;
+      final map = p as Map<String, dynamic>;
       if (map['claimedToday'] == true) continue;
       final monarch = map['monarch'];
       // Only include ciphers in MonarchInfo.all so the quiz can always build
@@ -299,7 +299,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
   void _startQuiz() {
     final cipher = _pickQuizCipher();
     if (cipher == null) {
-      _claimPostbox();
+      unawaited(_claimPostbox());
       return;
     }
     Analytics.quizStarted(cipher: cipher);
@@ -316,7 +316,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
     if (answer == _quizCipher) {
       Analytics.quizCorrect(cipher: _quizCipher!);
       HapticFeedback.lightImpact();
-      _claimPostbox();
+      unawaited(_claimPostbox());
     } else {
       Analytics.quizIncorrect(
         correctCipher: _quizCipher!,
