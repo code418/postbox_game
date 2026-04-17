@@ -77,7 +77,7 @@ class _PostboxGameState extends State<PostboxGame> {
           home: BlocConsumer<AuthenticationBloc, AuthenticationState?>(
             listener: (context, state) {
               if (state is Authenticated) {
-                NotificationService.init();
+                unawaited(NotificationService.init());
               } else if (state is Unauthenticated) {
                 unawaited(NotificationService.reset());
               }
