@@ -119,10 +119,36 @@ class _FriendsScreenState extends State<FriendsScreen> {
     }
   }
 
-  Future<void> _removeFriend(String friendUid) async {
+  Future<void> _removeFriend(String friendUid, String? displayName) async {
     if (_removingUids.contains(friendUid)) return;
     final uid = _currentUid;
     if (uid == null) return;
+
+    // Re-adding requires re-entering the friend's UID by hand, so guard
+    // against accidental taps on the remove icon with a confirmation prompt.
+    final who = (displayName != null && displayName.trim().isNotEmpty)
+        ? displayName.trim()
+        : 'this friend';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Remove friend?'),
+        content: Text(
+            'Remove $who from your friends list? You\'ll need their UID to add them again.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
     setState(() => _removingUids.add(friendUid));
     try {
       await _firestore.collection('users').doc(uid).update({
@@ -379,7 +405,8 @@ class _FriendsScreenState extends State<FriendsScreen> {
                             icon: Icon(Icons.person_remove_outlined,
                                 color: Theme.of(context).colorScheme.onSurfaceVariant),
                             tooltip: 'Remove friend',
-                            onPressed: () => _removeFriend(friendUid),
+                            onPressed: () =>
+                                _removeFriend(friendUid, displayName),
                           ),
                         ),
                       );
