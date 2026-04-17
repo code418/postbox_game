@@ -4,7 +4,7 @@ import * as functions from "firebase-functions";
 import { getPoints } from "./_getPoints";
 import { getTodayLondon } from "./_dateUtils";
 import { lookupPostboxes } from "./_lookupPostboxes";
-import { updateUserLeaderboards, mergeLifetimeEntries, LifetimeLeaderboardEntry } from "./_leaderboardUtils";
+import { updateUserLeaderboards, mergeLifetimeEntries, LifetimeLeaderboardEntry, getWeekStart, getMonthStart } from "./_leaderboardUtils";
 import { computeNewStreak } from "./_streakUtils";
 import { notifyFriendsFirstClaim, notifyFriendOvertake } from "./_notifications";
 
@@ -196,6 +196,53 @@ export const startScoring = functions.https.onCall(async (request) => {
     let capturedNewDailyPoints: number | null = null;
     let capturedPrevDailyPoints: number | null = null;
 
+    // Detect whether this claim is the first-in-period so we can SET (not
+    // INCREMENT) the dailyPoints/weeklyPoints/monthlyPoints fields, clearing
+    // any stale value carried over from the prior period. newDayScoreboard
+    // normally zeroes these at midnight London, but a user who claims before
+    // that scheduler completes (or if the scheduler failed) would otherwise
+    // see yesterday's total added to today's — polluting the friends-only
+    // leaderboard and the home widget, which read these fields directly.
+    const isFirstClaimToday = userClaimsSnap.docs.length === 0;
+    let isFirstClaimThisWeek = false;
+    let isFirstClaimThisMonth = false;
+    if (isFirstClaimToday) {
+      const weekStart = getWeekStart(todayLondon);
+      const monthStart = getMonthStart(todayLondon);
+      // When today IS the period start (Monday / 1st), there can be no earlier
+      // in-period claims, so skip the read.
+      const [weekEmpty, monthEmpty] = await Promise.all([
+        todayLondon === weekStart
+          ? Promise.resolve(true)
+          : database.collection("claims")
+              .where("userid", "==", userid)
+              .where("dailyDate", ">=", weekStart)
+              .where("dailyDate", "<", todayLondon)
+              .limit(1)
+              .get()
+              .then((s) => s.empty)
+              .catch((err) => {
+                console.error("first-of-week check failed (non-fatal):", err);
+                return false; // safe fallback: keep existing increment behavior
+              }),
+        todayLondon === monthStart
+          ? Promise.resolve(true)
+          : database.collection("claims")
+              .where("userid", "==", userid)
+              .where("dailyDate", ">=", monthStart)
+              .where("dailyDate", "<", todayLondon)
+              .limit(1)
+              .get()
+              .then((s) => s.empty)
+              .catch((err) => {
+                console.error("first-of-month check failed (non-fatal):", err);
+                return false;
+              }),
+      ]);
+      isFirstClaimThisWeek = weekEmpty;
+      isFirstClaimThisMonth = monthEmpty;
+    }
+
     try {
       for (const r of uniqueCheckResults) {
         if (r.status === "rejected") {
@@ -224,7 +271,12 @@ export const startScoring = functions.https.onCall(async (request) => {
         const d = userSnap.data() ?? {};
         const newUnique = ((d.uniquePostboxesClaimed as number | undefined) ?? 0) + uniqueIncrement;
         const newLifetimePoints = ((d.lifetimePoints as number | undefined) ?? 0) + lifetimePointsIncrement;
-        committedPrevDailyPoints = (d.dailyPoints as number | undefined) ?? 0;
+        // If this is the first claim of the day, treat prevDailyPoints as 0
+        // (even if the stored field still holds yesterday's total). Otherwise
+        // use the stored value so overtake notifications compare against the
+        // same figure the friends-only leaderboard displays.
+        const storedDailyPoints = (d.dailyPoints as number | undefined) ?? 0;
+        committedPrevDailyPoints = isFirstClaimToday ? 0 : storedDailyPoints;
         committedDailyPoints = committedPrevDailyPoints + lifetimePointsIncrement;
         // Read displayName inside the transaction so a concurrent
         // updateDisplayName that commits between this function's earlier
@@ -238,9 +290,15 @@ export const startScoring = functions.https.onCall(async (request) => {
           {
             uniquePostboxesClaimed: newUnique,
             lifetimePoints: newLifetimePoints,
-            dailyPoints: admin.firestore.FieldValue.increment(lifetimePointsIncrement),
-            weeklyPoints: admin.firestore.FieldValue.increment(lifetimePointsIncrement),
-            monthlyPoints: admin.firestore.FieldValue.increment(lifetimePointsIncrement),
+            dailyPoints: isFirstClaimToday
+              ? lifetimePointsIncrement
+              : admin.firestore.FieldValue.increment(lifetimePointsIncrement),
+            weeklyPoints: isFirstClaimThisWeek
+              ? lifetimePointsIncrement
+              : admin.firestore.FieldValue.increment(lifetimePointsIncrement),
+            monthlyPoints: isFirstClaimThisMonth
+              ? lifetimePointsIncrement
+              : admin.firestore.FieldValue.increment(lifetimePointsIncrement),
           },
           { merge: true }
         );
