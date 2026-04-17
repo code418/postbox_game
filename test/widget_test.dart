@@ -633,21 +633,22 @@ void main() {
       // Allow initState async calls (_loadPrefs, _loadNotifPrefs) to complete.
       // No real user is signed in, so _loadNotifPrefs resolves immediately.
       await tester.pump();
-      expect(find.text('Notifications'), findsOneWidget);
+      expect(find.text('Notifications', skipOffstage: false), findsOneWidget);
     });
 
     testWidgets('Three notification toggle titles appear after prefs load',
         (tester) async {
+      // Use a tall viewport so the ListView builds all children eagerly —
+      // ListView is lazy and only builds items in the visible area.
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+
       await tester.pumpWidget(buildSettings());
       await tester.pump();
-      // Use skipOffstage: false because the toggles may be below the fold in
-      // the default 800×600 test viewport.
-      expect(find.text('First friend to score today', skipOffstage: false),
-          findsOneWidget);
-      expect(find.text('Friend overtakes you', skipOffstage: false),
-          findsOneWidget);
-      expect(find.text('Added as a friend', skipOffstage: false),
-          findsOneWidget);
+      expect(find.text('First friend to score today'), findsOneWidget);
+      expect(find.text('Friend overtakes you'), findsOneWidget);
+      expect(find.text('Added as a friend'), findsOneWidget);
     });
   });
 }
