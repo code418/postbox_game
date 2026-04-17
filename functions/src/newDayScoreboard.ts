@@ -127,13 +127,14 @@ export const newDayScoreboard = onSchedule(
     // dailyPoints resets every day; weeklyPoints on Mondays; monthlyPoints on the 1st.
     try {
       const resetFields = getPeriodResetFields(today, weekStart, monthStart);
-      const usersSnap = await db.collection("users").get();
+      // listDocuments() returns refs without reading field data — no read cost.
+      const userRefs = await db.collection("users").listDocuments();
       const BATCH_LIMIT = 499;
       const batches: admin.firestore.WriteBatch[] = [];
       let batch: admin.firestore.WriteBatch = db.batch();
       let batchCount = 0;
-      for (const doc of usersSnap.docs) {
-        batch.set(doc.ref, resetFields, { merge: true });
+      for (const ref of userRefs) {
+        batch.set(ref, resetFields, { merge: true });
         batchCount++;
         if (batchCount === BATCH_LIMIT) {
           batches.push(batch);
@@ -144,7 +145,7 @@ export const newDayScoreboard = onSchedule(
       if (batchCount > 0) batches.push(batch);
       await Promise.all(batches.map((b) => b.commit()));
       logger.info(
-        `Period fields reset: [${Object.keys(resetFields).join(", ")}] across ${usersSnap.docs.length} users`
+        `Period fields reset: [${Object.keys(resetFields).join(", ")}] across ${userRefs.length} users`
       );
     } catch (resetErr) {
       logger.error("Period point reset failed (non-fatal):", resetErr);
