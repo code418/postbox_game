@@ -13,7 +13,7 @@ final _random = Random();
 /// A fixed message or a pool of variant messages for Postman James.
 ///
 /// Call [resolve] at display time to get a string. If multiple variants are
-/// defined, one is chosen at random — keeping James from feeling repetitive.
+/// defined, one is chosen at random... keeping James from feeling repetitive.
 /// The [key] is an ARB-compatible name reserved for the future i18n migration.
 class JamesMessage {
   const JamesMessage(this.key, this._variants);
@@ -27,7 +27,7 @@ class JamesMessage {
       : _variants[_random.nextInt(_variants.length)];
 }
 
-/// All Postman James messages — single source of truth.
+/// All Postman James messages... single source of truth.
 ///
 /// Fixed messages use a one-element list; variant pools use multiple elements.
 /// Dynamic messages (requiring runtime data) are plain static String functions.
@@ -40,7 +40,7 @@ abstract final class JamesMessages {
     'jamesNavNearby',
     [
       "Nothing like a good wander. The compass shows roughly where postboxes "
-          "are — no exact locations, mind.",
+          "are... no exact locations, mind.",
       "There is nothing, and I mean nothing, I like more than being on the "
           "lookout for postboxes. I love it.",
       "Impress your friends and loved ones by finding nearby postboxes!"
@@ -59,7 +59,7 @@ abstract final class JamesMessages {
   static const navScores = JamesMessage(
     'jamesNavScores',
     [
-      "Daily, weekly, monthly — see how you stack up against the competition. "
+      "Daily, weekly, monthly... see how you stack up against the competition. "
           "The only thing better than spotting postboxes is knowing you have "
           "spotted more than your friends"
     ],
@@ -81,7 +81,7 @@ abstract final class JamesMessages {
   static const navLifetimeScores = JamesMessage(
     'jamesNavLifetimeScores',
     [
-      "This is the all-time tally — unique postboxes ever claimed. "
+      "This is the all-time tally... unique postboxes ever claimed. "
           "Claiming the same box twice doesn't count, so get out and explore!",
       "There are over a hundred thousand postboxes out there, gotta spot them all!"
     ],
@@ -109,7 +109,7 @@ abstract final class JamesMessages {
       "There are roughly 115,000 postboxes in the UK. You've got a fair way to go.",
       "Edward VIII was only king for 325 days. His cyphers are rarer for it.",
       "Some postboxes have had the same collection time for over a hundred years. "
-          "Consistency — that's what I like.",
+          "Consistency... that's what I like.",
       "The correct term is 'pillar box'. Though 'postbox' will do. I'm not fussed.",
       "A postbox in Brixham is shaped like a lighthouse. Just thought you should know.",
       "Royal Mail red is officially called 'Pillar Box Red'. The colour is named "
@@ -132,7 +132,7 @@ abstract final class JamesMessages {
   static const nearbyNoneFound = JamesMessage(
     'jamesNearbyNoneFound',
     [
-      "Arse... nothing nearby. Try a different area — postboxes are everywhere. "
+      "Arse... nothing nearby. Try a different area... postboxes are everywhere. "
           "Just not here.",
       "By my calculations you are in the middle of nowhere, try not being there.",
       "An area without postboxes tears me up inside."
@@ -178,14 +178,14 @@ abstract final class JamesMessages {
 
   static const claimSuccessRare = JamesMessage(
     'jamesClaimSuccessRare',
-    ["Oh ho — a rare one! That's a find. Well done.", "Nice, big points"],
+    ["Oh ho... a rare one! That's a find. Well done.", "Nice, big points"],
   );
 
   /// Dynamic: multiple postboxes claimed in a single scan.
   static String claimSuccessMulti(int count, int pts) =>
-      "Blimey — $count at once! That's $pts points in one go. Impressive.";
+      "Blimey... $count at once! That's $pts points in one go. Impressive.";
 
-  /// Variant pool — keeps repeated standard claims feeling fresh.
+  /// Variant pool... keeps repeated standard claims feeling fresh.
   static const claimSuccessStandard = JamesMessage(
     'jamesClaimSuccessStandard',
     [

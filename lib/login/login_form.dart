@@ -51,6 +51,7 @@ class _LoginFormState extends State<LoginForm> {
     return BlocListener(
       bloc: _loginBloc,
       listener: (BuildContext context, LoginState state) {
+        if (!context.mounted) return;
         if (state.isFailure) {
           // Analytics.loginFailed() is fired inside LoginBloc (where the method is known).
           ScaffoldMessenger.of(context)

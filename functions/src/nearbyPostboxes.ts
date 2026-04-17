@@ -49,13 +49,13 @@ export const nearbyPostboxes = functions.https.onCall(async (request) => {
     userClaimsSnap.docs
       .map(d => d.data().postboxes as string | undefined)
       .filter((ref): ref is string => typeof ref === "string")
-      .map(ref => ref.replace("/postbox/", ""))
+      .map(ref => ref.replace(/^\/postbox\//, ""))
   );
 
-  const { slimPostboxes, updatedCounts, updatedPoints, updatedCompass } =
+  const { slimPostboxes, updatedCounts, updatedPoints, updatedCompass, claimedCompass } =
     applyUserClaims(full, userClaimedKeys);
 
-  // Return only the 4 intended fields — explicit rather than ...full spread
+  // Return only the intended fields — explicit rather than ...full spread
   // so future LookupResult fields (e.g. precise geopoints) are not accidentally
   // leaked to clients before they're deliberately included here.
   return {
@@ -63,5 +63,6 @@ export const nearbyPostboxes = functions.https.onCall(async (request) => {
     counts: updatedCounts,
     points: updatedPoints,
     compass: updatedCompass,
+    claimedCompass,
   };
 });

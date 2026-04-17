@@ -31,13 +31,17 @@ service cloud.firestore {
       // lastClaimDate, createdAt, fcmTokens, points) are written by Cloud Functions
       // using the Admin SDK, which bypasses these rules.
       // friends is capped at 200 entries to prevent O(n) leaderboard read abuse.
+      // notificationPrefs must be a map (type-validated to prevent garbage writes).
       allow update: if request.auth != null && request.auth.uid == uid
         && request.resource.data.diff(resource.data).affectedKeys()
               .hasOnly(['friends', 'notificationPrefs'])
         && (!request.resource.data.diff(resource.data).affectedKeys()
                 .hasAny(['friends'])
             || (request.resource.data.friends is list
-                && request.resource.data.friends.size() <= 200));
+                && request.resource.data.friends.size() <= 200))
+        && (!request.resource.data.diff(resource.data).affectedKeys()
+                .hasAny(['notificationPrefs'])
+            || request.resource.data.notificationPrefs is map);
       // Create and all other writes are handled by Cloud Functions.
       allow create: if false;
     }

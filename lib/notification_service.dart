@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -9,10 +11,12 @@ class NotificationService {
   static const _channelId = 'postbox_social';
   static const _channelName = 'Social Notifications';
   static bool _initialized = false;
+  static StreamSubscription<String>? _tokenRefreshSub;
+  static StreamSubscription<dynamic>? _onMessageSub;
 
   /// Initialise FCM and register the device token with the backend.
-  /// Safe to call multiple times — FirebaseMessaging deduplicates the
-  /// onTokenRefresh listener internally.
+  /// Safe to call multiple times — subscriptions are cancelled on [reset]
+  /// before re-registering to avoid duplicate listeners.
   static Future<void> init() async {
     if (_initialized) return;
     _initialized = true;
@@ -27,7 +31,7 @@ class NotificationService {
       await _registerToken(token);
     }
 
-    messaging.onTokenRefresh.listen(_registerToken);
+    _tokenRefreshSub = messaging.onTokenRefresh.listen(_registerToken);
 
     // Configure flutter_local_notifications so FCM messages display when the
     // app is in the foreground (FCM does not auto-show system notifications
@@ -49,7 +53,7 @@ class NotificationService {
           ),
         );
 
-    FirebaseMessaging.onMessage.listen((message) {
+    _onMessageSub = FirebaseMessaging.onMessage.listen((message) {
       final notification = message.notification;
       if (notification == null) return;
       _localNotifications.show(
@@ -68,8 +72,23 @@ class NotificationService {
   }
 
   /// Resets the initialisation guard so [init] re-registers on the next sign-in.
+  /// Cancels active FCM listeners to prevent duplicates across sign-in cycles.
+  /// Deletes the FCM token so it is no longer deliverable to the signed-out
+  /// user's account — FCM will return not-registered on the next delivery
+  /// attempt, triggering stale-token pruning on the backend.
   /// Call this when the user signs out.
-  static void reset() => _initialized = false;
+  static Future<void> reset() async {
+    await _tokenRefreshSub?.cancel();
+    await _onMessageSub?.cancel();
+    _tokenRefreshSub = null;
+    _onMessageSub = null;
+    _initialized = false;
+    try {
+      await FirebaseMessaging.instance.deleteToken();
+    } catch (_) {
+      // Token deletion is best-effort; failure does not block sign-out.
+    }
+  }
 
   static Future<void> _registerToken(String token) async {
     try {

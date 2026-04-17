@@ -100,7 +100,14 @@ class _FriendsScreenState extends State<FriendsScreen> {
         );
         _uidController.clear();
       }
-    } catch (e) {
+    } on FirebaseException catch (e) {
+      if (!mounted) return;
+      final msg = e.code == 'permission-denied'
+          ? 'Friends list is full (200 maximum)'
+          : 'Failed to add friend. Please try again.';
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(msg)));
+    } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Failed to add friend. Please try again.')),

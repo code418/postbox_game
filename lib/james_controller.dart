@@ -19,11 +19,15 @@ class JamesController extends ChangeNotifier {
   String? _pendingMessage;
   String? get pendingMessage => _pendingMessage;
 
+  int _messageSeq = 0;
+  int get messageSeq => _messageSeq;
+
   bool _isTalking = false;
   bool get isTalking => _isTalking;
 
   void show(String message) {
     _pendingMessage = message;
+    _messageSeq++;
     _isTalking = true;
     notifyListeners();
     _scheduleIdleCheck();

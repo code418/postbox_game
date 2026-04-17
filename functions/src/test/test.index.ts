@@ -573,6 +573,7 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
   const wrappedNearby = testEnv.wrap(myFunctions.nearbyPostboxes) as (data: unknown, context?: unknown) => Promise<unknown>;
   const wrappedStartScoring = testEnv.wrap(myFunctions.startScoring) as (data: unknown, context?: unknown) => Promise<unknown>;
   const wrappedUpdateDisplayName = testEnv.wrap(myFunctions.updateDisplayName) as (data: unknown, context?: unknown) => Promise<unknown>;
+  const wrappedRegisterFcmToken = testEnv.wrap(myFunctions.registerFcmToken) as (data: unknown, context?: unknown) => Promise<unknown>;
 
   after(() => {
     testEnv.cleanup();
@@ -865,6 +866,52 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
       }
     });
   });
+
+  describe("registerFcmToken (onCall)", () => {
+    it("should throw unauthenticated when no auth context", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      const req = { data: { token: "some-fcm-token" } };
+      try {
+        await wrappedRegisterFcmToken(req);
+        assert.fail("Expected unauthenticated error");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "unauthenticated");
+      }
+    });
+
+    it("should throw invalid-argument when token is missing", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      const req = { data: {}, auth: { uid: "test-uid" } };
+      try {
+        await wrappedRegisterFcmToken(req);
+        assert.fail("Expected invalid-argument error");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("should throw invalid-argument when token is empty string", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      const req = { data: { token: "" }, auth: { uid: "test-uid" } };
+      try {
+        await wrappedRegisterFcmToken(req);
+        assert.fail("Expected invalid-argument error");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("should throw invalid-argument when token is not a string", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      const req = { data: { token: 12345 }, auth: { uid: "test-uid" } };
+      try {
+        await wrappedRegisterFcmToken(req);
+        assert.fail("Expected invalid-argument error");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+  });
 });
 
 // ── applyUserClaims pure unit tests (no Firebase required) ────────────────────
@@ -887,6 +934,7 @@ describe("applyUserClaims", () => {
     assert.ok("updatedCounts" in result);
     assert.ok("updatedPoints" in result);
     assert.ok("updatedCompass" in result);
+    assert.ok("claimedCompass" in result);
   });
 
   it("all postboxes have claimedToday=false when user has no claims", () => {
@@ -1079,6 +1127,40 @@ describe("applyUserClaims", () => {
     assert.strictEqual(updatedPoints.max, 0);
     assert.strictEqual(Object.keys(updatedCompass).length, 0);
   });
+
+  it("claimedCompass is empty when user has no claims", () => {
+    const { claimedCompass } = applyUserClaims(makeFull(), new Set());
+    assert.strictEqual(Object.keys(claimedCompass).length, 0);
+  });
+
+  it("claimedCompass contains direction of claimed postbox", () => {
+    // box1 is at N; user has claimed it
+    const { claimedCompass } = applyUserClaims(makeFull(), new Set(["box1"]));
+    assert.strictEqual(claimedCompass["N"], 1);
+    assert.strictEqual(claimedCompass["S"] ?? 0, 0);
+  });
+
+  it("claimedCompass contains all claimed directions; updatedCompass has none", () => {
+    // Both boxes claimed: N (box1) and S (box2)
+    const { claimedCompass, updatedCompass } =
+      applyUserClaims(makeFull(), new Set(["box1", "box2"]));
+    assert.strictEqual(claimedCompass["N"], 1);
+    assert.strictEqual(claimedCompass["S"], 1);
+    assert.strictEqual(Object.keys(updatedCompass).length, 0);
+  });
+
+  it("claimed postbox without compass.exact is not added to claimedCompass", () => {
+    const full = {
+      postboxes: {
+        noCompass: { monarch: "EIIR" },
+      },
+      counts: { total: 1, claimedToday: 0 },
+      points: { min: 2, max: 2 },
+      compass: {},
+    };
+    const { claimedCompass } = applyUserClaims(full, new Set(["noCompass"]));
+    assert.strictEqual(Object.keys(claimedCompass).length, 0);
+  });
 });
 
 describe("getPeriodResetFields", () => {
@@ -1154,5 +1236,11 @@ describe("diffFriends", () => {
   });
   it("ignores UIDs already present in before", () => {
     assert.deepStrictEqual(diffFriends(["x"], ["x", "y", "z"]), ["y", "z"]);
+  });
+  it("detects new friend even when list length is unchanged (simultaneous add+remove)", () => {
+    // This is the edge case that the removed `after.length <= before.length`
+    // guard would have incorrectly silenced: removing "a" and adding "c"
+    // leaves length == 2, but "c" is still a new friend who should be notified.
+    assert.deepStrictEqual(diffFriends(["a", "b"], ["b", "c"]), ["c"]);
   });
 });

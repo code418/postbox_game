@@ -23,5 +23,6 @@ Future<Position> getPosition() async {
         'Location permission permanently denied. Enable it in Settings.');
   }
   return Geolocator.getCurrentPosition(
-      desiredAccuracy: LocationAccuracy.high);
+      desiredAccuracy: LocationAccuracy.high,
+      timeLimit: const Duration(seconds: 30));
 }

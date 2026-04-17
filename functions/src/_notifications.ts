@@ -61,9 +61,8 @@ async function sendToUser(uid: string, title: string, body: string): Promise<voi
 // ── Notification event functions ──────────────────────────────────────────
 
 /**
- * Notifies all of `uid`'s friends that they were the first among the group
- * to claim a postbox today. Only sends if none of those friends has
- * dailyPoints > 0 yet.
+ * Notifies `uid`'s friends who haven't yet scored today that they were beaten
+ * to the first claim. Skips friends who already have dailyPoints > 0.
  *
  * Call only when `uid` is making their first claim of the day
  * (i.e. userClaimsSnap.docs.length === 0 in startScoring).
@@ -80,10 +79,11 @@ export async function notifyFriendsFirstClaim(
     friends.map((fuid) => database.collection("users").doc(fuid).get())
   );
 
-  const anyFriendAlreadyScored = friendDocs.some(
+  // If any friend has already scored today the claimant is not first — abort.
+  const anyFriendScoredToday = friendDocs.some(
     (doc) => ((doc.data()?.dailyPoints as number | undefined) ?? 0) > 0
   );
-  if (anyFriendAlreadyScored) return;
+  if (anyFriendScoredToday) return;
 
   await Promise.allSettled(
     friendDocs.map(async (doc) => {
@@ -194,8 +194,6 @@ export const onFriendAdded = functionsV1.firestore
       (change.before.data()?.friends as string[] | undefined) ?? [];
     const after: string[] =
       (change.after.data()?.friends as string[] | undefined) ?? [];
-
-    if (after.length <= before.length) return;
 
     const newFriends = diffFriends(before, after);
     if (newFriends.length === 0) return;

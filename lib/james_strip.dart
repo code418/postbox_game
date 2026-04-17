@@ -24,6 +24,7 @@ class _JamesStripState extends State<JamesStrip> with SingleTickerProviderStateM
   ).animate(CurvedAnimation(parent: _slideCtrl, curve: Curves.easeOut));
 
   String _currentMessage = '';
+  int _currentMessageSeq = -1;
   int _charIndex = 0;
   Timer? _typeTimer;
   Timer? _dismissTimer;
@@ -54,7 +55,9 @@ class _JamesStripState extends State<JamesStrip> with SingleTickerProviderStateM
 
   void _onControllerUpdate() {
     final msg = widget.controller.pendingMessage;
-    if (msg != null && msg != _currentMessage) {
+    final seq = widget.controller.messageSeq;
+    if (msg != null && seq != _currentMessageSeq) {
+      _currentMessageSeq = seq;
       _handleNewMessage(msg);
     }
   }

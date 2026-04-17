@@ -37,8 +37,9 @@ class NearbyState extends State<Nearby> {
   // Per-cipher totals and claimed-today counts; populated from the server response.
   final Map<String, int> _cipherTotals = {};
   final Map<String, int> _cipherClaimed = {};
-  // 16-wind compass counts (N, NNE, NE, …); populated from the server response.
+  // 16-wind compass counts for unclaimed / claimed postboxes; populated from server response.
   final Map<String, int> _compassCounts = {};
+  final Map<String, int> _claimedCompassCounts = {};
   DistanceUnit _distanceUnit = DistanceUnit.meters;
   DateTime? _lastScanned;
   Position? _scanPosition;
@@ -113,7 +114,10 @@ class NearbyState extends State<Nearby> {
           'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW',
           'W', 'WNW', 'NW', 'NNW',
         ]) {
-          _compassCounts[dir] = result.data['compass'][dir] ?? 0;
+          _compassCounts[dir] =
+              (result.data['compass'] as Map<String, dynamic>?)?[dir] ?? 0;
+          _claimedCompassCounts[dir] =
+              (result.data['claimedCompass'] as Map<String, dynamic>?)?[dir] ?? 0;
         }
         _claimedToday = result.data['counts']['claimedToday'] ?? 0;
         for (final cipher in MonarchInfo.all) {
@@ -151,6 +155,17 @@ class NearbyState extends State<Nearby> {
           content: Text(isOffline
               ? 'No internet connection. Please try again.'
               : 'Could not fetch postboxes. Please try again.'),
+          backgroundColor: Colors.red.shade700,
+        ),
+      );
+      setState(() => currentStage = NearbyStage.initial);
+    } on TimeoutException {
+      if (!mounted) return;
+      JamesController.of(context)?.show(JamesMessages.nearbyErrorGeneral.resolve());
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text(
+              'GPS signal timed out. Move to an open area and try again.'),
           backgroundColor: Colors.red.shade700,
         ),
       );
@@ -487,15 +502,14 @@ class NearbyState extends State<Nearby> {
           }),
         ],
 
-        // Compass — only shown when there are unclaimed postboxes; the
-        // server now returns an unclaimed-only compass so hiding it when
-        // everything is claimed avoids showing a blank "No postboxes" disc.
-        if (_count > 0 && _claimedToday < _count) ...[
+        // Compass — shown whenever postboxes are nearby (claimed or not).
+        // Red sectors = unclaimed (to find); grey sectors = already claimed today.
+        if (_count > 0) ...[
           Padding(
             padding: const EdgeInsets.fromLTRB(
                 AppSpacing.md, AppSpacing.lg, AppSpacing.md, AppSpacing.xs),
             child: Text(
-              'Where to look',
+              _claimedToday < _count ? 'Where to look' : 'Where you\'ve been',
               style: Theme.of(context).textTheme.titleSmall?.copyWith(
                     color: Theme.of(context).colorScheme.primary,
                     fontWeight: FontWeight.w600,
@@ -506,6 +520,7 @@ class NearbyState extends State<Nearby> {
             valueListenable: _headingNotifier,
             builder: (_, heading, __) => FuzzyCompass(
               compassCounts: compassMap,
+              claimedCompassCounts: _claimedCompassCounts,
               headingDegrees: heading,
             ),
           ),

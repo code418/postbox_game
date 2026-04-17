@@ -109,10 +109,14 @@ class _LeaderboardList extends StatefulWidget {
   State<_LeaderboardList> createState() => _LeaderboardListState();
 }
 
-class _LeaderboardListState extends State<_LeaderboardList> {
+class _LeaderboardListState extends State<_LeaderboardList>
+    with AutomaticKeepAliveClientMixin {
   late final Stream<DocumentSnapshot<Map<String, dynamic>>> _stream;
   final String? _currentUid = FirebaseAuth.instance.currentUser?.uid;
   int? _totalPostboxes;
+
+  @override
+  bool get wantKeepAlive => true;
 
   bool get _isLifetime => widget.period == 'lifetime';
 
@@ -141,6 +145,7 @@ class _LeaderboardListState extends State<_LeaderboardList> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: _stream,
       builder: (context, snapshot) {
@@ -341,7 +346,11 @@ class _FriendsPeriodList extends StatefulWidget {
   State<_FriendsPeriodList> createState() => _FriendsPeriodListState();
 }
 
-class _FriendsPeriodListState extends State<_FriendsPeriodList> {
+class _FriendsPeriodListState extends State<_FriendsPeriodList>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
   final String? _currentUid = FirebaseAuth.instance.currentUser?.uid;
 
   int? _totalPostboxes;
@@ -441,6 +450,7 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     if (_currentUid == null || _userStream == null) {
       return const Padding(
         padding: EdgeInsets.only(bottom: kJamesStripClearance),

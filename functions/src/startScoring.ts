@@ -56,7 +56,7 @@ export const startScoring = functions.https.onCall(async (request) => {
     userClaimsSnap.docs
       .map(d => d.data().postboxes as string | undefined)
       .filter((ref): ref is string => typeof ref === "string")
-      .map(ref => ref.replace("/postbox/", ""))
+      .map(ref => ref.replace(/^\/postbox\//, ""))
   );
 
   // Fast-path: if every postbox in range was already claimed today by THIS USER,
