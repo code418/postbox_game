@@ -96,6 +96,10 @@ class FuzzyCompass extends StatelessWidget {
                   painter: _FuzzyCompassPainter(
                     sectors: order.map((d) => sectors[d] ?? 0).toList(),
                     claimedSectors: order.map((d) => claimedSectors[d] ?? 0).toList(),
+                    // Painter needs the rotation so it can counter-rotate the
+                    // N label — otherwise the text renders sideways whenever
+                    // the device heading is non-zero.
+                    rotation: rotation,
                   ),
                 ),
               ),
@@ -170,8 +174,13 @@ class _LegendDot extends StatelessWidget {
 class _FuzzyCompassPainter extends CustomPainter {
   final List<int> sectors;
   final List<int> claimedSectors;
+  final double rotation;
 
-  _FuzzyCompassPainter({required this.sectors, this.claimedSectors = const []});
+  _FuzzyCompassPainter({
+    required this.sectors,
+    this.claimedSectors = const [],
+    this.rotation = 0.0,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -263,6 +272,14 @@ class _FuzzyCompassPainter extends CustomPainter {
     canvas.drawCircle(
         Offset(nX, nY), 9, Paint()..color = postalRed);
 
+    // Counter-rotate the 'N' label so it stays upright relative to the
+    // screen. The parent Transform.rotate spins the whole canvas by
+    // -rotation; applying +rotation around the marker's centre cancels it
+    // out locally, so the glyph is always readable while its position on
+    // the ring still tracks magnetic north.
+    canvas.save();
+    canvas.translate(nX, nY);
+    canvas.rotate(rotation);
     final builder = ui.ParagraphBuilder(ui.ParagraphStyle(
       textAlign: TextAlign.center,
       fontSize: 10,
@@ -272,11 +289,13 @@ class _FuzzyCompassPainter extends CustomPainter {
       ..addText('N');
     final para = builder.build()
       ..layout(const ui.ParagraphConstraints(width: 18));
-    canvas.drawParagraph(para, Offset(nX - 9, nY - 6));
+    canvas.drawParagraph(para, const Offset(-9, -6));
+    canvas.restore();
   }
 
   @override
   bool shouldRepaint(covariant _FuzzyCompassPainter old) =>
       !listEquals(old.sectors, sectors) ||
-      !listEquals(old.claimedSectors, claimedSectors);
+      !listEquals(old.claimedSectors, claimedSectors) ||
+      old.rotation != rotation;
 }
