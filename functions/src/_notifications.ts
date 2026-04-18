@@ -126,8 +126,11 @@ export function shouldNotifyOvertake(
 // ── Notification event functions ──────────────────────────────────────────
 
 /**
- * Notifies `uid`'s friends who haven't yet scored today that they were beaten
- * to the first claim. Skips friends who already have dailyPoints > 0.
+ * Notifies users who have `uid` in their friends list (i.e. the recipient
+ * added `uid`, not the other way round — friendships are one-directional
+ * in this app, and the notification text "first of YOUR friends" only makes
+ * sense to a recipient who actually has `uid` on their list).
+ * Skips recipients who already have dailyPoints > 0 or have opted out.
  *
  * Call only when `uid` is making their first claim of the day
  * (i.e. userClaimsSnap.docs.length === 0 in startScoring).
@@ -136,18 +139,16 @@ export async function notifyFriendsFirstClaim(
   uid: string,
   displayName: string
 ): Promise<void> {
-  const userDoc = await database.collection("users").doc(uid).get();
-  const friends: string[] = (userDoc.data()?.friends as string[] | undefined) ?? [];
-  if (friends.length === 0) return;
+  const followersSnap = await database
+    .collection("users")
+    .where("friends", "array-contains", uid)
+    .get();
+  if (followersSnap.empty) return;
 
   const todayLondon = getTodayLondon();
 
-  const friendDocs = await Promise.all(
-    friends.map((fuid) => database.collection("users").doc(fuid).get())
-  );
-
   await Promise.allSettled(
-    friendDocs.map(async (doc) => {
+    followersSnap.docs.map(async (doc) => {
       const fdata = doc.data();
       if (!shouldNotifyFirstClaim(fdata, todayLondon)) return;
       await sendToUser(
@@ -160,11 +161,15 @@ export async function notifyFriendsFirstClaim(
 }
 
 /**
- * Notifies friends in `uid`'s list whom this claim just overtook.
+ * Notifies users who have `uid` in their friends list and whom this claim
+ * just overtook on today's leaderboard. Direction matters: the recipient
+ * follows `uid`, so seeing `uid` climb past them on the "Friends" leaderboard
+ * view is meaningful; the reverse isn't.
  *
- * `prevDailyPoints` is the user's total BEFORE this claim session; `newDailyPoints`
- * is the total AFTER. The notification fires only for friends whose score sits in
- * the `(prevDailyPoints, newDailyPoints]` range — those the user just crossed.
+ * `prevDailyPoints` is the user's total BEFORE this claim session;
+ * `newDailyPoints` is the total AFTER. The notification fires only for
+ * followers whose score sits in the `(prevDailyPoints, newDailyPoints]` range
+ * — those the user just crossed.
  */
 export async function notifyFriendOvertake(
   uid: string,
@@ -172,18 +177,16 @@ export async function notifyFriendOvertake(
   prevDailyPoints: number,
   newDailyPoints: number
 ): Promise<void> {
-  const userDoc = await database.collection("users").doc(uid).get();
-  const friends: string[] = (userDoc.data()?.friends as string[] | undefined) ?? [];
-  if (friends.length === 0) return;
+  const followersSnap = await database
+    .collection("users")
+    .where("friends", "array-contains", uid)
+    .get();
+  if (followersSnap.empty) return;
 
   const todayLondon = getTodayLondon();
 
-  const friendDocs = await Promise.all(
-    friends.map((fuid) => database.collection("users").doc(fuid).get())
-  );
-
   await Promise.allSettled(
-    friendDocs.map(async (doc) => {
+    followersSnap.docs.map(async (doc) => {
       const fdata = doc.data();
       if (!shouldNotifyOvertake(fdata, prevDailyPoints, newDailyPoints, todayLondon)) return;
       await sendToUser(
