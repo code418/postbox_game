@@ -9,8 +9,24 @@
 String todayLondon() => formatLondon(DateTime.now().toUtc());
 
 /// Yesterday's date in Europe/London as `YYYY-MM-DD`.
-String yesterdayLondon() =>
-    formatLondon(DateTime.now().toUtc().subtract(const Duration(days: 1)));
+///
+/// Derived by subtracting one calendar day from [todayLondon], not by
+/// subtracting 24h from UTC before formatting. The latter is wrong during
+/// the first hour after spring-forward: London wall-clock 00:30 on
+/// 2026-03-30 is UTC 23:30 on 2026-03-29 (BST), and 24h earlier is UTC
+/// 23:30 on 2026-03-28 — GMT — which formats as `2026-03-28`, skipping
+/// the actual yesterday (2026-03-29).
+String yesterdayLondon() {
+  final today = todayLondon();
+  final d = DateTime.utc(
+    int.parse(today.substring(0, 4)),
+    int.parse(today.substring(5, 7)),
+    int.parse(today.substring(8, 10)),
+  ).subtract(const Duration(days: 1));
+  return '${d.year.toString().padLeft(4, '0')}-'
+      '${d.month.toString().padLeft(2, '0')}-'
+      '${d.day.toString().padLeft(2, '0')}';
+}
 
 /// Returns YYYY-MM-DD of the Monday of the week containing [today].
 /// Mirrors `getWeekStart` in `functions/src/_leaderboardUtils.ts`.
