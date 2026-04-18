@@ -55,14 +55,13 @@ class HomeWidgetService {
       final dailyDate = data['dailyDate'] as String?;
       final today = todayLondon();
       final yesterday = yesterdayLondon();
-      // `dailyPoints` is reset by a server-side sweep (see
-      // functions/src/_leaderboardUtils.ts). Until that runs, the stored
-      // value reflects the previous day's total — show 0 if the user hasn't
-      // claimed anything in London-today yet. `dailyDate` is the authoritative
-      // freshness marker because it's written in the same lifetime transaction
-      // as `dailyPoints`; `lastClaimDate` comes from a separate streak tx and
-      // has a brief ordering window. Fall back to lastClaimDate for users who
-      // haven't claimed since the dailyDate field was introduced.
+      // `dailyPoints` is never reset server-side (see startScoring's lifetime
+      // tx for the SET-vs-INCREMENT logic). The stored value reflects whichever
+      // day's claim last touched it, so treat it as fresh only when `dailyDate`
+      // matches London-today. `dailyDate` is written in the same lifetime
+      // transaction as `dailyPoints`; `lastClaimDate` comes from a separate
+      // streak tx with a brief ordering window. Fall back to lastClaimDate for
+      // users who claimed before the dailyDate field was introduced.
       final pointsAreFresh = dailyDate != null
           ? dailyDate == today
           : lastClaimDate == today;
