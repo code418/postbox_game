@@ -31,9 +31,10 @@ export const onUserCreated = functions.auth.user().onCreate(async (user) => {
           friendOvertakes: true,
           addedAsFriend: true,
         },
-        // Initialise all numeric fields to 0 so Firestore queries on these
-        // fields include new users before their first claim, and so
-        // newDayScoreboard resets the correct fields rather than creating them.
+        // Initialise all numeric fields to 0 so Firestore queries that sort or
+        // compare on these fields include new users before their first claim,
+        // and so the friends leaderboard shows 0 rather than "missing" for a
+        // user who hasn't yet claimed in the current period.
         dailyPoints: 0,
         weeklyPoints: 0,
         monthlyPoints: 0,
