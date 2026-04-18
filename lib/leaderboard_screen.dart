@@ -439,23 +439,43 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList>
       _ => 'uniquePostboxesClaimed', // lifetime
     };
 
-    // Compute the start of the current period (London time) so we can zero out
-    // stale stored totals from a prior period — e.g. a friend who claimed
-    // yesterday still has dailyPoints>0 until newDayScoreboard runs at
-    // midnight, which would otherwise inflate today's friends leaderboard.
-    // The server-side startScoring SETs (not increments) on first-of-period,
-    // so a valid lastClaimDate within the period means the stored score is
-    // trustworthy. Lifetime fields are cumulative and never need zeroing.
-    final String? periodStart = switch (widget.period) {
-      'daily' => todayLondon(),
-      'weekly' => weekStartLondon(todayLondon()),
-      'monthly' => monthStartLondon(todayLondon()),
-      _ => null,
-    };
+    // Zero out stale stored totals from a prior period — e.g. a friend who
+    // claimed yesterday still has dailyPoints>0 until newDayScoreboard runs
+    // at midnight, which would otherwise inflate today's friends leaderboard.
+    //
+    // Use the per-period marker written by startScoring's lifetime transaction
+    // (dailyDate / weekStart / monthStart) rather than lastClaimDate, because
+    // lastClaimDate is committed in a separate streak transaction: there's a
+    // brief ordering window where dailyPoints is already fresh but
+    // lastClaimDate still shows the previous period, which would incorrectly
+    // zero a just-claimed score. Fall back to lastClaimDate for accounts that
+    // haven't claimed since the per-period markers were introduced.
+    // Lifetime fields are cumulative and never need zeroing.
+    final today = todayLondon();
+    final String? periodStart;
+    final String markerField;
+    switch (widget.period) {
+      case 'daily':
+        periodStart = today;
+        markerField = 'dailyDate';
+      case 'weekly':
+        periodStart = weekStartLondon(today);
+        markerField = 'weekStart';
+      case 'monthly':
+        periodStart = monthStartLondon(today);
+        markerField = 'monthStart';
+      default:
+        periodStart = null;
+        markerField = '';
+    }
 
     int scoreFor(Map<String, dynamic> data) {
       final stored = (data[scoreField] as num?)?.toInt() ?? 0;
       if (periodStart == null) return stored;
+      final marker = data[markerField] as String?;
+      if (marker != null) return marker == periodStart ? stored : 0;
+      // Legacy fallback for accounts that claimed before the per-period
+      // markers were written.
       final lastClaim = data['lastClaimDate'] as String?;
       if (lastClaim == null || lastClaim.compareTo(periodStart) < 0) return 0;
       return stored;
