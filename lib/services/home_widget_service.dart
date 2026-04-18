@@ -52,13 +52,21 @@ class HomeWidgetService {
       final storedStreak = (data['streak'] as num?)?.toInt() ?? 0;
       final storedPoints = (data['dailyPoints'] as num?)?.toInt() ?? 0;
       final lastClaimDate = data['lastClaimDate'] as String?;
+      final dailyDate = data['dailyDate'] as String?;
       final today = todayLondon();
       final yesterday = yesterdayLondon();
       // `dailyPoints` is reset by a server-side sweep (see
       // functions/src/_leaderboardUtils.ts). Until that runs, the stored
       // value reflects the previous day's total — show 0 if the user hasn't
-      // claimed anything in London-today yet.
-      final todayPoints = lastClaimDate == today ? storedPoints : 0;
+      // claimed anything in London-today yet. `dailyDate` is the authoritative
+      // freshness marker because it's written in the same lifetime transaction
+      // as `dailyPoints`; `lastClaimDate` comes from a separate streak tx and
+      // has a brief ordering window. Fall back to lastClaimDate for users who
+      // haven't claimed since the dailyDate field was introduced.
+      final pointsAreFresh = dailyDate != null
+          ? dailyDate == today
+          : lastClaimDate == today;
+      final todayPoints = pointsAreFresh ? storedPoints : 0;
       // Streak is only reset on the user's next claim, so a broken streak
       // would otherwise stay visible on the widget until then.
       final streak = (storedStreak > 0 &&
