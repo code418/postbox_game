@@ -295,8 +295,15 @@ export const startScoring = functions.https.onCall(async (request) => {
         // Prefer values captured inside the lifetime transaction (fresh).
         // Fall back to the pre-transaction estimate only if the transaction
         // failed — in that case the leaderboard wasn't updated either.
-        const prevDailyPoints = capturedPrevDailyPoints ??
-          ((userDoc.data()?.dailyPoints as number | undefined) ?? 0);
+        // The pre-tx fallback must account for staleness: dailyPoints is
+        // never reset server-side, so a value from a previous day would
+        // inflate prevDailyPoints and suppress a legitimate overtake
+        // notification (shouldNotifyOvertake bails when prev > friendDaily).
+        const storedDailyDate = userDoc.data()?.dailyDate as string | undefined;
+        const fallbackPrev = storedDailyDate === todayLondon
+          ? ((userDoc.data()?.dailyPoints as number | undefined) ?? 0)
+          : 0;
+        const prevDailyPoints = capturedPrevDailyPoints ?? fallbackPrev;
         const newDailyPoints = capturedNewDailyPoints ??
           prevDailyPoints + lifetimePointsIncrement;
         await Promise.allSettled([
