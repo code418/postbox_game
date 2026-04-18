@@ -196,52 +196,12 @@ export const startScoring = functions.https.onCall(async (request) => {
     let capturedNewDailyPoints: number | null = null;
     let capturedPrevDailyPoints: number | null = null;
 
-    // Detect whether this claim is the first-in-period so we can SET (not
-    // INCREMENT) the dailyPoints/weeklyPoints/monthlyPoints fields, clearing
-    // any stale value carried over from the prior period. newDayScoreboard
-    // normally zeroes these at midnight London, but a user who claims before
-    // that scheduler completes (or if the scheduler failed) would otherwise
-    // see yesterday's total added to today's — polluting the friends-only
-    // leaderboard and the home widget, which read these fields directly.
-    const isFirstClaimToday = userClaimsSnap.docs.length === 0;
-    let isFirstClaimThisWeek = false;
-    let isFirstClaimThisMonth = false;
-    if (isFirstClaimToday) {
-      const weekStart = getWeekStart(todayLondon);
-      const monthStart = getMonthStart(todayLondon);
-      // When today IS the period start (Monday / 1st), there can be no earlier
-      // in-period claims, so skip the read.
-      const [weekEmpty, monthEmpty] = await Promise.all([
-        todayLondon === weekStart
-          ? Promise.resolve(true)
-          : database.collection("claims")
-              .where("userid", "==", userid)
-              .where("dailyDate", ">=", weekStart)
-              .where("dailyDate", "<", todayLondon)
-              .limit(1)
-              .get()
-              .then((s) => s.empty)
-              .catch((err) => {
-                console.error("first-of-week check failed (non-fatal):", err);
-                return false; // safe fallback: keep existing increment behavior
-              }),
-        todayLondon === monthStart
-          ? Promise.resolve(true)
-          : database.collection("claims")
-              .where("userid", "==", userid)
-              .where("dailyDate", ">=", monthStart)
-              .where("dailyDate", "<", todayLondon)
-              .limit(1)
-              .get()
-              .then((s) => s.empty)
-              .catch((err) => {
-                console.error("first-of-month check failed (non-fatal):", err);
-                return false;
-              }),
-      ]);
-      isFirstClaimThisWeek = weekEmpty;
-      isFirstClaimThisMonth = monthEmpty;
-    }
+    // The SET-vs-INCREMENT decision on dailyPoints/weeklyPoints/monthlyPoints
+    // is made inside the lifetime transaction using self-written period
+    // markers, so two concurrent claims from the same user can't both SET and
+    // lose each other's points (one would SET after the other committed).
+    const currentWeekStart = getWeekStart(todayLondon);
+    const currentMonthStart = getMonthStart(todayLondon);
 
     try {
       for (const r of uniqueCheckResults) {
@@ -271,12 +231,21 @@ export const startScoring = functions.https.onCall(async (request) => {
         const d = userSnap.data() ?? {};
         const newUnique = ((d.uniquePostboxesClaimed as number | undefined) ?? 0) + uniqueIncrement;
         const newLifetimePoints = ((d.lifetimePoints as number | undefined) ?? 0) + lifetimePointsIncrement;
-        // If this is the first claim of the day, treat prevDailyPoints as 0
-        // (even if the stored field still holds yesterday's total). Otherwise
-        // use the stored value so overtake notifications compare against the
-        // same figure the friends-only leaderboard displays.
+        // Decide SET-vs-INCREMENT by comparing the period markers written by
+        // this transaction itself on the previous claim. Doing this inside the
+        // tx closes a race where two concurrent claims from the same user both
+        // saw an empty pre-fetch: without this, the second tx would SET
+        // dailyPoints to its own increment and overwrite the first tx's total.
+        // Using pre-tx flags would be wrong; using lastClaimDate would be wrong
+        // too because the streak tx sets it before the lifetime tx runs.
+        const storedDailyDate = d.dailyDate as string | undefined;
+        const storedWeekStart = d.weekStart as string | undefined;
+        const storedMonthStart = d.monthStart as string | undefined;
+        const dailyIsFresh = storedDailyDate === todayLondon;
+        const weeklyIsFresh = storedWeekStart === currentWeekStart;
+        const monthlyIsFresh = storedMonthStart === currentMonthStart;
         const storedDailyPoints = (d.dailyPoints as number | undefined) ?? 0;
-        committedPrevDailyPoints = isFirstClaimToday ? 0 : storedDailyPoints;
+        committedPrevDailyPoints = dailyIsFresh ? storedDailyPoints : 0;
         committedDailyPoints = committedPrevDailyPoints + lifetimePointsIncrement;
         // Read displayName inside the transaction so a concurrent
         // updateDisplayName that commits between this function's earlier
@@ -290,15 +259,18 @@ export const startScoring = functions.https.onCall(async (request) => {
           {
             uniquePostboxesClaimed: newUnique,
             lifetimePoints: newLifetimePoints,
-            dailyPoints: isFirstClaimToday
-              ? lifetimePointsIncrement
-              : admin.firestore.FieldValue.increment(lifetimePointsIncrement),
-            weeklyPoints: isFirstClaimThisWeek
-              ? lifetimePointsIncrement
-              : admin.firestore.FieldValue.increment(lifetimePointsIncrement),
-            monthlyPoints: isFirstClaimThisMonth
-              ? lifetimePointsIncrement
-              : admin.firestore.FieldValue.increment(lifetimePointsIncrement),
+            dailyPoints: dailyIsFresh
+              ? admin.firestore.FieldValue.increment(lifetimePointsIncrement)
+              : lifetimePointsIncrement,
+            dailyDate: todayLondon,
+            weeklyPoints: weeklyIsFresh
+              ? admin.firestore.FieldValue.increment(lifetimePointsIncrement)
+              : lifetimePointsIncrement,
+            weekStart: currentWeekStart,
+            monthlyPoints: monthlyIsFresh
+              ? admin.firestore.FieldValue.increment(lifetimePointsIncrement)
+              : lifetimePointsIncrement,
+            monthStart: currentMonthStart,
           },
           { merge: true }
         );
