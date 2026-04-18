@@ -24,6 +24,9 @@ class HomeWidgetService {
   static const String keySignedIn = 'signedIn';
   static const String keyStreak = 'streak';
   static const String keyTodayPoints = 'todayPoints';
+  static const String keyWeekPoints = 'weekPoints';
+  static const String keyBoxesFound = 'boxesFound';
+  static const String keyLifetimePoints = 'lifetimePoints';
 
   /// Called once from `main()` before the first refresh. No-op on platforms
   /// where the `home_widget` plugin isn't registered (web, desktop).
@@ -43,7 +46,14 @@ class HomeWidgetService {
     try {
       final uid = _auth.currentUser?.uid;
       if (uid == null) {
-        await _saveAll(signedIn: false, streak: 0, todayPoints: 0);
+        await _saveAll(
+          signedIn: false,
+          streak: 0,
+          todayPoints: 0,
+          weekPoints: 0,
+          boxesFound: 0,
+          lifetimePoints: 0,
+        );
         await _pushUpdate();
         return;
       }
@@ -51,10 +61,16 @@ class HomeWidgetService {
       final data = snap.data() ?? const <String, dynamic>{};
       final storedStreak = (data['streak'] as num?)?.toInt() ?? 0;
       final storedPoints = (data['dailyPoints'] as num?)?.toInt() ?? 0;
+      final storedWeekPoints = (data['weeklyPoints'] as num?)?.toInt() ?? 0;
+      final boxesFound =
+          (data['uniquePostboxesClaimed'] as num?)?.toInt() ?? 0;
+      final lifetimePoints = (data['lifetimePoints'] as num?)?.toInt() ?? 0;
       final lastClaimDate = data['lastClaimDate'] as String?;
       final dailyDate = data['dailyDate'] as String?;
+      final storedWeekStart = data['weekStart'] as String?;
       final today = todayLondon();
       final yesterday = yesterdayLondon();
+      final currentWeekStart = weekStartLondon(today);
       // `dailyPoints` is never reset server-side (see startScoring's lifetime
       // tx for the SET-vs-INCREMENT logic). The stored value reflects whichever
       // day's claim last touched it, so treat it as fresh only when `dailyDate`
@@ -66,13 +82,26 @@ class HomeWidgetService {
           ? dailyDate == today
           : lastClaimDate == today;
       final todayPoints = pointsAreFresh ? storedPoints : 0;
+      // `weeklyPoints` has the same stale-until-next-claim issue as
+      // `dailyPoints` — the per-user sweep was removed for race-safety, so
+      // treat the stored value as fresh only when `weekStart` matches this
+      // London-week's Monday.
+      final weekPoints =
+          storedWeekStart == currentWeekStart ? storedWeekPoints : 0;
       // Streak is only reset on the user's next claim, so a broken streak
       // would otherwise stay visible on the widget until then.
       final streak = (storedStreak > 0 &&
               (lastClaimDate == today || lastClaimDate == yesterday))
           ? storedStreak
           : 0;
-      await _saveAll(signedIn: true, streak: streak, todayPoints: todayPoints);
+      await _saveAll(
+        signedIn: true,
+        streak: streak,
+        todayPoints: todayPoints,
+        weekPoints: weekPoints,
+        boxesFound: boxesFound,
+        lifetimePoints: lifetimePoints,
+      );
       await _pushUpdate();
     } catch (e) {
       // Widget refresh must never break the app.
@@ -84,10 +113,16 @@ class HomeWidgetService {
     required bool signedIn,
     required int streak,
     required int todayPoints,
+    required int weekPoints,
+    required int boxesFound,
+    required int lifetimePoints,
   }) async {
     await HomeWidget.saveWidgetData<bool>(keySignedIn, signedIn);
     await HomeWidget.saveWidgetData<int>(keyStreak, streak);
     await HomeWidget.saveWidgetData<int>(keyTodayPoints, todayPoints);
+    await HomeWidget.saveWidgetData<int>(keyWeekPoints, weekPoints);
+    await HomeWidget.saveWidgetData<int>(keyBoxesFound, boxesFound);
+    await HomeWidget.saveWidgetData<int>(keyLifetimePoints, lifetimePoints);
   }
 
   Future<void> _pushUpdate() async {

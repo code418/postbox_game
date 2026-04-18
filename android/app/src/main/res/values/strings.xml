@@ -6,4 +6,8 @@
     <string name="widget_cta_claim">Claim Now</string>
     <string name="widget_cta_sign_in">Sign in to play</string>
     <string name="widget_signed_out">Not signed in</string>
+    <string name="widget_label_today">Today</string>
+    <string name="widget_label_week">This week</string>
+    <string name="widget_label_boxes">Boxes found</string>
+    <string name="widget_label_lifetime">Total pts</string>
 </resources>

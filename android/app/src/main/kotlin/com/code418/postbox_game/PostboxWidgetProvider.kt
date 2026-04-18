@@ -28,6 +28,9 @@ class PostboxWidgetProvider : HomeWidgetProvider() {
         val signedIn = widgetData.getBoolean(KEY_SIGNED_IN, false)
         val streak = widgetData.getInt(KEY_STREAK, 0)
         val todayPoints = widgetData.getInt(KEY_TODAY_POINTS, 0)
+        val weekPoints = widgetData.getInt(KEY_WEEK_POINTS, 0)
+        val boxesFound = widgetData.getInt(KEY_BOXES_FOUND, 0)
+        val lifetimePoints = widgetData.getInt(KEY_LIFETIME_POINTS, 0)
 
         for (widgetId in appWidgetIds) {
             val views = RemoteViews(context.packageName, R.layout.postbox_widget)
@@ -35,12 +38,17 @@ class PostboxWidgetProvider : HomeWidgetProvider() {
             if (signedIn) {
                 views.setViewVisibility(R.id.widget_stats_row, View.VISIBLE)
                 views.setViewVisibility(R.id.widget_signed_out, View.GONE)
+                views.setViewVisibility(R.id.widget_streak, View.VISIBLE)
                 views.setTextViewText(R.id.widget_streak, "🔥 $streak")
-                views.setTextViewText(R.id.widget_today, "$todayPoints pts today")
+                views.setTextViewText(R.id.widget_today, todayPoints.toString())
+                views.setTextViewText(R.id.widget_week, weekPoints.toString())
+                views.setTextViewText(R.id.widget_boxes, boxesFound.toString())
+                views.setTextViewText(R.id.widget_lifetime, lifetimePoints.toString())
                 views.setTextViewText(R.id.widget_cta, context.getString(R.string.widget_cta_claim))
             } else {
                 views.setViewVisibility(R.id.widget_stats_row, View.GONE)
                 views.setViewVisibility(R.id.widget_signed_out, View.VISIBLE)
+                views.setViewVisibility(R.id.widget_streak, View.GONE)
                 views.setTextViewText(R.id.widget_cta, context.getString(R.string.widget_cta_sign_in))
             }
 
@@ -60,6 +68,9 @@ class PostboxWidgetProvider : HomeWidgetProvider() {
         private const val KEY_SIGNED_IN = "signedIn"
         private const val KEY_STREAK = "streak"
         private const val KEY_TODAY_POINTS = "todayPoints"
+        private const val KEY_WEEK_POINTS = "weekPoints"
+        private const val KEY_BOXES_FOUND = "boxesFound"
+        private const val KEY_LIFETIME_POINTS = "lifetimePoints"
         private const val DEEP_LINK = "postbox://claim?source=widget"
     }
 }

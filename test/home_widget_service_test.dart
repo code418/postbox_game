@@ -45,6 +45,9 @@ void main() {
       expect(saved[HomeWidgetService.keySignedIn], false);
       expect(saved[HomeWidgetService.keyStreak], 0);
       expect(saved[HomeWidgetService.keyTodayPoints], 0);
+      expect(saved[HomeWidgetService.keyWeekPoints], 0);
+      expect(saved[HomeWidgetService.keyBoxesFound], 0);
+      expect(saved[HomeWidgetService.keyLifetimePoints], 0);
       expect(
         calls.any((c) => c.method == 'updateWidget'),
         isTrue,
@@ -61,6 +64,10 @@ void main() {
       await firestore.collection('users').doc('u1').set({
         'streak': 7,
         'dailyPoints': 21,
+        'weeklyPoints': 84,
+        'weekStart': weekStartLondon(todayLondon()),
+        'uniquePostboxesClaimed': 12,
+        'lifetimePoints': 360,
         'lastClaimDate': todayLondon(),
       });
 
@@ -71,6 +78,32 @@ void main() {
       expect(saved[HomeWidgetService.keySignedIn], true);
       expect(saved[HomeWidgetService.keyStreak], 7);
       expect(saved[HomeWidgetService.keyTodayPoints], 21);
+      expect(saved[HomeWidgetService.keyWeekPoints], 84);
+      expect(saved[HomeWidgetService.keyBoxesFound], 12);
+      expect(saved[HomeWidgetService.keyLifetimePoints], 360);
+    });
+
+    test('stale weekStart forces weekPoints to 0', () async {
+      final firestore = FakeFirebaseFirestore();
+      final auth = MockFirebaseAuth(
+        signedIn: true,
+        mockUser: MockUser(uid: 'u_wk'),
+      );
+      await firestore.collection('users').doc('u_wk').set({
+        'weeklyPoints': 200,
+        'weekStart': '1999-01-04',
+        'uniquePostboxesClaimed': 40,
+        'lifetimePoints': 1200,
+      });
+
+      final service = HomeWidgetService(firestore: firestore, auth: auth);
+      await service.refresh();
+
+      final saved = _savedValues(calls);
+      expect(saved[HomeWidgetService.keyWeekPoints], 0);
+      // Lifetime totals never reset, so they should still come through.
+      expect(saved[HomeWidgetService.keyBoxesFound], 40);
+      expect(saved[HomeWidgetService.keyLifetimePoints], 1200);
     });
 
     test('stale lastClaimDate forces both todayPoints and streak to 0',
