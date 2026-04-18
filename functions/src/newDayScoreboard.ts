@@ -79,10 +79,18 @@ export async function rebuildPeriodLeaderboard(
 
   entries.sort((a, b) => b.points - a.points);
 
-  await database.collection("leaderboards").doc(name).set(
-    { periodKey, entries: entries.slice(0, 100) },
-    { merge: false }
-  );
+  // Only overwrite when the leaderboard still belongs to the previous period.
+  // If storedPeriodKey already equals the current periodKey, updateUserLeaderboards
+  // has been keeping the board up to date incrementally — clobbering it here
+  // would drop entries from claims that landed between our claims read above
+  // and this write. Drift correction runs at the period boundary; mid-period
+  // integrity is maintained by the per-claim transactions.
+  await database.runTransaction(async (tx) => {
+    const snap = await tx.get(leaderboardRef);
+    const storedPeriodKey = snap.data()?.periodKey as string | undefined;
+    if (storedPeriodKey === periodKey) return;
+    tx.set(leaderboardRef, { periodKey, entries: entries.slice(0, 100) }, { merge: false });
+  });
 }
 
 // Run at midnight London time every day.
@@ -103,11 +111,17 @@ export const newDayScoreboard = onSchedule(
       `New day rollover: today=${today}, yesterday=${yesterday}, weekStart=${weekStart}, monthStart=${monthStart}`
     );
 
-    // 1. Reset daily — starts empty; updateUserLeaderboards fills it as users play.
-    await db.collection("leaderboards").doc("daily").set(
-      { periodKey: getPeriodKey("daily", today), entries: [] },
-      { merge: false }
-    );
+    // 1. Reset daily — only when the doc still carries yesterday's periodKey.
+    // If updateUserLeaderboards has already rotated it (a claim landed in the
+    // first seconds of the new day), leave those fresh entries alone.
+    const dailyRef = db.collection("leaderboards").doc("daily");
+    const todayKey = getPeriodKey("daily", today);
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(dailyRef);
+      const storedPeriodKey = snap.data()?.periodKey as string | undefined;
+      if (storedPeriodKey === todayKey) return;
+      tx.set(dailyRef, { periodKey: todayKey, entries: [] }, { merge: false });
+    });
     logger.info("Daily leaderboard reset");
 
     // 2. Rebuild weekly and monthly from source-of-truth claims.
