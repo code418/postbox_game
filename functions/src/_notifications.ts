@@ -73,10 +73,11 @@ type UserData = Record<string, unknown> | undefined;
  * explicitly disabled the notification.
  *
  * Treats today's claim as lastClaimDate === todayLondon rather than
- * dailyPoints > 0: newDayScoreboard resets dailyPoints at midnight London,
- * but between the day boundary and that sweep completing, a stale
- * non-zero dailyPoints from yesterday would otherwise suppress the
- * notification for friends who haven't actually claimed today.
+ * dailyPoints > 0: dailyPoints is never reset server-side (the per-user
+ * midnight sweep was removed for race-safety — see newDayScoreboard.ts),
+ * so the stored value reflects whichever day's claim last touched it.
+ * Using lastClaimDate ensures we only suppress when the friend has actually
+ * claimed on London-today.
  */
 export function shouldNotifyFirstClaim(fdata: UserData, todayLondon?: string): boolean {
   const lastClaimDate = fdata?.lastClaimDate as string | undefined;
@@ -98,9 +99,10 @@ export function shouldNotifyFirstClaim(fdata: UserData, todayLondon?: string): b
  *
  * When `todayLondon` is provided, friends whose `lastClaimDate` is not today are
  * treated as having 0 daily points regardless of stored value. This guards
- * against stale `dailyPoints` from before the midnight `newDayScoreboard` sweep
- * inflating the threshold and either suppressing legitimate overtakes or
- * firing a notification against a friend who hasn't actually scored today.
+ * against stale `dailyPoints` left over from a previous day (the per-user
+ * midnight sweep was removed for race-safety) inflating the threshold and
+ * either suppressing legitimate overtakes or firing a notification against
+ * a friend who hasn't actually scored today.
  */
 export function shouldNotifyOvertake(
   fdata: UserData,
