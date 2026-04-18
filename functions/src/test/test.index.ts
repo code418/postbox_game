@@ -1251,10 +1251,25 @@ describe("rebuildPeriodLeaderboard (unit, mock Firestore)", () => {
           return {
             doc: (_id: string) => ({
               async set(data: LbDoc) { writtenLb = data; },
+              async get() {
+                return { data: () => writtenLb as Record<string, unknown> | undefined };
+              },
             }),
           };
         }
         throw new Error(`Unexpected collection: ${name}`);
+      },
+      async runTransaction<T>(
+        fn: (tx: {
+          get: (ref: { get: () => Promise<{ data: () => unknown }> }) => Promise<{ data: () => unknown }>;
+          set: (ref: { set: (d: unknown) => Promise<void> }, d: unknown) => void;
+        }) => Promise<T>
+      ): Promise<T> {
+        const tx = {
+          get: (ref: { get: () => Promise<{ data: () => unknown }> }) => ref.get(),
+          set: (ref: { set: (d: unknown) => Promise<void> }, d: unknown) => { void ref.set(d); },
+        };
+        return fn(tx);
       },
     };
 
@@ -1271,6 +1286,26 @@ describe("rebuildPeriodLeaderboard (unit, mock Firestore)", () => {
     assert.ok(written, "should have written a leaderboard document");
     assert.strictEqual(written!.periodKey, "week:2026-04-20");
     assert.deepStrictEqual(written!.entries, []);
+  });
+
+  it("does NOT clobber entries when stored periodKey already matches the new period", async () => {
+    // Simulates a claim that landed between midnight and the rebuild sweep:
+    // updateUserLeaderboards has already written entries under the new
+    // periodKey, and the empty-period rebuild must not overwrite them.
+    const { db, getWrittenLb } = makeMockDb([]);
+    const lbRef = db.collection("leaderboards").doc("weekly") as unknown as {
+      set: (d: unknown) => Promise<void>;
+    };
+    await lbRef.set({
+      periodKey: "week:2026-04-20",
+      entries: [{ uid: "u1", displayName: "Alice", points: 5 }],
+    });
+    await rebuildPeriodLeaderboard("weekly", "2026-04-20", "2026-04-19", db);
+    const written = getWrittenLb();
+    assert.strictEqual(written!.periodKey, "week:2026-04-20");
+    assert.deepStrictEqual(written!.entries, [
+      { uid: "u1", displayName: "Alice", points: 5 },
+    ]);
   });
 
   it("aggregates claims from multiple days and sorts by points descending", async () => {

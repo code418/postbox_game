@@ -29,13 +29,20 @@ export async function rebuildPeriodLeaderboard(
   database: admin.firestore.Firestore = db
 ): Promise<void> {
   const periodKey = getPeriodKey(name, startDate);
+  const leaderboardRef = database.collection("leaderboards").doc(name);
 
   if (startDate > endDate) {
     // New period (e.g. Monday for weekly, 1st for monthly) — no claims yet.
-    await database.collection("leaderboards").doc(name).set(
-      { periodKey, entries: [] },
-      { merge: false }
-    );
+    // Use a transaction so we don't clobber entries already written by
+    // updateUserLeaderboards for a claim that landed between midnight and
+    // this sweep running. Only initialise when the stored periodKey still
+    // belongs to the previous period.
+    await database.runTransaction(async (tx) => {
+      const snap = await tx.get(leaderboardRef);
+      const storedPeriodKey = snap.data()?.periodKey as string | undefined;
+      if (storedPeriodKey === periodKey) return;
+      tx.set(leaderboardRef, { periodKey, entries: [] }, { merge: false });
+    });
     return;
   }
 
