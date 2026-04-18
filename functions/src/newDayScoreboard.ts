@@ -7,7 +7,6 @@ import {
   getWeekStart,
   getMonthStart,
   getPeriodKey,
-  getPeriodResetFields,
   LeaderboardEntry,
 } from "./_leaderboardUtils";
 
@@ -130,32 +129,14 @@ export const newDayScoreboard = onSchedule(
       logger.info("Monthly leaderboard rebuilt");
     }
 
-    // 3. Reset per-user period point fields.
-    // dailyPoints resets every day; weeklyPoints on Mondays; monthlyPoints on the 1st.
-    try {
-      const resetFields = getPeriodResetFields(today, weekStart, monthStart);
-      // listDocuments() returns refs without reading field data — no read cost.
-      const userRefs = await db.collection("users").listDocuments();
-      const BATCH_LIMIT = 499;
-      const batches: admin.firestore.WriteBatch[] = [];
-      let batch: admin.firestore.WriteBatch = db.batch();
-      let batchCount = 0;
-      for (const ref of userRefs) {
-        batch.set(ref, resetFields, { merge: true });
-        batchCount++;
-        if (batchCount === BATCH_LIMIT) {
-          batches.push(batch);
-          batch = db.batch();
-          batchCount = 0;
-        }
-      }
-      if (batchCount > 0) batches.push(batch);
-      await Promise.all(batches.map((b) => b.commit()));
-      logger.info(
-        `Period fields reset: [${Object.keys(resetFields).join(", ")}] across ${userRefs.length} users`
-      );
-    } catch (resetErr) {
-      logger.error("Period point reset failed (non-fatal):", resetErr);
-    }
+    // Note: per-user dailyPoints/weeklyPoints/monthlyPoints are NOT reset here.
+    // An earlier implementation did a merge-set `{ dailyPoints: 0, ... }` across
+    // all user docs, but that races with startScoring's lifetime transaction:
+    // a user who claimed in the first seconds of the new day would have their
+    // freshly-written dailyPoints overwritten back to 0 by this sweep, and the
+    // next claim's INCREMENT would start from 0 instead of their running total.
+    // Staleness is handled by callers reading these fields (home widget,
+    // friends leaderboard) via the per-period markers (dailyDate, weekStart,
+    // monthStart) written inside the same lifetime tx as the points.
   }
 );

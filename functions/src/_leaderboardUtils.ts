@@ -2,22 +2,6 @@ import * as admin from "firebase-admin";
 
 type Firestore = admin.firestore.Firestore;
 
-/**
- * Returns the user-doc fields that should be zeroed out on the given day.
- * dailyPoints is always reset; weeklyPoints only on Monday (today === weekStart);
- * monthlyPoints only on the 1st (today === monthStart).
- */
-export function getPeriodResetFields(
-  today: string,
-  weekStart: string,
-  monthStart: string
-): Record<string, number> {
-  const fields: Record<string, number> = { dailyPoints: 0 };
-  if (today === weekStart) fields.weeklyPoints = 0;
-  if (today === monthStart) fields.monthlyPoints = 0;
-  return fields;
-}
-
 /** Returns YYYY-MM-DD of the Monday of the week containing the given date string. */
 export function getWeekStart(today: string): string {
   const d = new Date(today + "T00:00:00Z");

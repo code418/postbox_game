@@ -3,7 +3,7 @@ import test from "firebase-functions-test";
 import * as myFunctions from "../index";
 import { getPoints } from "../_getPoints";
 import { getTodayLondon } from "../_dateUtils";
-import { getWeekStart, getMonthStart, getPeriodKey, mergePeriodEntries, mergeLifetimeEntries, updateUserLeaderboards, getPeriodResetFields } from "../_leaderboardUtils";
+import { getWeekStart, getMonthStart, getPeriodKey, mergePeriodEntries, mergeLifetimeEntries, updateUserLeaderboards } from "../_leaderboardUtils";
 import { setPrecision, getLatLng } from "../_lookupPostboxes";
 import { applyUserClaims } from "../_nearbyUtils";
 import { computeNewStreak } from "../_streakUtils";
@@ -1160,40 +1160,6 @@ describe("applyUserClaims", () => {
     };
     const { claimedCompass } = applyUserClaims(full, new Set(["noCompass"]));
     assert.strictEqual(Object.keys(claimedCompass).length, 0);
-  });
-});
-
-describe("getPeriodResetFields", () => {
-  it("always resets dailyPoints", () => {
-    const fields = getPeriodResetFields("2026-04-15", "2026-04-13", "2026-04-01");
-    assert.strictEqual(fields.dailyPoints, 0);
-  });
-
-  it("does not reset weeklyPoints on a non-Monday", () => {
-    const fields = getPeriodResetFields("2026-04-15", "2026-04-13", "2026-04-01");
-    assert.strictEqual(fields.weeklyPoints, undefined);
-  });
-
-  it("resets weeklyPoints when today equals weekStart (Monday)", () => {
-    const fields = getPeriodResetFields("2026-04-14", "2026-04-14", "2026-04-01");
-    assert.strictEqual(fields.weeklyPoints, 0);
-  });
-
-  it("does not reset monthlyPoints mid-month", () => {
-    const fields = getPeriodResetFields("2026-04-15", "2026-04-13", "2026-04-01");
-    assert.strictEqual(fields.monthlyPoints, undefined);
-  });
-
-  it("resets monthlyPoints when today equals monthStart (1st)", () => {
-    const fields = getPeriodResetFields("2026-05-01", "2026-05-01", "2026-05-01");
-    assert.strictEqual(fields.monthlyPoints, 0);
-  });
-
-  it("resets both weeklyPoints and monthlyPoints on Monday the 1st", () => {
-    // 2026-06-01 is a Monday
-    const fields = getPeriodResetFields("2026-06-01", "2026-06-01", "2026-06-01");
-    assert.strictEqual(fields.weeklyPoints, 0);
-    assert.strictEqual(fields.monthlyPoints, 0);
   });
 });
 
