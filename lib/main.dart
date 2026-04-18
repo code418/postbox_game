@@ -72,7 +72,13 @@ class _PostboxGameState extends State<PostboxGame> {
   final UserRepository _userRepository = UserRepository();
   final HomeWidgetService _homeWidgetService = HomeWidgetService();
   StreamSubscription<Uri?>? _widgetClickSub;
-  bool _autoScanFromWidget = _pendingWidgetAutoScan;
+  // Monotonic counter of widget-deep-link activations. Each increment is used
+  // as part of the Home widget's key so a widget tap while the app is warm
+  // (already authenticated) forces a fresh Home + Claim mount rather than
+  // re-using the existing _HomeState — the previous _pages/_selectedIndex
+  // were initialised from `late final` fields and would otherwise ignore the
+  // new autoScan/initialIndex props.
+  int _autoScanEpoch = _pendingWidgetAutoScan ? 1 : 0;
 
   @override
   void initState() {
@@ -85,7 +91,7 @@ class _PostboxGameState extends State<PostboxGame> {
       _widgetClickSub = HomeWidget.widgetClicked.listen((uri) {
         if (uri != null && uri.host == 'claim' &&
             uri.queryParameters['source'] == 'widget') {
-          setState(() => _autoScanFromWidget = true);
+          setState(() => _autoScanEpoch++);
         }
       });
     } catch (_) {
@@ -141,15 +147,17 @@ class _PostboxGameState extends State<PostboxGame> {
                 return _UnauthGate(userRepository: _userRepository);
               }
               if (state is Authenticated) {
-                if (_autoScanFromWidget) {
-                  // One-shot: the Home builder below will consume the flag and
-                  // configure the Claim tab to auto-scan. Reset so rebuilds
-                  // (theme change, locale, etc.) don't re-trigger a scan.
-                  final home = const Home(initialIndex: 1, autoScan: true);
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (mounted) setState(() => _autoScanFromWidget = false);
-                  });
-                  return home;
+                if (_autoScanEpoch > 0) {
+                  // Keying on the epoch forces a fresh Home + Claim mount on
+                  // each widget tap. Without the key, Flutter reconciles the
+                  // existing _HomeState whose `late final _pages` was built
+                  // with autoScan=false, so the new props are ignored and no
+                  // scan fires.
+                  return Home(
+                    key: ValueKey('claim-widget-$_autoScanEpoch'),
+                    initialIndex: 1,
+                    autoScan: true,
+                  );
                 }
                 return const Home();
               }
