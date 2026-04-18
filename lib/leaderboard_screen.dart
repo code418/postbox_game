@@ -440,8 +440,9 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList>
     };
 
     // Zero out stale stored totals from a prior period — e.g. a friend who
-    // claimed yesterday still has dailyPoints>0 until newDayScoreboard runs
-    // at midnight, which would otherwise inflate today's friends leaderboard.
+    // claimed yesterday still has dailyPoints>0 (the per-user midnight sweep
+    // was removed for race-safety; see newDayScoreboard.ts), which would
+    // otherwise inflate today's friends leaderboard.
     //
     // Use the per-period marker written by startScoring's lifetime transaction
     // (dailyDate / weekStart / monthStart) rather than lastClaimDate, because
