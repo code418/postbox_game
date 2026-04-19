@@ -112,10 +112,8 @@ abstract final class JamesMessages {
     'jamesIdle',
     [
       "You cannot send an email using a postbox. Send more letters!",
-      "Did you know the oldest surviving postbox in the UK is in Botchergate, "
-          "Carlisle? Still standing. Still red.",
-      "A Victorian VR postbox weighs about 70 kilograms. Don't try to move one.",
-      "The first pillar boxes were painted green. Green! Can you imagine.",
+      "Evri? DPD? They can do one",
+      "The first pillar boxes were painted green. Green! Can you imagine. Crazy.",
       "There are roughly 115,000 postboxes in the UK. You've got a fair way to go.",
       "Edward VIII was only king for 325 days. His cyphers are rarer for it.",
       "Some postboxes have had the same collection time for over a hundred years. "
@@ -124,8 +122,6 @@ abstract final class JamesMessages {
       "A postbox in Brixham is shaped like a lighthouse. Just thought you should know.",
       "Royal Mail red is officially called 'Pillar Box Red'. The colour is named "
           "after the thing. Marvellous.",
-      "Apparently squirrels occasionally nest inside postboxes. I've said nothing "
-          "about this to the sorting office.",
       "Sure, sex is great, but have you ever spotted a rare postbox?",
       "Have I ever told you how much I love postboxes?",
       "People say the internet will kill the need for postboxes. I feel personally "
