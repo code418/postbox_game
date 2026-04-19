@@ -9,6 +9,7 @@ import { applyUserClaims } from "../_nearbyUtils";
 import { computeNewStreak } from "../_streakUtils";
 import { containsProfanity } from "../_profanityFilter";
 import { sanitiseName } from "../onUserCreated";
+import { checkTravelSpeed, MAX_METRES_PER_MIN } from "../_travelSpeed";
 
 // ── Pure utility unit tests (no Firebase required) ────────────────────────────
 
@@ -561,6 +562,77 @@ describe("containsProfanity", () => {
   it("returns false for an empty string", () => assert.strictEqual(containsProfanity(""), false));
   it("returns false for whitespace-only string", () => assert.strictEqual(containsProfanity("   "), false));
   it("returns true for slur 'paki'", () => assert.strictEqual(containsProfanity("paki"), true));
+});
+
+describe("checkTravelSpeed", () => {
+  // Approx. 1 degree of latitude ≈ 111_000 metres. Use this to build test
+  // coordinate pairs of a known distance.
+  const metresPerDegLat = 111_000;
+
+  it("accepts movement just under the 1900 m/min limit", () => {
+    // 1800 metres over 1 minute = 1800 m/min (well under the limit).
+    const latDelta = 1800 / metresPerDegLat;
+    const res = checkTravelSpeed({
+      lastLat: 51.5, lastLng: -0.1, lastTimestampMs: 0,
+      currentLat: 51.5 + latDelta, currentLng: -0.1,
+      nowMs: 60_000,
+    });
+    assert.strictEqual(res.ok, true);
+    assert.ok(res.speedMPerMin < MAX_METRES_PER_MIN);
+  });
+
+  it("rejects movement over the 1900 m/min limit", () => {
+    // 5000 metres over 1 minute = 5000 m/min (~300 km/h).
+    const latDelta = 5000 / metresPerDegLat;
+    const res = checkTravelSpeed({
+      lastLat: 51.5, lastLng: -0.1, lastTimestampMs: 0,
+      currentLat: 51.5 + latDelta, currentLng: -0.1,
+      nowMs: 60_000,
+    });
+    assert.strictEqual(res.ok, false);
+    assert.ok(res.speedMPerMin > MAX_METRES_PER_MIN);
+  });
+
+  it("rejects London→Manchester in one minute (classic spoof scenario)", () => {
+    // London 51.5074,-0.1278 → Manchester 53.4808,-2.2426 (~260 km).
+    const res = checkTravelSpeed({
+      lastLat: 51.5074, lastLng: -0.1278, lastTimestampMs: 0,
+      currentLat: 53.4808, currentLng: -2.2426,
+      nowMs: 60_000,
+    });
+    assert.strictEqual(res.ok, false);
+  });
+
+  it("accepts no movement even with a zero time delta (floor protects div-by-zero)", () => {
+    const res = checkTravelSpeed({
+      lastLat: 51.5, lastLng: -0.1, lastTimestampMs: 1000,
+      currentLat: 51.5, currentLng: -0.1,
+      nowMs: 1000,
+    });
+    assert.strictEqual(res.ok, true);
+    assert.strictEqual(res.distanceMetres, 0);
+  });
+
+  it("rejects a large instant jump (sub-second delta, big distance)", () => {
+    const latDelta = 500 / metresPerDegLat; // 500 m jump
+    const res = checkTravelSpeed({
+      lastLat: 51.5, lastLng: -0.1, lastTimestampMs: 1000,
+      currentLat: 51.5 + latDelta, currentLng: -0.1,
+      nowMs: 1100, // 0.1s delta → floored to 1s → 500 / (1/60) = 30_000 m/min
+    });
+    assert.strictEqual(res.ok, false);
+  });
+
+  it("accepts slow walking speed (~80 m/min)", () => {
+    const latDelta = 80 / metresPerDegLat;
+    const res = checkTravelSpeed({
+      lastLat: 51.5, lastLng: -0.1, lastTimestampMs: 0,
+      currentLat: 51.5 + latDelta, currentLng: -0.1,
+      nowMs: 60_000,
+    });
+    assert.strictEqual(res.ok, true);
+    assert.ok(res.speedMPerMin < 100);
+  });
 });
 
 // ── Cloud Function integration tests (require Firebase emulator) ─────────────
