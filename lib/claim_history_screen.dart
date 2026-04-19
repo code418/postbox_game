@@ -132,16 +132,37 @@ class _HistoryMapTabState extends State<_HistoryMapTab>
           return _EmptyState(period: widget.period, onRefresh: _refresh);
         }
         final points = entries.map((e) => LatLng(e.lat, e.lng)).toList();
-        return PostboxMap(
-          center: _centroid(points),
-          zoom: _zoomForSpan(points),
-          markers: entries
-              .map((e) => postboxMarker(
-                    LatLng(e.lat, e.lng),
-                    cipher: e.monarch,
-                    onTap: () => _showEntryDetails(context, e),
-                  ))
-              .toList(),
+        return Stack(
+          children: [
+            PostboxMap(
+              center: _centroid(points),
+              zoom: _zoomForSpan(points),
+              markers: entries
+                  .map((e) => postboxMarker(
+                        LatLng(e.lat, e.lng),
+                        cipher: e.monarch,
+                        onTap: () => _showEntryDetails(context, e),
+                      ))
+                  .toList(),
+            ),
+            // Refresh overlay: keep-alive tabs fetch once in initState, so
+            // without this the map would show stale data until app restart
+            // after the user claims a new postbox.
+            Positioned(
+              top: AppSpacing.sm,
+              right: AppSpacing.sm,
+              child: Material(
+                color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.9),
+                shape: const CircleBorder(),
+                elevation: 2,
+                child: IconButton(
+                  icon: const Icon(Icons.refresh, color: postalRed),
+                  tooltip: 'Refresh',
+                  onPressed: _refresh,
+                ),
+              ),
+            ),
+          ],
         );
       },
     );
