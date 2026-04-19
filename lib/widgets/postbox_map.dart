@@ -35,7 +35,7 @@ const String _defaultTileUrl = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 /// - Friend coverage comparison map.
 /// - Shareable branded map snapshot after claiming.
 /// - Personal claim map / rare-finds map in a profile screen.
-class PostboxMap extends StatelessWidget {
+class PostboxMap extends StatefulWidget {
   const PostboxMap({
     super.key,
     required this.center,
@@ -83,19 +83,58 @@ class PostboxMap extends StatelessWidget {
   final double bottomPadding;
 
   @override
+  State<PostboxMap> createState() => _PostboxMapState();
+}
+
+class _PostboxMapState extends State<PostboxMap> {
+  // Internal controller used when the caller hasn't supplied one, so we can
+  // reposition the camera when `center` changes after first build (FlutterMap's
+  // initialCenter is only read once, so prop changes would otherwise be ignored).
+  MapController? _internalController;
+
+  MapController get _effectiveController =>
+      widget.mapController ?? (_internalController ??= MapController());
+
+  @override
+  void didUpdateWidget(PostboxMap old) {
+    super.didUpdateWidget(old);
+    // Move the camera when the caller passes a meaningfully different center.
+    // Without this, rescanning from a new location would leave the map stuck
+    // on the original center because FlutterMap ignores post-init option changes.
+    if (old.center.latitude != widget.center.latitude ||
+        old.center.longitude != widget.center.longitude) {
+      // Schedule after frame so flutter_map's internal state is ready.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        try {
+          _effectiveController.move(widget.center, _effectiveController.camera.zoom);
+        } catch (_) {
+          // Controller may not be attached to a map yet; safe to ignore.
+        }
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _internalController?.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return FlutterMap(
-      mapController: mapController,
+      mapController: _effectiveController,
       options: MapOptions(
-        initialCenter: center,
-        initialZoom: zoom,
+        initialCenter: widget.center,
+        initialZoom: widget.zoom,
         // Hard cap: OSM tiles show postbox POI icons at zoom ≥ 18, which would
         // reveal exact postbox locations. 17 is the maximum safe level.
         maxZoom: 17,
-        onTap: onTap,
-        interactionOptions: interactionOptions ?? const InteractionOptions(),
+        onTap: widget.onTap,
+        interactionOptions: widget.interactionOptions ?? const InteractionOptions(),
       ),
       children: [
         TileLayer(
@@ -107,14 +146,14 @@ class PostboxMap extends StatelessWidget {
           maxZoom: 17,
           tileBuilder: isDark ? _darkTileBuilder : null,
         ),
-        if (polygons.isNotEmpty) PolygonLayer(polygons: polygons),
-        if (polylines.isNotEmpty) PolylineLayer(polylines: polylines),
-        if (circleMarkers.isNotEmpty)
-          CircleLayer(circles: circleMarkers),
-        if (markers.isNotEmpty) MarkerLayer(markers: markers),
+        if (widget.polygons.isNotEmpty) PolygonLayer(polygons: widget.polygons),
+        if (widget.polylines.isNotEmpty) PolylineLayer(polylines: widget.polylines),
+        if (widget.circleMarkers.isNotEmpty)
+          CircleLayer(circles: widget.circleMarkers),
+        if (widget.markers.isNotEmpty) MarkerLayer(markers: widget.markers),
         // Attribution kept above the JamesStrip clearance area.
         Padding(
-          padding: EdgeInsets.only(bottom: bottomPadding),
+          padding: EdgeInsets.only(bottom: widget.bottomPadding),
           child: RichAttributionWidget(
             attributions: [
               TextSourceAttribution('OpenStreetMap contributors'),
