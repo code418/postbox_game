@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/claim.dart';
+import 'package:postbox_game/claim_history_screen.dart';
 import 'package:postbox_game/friends_screen.dart';
 import 'package:postbox_game/intro.dart';
 import 'package:postbox_game/james_controller.dart';
@@ -14,7 +15,8 @@ import 'package:postbox_game/theme.dart';
 class Home extends StatefulWidget {
   const Home({super.key, this.initialIndex = 0, this.autoScan = false});
 
-  /// Index of the tab to show on first build. 0=Nearby, 1=Claim, 2=Scores, 3=Friends.
+  /// Index of the tab to show on first build. 0=Nearby, 1=Claim, 2=Scores,
+  /// 3=Friends, 4=History.
   final int initialIndex;
 
   /// When true, the Claim tab kicks off a scan automatically on first build.
@@ -50,6 +52,11 @@ class _HomeState extends State<Home> {
       selectedIcon: Icon(Icons.people),
       label: 'Friends',
     ),
+    NavigationDestination(
+      icon: Icon(Icons.map_outlined),
+      selectedIcon: Icon(Icons.map),
+      label: 'History',
+    ),
   ];
 
   // Keep screens alive via IndexedStack. `autoScan` is only forwarded on
@@ -60,6 +67,7 @@ class _HomeState extends State<Home> {
     Claim(autoScan: widget.autoScan),
     const LeaderboardScreen(),
     const FriendsScreen(),
+    const ClaimHistoryScreen(),
   ];
 
   @override

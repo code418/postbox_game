@@ -9,6 +9,7 @@ import { applyUserClaims } from "../_nearbyUtils";
 import { computeNewStreak } from "../_streakUtils";
 import { containsProfanity } from "../_profanityFilter";
 import { sanitiseName } from "../onUserCreated";
+import { aggregateClaimHistory, periodStartDate } from "../userClaimHistory";
 
 // ── Pure utility unit tests (no Firebase required) ────────────────────────────
 
@@ -574,6 +575,7 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
   const wrappedStartScoring = testEnv.wrap(myFunctions.startScoring) as (data: unknown, context?: unknown) => Promise<unknown>;
   const wrappedUpdateDisplayName = testEnv.wrap(myFunctions.updateDisplayName) as (data: unknown, context?: unknown) => Promise<unknown>;
   const wrappedRegisterFcmToken = testEnv.wrap(myFunctions.registerFcmToken) as (data: unknown, context?: unknown) => Promise<unknown>;
+  const wrappedUserClaimHistory = testEnv.wrap(myFunctions.userClaimHistory) as (data: unknown, context?: unknown) => Promise<unknown>;
 
   after(() => {
     testEnv.cleanup();
@@ -909,6 +911,74 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
         assert.fail("Expected invalid-argument error");
       } catch (e: unknown) {
         assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+  });
+
+  describe("userClaimHistory (onCall)", () => {
+    it("should throw unauthenticated when no auth context", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      const req = { data: { period: "daily" } };
+      try {
+        await wrappedUserClaimHistory(req);
+        assert.fail("Expected unauthenticated error");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "unauthenticated");
+      }
+    });
+
+    it("should throw invalid-argument when period is missing", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      const req = { data: {}, auth: { uid: "test-uid" } };
+      try {
+        await wrappedUserClaimHistory(req);
+        assert.fail("Expected invalid-argument error");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("should throw invalid-argument when period is unknown", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      const req = { data: { period: "yearly" }, auth: { uid: "test-uid" } };
+      try {
+        await wrappedUserClaimHistory(req);
+        assert.fail("Expected invalid-argument error");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("should return an object with entries and period for a valid request", async function (this: Mocha.Context) {
+      this.timeout(10000);
+      const req = { data: { period: "daily" }, auth: { uid: "test-uid" } };
+      try {
+        const result = (await wrappedUserClaimHistory(req)) as Record<string, unknown>;
+        assert.strictEqual(typeof result, "object");
+        assert.ok("entries" in result);
+        assert.ok("period" in result);
+        assert.strictEqual(result.period, "daily");
+        assert.ok(Array.isArray(result.entries));
+      } catch (e: unknown) {
+        const err = e as { code?: string; message?: string };
+        // PERMISSION_DENIED is acceptable when Firebase emulator is not running.
+        if (!(err.message ?? "").includes("PERMISSION_DENIED") && err.code !== "permission-denied") {
+          throw e;
+        }
+      }
+    });
+
+    it("should accept each of daily / weekly / monthly / lifetime", async function (this: Mocha.Context) {
+      this.timeout(15000);
+      for (const period of ["daily", "weekly", "monthly", "lifetime"]) {
+        const req = { data: { period }, auth: { uid: "test-uid" } };
+        try {
+          await wrappedUserClaimHistory(req);
+        } catch (e: unknown) {
+          const err = e as { code?: string; message?: string };
+          // Acceptable: PERMISSION_DENIED (no emulator) but NOT invalid-argument.
+          assert.notStrictEqual(err.code, "invalid-argument", `period '${period}' must not be rejected as invalid`);
+        }
       }
     });
   });
@@ -1531,4 +1601,102 @@ describe("shouldNotifyOvertake", () => {
       shouldNotifyOvertake({ dailyPoints: 5 }, 0, 10, "2026-04-17"),
       false
     ));
+});
+
+// ── userClaimHistory pure unit tests (no Firebase required) ───────────────────
+
+describe("periodStartDate", () => {
+  it("daily returns today itself", () =>
+    assert.strictEqual(periodStartDate("daily", "2026-04-15"), "2026-04-15"));
+  it("weekly returns the Monday of the current ISO week", () =>
+    assert.strictEqual(periodStartDate("weekly", "2026-04-15"), "2026-04-13"));
+  it("monthly returns the 1st of the current month", () =>
+    assert.strictEqual(periodStartDate("monthly", "2026-04-15"), "2026-04-01"));
+  it("lifetime returns null (no lower bound)", () =>
+    assert.strictEqual(periodStartDate("lifetime", "2026-04-15"), null));
+});
+
+describe("aggregateClaimHistory", () => {
+  const postboxes = {
+    p1: { lat: 51.5, lng: -0.1, monarch: "EIIR", reference: "SW1A 1AA" },
+    p2: { lat: 55.9, lng: -3.2, monarch: "VR" },
+  };
+
+  it("returns an empty array for no claims", () => {
+    assert.deepStrictEqual(aggregateClaimHistory([], postboxes), []);
+  });
+
+  it("produces one entry per unique postbox", () => {
+    const result = aggregateClaimHistory(
+      [
+        { postboxId: "p1", dailyDate: "2026-04-15", points: 2 },
+        { postboxId: "p2", dailyDate: "2026-04-15", points: 7 },
+      ],
+      postboxes
+    );
+    assert.strictEqual(result.length, 2);
+    const ids = result.map((e) => e.postboxId).sort();
+    assert.deepStrictEqual(ids, ["p1", "p2"]);
+  });
+
+  it("dedupes multiple claims of the same postbox and accumulates fields", () => {
+    const result = aggregateClaimHistory(
+      [
+        { postboxId: "p1", dailyDate: "2026-04-10", points: 2 },
+        { postboxId: "p1", dailyDate: "2026-04-15", points: 2 },
+        { postboxId: "p1", dailyDate: "2026-04-12", points: 2 },
+      ],
+      postboxes
+    );
+    assert.strictEqual(result.length, 1);
+    assert.strictEqual(result[0].postboxId, "p1");
+    assert.strictEqual(result[0].timesClaimed, 3);
+    assert.strictEqual(result[0].totalPoints, 6);
+    assert.strictEqual(result[0].firstClaimed, "2026-04-10");
+    assert.strictEqual(result[0].lastClaimed, "2026-04-15");
+  });
+
+  it("joins in postbox geopoint, monarch and reference", () => {
+    const result = aggregateClaimHistory(
+      [{ postboxId: "p1", dailyDate: "2026-04-15", points: 2 }],
+      postboxes
+    );
+    assert.strictEqual(result[0].lat, 51.5);
+    assert.strictEqual(result[0].lng, -0.1);
+    assert.strictEqual(result[0].monarch, "EIIR");
+    assert.strictEqual(result[0].reference, "SW1A 1AA");
+  });
+
+  it("skips claims whose postbox document is missing", () => {
+    const result = aggregateClaimHistory(
+      [
+        { postboxId: "p1", dailyDate: "2026-04-15", points: 2 },
+        { postboxId: "ghost", dailyDate: "2026-04-15", points: 2 },
+      ],
+      postboxes
+    );
+    assert.strictEqual(result.length, 1);
+    assert.strictEqual(result[0].postboxId, "p1");
+  });
+
+  it("falls back to the claim's monarch when the postbox has no monarch", () => {
+    const pbNoMonarch = { p3: { lat: 52.0, lng: -1.0 } };
+    const result = aggregateClaimHistory(
+      [{ postboxId: "p3", dailyDate: "2026-04-15", points: 9, monarch: "CIIIR" }],
+      pbNoMonarch
+    );
+    assert.strictEqual(result[0].monarch, "CIIIR");
+  });
+
+  it("sorts entries with most-recent lastClaimed first", () => {
+    const result = aggregateClaimHistory(
+      [
+        { postboxId: "p1", dailyDate: "2026-04-10", points: 2 },
+        { postboxId: "p2", dailyDate: "2026-04-15", points: 7 },
+      ],
+      postboxes
+    );
+    assert.strictEqual(result[0].postboxId, "p2");
+    assert.strictEqual(result[1].postboxId, "p1");
+  });
 });

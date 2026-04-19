@@ -70,6 +70,15 @@ abstract final class JamesMessages {
     ["Add friends by UID to see them here. You do not have to do this alone."],
   );
 
+  static const navHistory = JamesMessage(
+    'jamesNavHistory',
+    [
+      "Admiring your handiwork, are we? Every pin is somewhere you've been.",
+      "A walk down memory lane — or should I say, pillar-box lane.",
+      "Today, this week, this month, all-time. See where you have roamed.",
+    ],
+  );
+
   static const navFriendsLeaderboard = JamesMessage(
     'jamesNavFriendsLeaderboard',
     [
@@ -87,12 +96,13 @@ abstract final class JamesMessages {
     ],
   );
 
-  /// Returns the nav hint for tab [index] (0–3), or null for unknown indices.
+  /// Returns the nav hint for tab [index] (0–4), or null for unknown indices.
   static JamesMessage? forTabIndex(int index) => switch (index) {
         0 => navNearby,
         1 => navClaim,
         2 => navScores,
         3 => navFriends,
+        4 => navHistory,
         _ => null,
       };
 
