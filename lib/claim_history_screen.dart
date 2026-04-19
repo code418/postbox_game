@@ -107,7 +107,9 @@ class _HistoryMapTabState extends State<_HistoryMapTab>
   }
 
   Future<void> _refresh() async {
-    setState(() => _future = _fetch());
+    setState(() {
+      _future = _fetch();
+    });
   }
 
   @override

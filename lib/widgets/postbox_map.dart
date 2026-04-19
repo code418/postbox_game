@@ -115,8 +115,10 @@ class PostboxMap extends StatelessWidget {
         // Attribution kept above the JamesStrip clearance area.
         Padding(
           padding: EdgeInsets.only(bottom: bottomPadding),
-          child: const SimpleAttributionWidget(
-            source: Text('OpenStreetMap contributors'),
+          child: RichAttributionWidget(
+            attributions: [
+              TextSourceAttribution('OpenStreetMap contributors'),
+            ],
           ),
         ),
       ],

@@ -970,16 +970,17 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
 
     it("should accept each of daily / weekly / monthly / lifetime", async function (this: Mocha.Context) {
       this.timeout(15000);
-      for (const period of ["daily", "weekly", "monthly", "lifetime"]) {
-        const req = { data: { period }, auth: { uid: "test-uid" } };
-        try {
-          await wrappedUserClaimHistory(req);
-        } catch (e: unknown) {
-          const err = e as { code?: string; message?: string };
+      const periods = ["daily", "weekly", "monthly", "lifetime"];
+      const results = await Promise.allSettled(
+        periods.map((period) => wrappedUserClaimHistory({ data: { period }, auth: { uid: "test-uid" } }))
+      );
+      results.forEach((r, i) => {
+        if (r.status === "rejected") {
+          const err = r.reason as { code?: string; message?: string };
           // Acceptable: PERMISSION_DENIED (no emulator) but NOT invalid-argument.
-          assert.notStrictEqual(err.code, "invalid-argument", `period '${period}' must not be rejected as invalid`);
+          assert.notStrictEqual(err.code, "invalid-argument", `period '${periods[i]}' must not be rejected as invalid`);
         }
-      }
+      });
     });
   });
 });

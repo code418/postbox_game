@@ -158,10 +158,14 @@ export const userClaimHistory = functions.https.onCall(async (request) => {
   const uniqueIds = Array.from(new Set(normalised.map((c) => c.postboxId)));
   const postboxMap: Record<string, PostboxLocation> = {};
 
+  const batches: admin.firestore.DocumentReference[][] = [];
   for (let i = 0; i < uniqueIds.length; i += POSTBOX_BATCH_SIZE) {
-    const batch = uniqueIds.slice(i, i + POSTBOX_BATCH_SIZE);
-    const refs = batch.map((id) => db.collection("postbox").doc(id));
-    const docs = await db.getAll(...refs);
+    batches.push(
+      uniqueIds.slice(i, i + POSTBOX_BATCH_SIZE).map((id) => db.collection("postbox").doc(id))
+    );
+  }
+  const batchResults = await Promise.all(batches.map((refs) => db.getAll(...refs)));
+  for (const docs of batchResults) {
     for (const doc of docs) {
       if (!doc.exists) continue;
       const data = doc.data() as {
