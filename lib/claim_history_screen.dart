@@ -129,7 +129,7 @@ class _HistoryMapTabState extends State<_HistoryMapTab>
         }
         final entries = snap.data ?? const [];
         if (entries.isEmpty) {
-          return _EmptyState(period: widget.period);
+          return _EmptyState(period: widget.period, onRefresh: _refresh);
         }
         final points = entries.map((e) => LatLng(e.lat, e.lng)).toList();
         return PostboxMap(
@@ -311,8 +311,9 @@ class _DetailRow extends StatelessWidget {
 }
 
 class _EmptyState extends StatelessWidget {
-  const _EmptyState({required this.period});
+  const _EmptyState({required this.period, required this.onRefresh});
   final String period;
+  final Future<void> Function() onRefresh;
 
   @override
   Widget build(BuildContext context) {
@@ -322,33 +323,44 @@ class _EmptyState extends StatelessWidget {
       'monthly': 'No claims this month. Time for a wander.',
       'lifetime': 'No claims yet. Your map is waiting to be filled.',
     };
-    return Padding(
-      padding: const EdgeInsets.only(bottom: kJamesStripClearance),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.map_outlined,
-                size: 72,
-                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.2)),
-            const SizedBox(height: AppSpacing.md),
-            Text('Nothing here yet',
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    )),
-            const SizedBox(height: AppSpacing.xs),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
-              child: Text(
-                empty[period] ?? empty['lifetime']!,
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-              ),
+    // Wrap in RefreshIndicator so users can pull to refresh after claiming —
+    // the keep-alive tab state won't otherwise pick up new claims until the
+    // screen is rebuilt.
+    return RefreshIndicator(
+      color: postalRed,
+      onRefresh: onRefresh,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.only(
+            top: AppSpacing.xxl, bottom: kJamesStripClearance),
+        children: [
+          Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.map_outlined,
+                    size: 72,
+                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.2)),
+                const SizedBox(height: AppSpacing.md),
+                Text('Nothing here yet',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        )),
+                const SizedBox(height: AppSpacing.xs),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
+                  child: Text(
+                    empty[period] ?? empty['lifetime']!,
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

@@ -152,7 +152,8 @@ class _HomeState extends State<Home> {
           selectedIndex: _selectedIndex,
           onDestinationSelected: (i) {
             setState(() => _selectedIndex = i);
-            final tabName = ['nearby', 'claim', 'scores', 'friends'][i];
+            const tabNames = ['nearby', 'claim', 'scores', 'friends', 'history'];
+            final tabName = i >= 0 && i < tabNames.length ? tabNames[i] : 'unknown';
             Analytics.tabSelected(index: i, name: tabName);
             final msg = JamesMessages.forTabIndex(i);
             if (msg != null) _jamesController.show(msg.resolve());
