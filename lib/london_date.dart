@@ -71,26 +71,46 @@ String monthEndLondon(String today) {
       '${d.day.toString().padLeft(2, '0')}';
 }
 
-/// Formats a `YYYY-MM-DD` range as `"1 – 7 Apr 2026"` / `"28 Mar – 3 Apr 2026"`
-/// / `"29 Dec 2025 – 4 Jan 2026"` depending on whether month/year are shared.
+/// Formats a `YYYY-MM-DD` range as `"Mon 1st – Sun 7th Apr 2026"` /
+/// `"Fri 28th Mar – Thu 3rd Apr 2026"` / `"Mon 29th Dec 2025 – Sun 4th Jan 2026"`
+/// depending on whether month/year are shared.
 String formatDateRange(String startYmd, String endYmd) {
   const months = [
     'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
   ];
-  final sy = int.parse(startYmd.substring(0, 4));
-  final sm = int.parse(startYmd.substring(5, 7));
-  final sd = int.parse(startYmd.substring(8, 10));
-  final ey = int.parse(endYmd.substring(0, 4));
-  final em = int.parse(endYmd.substring(5, 7));
-  final ed = int.parse(endYmd.substring(8, 10));
-  if (sy == ey && sm == em) {
-    return '$sd – $ed ${months[em - 1]} $ey';
+  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  final sDate = DateTime.utc(
+    int.parse(startYmd.substring(0, 4)),
+    int.parse(startYmd.substring(5, 7)),
+    int.parse(startYmd.substring(8, 10)),
+  );
+  final eDate = DateTime.utc(
+    int.parse(endYmd.substring(0, 4)),
+    int.parse(endYmd.substring(5, 7)),
+    int.parse(endYmd.substring(8, 10)),
+  );
+  final sDay = days[sDate.weekday - 1];
+  final eDay = days[eDate.weekday - 1];
+  final sd = '${sDate.day}${_ordinal(sDate.day)}';
+  final ed = '${eDate.day}${_ordinal(eDate.day)}';
+  if (sDate.year == eDate.year && sDate.month == eDate.month) {
+    return '$sDay $sd – $eDay $ed ${months[eDate.month - 1]} ${eDate.year}';
   }
-  if (sy == ey) {
-    return '$sd ${months[sm - 1]} – $ed ${months[em - 1]} $ey';
+  if (sDate.year == eDate.year) {
+    return '$sDay $sd ${months[sDate.month - 1]} – $eDay $ed ${months[eDate.month - 1]} ${eDate.year}';
   }
-  return '$sd ${months[sm - 1]} $sy – $ed ${months[em - 1]} $ey';
+  return '$sDay $sd ${months[sDate.month - 1]} ${sDate.year} – $eDay $ed ${months[eDate.month - 1]} ${eDate.year}';
+}
+
+String _ordinal(int day) {
+  if (day >= 11 && day <= 13) return 'th';
+  switch (day % 10) {
+    case 1: return 'st';
+    case 2: return 'nd';
+    case 3: return 'rd';
+    default: return 'th';
+  }
 }
 
 /// Expected `periodKey` for the leaderboard doc of the given [period]
