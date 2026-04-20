@@ -9,6 +9,12 @@
  *
  *   users/{uid}.uniquePostboxesClaimed  — count of distinct postboxes ever claimed
  *   users/{uid}.lifetimePoints          — sum of all points across all claims
+ *   users/{uid}.dailyPoints             — sum of today's (London) claim points
+ *   users/{uid}.weeklyPoints            — sum of this week's (Mon–today, London) claim points
+ *   users/{uid}.monthlyPoints           — sum of this month's (1st–today, London) claim points
+ *   users/{uid}.{dailyDate,weekStart,monthStart} — period markers used by the
+ *                                                  Friends-only leaderboard to
+ *                                                  zero out stale totals
  *   leaderboards/lifetime               — rebuilt from the computed stats (top 100)
  *
  * This is needed when the Cloud Function's lifetime update failed silently
@@ -48,6 +54,31 @@ const PAGE_SIZE = 500;
 
 // Must match the limit in _leaderboardUtils.ts → mergeLifetimeEntries.
 const LIFETIME_LIMIT = 100;
+
+// ── Date helpers (mirror _dateUtils.ts / _leaderboardUtils.ts) ────────────────
+
+function getTodayLondon() {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/London',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(new Date());
+  const y = parts.find(p => p.type === 'year').value;
+  const m = parts.find(p => p.type === 'month').value;
+  const d = parts.find(p => p.type === 'day').value;
+  return `${y}-${m}-${d}`;
+}
+
+function getWeekStart(today) {
+  const d = new Date(today + 'T00:00:00Z');
+  const day = d.getUTCDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setUTCDate(d.getUTCDate() + diff);
+  return d.toISOString().slice(0, 10);
+}
+
+function getMonthStart(today) {
+  return today.slice(0, 7) + '-01';
+}
 
 // ── Argument parsing ──────────────────────────────────────────────────────────
 
@@ -93,8 +124,9 @@ Example:
  * Streams all documents from the `claims` collection in pages and aggregates
  * per-user stats. Returns a Map<uid, { uniquePostboxes: Set<string>, points: number }>.
  */
-async function aggregateClaims(db) {
-  const stats = new Map(); // uid → { uniquePostboxes: Set, points: number }
+async function aggregateClaims(db, today, weekStart, monthStart) {
+  // uid → { uniquePostboxes: Set, points, dailyPoints, weeklyPoints, monthlyPoints }
+  const stats = new Map();
   let lastDoc = null;
   let totalClaims = 0;
 
@@ -112,15 +144,30 @@ async function aggregateClaims(db) {
       const uid = d.userid;
       const postboxPath = d.postboxes; // e.g. "/postbox/osm_12345"
       const points = typeof d.points === 'number' ? d.points : 0;
+      const dailyDate = typeof d.dailyDate === 'string' ? d.dailyDate : null;
 
       if (!uid || !postboxPath) continue;
 
       if (!stats.has(uid)) {
-        stats.set(uid, { uniquePostboxes: new Set(), points: 0 });
+        stats.set(uid, {
+          uniquePostboxes: new Set(),
+          points: 0,
+          dailyPoints: 0,
+          weeklyPoints: 0,
+          monthlyPoints: 0,
+        });
       }
       const entry = stats.get(uid);
       entry.uniquePostboxes.add(postboxPath);
       entry.points += points;
+
+      // Bucket into period sums. Weekly/monthly are capped at `today` to match
+      // the runtime query (claims with a future dailyDate shouldn't count).
+      if (dailyDate) {
+        if (dailyDate === today) entry.dailyPoints += points;
+        if (dailyDate >= weekStart && dailyDate <= today) entry.weeklyPoints += points;
+        if (dailyDate >= monthStart && dailyDate <= today) entry.monthlyPoints += points;
+      }
     }
 
     totalClaims += snap.docs.length;
@@ -169,8 +216,13 @@ async function main() {
 
   console.log(`Project: ${opts.projectId}${opts.dryRun ? '  [DRY RUN — no writes]' : ''}\n`);
 
+  const today = getTodayLondon();
+  const weekStart = getWeekStart(today);
+  const monthStart = getMonthStart(today);
+  console.log(`Period bounds: today=${today}, weekStart=${weekStart}, monthStart=${monthStart}\n`);
+
   // 1. Aggregate all claims into per-user stats.
-  const stats = await aggregateClaims(db);
+  const stats = await aggregateClaims(db, today, weekStart, monthStart);
 
   if (stats.size === 0) {
     console.log('No claims found. Nothing to backfill.');
@@ -185,12 +237,15 @@ async function main() {
 
   // 3. Build the update payload for each user.
   const updates = uids.map((uid) => {
-    const { uniquePostboxes, points } = stats.get(uid);
+    const s = stats.get(uid);
     return {
       uid,
       displayName: displayNames.get(uid) ?? `Player_${uid.slice(0, 6)}`,
-      uniquePostboxesClaimed: uniquePostboxes.size,
-      lifetimePoints: points,
+      uniquePostboxesClaimed: s.uniquePostboxes.size,
+      lifetimePoints: s.points,
+      dailyPoints: s.dailyPoints,
+      weeklyPoints: s.weeklyPoints,
+      monthlyPoints: s.monthlyPoints,
     };
   });
 
@@ -223,10 +278,21 @@ async function main() {
   for (let i = 0; i < updates.length; i += BATCH_SIZE) {
     const chunk = updates.slice(i, i + BATCH_SIZE);
     const batch = db.batch();
-    for (const { uid, uniquePostboxesClaimed, lifetimePoints } of chunk) {
+    for (const u of chunk) {
       batch.set(
-        db.collection('users').doc(uid),
-        { uniquePostboxesClaimed, lifetimePoints },
+        db.collection('users').doc(u.uid),
+        {
+          uniquePostboxesClaimed: u.uniquePostboxesClaimed,
+          lifetimePoints: u.lifetimePoints,
+          dailyPoints: u.dailyPoints,
+          weeklyPoints: u.weeklyPoints,
+          monthlyPoints: u.monthlyPoints,
+          // Markers so the Friends-only leaderboard doesn't zero out these
+          // totals on the staleness check (see leaderboard_screen.dart).
+          dailyDate: today,
+          weekStart,
+          monthStart,
+        },
         { merge: true }
       );
     }
