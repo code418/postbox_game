@@ -401,13 +401,25 @@ class _FriendsScreenState extends State<FriendsScreen> {
                                   displayName ?? 'Unknown player',
                                   overflow: TextOverflow.ellipsis,
                                 ),
-                          trailing: IconButton(
-                            icon: Icon(Icons.person_remove_outlined,
-                                color: Theme.of(context).colorScheme.onSurfaceVariant),
-                            tooltip: 'Remove friend',
-                            onPressed: () =>
-                                _removeFriend(friendUid, displayName),
-                          ),
+                          trailing: _removingUids.contains(friendUid)
+                              ? const Padding(
+                                  padding: EdgeInsets.all(12),
+                                  child: SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: postalRed,
+                                    ),
+                                  ),
+                                )
+                              : IconButton(
+                                  icon: Icon(Icons.person_remove_outlined,
+                                      color: Theme.of(context).colorScheme.onSurfaceVariant),
+                                  tooltip: 'Remove friend',
+                                  onPressed: () =>
+                                      _removeFriend(friendUid, displayName),
+                                ),
                         ),
                       );
                     },
