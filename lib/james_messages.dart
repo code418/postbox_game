@@ -74,7 +74,7 @@ abstract final class JamesMessages {
     'jamesNavHistory',
     [
       "Admiring your handiwork, are we? Every pin is somewhere you've been.",
-      "A walk down memory lane — or should I say, pillar-box lane.",
+      "A walk down memory lane... or should I say, pillar-box lane.",
       "Today, this week, this month, all-time. See where you have roamed.",
     ],
   );
