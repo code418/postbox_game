@@ -157,18 +157,25 @@ export async function notifyFriendsFirstClaim(
 
   await Promise.allSettled(
     followersSnap.docs.map(async (doc) => {
-      const fdata = doc.data();
-      if (!shouldNotifyFirstClaim(fdata, todayLondon)) return;
+      const recipientRef = database.collection("users").doc(doc.id);
+      // Atomically claim the "first friend" notification slot for today so two
+      // concurrent friend claims can't both send the recipient a duplicate
+      // "first of your friends" notification. Only the winning transaction
+      // proceeds to sendToUser; the loser sees lastFirstClaimNotifiedDate
+      // already set and bails.
+      const shouldSend = await database.runTransaction(async (tx) => {
+        const snap = await tx.get(recipientRef);
+        const fdata = snap.data();
+        if (!shouldNotifyFirstClaim(fdata, todayLondon)) return false;
+        tx.update(recipientRef, { lastFirstClaimNotifiedDate: todayLondon });
+        return true;
+      });
+      if (!shouldSend) return;
       await sendToUser(
         doc.id,
         "First find of the day!",
         `${displayName} was the first of your friends to find a postbox today!`
       );
-      // Mark recipient so they don't get a duplicate "first of your friends"
-      // notification if another friend also claims for the first time today.
-      await database.collection("users").doc(doc.id).update({
-        lastFirstClaimNotifiedDate: todayLondon,
-      });
     })
   );
 }
