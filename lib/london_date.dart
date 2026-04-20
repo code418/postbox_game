@@ -47,6 +47,52 @@ String weekStartLondon(String today) {
 /// Returns YYYY-MM-DD of the 1st of the month containing [today].
 String monthStartLondon(String today) => '${today.substring(0, 7)}-01';
 
+/// Returns YYYY-MM-DD of the Sunday that ends the week of [today].
+String weekEndLondon(String today) {
+  final start = weekStartLondon(today);
+  final d = DateTime.utc(
+    int.parse(start.substring(0, 4)),
+    int.parse(start.substring(5, 7)),
+    int.parse(start.substring(8, 10)),
+  ).add(const Duration(days: 6));
+  return '${d.year.toString().padLeft(4, '0')}-'
+      '${d.month.toString().padLeft(2, '0')}-'
+      '${d.day.toString().padLeft(2, '0')}';
+}
+
+/// Returns YYYY-MM-DD of the last day of the month containing [today].
+String monthEndLondon(String today) {
+  final y = int.parse(today.substring(0, 4));
+  final m = int.parse(today.substring(5, 7));
+  // Day 0 of month+1 in dart:core == last day of month m.
+  final d = DateTime.utc(y, m + 1, 0);
+  return '${d.year.toString().padLeft(4, '0')}-'
+      '${d.month.toString().padLeft(2, '0')}-'
+      '${d.day.toString().padLeft(2, '0')}';
+}
+
+/// Formats a `YYYY-MM-DD` range as `"1 – 7 Apr 2026"` / `"28 Mar – 3 Apr 2026"`
+/// / `"29 Dec 2025 – 4 Jan 2026"` depending on whether month/year are shared.
+String formatDateRange(String startYmd, String endYmd) {
+  const months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
+  final sy = int.parse(startYmd.substring(0, 4));
+  final sm = int.parse(startYmd.substring(5, 7));
+  final sd = int.parse(startYmd.substring(8, 10));
+  final ey = int.parse(endYmd.substring(0, 4));
+  final em = int.parse(endYmd.substring(5, 7));
+  final ed = int.parse(endYmd.substring(8, 10));
+  if (sy == ey && sm == em) {
+    return '$sd – $ed ${months[em - 1]} $ey';
+  }
+  if (sy == ey) {
+    return '$sd ${months[sm - 1]} – $ed ${months[em - 1]} $ey';
+  }
+  return '$sd ${months[sm - 1]} $sy – $ed ${months[em - 1]} $ey';
+}
+
 /// Expected `periodKey` for the leaderboard doc of the given [period]
 /// (`daily`/`weekly`/`monthly`/`lifetime`) on [today]. Mirrors `getPeriodKey`
 /// in `functions/src/_leaderboardUtils.ts`; used by clients to detect stale
