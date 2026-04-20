@@ -85,6 +85,12 @@ export function shouldNotifyFirstClaim(fdata: UserData, todayLondon?: string): b
     ? lastClaimDate === todayLondon
     : ((fdata?.dailyPoints as number | undefined) ?? 0) > 0;
   if (hasClaimedToday) return false;
+  // Already notified about a different friend's first claim today — skip so
+  // the notification text ("first of your friends") stays accurate.
+  if (todayLondon !== undefined) {
+    const alreadyNotified = fdata?.lastFirstClaimNotifiedDate as string | undefined;
+    if (alreadyNotified === todayLondon) return false;
+  }
   const prefs = fdata?.notificationPrefs as Record<string, boolean> | undefined;
   if (prefs?.friendFirstScore === false) return false;
   return true;
@@ -158,6 +164,11 @@ export async function notifyFriendsFirstClaim(
         "First find of the day!",
         `${displayName} was the first of your friends to find a postbox today!`
       );
+      // Mark recipient so they don't get a duplicate "first of your friends"
+      // notification if another friend also claims for the first time today.
+      await database.collection("users").doc(doc.id).update({
+        lastFirstClaimNotifiedDate: todayLondon,
+      });
     })
   );
 }

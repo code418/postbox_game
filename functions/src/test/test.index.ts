@@ -1523,6 +1523,31 @@ describe("shouldNotifyFirstClaim", () => {
       shouldNotifyFirstClaim({ dailyPoints: 5 }, "2026-04-17"),
       true
     ));
+
+  // lastFirstClaimNotifiedDate — prevent duplicate "first of your friends" notifications
+  it("returns false when already notified about another friend today", () =>
+    assert.strictEqual(
+      shouldNotifyFirstClaim(
+        { lastFirstClaimNotifiedDate: "2026-04-17" },
+        "2026-04-17"
+      ),
+      false
+    ));
+
+  it("returns true when lastFirstClaimNotifiedDate is from a previous day", () =>
+    assert.strictEqual(
+      shouldNotifyFirstClaim(
+        { lastFirstClaimNotifiedDate: "2026-04-16" },
+        "2026-04-17"
+      ),
+      true
+    ));
+
+  it("ignores lastFirstClaimNotifiedDate when todayLondon is not provided (legacy path)", () =>
+    assert.strictEqual(
+      shouldNotifyFirstClaim({ lastFirstClaimNotifiedDate: "2026-04-17" }),
+      true
+    ));
 });
 
 describe("shouldNotifyOvertake", () => {
