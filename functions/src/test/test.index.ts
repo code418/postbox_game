@@ -442,24 +442,26 @@ describe("setPrecision", () => {
   //
   // IMPORTANT — import precision coupling: import_postboxes.js must store
   // postboxes at a geohash precision >= the highest precision returned here.
-  // The Claim screen uses a 30 m radius → precision 8 prefix queries.
-  // If stored precision < 8 the documents sort lexicographically before the
-  // prefix range, so every claim silently returns { found: false }.
   // Current import precision: 9 (maximum). Do not lower it.
+  //
+  // Thresholds use the SHORTER of each cell's lat/lng dimensions so that a
+  // 1-ring (center + 8 neighbors) fully covers a disc of the given radius
+  // around any point in the center cell. Using cell width (the longer dim
+  // at even precisions) leaves a coverage hole in the lat direction.
   it("returns 9 at exact upper boundary (0.00477 km)", () => assert.strictEqual(setPrecision(0.00477), 9));
   it("returns 8 just above precision-9 boundary", () => assert.strictEqual(setPrecision(0.005), 8));
-  it("returns 8 for 30 m radius (0.030 km, used by Claim screen)", () => assert.strictEqual(setPrecision(0.030), 8));
-  it("returns 8 at exact upper boundary (0.0382 km)", () => assert.strictEqual(setPrecision(0.0382), 8));
-  it("returns 7 just above precision-8 boundary", () => assert.strictEqual(setPrecision(0.039), 7));
+  it("returns 8 at exact upper boundary (0.0191 km = cell height)", () => assert.strictEqual(setPrecision(0.0191), 8));
+  it("returns 7 just above precision-8 boundary", () => assert.strictEqual(setPrecision(0.020), 7));
+  it("returns 7 for 30 m radius (0.030 km, used by Claim screen)", () => assert.strictEqual(setPrecision(0.030), 7));
   it("returns 7 at exact upper boundary (0.153 km)", () => assert.strictEqual(setPrecision(0.153), 7));
   it("returns 6 just above precision-7 boundary", () => assert.strictEqual(setPrecision(0.154), 6));
   it("returns 6 for 540 m radius (0.540 km, used by Nearby screen)", () => assert.strictEqual(setPrecision(0.540), 6));
-  it("returns 6 at exact upper boundary (1.22 km)", () => assert.strictEqual(setPrecision(1.22), 6));
-  it("returns 5 just above precision-6 boundary", () => assert.strictEqual(setPrecision(1.23), 5));
+  it("returns 6 at exact upper boundary (0.61 km = cell height)", () => assert.strictEqual(setPrecision(0.61), 6));
+  it("returns 5 just above precision-6 boundary", () => assert.strictEqual(setPrecision(0.62), 5));
   it("returns 5 at exact upper boundary (4.89 km)", () => assert.strictEqual(setPrecision(4.89), 5));
   it("returns 4 for 10 km radius", () => assert.strictEqual(setPrecision(10), 4));
-  it("returns 2 for 1000 km radius", () => assert.strictEqual(setPrecision(1000), 2));
-  it("returns 1 for very large radius (>1250 km)", () => assert.strictEqual(setPrecision(2000), 1));
+  it("returns 2 for 500 km radius", () => assert.strictEqual(setPrecision(500), 2));
+  it("returns 1 for very large radius (>625 km)", () => assert.strictEqual(setPrecision(1000), 1));
 });
 
 describe("getLatLng", () => {
