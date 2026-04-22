@@ -277,11 +277,7 @@ class _ClaimState extends State<Claim> with TickerProviderStateMixin {
       setState(() => _isClaiming = false);
       final msg = (e.code == 'unavailable')
           ? JamesMessages.errorOffline.resolve()
-          : (e.code == 'already-claimed')
-              ? JamesMessages.claimErrorAlreadyClaimed.resolve()
-              : (e.code == 'out-of-range')
-                  ? JamesMessages.claimErrorOutOfRange.resolve()
-                  : JamesMessages.claimErrorGeneral.resolve();
+          : JamesMessages.claimErrorGeneral.resolve();
       JamesController.of(context)?.show(msg);
     } catch (e) {
       debugPrint('Claim error: $e');

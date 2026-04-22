@@ -1,13 +1,6 @@
 {
   "indexes": [
     {
-      "collectionGroup": "postbox",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "geohash", "order": "ASCENDING" }
-      ]
-    },
-    {
       "collectionGroup": "claims",
       "queryScope": "COLLECTION",
       "fields": [

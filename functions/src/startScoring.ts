@@ -179,7 +179,7 @@ export const startScoring = functions.https.onCall(async (request) => {
     // updateUserLeaderboards uses Promise.allSettled internally and never
     // throws; uniqueness checks use allSettled so individual read failures
     // only affect that postbox's unique count without aborting the rest.
-    const [, uniqueCheckResults] = await Promise.all([
+    const [periodSums, uniqueCheckResults] = await Promise.all([
       updateUserLeaderboards(userid, displayName, todayLondon, database),
       Promise.allSettled(
         // For each postbox claimed this session, check whether the user has any
@@ -208,10 +208,12 @@ export const startScoring = functions.https.onCall(async (request) => {
     let capturedNewDailyPoints: number | null = null;
     let capturedPrevDailyPoints: number | null = null;
 
-    // The SET-vs-INCREMENT decision on dailyPoints/weeklyPoints/monthlyPoints
-    // is made inside the lifetime transaction using self-written period
-    // markers, so two concurrent claims from the same user can't both SET and
-    // lose each other's points (one would SET after the other committed).
+    // Period sums returned by updateUserLeaderboards are the authoritative
+    // totals — they were summed from the claims collection after this
+    // session's claim transactions committed. We SET those values on
+    // users/{uid} inside the lifetime tx instead of FieldValue.increment so
+    // the per-user period counters can never drift away from the claims
+    // collection (e.g. when a new period marker is introduced mid-period).
     const currentWeekStart = getWeekStart(todayLondon);
     const currentMonthStart = getMonthStart(todayLondon);
 
@@ -227,14 +229,6 @@ export const startScoring = functions.https.onCall(async (request) => {
 
       const lifetimeRef = database.collection("leaderboards").doc("lifetime");
 
-      // Captured inside the transaction so it reflects the value actually
-      // committed — concurrent claims from another device between this
-      // function's initial userRef.get() (above) and the transaction would
-      // otherwise leave prevDailyPoints stale and the overtake notification
-      // computed against an understated score.
-      let committedPrevDailyPoints: number | null = null;
-      let committedDailyPoints: number | null = null;
-
       await database.runTransaction(async (tx) => {
         const [userSnap, lifetimeSnap] = await Promise.all([
           tx.get(userRef),
@@ -243,22 +237,6 @@ export const startScoring = functions.https.onCall(async (request) => {
         const d = userSnap.data() ?? {};
         const newUnique = ((d.uniquePostboxesClaimed as number | undefined) ?? 0) + uniqueIncrement;
         const newLifetimePoints = ((d.lifetimePoints as number | undefined) ?? 0) + lifetimePointsIncrement;
-        // Decide SET-vs-INCREMENT by comparing the period markers written by
-        // this transaction itself on the previous claim. Doing this inside the
-        // tx closes a race where two concurrent claims from the same user both
-        // saw an empty pre-fetch: without this, the second tx would SET
-        // dailyPoints to its own increment and overwrite the first tx's total.
-        // Using pre-tx flags would be wrong; using lastClaimDate would be wrong
-        // too because the streak tx sets it before the lifetime tx runs.
-        const storedDailyDate = d.dailyDate as string | undefined;
-        const storedWeekStart = d.weekStart as string | undefined;
-        const storedMonthStart = d.monthStart as string | undefined;
-        const dailyIsFresh = storedDailyDate === todayLondon;
-        const weeklyIsFresh = storedWeekStart === currentWeekStart;
-        const monthlyIsFresh = storedMonthStart === currentMonthStart;
-        const storedDailyPoints = (d.dailyPoints as number | undefined) ?? 0;
-        committedPrevDailyPoints = dailyIsFresh ? storedDailyPoints : 0;
-        committedDailyPoints = committedPrevDailyPoints + lifetimePointsIncrement;
         // Read displayName inside the transaction so a concurrent
         // updateDisplayName that commits between this function's earlier
         // userRef.get() and the tx commit doesn't get overwritten with the
@@ -271,17 +249,11 @@ export const startScoring = functions.https.onCall(async (request) => {
           {
             uniquePostboxesClaimed: newUnique,
             lifetimePoints: newLifetimePoints,
-            dailyPoints: dailyIsFresh
-              ? admin.firestore.FieldValue.increment(lifetimePointsIncrement)
-              : lifetimePointsIncrement,
+            dailyPoints: periodSums.dailyPoints,
             dailyDate: todayLondon,
-            weeklyPoints: weeklyIsFresh
-              ? admin.firestore.FieldValue.increment(lifetimePointsIncrement)
-              : lifetimePointsIncrement,
+            weeklyPoints: periodSums.weeklyPoints,
             weekStart: currentWeekStart,
-            monthlyPoints: monthlyIsFresh
-              ? admin.firestore.FieldValue.increment(lifetimePointsIncrement)
-              : lifetimePointsIncrement,
+            monthlyPoints: periodSums.monthlyPoints,
             monthStart: currentMonthStart,
           },
           { merge: true }
@@ -292,8 +264,10 @@ export const startScoring = functions.https.onCall(async (request) => {
         tx.set(lifetimeRef, { periodKey: "lifetime", entries: updatedEntries }, { merge: false });
       });
 
-      capturedNewDailyPoints = committedDailyPoints;
-      capturedPrevDailyPoints = committedPrevDailyPoints;
+      // The authoritative daily sum already includes this session's claims,
+      // so the pre-session total is the sum minus what we earned this call.
+      capturedNewDailyPoints = periodSums.dailyPoints;
+      capturedPrevDailyPoints = periodSums.dailyPoints - lifetimePointsIncrement;
     } catch (lifetimeErr) {
       console.error("lifetime leaderboard update failed (non-fatal):", lifetimeErr);
     }

@@ -6,6 +6,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:postbox_game/authentication_bloc/bloc.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/claim.dart';
+import 'package:postbox_game/claim_history_screen.dart';
 import 'package:postbox_game/friends_screen.dart';
 import 'package:postbox_game/home.dart';
 import 'package:postbox_game/leaderboard_screen.dart';
@@ -169,6 +170,7 @@ class _PostboxGameState extends State<PostboxGame> {
             '/claim': (context) => _guardRoute(context, () => const Claim()),
             '/friends': (context) => _guardRoute(context, () => const FriendsScreen()),
             '/leaderboard': (context) => _guardRoute(context, () => const LeaderboardScreen()),
+            '/history': (context) => _guardRoute(context, () => const ClaimHistoryScreen()),
             '/settings': (context) => _guardRoute(context, () => const SettingsScreen()),
           }),
     );

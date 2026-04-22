@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:postbox_game/app_preferences.dart';
 import 'package:postbox_game/authentication_bloc/bloc.dart';
+import 'package:postbox_game/claim_history_screen.dart';
 import 'package:postbox_game/fuzzy_compass.dart';
 import 'package:postbox_game/james_messages.dart';
 import 'package:postbox_game/london_date.dart';
@@ -600,12 +601,18 @@ void main() {
       expect(JamesMessages.forTabIndex(1), equals(JamesMessages.navClaim));
       expect(JamesMessages.forTabIndex(2), equals(JamesMessages.navScores));
       expect(JamesMessages.forTabIndex(3), equals(JamesMessages.navFriends));
+      expect(JamesMessages.forTabIndex(4), equals(JamesMessages.navHistory));
     });
 
     test('forTabIndex returns null for out-of-range index', () {
       expect(JamesMessages.forTabIndex(-1), isNull);
-      expect(JamesMessages.forTabIndex(4), isNull);
+      expect(JamesMessages.forTabIndex(5), isNull);
       expect(JamesMessages.forTabIndex(99), isNull);
+    });
+
+    test('navHistory has non-empty key and resolves to a non-empty string', () {
+      expect(JamesMessages.navHistory.key, isNotEmpty);
+      expect(JamesMessages.navHistory.resolve(), isNotEmpty);
     });
 
     test('dynamic nearbyFound includes count and box word', () {
@@ -629,6 +636,79 @@ void main() {
       }
       expect(seen.length, greaterThanOrEqualTo(5),
           reason: 'idle pool should have at least 5 distinct variants');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // ClaimHistoryScreen tests
+  // ---------------------------------------------------------------------------
+
+  group('ClaimHistoryEntry.fromJson', () {
+    test('parses all fields from a full payload', () {
+      final entry = ClaimHistoryEntry.fromJson({
+        'postboxId': 'osm_12345',
+        'lat': 51.5,
+        'lng': -0.1,
+        'monarch': 'EIIR',
+        'reference': 'SW1A 1AA',
+        'timesClaimed': 3,
+        'firstClaimed': '2026-04-10',
+        'lastClaimed': '2026-04-15',
+        'totalPoints': 6,
+      });
+      expect(entry.postboxId, equals('osm_12345'));
+      expect(entry.lat, equals(51.5));
+      expect(entry.lng, equals(-0.1));
+      expect(entry.monarch, equals('EIIR'));
+      expect(entry.reference, equals('SW1A 1AA'));
+      expect(entry.timesClaimed, equals(3));
+      expect(entry.firstClaimed, equals('2026-04-10'));
+      expect(entry.lastClaimed, equals('2026-04-15'));
+      expect(entry.totalPoints, equals(6));
+    });
+
+    test('tolerates missing optional fields', () {
+      final entry = ClaimHistoryEntry.fromJson({
+        'postboxId': 'osm_1',
+        'lat': 50.0,
+        'lng': -1.0,
+      });
+      expect(entry.monarch, isNull);
+      expect(entry.reference, isNull);
+      expect(entry.timesClaimed, equals(1));
+      expect(entry.totalPoints, equals(0));
+      expect(entry.firstClaimed, isEmpty);
+    });
+
+    test('coerces numeric fields stored as double', () {
+      final entry = ClaimHistoryEntry.fromJson({
+        'postboxId': 'osm_2',
+        'lat': 50.0,
+        'lng': -1.0,
+        'timesClaimed': 2.0,
+        'totalPoints': 14.0,
+      });
+      expect(entry.timesClaimed, equals(2));
+      expect(entry.timesClaimed, isA<int>());
+      expect(entry.totalPoints, equals(14));
+    });
+  });
+
+  group('ClaimHistoryScreen', () {
+    testWidgets('renders all four period tabs', (tester) async {
+      // The per-tab FutureBuilder will remain in the loading state because
+      // FirebaseFunctions is not mocked — this smoke test just asserts the
+      // tab bar itself builds cleanly.
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(body: ClaimHistoryScreen()),
+        ),
+      );
+      await tester.pump();
+      expect(find.text('Today'), findsOneWidget);
+      expect(find.text('This week'), findsOneWidget);
+      expect(find.text('This month'), findsOneWidget);
+      expect(find.text('Lifetime'), findsOneWidget);
     });
   });
 

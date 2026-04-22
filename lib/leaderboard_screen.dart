@@ -226,6 +226,8 @@ class _LeaderboardListState extends State<_LeaderboardList>
         // Only show the "outside the top N" footer when authenticated but not
         // in the list; omit it for unauthenticated viewers.
         final showFooter = _currentUid != null && !currentUserInList;
+        final rangeText = _periodRangeText(widget.period);
+        final showRange = rangeText != null;
 
         return RefreshIndicator(
           color: postalRed,
@@ -237,11 +239,16 @@ class _LeaderboardListState extends State<_LeaderboardList>
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.only(
                 top: AppSpacing.sm, bottom: 100),
-            // Extra item at the end when authenticated user is outside the list.
-            itemCount: entries.length + (showFooter ? 1 : 0),
+            // Extra items at the end: outside-top-N footer then period range.
+            itemCount: entries.length +
+                (showFooter ? 1 : 0) +
+                (showRange ? 1 : 0),
             itemBuilder: (context, index) {
+              if (showRange && index == entries.length + (showFooter ? 1 : 0)) {
+                return _PeriodRangeFooter(text: rangeText);
+              }
               // Footer row: authenticated user is outside the displayed entries.
-              if (index == entries.length) {
+              if (showFooter && index == entries.length) {
                 return Padding(
                   padding: const EdgeInsets.fromLTRB(
                       AppSpacing.md, AppSpacing.sm, AppSpacing.md, AppSpacing.lg),
@@ -638,6 +645,8 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList>
               );
             }
 
+            final rangeText = _periodRangeText(widget.period);
+            final showRange = rangeText != null;
             return RefreshIndicator(
               color: postalRed,
               onRefresh: () {
@@ -650,8 +659,11 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList>
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.only(
                     top: AppSpacing.sm, bottom: 100),
-                itemCount: entries.length,
+                itemCount: entries.length + (showRange ? 1 : 0),
                 itemBuilder: (context, index) {
+                  if (showRange && index == entries.length) {
+                    return _PeriodRangeFooter(text: rangeText);
+                  }
                   final e = entries[index];
                   final rank = index + 1;
                   final displayName = e['displayName'] as String? ?? 'Unknown';
@@ -733,5 +745,40 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList>
           ),
         );
     }
+  }
+}
+
+/// Returns a formatted range label (e.g. "13 – 19 Apr 2026") for the weekly
+/// and monthly leaderboards so users can see exactly which days are being
+/// counted. Daily is self-evident and lifetime has no bounds — both return null.
+String? _periodRangeText(String period) {
+  final today = todayLondon();
+  switch (period) {
+    case 'weekly':
+      return formatDateRange(weekStartLondon(today), weekEndLondon(today));
+    case 'monthly':
+      return formatDateRange(monthStartLondon(today), monthEndLondon(today));
+    default:
+      return null;
+  }
+}
+
+class _PeriodRangeFooter extends StatelessWidget {
+  const _PeriodRangeFooter({required this.text});
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+          AppSpacing.md, AppSpacing.sm, AppSpacing.md, AppSpacing.lg),
+      child: Text(
+        text,
+        textAlign: TextAlign.center,
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+      ),
+    );
   }
 }

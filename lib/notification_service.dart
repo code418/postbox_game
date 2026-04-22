@@ -32,6 +32,14 @@ class NotificationService {
         return;
       }
 
+      // iOS suppresses foreground alerts by default; opt in so banners show
+      // while the app is open. No-op on Android.
+      await messaging.setForegroundNotificationPresentationOptions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+
       final token = await messaging.getToken();
       if (token != null) {
         await _registerToken(token);
@@ -72,6 +80,7 @@ class NotificationService {
               _channelName,
               importance: Importance.defaultImportance,
             ),
+            iOS: DarwinNotificationDetails(),
           ),
         );
       });

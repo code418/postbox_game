@@ -47,6 +47,72 @@ String weekStartLondon(String today) {
 /// Returns YYYY-MM-DD of the 1st of the month containing [today].
 String monthStartLondon(String today) => '${today.substring(0, 7)}-01';
 
+/// Returns YYYY-MM-DD of the Sunday that ends the week of [today].
+String weekEndLondon(String today) {
+  final start = weekStartLondon(today);
+  final d = DateTime.utc(
+    int.parse(start.substring(0, 4)),
+    int.parse(start.substring(5, 7)),
+    int.parse(start.substring(8, 10)),
+  ).add(const Duration(days: 6));
+  return '${d.year.toString().padLeft(4, '0')}-'
+      '${d.month.toString().padLeft(2, '0')}-'
+      '${d.day.toString().padLeft(2, '0')}';
+}
+
+/// Returns YYYY-MM-DD of the last day of the month containing [today].
+String monthEndLondon(String today) {
+  final y = int.parse(today.substring(0, 4));
+  final m = int.parse(today.substring(5, 7));
+  // Day 0 of month+1 in dart:core == last day of month m.
+  final d = DateTime.utc(y, m + 1, 0);
+  return '${d.year.toString().padLeft(4, '0')}-'
+      '${d.month.toString().padLeft(2, '0')}-'
+      '${d.day.toString().padLeft(2, '0')}';
+}
+
+/// Formats a `YYYY-MM-DD` range as `"Mon 1st – Sun 7th Apr 2026"` /
+/// `"Fri 28th Mar – Thu 3rd Apr 2026"` / `"Mon 29th Dec 2025 – Sun 4th Jan 2026"`
+/// depending on whether month/year are shared.
+String formatDateRange(String startYmd, String endYmd) {
+  const months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
+  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  final sDate = DateTime.utc(
+    int.parse(startYmd.substring(0, 4)),
+    int.parse(startYmd.substring(5, 7)),
+    int.parse(startYmd.substring(8, 10)),
+  );
+  final eDate = DateTime.utc(
+    int.parse(endYmd.substring(0, 4)),
+    int.parse(endYmd.substring(5, 7)),
+    int.parse(endYmd.substring(8, 10)),
+  );
+  final sDay = days[sDate.weekday - 1];
+  final eDay = days[eDate.weekday - 1];
+  final sd = '${sDate.day}${_ordinal(sDate.day)}';
+  final ed = '${eDate.day}${_ordinal(eDate.day)}';
+  if (sDate.year == eDate.year && sDate.month == eDate.month) {
+    return '$sDay $sd – $eDay $ed ${months[eDate.month - 1]} ${eDate.year}';
+  }
+  if (sDate.year == eDate.year) {
+    return '$sDay $sd ${months[sDate.month - 1]} – $eDay $ed ${months[eDate.month - 1]} ${eDate.year}';
+  }
+  return '$sDay $sd ${months[sDate.month - 1]} ${sDate.year} – $eDay $ed ${months[eDate.month - 1]} ${eDate.year}';
+}
+
+String _ordinal(int day) {
+  if (day >= 11 && day <= 13) return 'th';
+  switch (day % 10) {
+    case 1: return 'st';
+    case 2: return 'nd';
+    case 3: return 'rd';
+    default: return 'th';
+  }
+}
+
 /// Expected `periodKey` for the leaderboard doc of the given [period]
 /// (`daily`/`weekly`/`monthly`/`lifetime`) on [today]. Mirrors `getPeriodKey`
 /// in `functions/src/_leaderboardUtils.ts`; used by clients to detect stale

@@ -85,6 +85,12 @@ export function shouldNotifyFirstClaim(fdata: UserData, todayLondon?: string): b
     ? lastClaimDate === todayLondon
     : ((fdata?.dailyPoints as number | undefined) ?? 0) > 0;
   if (hasClaimedToday) return false;
+  // Already notified about a different friend's first claim today — skip so
+  // the notification text ("first of your friends") stays accurate.
+  if (todayLondon !== undefined) {
+    const alreadyNotified = fdata?.lastFirstClaimNotifiedDate as string | undefined;
+    if (alreadyNotified === todayLondon) return false;
+  }
   const prefs = fdata?.notificationPrefs as Record<string, boolean> | undefined;
   if (prefs?.friendFirstScore === false) return false;
   return true;
@@ -151,8 +157,20 @@ export async function notifyFriendsFirstClaim(
 
   await Promise.allSettled(
     followersSnap.docs.map(async (doc) => {
-      const fdata = doc.data();
-      if (!shouldNotifyFirstClaim(fdata, todayLondon)) return;
+      const recipientRef = database.collection("users").doc(doc.id);
+      // Atomically claim the "first friend" notification slot for today so two
+      // concurrent friend claims can't both send the recipient a duplicate
+      // "first of your friends" notification. Only the winning transaction
+      // proceeds to sendToUser; the loser sees lastFirstClaimNotifiedDate
+      // already set and bails.
+      const shouldSend = await database.runTransaction(async (tx) => {
+        const snap = await tx.get(recipientRef);
+        const fdata = snap.data();
+        if (!shouldNotifyFirstClaim(fdata, todayLondon)) return false;
+        tx.update(recipientRef, { lastFirstClaimNotifiedDate: todayLondon });
+        return true;
+      });
+      if (!shouldSend) return;
       await sendToUser(
         doc.id,
         "First find of the day!",

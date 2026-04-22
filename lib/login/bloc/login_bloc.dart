@@ -80,10 +80,16 @@ class LoginBloc extends Bloc<LoginEvent, LoginState> {
 
   static String _mapFirebaseError(String code) {
     switch (code) {
+      // user-not-found and wrong-password are merged into the same generic
+      // message as invalid-credential to avoid leaking which emails have
+      // accounts (enumeration attack surface). Newer Firebase Auth with
+      // email-enumeration protection enabled only ever returns
+      // invalid-credential, but we normalise for older SDKs and for projects
+      // where the setting is off.
       case 'user-not-found':
-        return 'No account found with that email.';
       case 'wrong-password':
-        return 'Incorrect password.';
+      case 'invalid-credential':
+        return 'Email or password is incorrect.';
       case 'invalid-email':
         return 'That email address isn\'t valid.';
       case 'user-disabled':
@@ -92,8 +98,6 @@ class LoginBloc extends Bloc<LoginEvent, LoginState> {
         return 'Too many attempts. Please wait and try again.';
       case 'network-request-failed':
         return 'No internet connection.';
-      case 'invalid-credential':
-        return 'Email or password is incorrect.';
       default:
         return 'Sign in failed. Please try again.';
     }

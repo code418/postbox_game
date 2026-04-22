@@ -5,6 +5,7 @@ import { onUserCreated } from "./onUserCreated";
 import { updateDisplayName } from "./updateDisplayName";
 import { newDayScoreboard } from "./newDayScoreboard";
 import { registerFcmToken, onFriendAdded } from "./_notifications";
+import { userClaimHistory } from "./userClaimHistory";
 
 export {
   nearbyPostboxes,
@@ -14,4 +15,5 @@ export {
   newDayScoreboard,
   registerFcmToken,
   onFriendAdded,
+  userClaimHistory,
 };

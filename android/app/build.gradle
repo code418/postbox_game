@@ -54,6 +54,21 @@ android {
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    flavorDimensions "device"
+    productFlavors {
+        phone {
+            dimension "device"
+        }
+        wear {
+            dimension "device"
+            minSdk 30 // Wear OS 3+ requires API 30
+            // Sit in a separate versionCode band so Play accepts both AABs
+            // for the same applicationId in one release.
+            versionCode flutterVersionCode.toInteger() + 10000
+            versionNameSuffix "-wear"
+        }
+    }
+
     signingConfigs {
         release {
             keyAlias keyProperties['keyAlias']
@@ -83,16 +98,17 @@ flutter {
 dependencies {
     coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'
     implementation "androidx.multidex:multidex:2.0.1"
-    // Android Auto "quick claim" surface.  Uses the Car App Library templated
+    // Android Auto "quick claim" surface. Uses the Car App Library templated
     // UI (MessageTemplate / ActionStrip) — no Flutter runtime is loaded in the
-    // car; the car screen talks to Firebase Functions directly.
-    implementation 'androidx.car.app:app:1.4.0'
-    implementation 'androidx.car.app:app-projected:1.4.0'
-    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1'
-    implementation platform('com.google.firebase:firebase-bom:33.7.0')
-    implementation 'com.google.firebase:firebase-auth'
-    implementation 'com.google.firebase:firebase-functions'
-    implementation 'com.google.android.gms:play-services-location:21.3.0'
+    // car; the car screen talks to Firebase Functions directly. Scoped to the
+    // phone flavor so the wear AAB does not link these libraries.
+    phoneImplementation 'androidx.car.app:app:1.4.0'
+    phoneImplementation 'androidx.car.app:app-projected:1.4.0'
+    phoneImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1'
+    phoneImplementation platform('com.google.firebase:firebase-bom:33.7.0')
+    phoneImplementation 'com.google.firebase:firebase-auth'
+    phoneImplementation 'com.google.firebase:firebase-functions'
+    phoneImplementation 'com.google.android.gms:play-services-location:21.3.0'
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'androidx.test:runner:1.4.0'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.4.0'

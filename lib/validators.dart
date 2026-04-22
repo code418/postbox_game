@@ -18,17 +18,23 @@ class Validators {
   // Basic profanity block-list. Matched against the lower-cased, trimmed name.
   // Extend this list as needed; the check is intentionally not exhaustive —
   // it catches obvious cases without being an arms race.
+  // Matched as a substring (lower-cased), so entries must avoid common English
+  // substrings to dodge the Scunthorpe problem. Previously included 'arse'
+  // (Arsenal, parser), 'cock' (Cockburn, Hancock, peacock), 'dick' (Richard,
+  // Dickson), 'mong' (among, monger, Mongolia) and 'spic' (spice, suspicion)
+  // — all removed because they rejected legitimate names. The remaining
+  // entries have few false positives in display names.
   static const _blockedWords = <String>[
     // General English profanity
     'fuck', 'shit', 'cunt', 'bitch', 'bastard', 'asshole', 'arsehole',
-    'twat', 'prick', 'cock', 'dick', 'pussy', 'wank', 'wanker',
+    'twat', 'prick', 'pussy', 'wank', 'wanker',
     // British swear words & insults
     'bollocks', 'bellend', 'tosser', 'shite', 'knobhead', 'knobend',
     'gobshite', 'minge', 'slag', 'slapper', 'slut', 'whore',
-    'bugger', 'arse', 'pillock', 'plonker', 'numpty', 'muppet',
+    'bugger', 'pillock', 'plonker', 'numpty', 'muppet',
     // Slurs
-    'nigger', 'nigga', 'chink', 'spic', 'kike', 'faggot', 'retard',
-    'paki', 'spaz', 'mong', 'nonce'
+    'nigger', 'nigga', 'chink', 'kike', 'faggot', 'retard',
+    'paki', 'spaz', 'nonce'
   ];
 
   static bool isValidDisplayName(String name) {

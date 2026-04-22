@@ -10,6 +10,7 @@ import { computeNewStreak } from "../_streakUtils";
 import { containsProfanity } from "../_profanityFilter";
 import { sanitiseName } from "../onUserCreated";
 import { checkTravelSpeed, MAX_METRES_PER_MIN } from "../_travelSpeed";
+import { aggregateClaimHistory, periodStartDate } from "../userClaimHistory";
 
 // ── Pure utility unit tests (no Firebase required) ────────────────────────────
 
@@ -442,24 +443,26 @@ describe("setPrecision", () => {
   //
   // IMPORTANT — import precision coupling: import_postboxes.js must store
   // postboxes at a geohash precision >= the highest precision returned here.
-  // The Claim screen uses a 30 m radius → precision 8 prefix queries.
-  // If stored precision < 8 the documents sort lexicographically before the
-  // prefix range, so every claim silently returns { found: false }.
   // Current import precision: 9 (maximum). Do not lower it.
+  //
+  // Thresholds use the SHORTER of each cell's lat/lng dimensions so that a
+  // 1-ring (center + 8 neighbors) fully covers a disc of the given radius
+  // around any point in the center cell. Using cell width (the longer dim
+  // at even precisions) leaves a coverage hole in the lat direction.
   it("returns 9 at exact upper boundary (0.00477 km)", () => assert.strictEqual(setPrecision(0.00477), 9));
   it("returns 8 just above precision-9 boundary", () => assert.strictEqual(setPrecision(0.005), 8));
-  it("returns 8 for 30 m radius (0.030 km, used by Claim screen)", () => assert.strictEqual(setPrecision(0.030), 8));
-  it("returns 8 at exact upper boundary (0.0382 km)", () => assert.strictEqual(setPrecision(0.0382), 8));
-  it("returns 7 just above precision-8 boundary", () => assert.strictEqual(setPrecision(0.039), 7));
+  it("returns 8 at exact upper boundary (0.0191 km = cell height)", () => assert.strictEqual(setPrecision(0.0191), 8));
+  it("returns 7 just above precision-8 boundary", () => assert.strictEqual(setPrecision(0.020), 7));
+  it("returns 7 for 30 m radius (0.030 km, used by Claim screen)", () => assert.strictEqual(setPrecision(0.030), 7));
   it("returns 7 at exact upper boundary (0.153 km)", () => assert.strictEqual(setPrecision(0.153), 7));
   it("returns 6 just above precision-7 boundary", () => assert.strictEqual(setPrecision(0.154), 6));
   it("returns 6 for 540 m radius (0.540 km, used by Nearby screen)", () => assert.strictEqual(setPrecision(0.540), 6));
-  it("returns 6 at exact upper boundary (1.22 km)", () => assert.strictEqual(setPrecision(1.22), 6));
-  it("returns 5 just above precision-6 boundary", () => assert.strictEqual(setPrecision(1.23), 5));
+  it("returns 6 at exact upper boundary (0.61 km = cell height)", () => assert.strictEqual(setPrecision(0.61), 6));
+  it("returns 5 just above precision-6 boundary", () => assert.strictEqual(setPrecision(0.62), 5));
   it("returns 5 at exact upper boundary (4.89 km)", () => assert.strictEqual(setPrecision(4.89), 5));
   it("returns 4 for 10 km radius", () => assert.strictEqual(setPrecision(10), 4));
-  it("returns 2 for 1000 km radius", () => assert.strictEqual(setPrecision(1000), 2));
-  it("returns 1 for very large radius (>1250 km)", () => assert.strictEqual(setPrecision(2000), 1));
+  it("returns 2 for 500 km radius", () => assert.strictEqual(setPrecision(500), 2));
+  it("returns 1 for very large radius (>625 km)", () => assert.strictEqual(setPrecision(1000), 1));
 });
 
 describe("getLatLng", () => {
@@ -646,6 +649,7 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
   const wrappedStartScoring = testEnv.wrap(myFunctions.startScoring) as (data: unknown, context?: unknown) => Promise<unknown>;
   const wrappedUpdateDisplayName = testEnv.wrap(myFunctions.updateDisplayName) as (data: unknown, context?: unknown) => Promise<unknown>;
   const wrappedRegisterFcmToken = testEnv.wrap(myFunctions.registerFcmToken) as (data: unknown, context?: unknown) => Promise<unknown>;
+  const wrappedUserClaimHistory = testEnv.wrap(myFunctions.userClaimHistory) as (data: unknown, context?: unknown) => Promise<unknown>;
 
   after(() => {
     testEnv.cleanup();
@@ -982,6 +986,75 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
       } catch (e: unknown) {
         assert.strictEqual((e as { code?: string }).code, "invalid-argument");
       }
+    });
+  });
+
+  describe("userClaimHistory (onCall)", () => {
+    it("should throw unauthenticated when no auth context", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      const req = { data: { period: "daily" } };
+      try {
+        await wrappedUserClaimHistory(req);
+        assert.fail("Expected unauthenticated error");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "unauthenticated");
+      }
+    });
+
+    it("should throw invalid-argument when period is missing", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      const req = { data: {}, auth: { uid: "test-uid" } };
+      try {
+        await wrappedUserClaimHistory(req);
+        assert.fail("Expected invalid-argument error");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("should throw invalid-argument when period is unknown", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      const req = { data: { period: "yearly" }, auth: { uid: "test-uid" } };
+      try {
+        await wrappedUserClaimHistory(req);
+        assert.fail("Expected invalid-argument error");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("should return an object with entries and period for a valid request", async function (this: Mocha.Context) {
+      this.timeout(10000);
+      const req = { data: { period: "daily" }, auth: { uid: "test-uid" } };
+      try {
+        const result = (await wrappedUserClaimHistory(req)) as Record<string, unknown>;
+        assert.strictEqual(typeof result, "object");
+        assert.ok("entries" in result);
+        assert.ok("period" in result);
+        assert.strictEqual(result.period, "daily");
+        assert.ok(Array.isArray(result.entries));
+      } catch (e: unknown) {
+        const err = e as { code?: string; message?: string };
+        // PERMISSION_DENIED is acceptable when Firebase emulator is not running.
+        if (!(err.message ?? "").includes("PERMISSION_DENIED") && err.code !== "permission-denied") {
+          throw e;
+        }
+      }
+    });
+
+    it("should accept each of daily / weekly / monthly / lifetime", async function (this: Mocha.Context) {
+      this.timeout(15000);
+      const periods = ["daily", "weekly", "monthly", "lifetime"];
+      const results = await Promise.allSettled(
+        periods.map((period) => wrappedUserClaimHistory({ data: { period }, auth: { uid: "test-uid" } }))
+      );
+      results.forEach((r, i) => {
+        if (r.status === "rejected") {
+          const err = r.reason as { code?: string; message?: string };
+          // Acceptable: PERMISSION_DENIED (no emulator) but NOT invalid-argument.
+          assert.notStrictEqual(err.code, "invalid-argument", `period '${periods[i]}' must not be rejected as invalid`);
+        }
+      });
     });
   });
 });
@@ -1524,6 +1597,31 @@ describe("shouldNotifyFirstClaim", () => {
       shouldNotifyFirstClaim({ dailyPoints: 5 }, "2026-04-17"),
       true
     ));
+
+  // lastFirstClaimNotifiedDate — prevent duplicate "first of your friends" notifications
+  it("returns false when already notified about another friend today", () =>
+    assert.strictEqual(
+      shouldNotifyFirstClaim(
+        { lastFirstClaimNotifiedDate: "2026-04-17" },
+        "2026-04-17"
+      ),
+      false
+    ));
+
+  it("returns true when lastFirstClaimNotifiedDate is from a previous day", () =>
+    assert.strictEqual(
+      shouldNotifyFirstClaim(
+        { lastFirstClaimNotifiedDate: "2026-04-16" },
+        "2026-04-17"
+      ),
+      true
+    ));
+
+  it("ignores lastFirstClaimNotifiedDate when todayLondon is not provided (legacy path)", () =>
+    assert.strictEqual(
+      shouldNotifyFirstClaim({ lastFirstClaimNotifiedDate: "2026-04-17" }),
+      true
+    ));
 });
 
 describe("shouldNotifyOvertake", () => {
@@ -1603,4 +1701,102 @@ describe("shouldNotifyOvertake", () => {
       shouldNotifyOvertake({ dailyPoints: 5 }, 0, 10, "2026-04-17"),
       false
     ));
+});
+
+// ── userClaimHistory pure unit tests (no Firebase required) ───────────────────
+
+describe("periodStartDate", () => {
+  it("daily returns today itself", () =>
+    assert.strictEqual(periodStartDate("daily", "2026-04-15"), "2026-04-15"));
+  it("weekly returns the Monday of the current ISO week", () =>
+    assert.strictEqual(periodStartDate("weekly", "2026-04-15"), "2026-04-13"));
+  it("monthly returns the 1st of the current month", () =>
+    assert.strictEqual(periodStartDate("monthly", "2026-04-15"), "2026-04-01"));
+  it("lifetime returns null (no lower bound)", () =>
+    assert.strictEqual(periodStartDate("lifetime", "2026-04-15"), null));
+});
+
+describe("aggregateClaimHistory", () => {
+  const postboxes = {
+    p1: { lat: 51.5, lng: -0.1, monarch: "EIIR", reference: "SW1A 1AA" },
+    p2: { lat: 55.9, lng: -3.2, monarch: "VR" },
+  };
+
+  it("returns an empty array for no claims", () => {
+    assert.deepStrictEqual(aggregateClaimHistory([], postboxes), []);
+  });
+
+  it("produces one entry per unique postbox", () => {
+    const result = aggregateClaimHistory(
+      [
+        { postboxId: "p1", dailyDate: "2026-04-15", points: 2 },
+        { postboxId: "p2", dailyDate: "2026-04-15", points: 7 },
+      ],
+      postboxes
+    );
+    assert.strictEqual(result.length, 2);
+    const ids = result.map((e) => e.postboxId).sort();
+    assert.deepStrictEqual(ids, ["p1", "p2"]);
+  });
+
+  it("dedupes multiple claims of the same postbox and accumulates fields", () => {
+    const result = aggregateClaimHistory(
+      [
+        { postboxId: "p1", dailyDate: "2026-04-10", points: 2 },
+        { postboxId: "p1", dailyDate: "2026-04-15", points: 2 },
+        { postboxId: "p1", dailyDate: "2026-04-12", points: 2 },
+      ],
+      postboxes
+    );
+    assert.strictEqual(result.length, 1);
+    assert.strictEqual(result[0].postboxId, "p1");
+    assert.strictEqual(result[0].timesClaimed, 3);
+    assert.strictEqual(result[0].totalPoints, 6);
+    assert.strictEqual(result[0].firstClaimed, "2026-04-10");
+    assert.strictEqual(result[0].lastClaimed, "2026-04-15");
+  });
+
+  it("joins in postbox geopoint, monarch and reference", () => {
+    const result = aggregateClaimHistory(
+      [{ postboxId: "p1", dailyDate: "2026-04-15", points: 2 }],
+      postboxes
+    );
+    assert.strictEqual(result[0].lat, 51.5);
+    assert.strictEqual(result[0].lng, -0.1);
+    assert.strictEqual(result[0].monarch, "EIIR");
+    assert.strictEqual(result[0].reference, "SW1A 1AA");
+  });
+
+  it("skips claims whose postbox document is missing", () => {
+    const result = aggregateClaimHistory(
+      [
+        { postboxId: "p1", dailyDate: "2026-04-15", points: 2 },
+        { postboxId: "ghost", dailyDate: "2026-04-15", points: 2 },
+      ],
+      postboxes
+    );
+    assert.strictEqual(result.length, 1);
+    assert.strictEqual(result[0].postboxId, "p1");
+  });
+
+  it("falls back to the claim's monarch when the postbox has no monarch", () => {
+    const pbNoMonarch = { p3: { lat: 52.0, lng: -1.0 } };
+    const result = aggregateClaimHistory(
+      [{ postboxId: "p3", dailyDate: "2026-04-15", points: 9, monarch: "CIIIR" }],
+      pbNoMonarch
+    );
+    assert.strictEqual(result[0].monarch, "CIIIR");
+  });
+
+  it("sorts entries with most-recent lastClaimed first", () => {
+    const result = aggregateClaimHistory(
+      [
+        { postboxId: "p1", dailyDate: "2026-04-10", points: 2 },
+        { postboxId: "p2", dailyDate: "2026-04-15", points: 7 },
+      ],
+      postboxes
+    );
+    assert.strictEqual(result[0].postboxId, "p2");
+    assert.strictEqual(result[1].postboxId, "p1");
+  });
 });
