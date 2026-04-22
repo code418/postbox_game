@@ -65,7 +65,7 @@ class _WearCompassPageState extends State<WearCompassPage> {
     setState(() => _stage = _CompassStage.searching);
     Analytics.scanStarted();
     try {
-      final position = await getPosition();
+      final position = await getPosition(forceLocationManager: true);
       final result = await _callable.call(<String, dynamic>{
         'lat': position.latitude,
         'lng': position.longitude,

@@ -44,7 +44,7 @@ class _WearClaimPageState extends State<WearClaimPage> {
     setState(() => _stage = _ClaimStage.scanning);
     Analytics.scanStarted();
     try {
-      final position = await getPosition();
+      final position = await getPosition(forceLocationManager: true);
       final result = await _nearbyCallable.call(<String, dynamic>{
         'lat': position.latitude,
         'lng': position.longitude,
@@ -132,7 +132,7 @@ class _WearClaimPageState extends State<WearClaimPage> {
   Future<void> _claimPostbox() async {
     setState(() => _stage = _ClaimStage.claiming);
     try {
-      final position = await getPosition();
+      final position = await getPosition(forceLocationManager: true);
       final result = await _claimCallable.call(<String, dynamic>{
         'lat': position.latitude,
         'lng': position.longitude,
