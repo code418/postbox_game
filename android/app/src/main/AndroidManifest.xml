@@ -54,13 +54,10 @@
                 android:resource="@xml/postbox_widget_info" />
         </receiver>
     </application>
-    <!-- Restrict to phones and tablets: require touchscreen and GPS hardware.
-         This filters out Android TV, Wear OS, and non-GPS/non-touch devices
-         on the Play Store. The leanback declaration (required=false) signals
-         this is not a TV app without blocking sideloading. -->
-    <uses-feature android:name="android.hardware.touchscreen" android:required="true"/>
+    <!-- GPS is required for both phone and Wear OS builds. Device-specific
+         features (touchscreen, watch type) are declared in flavor manifests
+         under src/phone/ and src/wear/. -->
     <uses-feature android:name="android.hardware.location.gps" android:required="true"/>
-    <uses-feature android:name="android.software.leanback" android:required="false"/>
 
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />

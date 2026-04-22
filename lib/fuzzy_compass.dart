@@ -93,7 +93,7 @@ class FuzzyCompass extends StatelessWidget {
               child: Transform.rotate(
                 angle: -rotation,
                 child: CustomPaint(
-                  painter: _FuzzyCompassPainter(
+                  painter: FuzzyCompassPainter(
                     sectors: order.map((d) => sectors[d] ?? 0).toList(),
                     claimedSectors: order.map((d) => claimedSectors[d] ?? 0).toList(),
                     // Painter needs the rotation so it can counter-rotate the
@@ -171,12 +171,12 @@ class _LegendDot extends StatelessWidget {
   }
 }
 
-class _FuzzyCompassPainter extends CustomPainter {
+class FuzzyCompassPainter extends CustomPainter {
   final List<int> sectors;
   final List<int> claimedSectors;
   final double rotation;
 
-  _FuzzyCompassPainter({
+  FuzzyCompassPainter({
     required this.sectors,
     this.claimedSectors = const [],
     this.rotation = 0.0,
@@ -294,7 +294,7 @@ class _FuzzyCompassPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _FuzzyCompassPainter old) =>
+  bool shouldRepaint(covariant FuzzyCompassPainter old) =>
       !listEquals(old.sectors, sectors) ||
       !listEquals(old.claimedSectors, claimedSectors) ||
       old.rotation != rotation;

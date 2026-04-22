@@ -1,0 +1,19 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Declare this is a standalone Wear OS app. -->
+    <uses-feature android:name="android.hardware.type.watch" />
+
+    <application>
+        <meta-data
+            android:name="com.google.android.wearable.standalone"
+            android:value="true" />
+    </application>
+
+    <!-- Watches have touchscreens but the manifest declaration must be
+         required=false so Play Store device targeting works correctly. -->
+    <uses-feature
+        android:name="android.hardware.touchscreen"
+        tools:replace="android:required"
+        android:required="false" />
+</manifest>
