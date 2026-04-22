@@ -51,6 +51,7 @@ class _LoginFormState extends State<LoginForm> {
     return BlocListener(
       bloc: _loginBloc,
       listener: (BuildContext context, LoginState state) {
+        if (!context.mounted) return;
         if (state.isFailure) {
           // Analytics.loginFailed() is fired inside LoginBloc (where the method is known).
           ScaffoldMessenger.of(context)
@@ -248,6 +249,21 @@ class _LoginFormState extends State<LoginForm> {
         );
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
+      // user-not-found must NOT be surfaced as an error: doing so lets an
+      // attacker probe whether an email is registered. Show the same generic
+      // success message as for a real send so the two cases are
+      // indistinguishable on the client.
+      if (e.code == 'user-not-found') {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            const SnackBar(
+              content: Text(
+                  'If that address is registered, a reset link is on its way.'),
+            ),
+          );
+        return;
+      }
       final msg = e.code == 'invalid-email'
           ? 'That email address isn\'t valid.'
           : 'Could not send reset email. Please try again.';

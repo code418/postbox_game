@@ -21,8 +21,31 @@ export const onUserCreated = functions.auth.user().onCreate(async (user) => {
   // Email is intentionally not stored in the public-readable users document;
   // it is only accessible via Firebase Auth to prevent other authenticated
   // users from reading it through friend/leaderboard name lookups.
-  await admin.firestore().collection("users").doc(user.uid).set(
-    { displayName, createdAt: admin.firestore.Timestamp.now() },
-    { merge: true }
-  );
+  try {
+    await admin.firestore().collection("users").doc(user.uid).set(
+      {
+        displayName,
+        createdAt: admin.firestore.Timestamp.now(),
+        notificationPrefs: {
+          friendFirstScore: true,
+          friendOvertakes: true,
+          addedAsFriend: true,
+        },
+        // Initialise all numeric fields to 0 so Firestore queries that sort or
+        // compare on these fields include new users before their first claim,
+        // and so the friends leaderboard shows 0 rather than "missing" for a
+        // user who hasn't yet claimed in the current period.
+        dailyPoints: 0,
+        weeklyPoints: 0,
+        monthlyPoints: 0,
+        lifetimePoints: 0,
+        uniquePostboxesClaimed: 0,
+        streak: 0,
+      },
+      { merge: true }
+    );
+  } catch (err) {
+    console.error("onUserCreated: failed to write user document:", err);
+    throw err; // Re-throw so Firebase retries the trigger.
+  }
 });

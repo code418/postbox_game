@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_compass/flutter_compass.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/app_preferences.dart';
 import 'package:postbox_game/james_controller.dart';
@@ -12,6 +14,9 @@ import 'package:geolocator/geolocator.dart';
 import 'package:postbox_game/location_service.dart';
 import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/theme.dart';
+import 'package:postbox_game/widgets/postbox_map.dart';
+import 'package:postbox_game/widgets/postbox_marker.dart';
+import 'package:postbox_game/widgets/view_toggle.dart';
 
 import './fuzzy_compass.dart';
 
@@ -21,10 +26,10 @@ class Nearby extends StatefulWidget {
   const Nearby({super.key});
 
   @override
-  NearbyState createState() => NearbyState();
+  State<Nearby> createState() => _NearbyState();
 }
 
-class NearbyState extends State<Nearby> {
+class _NearbyState extends State<Nearby> {
   int _count = 0;
   int _maxPoints = 0;
   int _minPoints = 0;
@@ -32,10 +37,13 @@ class NearbyState extends State<Nearby> {
   // Per-cipher totals and claimed-today counts; populated from the server response.
   final Map<String, int> _cipherTotals = {};
   final Map<String, int> _cipherClaimed = {};
-  // 16-wind compass counts (N, NNE, NE, …); populated from the server response.
+  // 16-wind compass counts for unclaimed / claimed postboxes; populated from server response.
   final Map<String, int> _compassCounts = {};
+  final Map<String, int> _claimedCompassCounts = {};
   DistanceUnit _distanceUnit = DistanceUnit.meters;
   DateTime? _lastScanned;
+  Position? _scanPosition;
+  ViewMode _viewMode = ViewMode.list;
 
   // ValueNotifier so compass heading changes only rebuild FuzzyCompass, not the
   // entire results tree. Previously a setState here rebuilt all staggered cards.
@@ -65,6 +73,9 @@ class NearbyState extends State<Nearby> {
     AppPreferences.getDistanceUnit().then((unit) {
       if (mounted) setState(() => _distanceUnit = unit);
     });
+    AppPreferences.getViewMode('nearby').then((mode) {
+      if (mounted) setState(() => _viewMode = mode);
+    });
   }
 
   @override
@@ -86,28 +97,39 @@ class NearbyState extends State<Nearby> {
     try {
       _distanceUnit = await AppPreferences.getDistanceUnit();
       final position = await getPosition();
+      if (mounted) setState(() => _scanPosition = position);
       final result = await callable.call(<String, dynamic>{
         'lat': position.latitude,
         'lng': position.longitude,
         'meters': AppPreferences.nearbyRadiusMeters,
       });
       if (!mounted) return;
+      final data = Map<String, dynamic>.from(result.data as Map);
+      final counts = Map<String, dynamic>.from(data['counts'] as Map);
+      final pts = Map<String, dynamic>.from(data['points'] as Map);
+      final compass = data['compass'] != null
+          ? Map<String, dynamic>.from(data['compass'] as Map)
+          : <String, dynamic>{};
+      final claimedCompass = data['claimedCompass'] != null
+          ? Map<String, dynamic>.from(data['claimedCompass'] as Map)
+          : <String, dynamic>{};
       setState(() {
-        _count = result.data['counts']['total'] ?? 0;
-        _maxPoints = result.data['points']['max'] ?? 0;
-        _minPoints = result.data['points']['min'] ?? 0;
+        _count = counts['total'] ?? 0;
+        _maxPoints = pts['max'] ?? 0;
+        _minPoints = pts['min'] ?? 0;
         currentStage = NearbyStage.results;
         for (final dir in const [
           'N', 'NNE', 'NE', 'ENE', 'E', 'ESE',
           'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW',
           'W', 'WNW', 'NW', 'NNW',
         ]) {
-          _compassCounts[dir] = result.data['compass'][dir] ?? 0;
+          _compassCounts[dir] = compass[dir] ?? 0;
+          _claimedCompassCounts[dir] = claimedCompass[dir] ?? 0;
         }
-        _claimedToday = result.data['counts']['claimedToday'] ?? 0;
+        _claimedToday = counts['claimedToday'] ?? 0;
         for (final cipher in MonarchInfo.all) {
-          _cipherTotals[cipher] = result.data['counts'][cipher] ?? 0;
-          _cipherClaimed[cipher] = result.data['counts']['${cipher}_claimed'] ?? 0;
+          _cipherTotals[cipher] = counts[cipher] ?? 0;
+          _cipherClaimed[cipher] = counts['${cipher}_claimed'] ?? 0;
         }
         _lastScanned = DateTime.now();
       });
@@ -121,11 +143,16 @@ class NearbyState extends State<Nearby> {
       } else {
         Analytics.nearbyEmpty();
       }
-      final box = _count == 1 ? 'postbox' : 'postboxes';
-      final msg = _count > 0
-          ? JamesMessages.nearbyFound(_count, box)
-          : JamesMessages.nearbyNoneFound.resolve();
-      JamesController.of(context)?.show(msg);
+      final String msg;
+      if (_count == 0) {
+        msg = JamesMessages.nearbyNoneFound.resolve();
+      } else if (_claimedToday == _count) {
+        msg = JamesMessages.claimErrorAlreadyClaimed.resolve();
+      } else {
+        final box = _count == 1 ? 'postbox' : 'postboxes';
+        msg = JamesMessages.nearbyFound(_count, box);
+      }
+      if (mounted) JamesController.of(context)?.show(msg);
     } on FirebaseFunctionsException catch (e) {
       debugPrint('Firebase functions error: ${e.code} ${e.message}');
       if (!mounted) return;
@@ -140,6 +167,17 @@ class NearbyState extends State<Nearby> {
           content: Text(isOffline
               ? 'No internet connection. Please try again.'
               : 'Could not fetch postboxes. Please try again.'),
+          backgroundColor: Colors.red.shade700,
+        ),
+      );
+      setState(() => currentStage = NearbyStage.initial);
+    } on TimeoutException {
+      if (!mounted) return;
+      JamesController.of(context)?.show(JamesMessages.nearbyErrorGeneral.resolve());
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text(
+              'GPS signal timed out. Move to an open area and try again.'),
           backgroundColor: Colors.red.shade700,
         ),
       );
@@ -280,6 +318,48 @@ class NearbyState extends State<Nearby> {
   }
 
   Widget _buildResults(BuildContext context) {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+              AppSpacing.md, AppSpacing.sm, AppSpacing.md, 0),
+          child: Row(
+            children: [
+              ViewToggle(
+                mode: _viewMode,
+                onChanged: (m) async {
+                  setState(() => _viewMode = m);
+                  await AppPreferences.setViewMode('nearby', m);
+                },
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: _viewMode == ViewMode.map
+              ? _buildResultsMapView()
+              : _buildResultsList(context),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildResultsMapView() {
+    if (_scanPosition == null) {
+      return const Center(child: CircularProgressIndicator(color: postalRed));
+    }
+    final center = LatLng(_scanPosition!.latitude, _scanPosition!.longitude);
+    return PostboxMap(
+      center: center,
+      zoom: 14,
+      circleMarkers: [
+        scanRadiusCircle(center, radiusMeters: AppPreferences.nearbyRadiusMeters),
+      ],
+      markers: [userPositionMarker(center)],
+    );
+  }
+
+  Widget _buildResultsList(BuildContext context) {
     final compassMap = _compassCounts;
 
     // Show ciphers present in the area, in display order, total count > 0.
@@ -297,6 +377,14 @@ class NearbyState extends State<Nearby> {
       padding: const EdgeInsets.only(
           top: AppSpacing.md, bottom: 100, left: 0, right: 0),
       children: [
+        // Context map — "You Are Here" with scan radius
+        if (_scanPosition != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+                AppSpacing.md, AppSpacing.xs, AppSpacing.md, 0),
+            child: _contextMap(_scanPosition!),
+          ),
+
         // Summary card
         Card(
           child: Padding(
@@ -426,15 +514,14 @@ class NearbyState extends State<Nearby> {
           }),
         ],
 
-        // Compass — only shown when there are unclaimed postboxes; the
-        // server now returns an unclaimed-only compass so hiding it when
-        // everything is claimed avoids showing a blank "No postboxes" disc.
-        if (_count > 0 && _claimedToday < _count) ...[
+        // Compass — shown whenever postboxes are nearby (claimed or not).
+        // Red sectors = unclaimed (to find); grey sectors = already claimed today.
+        if (_count > 0) ...[
           Padding(
             padding: const EdgeInsets.fromLTRB(
                 AppSpacing.md, AppSpacing.lg, AppSpacing.md, AppSpacing.xs),
             child: Text(
-              'Where to look',
+              _claimedToday < _count ? 'Where to look' : 'Where you\'ve been',
               style: Theme.of(context).textTheme.titleSmall?.copyWith(
                     color: Theme.of(context).colorScheme.primary,
                     fontWeight: FontWeight.w600,
@@ -445,6 +532,7 @@ class NearbyState extends State<Nearby> {
             valueListenable: _headingNotifier,
             builder: (_, heading, __) => FuzzyCompass(
               compassCounts: compassMap,
+              claimedCompassCounts: _claimedCompassCounts,
               headingDegrees: heading,
             ),
           ),
@@ -452,6 +540,32 @@ class NearbyState extends State<Nearby> {
 
       ],
     ),
+      ),
+    );
+  }
+
+  Widget _contextMap(Position position) {
+    final center = LatLng(position.latitude, position.longitude);
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: SizedBox(
+        height: 150,
+        child: PostboxMap(
+          center: center,
+          zoom: 13,
+          interactionOptions: const InteractionOptions(
+            flags: InteractiveFlag.none,
+          ),
+          circleMarkers: [
+            scanRadiusCircle(
+              center,
+              radiusMeters: AppPreferences.nearbyRadiusMeters,
+              borderColor: postalRed.withValues(alpha: 0.7),
+            ),
+          ],
+          markers: [userPositionMarker(center)],
+          bottomPadding: 0,
+        ),
       ),
     );
   }

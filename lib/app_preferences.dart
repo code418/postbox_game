@@ -1,8 +1,11 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
 const String _keyDistanceUnit = 'distance_unit';
+const String _keyViewModePrefix = 'view_mode_';
 
 enum DistanceUnit { meters, miles }
+
+enum ViewMode { list, map }
 
 extension DistanceUnitX on DistanceUnit {
   String get label => this == DistanceUnit.meters ? 'Meters' : 'Miles';
@@ -49,5 +52,17 @@ class AppPreferences {
       return '$yards yd';
     }
     return '${meters.toStringAsFixed(0)} m';
+  }
+
+  static Future<ViewMode> getViewMode(String screen) async {
+    final prefs = await SharedPreferences.getInstance();
+    final v = prefs.getString('$_keyViewModePrefix$screen');
+    return v == 'map' ? ViewMode.map : ViewMode.list;
+  }
+
+  static Future<void> setViewMode(String screen, ViewMode mode) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+        '$_keyViewModePrefix$screen', mode == ViewMode.map ? 'map' : 'list');
   }
 }

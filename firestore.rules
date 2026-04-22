@@ -26,14 +26,23 @@ service cloud.firestore {
     // directly. The friends array is the only field clients may modify.
     match /users/{uid} {
       allow read: if request.auth != null;
-      // Only the friends array may be updated by the owning user.
-      // friends must remain a list and is capped at 200 entries to prevent
-      // abuse (large lists would cause O(n) parallel Firestore reads in the
-      // friends leaderboard).
+      // The friends array and notificationPrefs map are the only fields clients
+      // may modify on their own document. All other fields (displayName, streak,
+      // lastClaimDate, createdAt, points) are written by Cloud Functions using
+      // the Admin SDK, which bypasses these rules. FCM tokens live in the
+      // separate fcmTokens/{uid} collection to avoid exposure here.
+      // friends is capped at 200 entries to prevent O(n) leaderboard read abuse.
+      // notificationPrefs must be a map (type-validated to prevent garbage writes).
       allow update: if request.auth != null && request.auth.uid == uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['friends'])
-        && request.resource.data.friends is list
-        && request.resource.data.friends.size() <= 200;
+        && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['friends', 'notificationPrefs'])
+        && (!request.resource.data.diff(resource.data).affectedKeys()
+                .hasAny(['friends'])
+            || (request.resource.data.friends is list
+                && request.resource.data.friends.size() <= 200))
+        && (!request.resource.data.diff(resource.data).affectedKeys()
+                .hasAny(['notificationPrefs'])
+            || request.resource.data.notificationPrefs is map);
       // Create and all other writes are handled by Cloud Functions.
       allow create: if false;
     }
@@ -51,6 +60,16 @@ service cloud.firestore {
     // compute lifetime leaderboard percentages. Written by import scripts only.
     match /meta/{docId} {
       allow read: if request.auth != null;
+      allow write: if false;
+    }
+
+    // ── fcmTokens collection ─────────────────────────────────────────────────
+    // Stores FCM device tokens separate from the world-readable users collection
+    // so that tokens are not exposed to other authenticated users. Written
+    // exclusively by the registerFcmToken Cloud Function (Admin SDK).
+    // Users may only read their own token document.
+    match /fcmTokens/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
       allow write: if false;
     }
 

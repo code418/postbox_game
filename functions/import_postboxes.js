@@ -41,10 +41,12 @@ const COLLECTION = 'postbox';
 
 // Geohash precision for the spatial index.
 // Must be >= the highest precision returned by setPrecision() in _lookupPostboxes.ts.
-// The claim scan (30 m) uses precision 8; stored precision 6 caused documents to
-// sort *below* precision-8 prefix query ranges, so claims never found postboxes.
-// Precision 9 (~4.8 m cells) is the maximum and ensures prefix queries at any
-// lower precision (8, 7, 6…) will always match stored documents.
+// Stored geohashes are prefix-matched against lower-precision query ranges, so
+// the stored precision must be at least as specific as the most precise lookup.
+// A previous bug stored at precision 6: precision-8 prefix queries sorted above
+// those stored hashes, so claims returned no results. Precision 9 (~4.8 m cells)
+// is the maximum and guarantees any lower-precision prefix query (8, 7, 6…)
+// still matches stored documents.
 const GEOHASH_PRECISION = 9;
 
 // Maximum documents per batch write (Firestore limit is 500).

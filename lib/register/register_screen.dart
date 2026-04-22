@@ -56,7 +56,7 @@ class RegisterScreen extends StatelessWidget {
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: AppSpacing.xl),
-                RegisterForm(),
+                const RegisterForm(),
                 const SizedBox(height: AppSpacing.xl),
               ],
             ),

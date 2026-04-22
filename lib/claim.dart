@@ -1,31 +1,39 @@
 import 'dart:async';
-import 'dart:math' show pi;
 
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:confetti/confetti.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/app_preferences.dart';
 import 'package:postbox_game/james_controller.dart';
 import 'package:postbox_game/james_messages.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:postbox_game/location_service.dart';
 import 'package:postbox_game/monarch_info.dart';
-import 'package:postbox_game/analytics_service.dart';
+import 'package:postbox_game/services/home_widget_service.dart';
 import 'package:postbox_game/streak_service.dart';
 import 'package:postbox_game/theme.dart';
+import 'package:postbox_game/widgets/postbox_map.dart';
+import 'package:postbox_game/widgets/postbox_marker.dart';
 
 enum ClaimStage { initial, searching, results, empty, quiz, quizFailed, claimed }
 
 class Claim extends StatefulWidget {
-  const Claim({super.key});
+  const Claim({super.key, this.autoScan = false});
+
+  /// When true, a scan is kicked off automatically on first build. Used by
+  /// the Android home-screen widget deep-link.
+  final bool autoScan;
 
   @override
-  ClaimState createState() => ClaimState();
+  State<Claim> createState() => _ClaimState();
 }
 
-class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
+class _ClaimState extends State<Claim> with TickerProviderStateMixin {
   int _count = 0;
   int _maxPoints = 0;
   int _minPoints = 0;
@@ -38,11 +46,14 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
   int _pointsEarned = 0;
   int _claimedCount = 0;
   bool _isClaiming = false;
+  Position? _scanPosition;
 
   ClaimStage currentStage = ClaimStage.initial;
 
   late AnimationController _successController;
   late Animation<double> _successScale;
+  late AnimationController _pulseController;
+  late Animation<double> _pulseAnim;
   late ConfettiController _confettiController;
   // Cached so StreamBuilder doesn't re-subscribe on every rebuild.
   late final Stream<int?> _streakStream = _streakService.streakStream();
@@ -59,14 +70,25 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
       curve: Curves.elasticOut,
     );
     _confettiController = ConfettiController(duration: const Duration(seconds: 3));
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..repeat(reverse: true);
+    _pulseAnim = CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut);
     AppPreferences.getDistanceUnit().then((unit) {
       if (mounted) setState(() => _distanceUnit = unit);
     });
+    if (widget.autoScan) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_startSearch());
+      });
+    }
   }
 
   @override
   void dispose() {
     _successController.dispose();
+    _pulseController.dispose();
     _confettiController.dispose();
     super.dispose();
   }
@@ -76,6 +98,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
   final HttpsCallable _claimCallable =
       FirebaseFunctions.instance.httpsCallable('startScoring');
   final StreakService _streakService = StreakService();
+  final HomeWidgetService _homeWidgetService = HomeWidgetService();
 
   Future<void> _startSearch() async {
     // Guard against concurrent calls (e.g. pull-to-refresh + Refresh button
@@ -86,18 +109,28 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
     try {
       _distanceUnit = await AppPreferences.getDistanceUnit();
       final position = await getPosition();
+      if (mounted) setState(() => _scanPosition = position);
       final result = await _callable.call(<String, dynamic>{
         'lat': position.latitude,
         'lng': position.longitude,
         'meters': AppPreferences.claimRadiusMeters,
       });
       if (!mounted) return;
+      final data = Map<String, dynamic>.from(result.data as Map);
+      final counts = Map<String, dynamic>.from(data['counts'] as Map);
+      final points = Map<String, dynamic>.from(data['points'] as Map);
+      final rawPostboxes = data['postboxes'] as Map? ?? {};
+      final postboxes = <String, dynamic>{};
+      for (final entry in rawPostboxes.entries) {
+        postboxes[entry.key as String] =
+            Map<String, dynamic>.from(entry.value as Map);
+      }
       setState(() {
-        _count = result.data['counts']['total'] ?? 0;
-        _maxPoints = result.data['points']['max'] ?? 0;
-        _minPoints = result.data['points']['min'] ?? 0;
-        _claimedToday = result.data['counts']['claimedToday'] ?? 0;
-        _postboxes = Map<String, dynamic>.from(result.data['postboxes'] ?? {});
+        _count = counts['total'] ?? 0;
+        _maxPoints = points['max'] ?? 0;
+        _minPoints = points['min'] ?? 0;
+        _claimedToday = counts['claimedToday'] ?? 0;
+        _postboxes = postboxes;
         currentStage = _count > 0 ? ClaimStage.results : ClaimStage.empty;
       });
       if (_count > 0) {
@@ -107,8 +140,16 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
           minPoints: _minPoints,
           maxPoints: _maxPoints,
         );
+        if (mounted && _claimedToday == _count) {
+          JamesController.of(context)
+              ?.show(JamesMessages.claimErrorAlreadyClaimed.resolve());
+        }
       } else {
         Analytics.scanEmpty();
+        if (mounted) {
+          JamesController.of(context)
+              ?.show(JamesMessages.claimScanEmpty.resolve());
+        }
       }
     } on FirebaseFunctionsException catch (e) {
       debugPrint('Firebase functions error: ${e.code} ${e.message}');
@@ -122,6 +163,12 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
             ? JamesMessages.errorOffline.resolve()
             : JamesMessages.claimErrorGeneral.resolve(),
       );
+      setState(() => currentStage = ClaimStage.initial);
+    } on TimeoutException {
+      _showErrorSnackBar(
+          'GPS signal timed out. Move to an open area and try again.');
+      if (!mounted) return;
+      JamesController.of(context)?.show(JamesMessages.claimErrorGeneral.resolve());
       setState(() => currentStage = ClaimStage.initial);
     } catch (e) {
       debugPrint('Error scanning: $e');
@@ -164,9 +211,10 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
         'lat': position.latitude,
         'lng': position.longitude,
       });
-      final found = result.data?['found'] == true;
-      final allClaimedToday = result.data?['allClaimedToday'] == true;
-      final rawClaimed = result.data?['claimed'] ?? 0;
+      final claimData = Map<String, dynamic>.from(result.data as Map);
+      final found = claimData['found'] == true;
+      final allClaimedToday = claimData['allClaimedToday'] == true;
+      final rawClaimed = claimData['claimed'] ?? 0;
       final claimedCount = rawClaimed is int ? rawClaimed : (rawClaimed as num).toInt();
 
       if (!found) {
@@ -187,7 +235,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
         await _startSearch();
         return;
       }
-      final points = result.data?['points'] ?? 0;
+      final points = claimData['points'] ?? 0;
       if (!mounted) return;
       final earnedPts = points is int ? points : (points as num).toInt();
       Analytics.claimSuccess(pointsEarned: earnedPts, claimedCount: claimedCount);
@@ -197,6 +245,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
         _isClaiming = false;
         currentStage = ClaimStage.claimed;
       });
+      unawaited(_homeWidgetService.refresh());
       _successController.forward(from: 0);
       _confettiController.play();
       // Streak update is performed server-side in startScoring (Admin SDK),
@@ -228,11 +277,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
       setState(() => _isClaiming = false);
       final msg = (e.code == 'unavailable')
           ? JamesMessages.errorOffline.resolve()
-          : (e.code == 'already-claimed')
-              ? JamesMessages.claimErrorAlreadyClaimed.resolve()
-              : (e.code == 'out-of-range')
-                  ? JamesMessages.claimErrorOutOfRange.resolve()
-                  : JamesMessages.claimErrorGeneral.resolve();
+          : JamesMessages.claimErrorGeneral.resolve();
       JamesController.of(context)?.show(msg);
     } catch (e) {
       debugPrint('Claim error: $e');
@@ -266,7 +311,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
     // quiz varies when multiple postboxes with different ciphers are nearby.
     final ciphers = <String>[];
     for (final p in _postboxes.values) {
-      final map = p as Map<dynamic, dynamic>;
+      final map = p as Map<String, dynamic>;
       if (map['claimedToday'] == true) continue;
       final monarch = map['monarch'];
       // Only include ciphers in MonarchInfo.all so the quiz can always build
@@ -293,7 +338,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
   void _startQuiz() {
     final cipher = _pickQuizCipher();
     if (cipher == null) {
-      _claimPostbox();
+      unawaited(_claimPostbox());
       return;
     }
     Analytics.quizStarted(cipher: cipher);
@@ -310,7 +355,7 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
     if (answer == _quizCipher) {
       Analytics.quizCorrect(cipher: _quizCipher!);
       HapticFeedback.lightImpact();
-      _claimPostbox();
+      unawaited(_claimPostbox());
     } else {
       Analytics.quizIncorrect(
         correctCipher: _quizCipher!,
@@ -318,7 +363,74 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
       );
       HapticFeedback.heavyImpact();
       setState(() => currentStage = ClaimStage.quizFailed);
+      if (mounted) {
+        JamesController.of(context)
+            ?.show(JamesMessages.quizFailed.resolve());
+      }
     }
+  }
+
+  Widget _claimRadiusMap(Position position, {bool scanning = false, bool success = false}) {
+    final center = LatLng(position.latitude, position.longitude);
+    if (scanning) {
+      return AnimatedBuilder(
+        animation: _pulseAnim,
+        builder: (_, __) {
+          final alpha = 0.35 + _pulseAnim.value * 0.45;
+          final strokeWidth = 2.0 + _pulseAnim.value * 3.0;
+          return Card(
+            clipBehavior: Clip.antiAlias,
+            child: SizedBox(
+              height: 180,
+              child: PostboxMap(
+                center: center,
+                zoom: 17,
+                interactionOptions: const InteractionOptions(flags: InteractiveFlag.none),
+                circleMarkers: [
+                  CircleMarker(
+                    point: center,
+                    radius: AppPreferences.claimRadiusMeters,
+                    useRadiusInMeter: true,
+                    color: postalRed.withValues(alpha: 0.1),
+                    borderColor: postalRed.withValues(alpha: 0.4 + alpha * 0.5),
+                    borderStrokeWidth: strokeWidth,
+                  ),
+                ],
+                markers: [userPositionMarker(center)],
+                bottomPadding: 0,
+              ),
+            ),
+          );
+        },
+      );
+    }
+    final borderColor = success
+        ? postalGold.withValues(alpha: 0.7)
+        : Colors.grey.withValues(alpha: 0.5);
+    final fillColor = success ? postalGold : Colors.grey;
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: SizedBox(
+        height: 180,
+        child: PostboxMap(
+          center: center,
+          zoom: 17,
+          interactionOptions: const InteractionOptions(flags: InteractiveFlag.none),
+          circleMarkers: [
+            CircleMarker(
+              point: center,
+              radius: AppPreferences.claimRadiusMeters,
+              useRadiusInMeter: true,
+              color: fillColor.withValues(alpha: 0.12),
+              borderColor: borderColor,
+              borderStrokeWidth: 3,
+            ),
+          ],
+          markers: [userPositionMarker(center)],
+          bottomPadding: 0,
+        ),
+      ),
+    );
   }
 
   Widget _buildAllClaimedBanner(BuildContext context) {
@@ -507,17 +619,21 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
   }
 
   Widget _buildSearching(BuildContext context) {
+    final pos = _scanPosition;
     return Padding(
-      padding: const EdgeInsets.only(bottom: kJamesStripClearance),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const CircularProgressIndicator(color: postalRed),
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.md, AppSpacing.lg, AppSpacing.md, kJamesStripClearance),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          if (pos != null) ...[
+            _claimRadiusMap(pos, scanning: true),
             const SizedBox(height: AppSpacing.md),
-            Text('Scanning within ${AppPreferences.formatShortDistance(AppPreferences.claimRadiusMeters, _distanceUnit)}...'),
           ],
-        ),
+          const CircularProgressIndicator(color: postalRed),
+          const SizedBox(height: AppSpacing.md),
+          Text('Scanning within ${AppPreferences.formatShortDistance(AppPreferences.claimRadiusMeters, _distanceUnit)}...'),
+        ],
       ),
     );
   }
@@ -536,6 +652,10 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            if (_scanPosition != null) ...[
+              _claimRadiusMap(_scanPosition!),
+              const SizedBox(height: AppSpacing.md),
+            ],
             Icon(Icons.location_off, size: 80,
                 color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.2)),
             const SizedBox(height: AppSpacing.md),
@@ -583,6 +703,13 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
             bottom: 164,
           ),
           children: [
+            if (_scanPosition != null) ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.md, 0, AppSpacing.md, AppSpacing.sm),
+                child: _claimRadiusMap(_scanPosition!, success: _claimedToday < _count),
+              ),
+            ],
             _summaryCard(context),
             const SizedBox(height: AppSpacing.sm),
             Padding(
@@ -937,7 +1064,6 @@ class ClaimState extends State<Claim> with SingleTickerProviderStateMixin {
           alignment: Alignment.topCenter,
           child: ConfettiWidget(
             confettiController: _confettiController,
-            blastDirection: pi / 2,
             blastDirectionality: BlastDirectionality.explosive,
             particleDrag: 0.05,
             emissionFrequency: 0.07,

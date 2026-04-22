@@ -43,7 +43,13 @@ class AuthenticationBloc
     LoggedOut event,
     Emitter<AuthenticationState?> emit,
   ) async {
-    await _userRepository.signOut();
+    try {
+      await _userRepository.signOut();
+    } catch (e) {
+      // Sign-out failures (network, platform) must not leave the user
+      // stuck in an authenticated state. Always emit Unauthenticated.
+      addError(e);
+    }
     emit(Unauthenticated());
   }
 }

@@ -62,28 +62,41 @@ export function mergePeriodEntries(
     .slice(0, limit);
 }
 
+export interface PeriodSums {
+  dailyPoints: number;
+  weeklyPoints: number;
+  monthlyPoints: number;
+}
+
 /**
  * Recomputes the current user's total points for each leaderboard period from
- * the claims collection, then upserts their entry in leaderboards/{period}.
+ * the claims collection, upserts their entry in leaderboards/{period}, and
+ * returns the authoritative period sums so callers can write them to
+ * users/{uid} alongside the lifetime counters.
+ *
+ * Returning the sums lets startScoring SET dailyPoints/weeklyPoints/
+ * monthlyPoints directly instead of using FieldValue.increment — the sum is
+ * the source of truth, so it can't drift away from the claims collection.
  */
 export async function updateUserLeaderboards(
   uid: string,
   displayName: string,
   today: string,
   db: Firestore
-): Promise<void> {
+): Promise<PeriodSums> {
   const weekStart = getWeekStart(today);
   const monthStart = getMonthStart(today);
 
-  const periods: Array<{ name: string; startDate: string; exact?: boolean }> = [
+  const periods: Array<{ name: "daily" | "weekly" | "monthly"; startDate: string; exact?: boolean }> = [
     { name: "daily", startDate: today, exact: true },
     { name: "weekly", startDate: weekStart },
     { name: "monthly", startDate: monthStart },
   ];
 
   // allSettled so a single period failure doesn't abort the other two.
-  // Each period transaction is independent and idempotent; partial success
-  // is always better than retrying all three when only one failed.
+  // Each period's sum is computed before its transaction runs, so a
+  // leaderboard write failure does not lose the sum — callers still get
+  // authoritative totals for users/{uid}.
   const results = await Promise.allSettled(
     periods.map(async ({ name, startDate, exact }) => {
       // Sum points from claims for this user in the period.
@@ -94,41 +107,53 @@ export async function updateUserLeaderboards(
         : db.collection("claims").where("userid", "==", uid).where("dailyDate", ">=", startDate).where("dailyDate", "<=", today)
       ).get();
 
-      const claimsForPeriod = claimsSnap.docs;
-
-      const userPoints = claimsForPeriod.reduce(
-        (sum, d) => sum + ((d.data().points as number) ?? 0),
+      const userPoints = claimsSnap.docs.reduce(
+        (sum, d) => sum + ((d.data().points as number | undefined) ?? 0),
         0
       );
 
       const leaderboardRef = db.collection("leaderboards").doc(name);
       const currentPeriodKey = getPeriodKey(name, startDate);
 
-      await db.runTransaction(async (tx) => {
-        const leaderboardSnap = await tx.get(leaderboardRef);
-        const data = leaderboardSnap.data();
+      try {
+        await db.runTransaction(async (tx) => {
+          const leaderboardSnap = await tx.get(leaderboardRef);
+          const data = leaderboardSnap.data();
 
-        // If the stored periodKey differs from the current period, the leaderboard
-        // belongs to a previous period — discard all stale entries so users who
-        // haven't played this period don't carry over old scores.
-        const storedPeriodKey = data?.periodKey as string | undefined;
-        const existing: LeaderboardEntry[] =
-          storedPeriodKey === currentPeriodKey
-            ? ((data?.entries as LeaderboardEntry[]) ?? [])
-            : [];
+          // If the stored periodKey differs from the current period, the leaderboard
+          // belongs to a previous period — discard all stale entries so users who
+          // haven't played this period don't carry over old scores.
+          const storedPeriodKey = data?.periodKey as string | undefined;
+          const existing: LeaderboardEntry[] =
+            storedPeriodKey === currentPeriodKey
+              ? ((data?.entries as LeaderboardEntry[]) ?? [])
+              : [];
 
-        // Upsert this user's entry, or remove it if they have 0 points (e.g.
-        // updateDisplayName called before any claim in this period).
-        const updatedEntries = mergePeriodEntries(existing, uid, displayName, userPoints);
-        tx.set(leaderboardRef, { periodKey: currentPeriodKey, entries: updatedEntries }, { merge: false });
-      });
+          // Upsert this user's entry, or remove it if they have 0 points (e.g.
+          // updateDisplayName called before any claim in this period).
+          const updatedEntries = mergePeriodEntries(existing, uid, displayName, userPoints);
+          tx.set(leaderboardRef, { periodKey: currentPeriodKey, entries: updatedEntries }, { merge: false });
+        });
+      } catch (err) {
+        console.error(`leaderboard period update failed (${name}):`, err);
+      }
+
+      return { name, userPoints };
     })
   );
+
+  const sums: PeriodSums = { dailyPoints: 0, weeklyPoints: 0, monthlyPoints: 0 };
   for (const result of results) {
-    if (result.status === "rejected") {
+    if (result.status === "fulfilled") {
+      const { name, userPoints } = result.value;
+      if (name === "daily") sums.dailyPoints = userPoints;
+      else if (name === "weekly") sums.weeklyPoints = userPoints;
+      else sums.monthlyPoints = userPoints;
+    } else {
       console.error("leaderboard period update failed:", result.reason);
     }
   }
+  return sums;
 }
 
 export interface LifetimeLeaderboardEntry {

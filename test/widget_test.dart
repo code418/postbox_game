@@ -5,13 +5,19 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_core_platform_interface/test.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:postbox_game/app_preferences.dart';
+import 'package:postbox_game/authentication_bloc/bloc.dart';
+import 'package:postbox_game/claim_history_screen.dart';
 import 'package:postbox_game/fuzzy_compass.dart';
 import 'package:postbox_game/james_messages.dart';
+import 'package:postbox_game/london_date.dart';
 import 'package:postbox_game/main.dart';
 import 'package:postbox_game/monarch_info.dart';
+import 'package:postbox_game/settings_screen.dart';
 import 'package:postbox_game/streak_service.dart';
 import 'package:postbox_game/theme.dart';
+import 'package:postbox_game/user_profile_page.dart';
 import 'package:postbox_game/user_repository.dart';
 import 'package:postbox_game/validators.dart';
 
@@ -290,7 +296,7 @@ void main() {
       await fakeFirestore
           .collection('users')
           .doc(uid)
-          .set({'streak': 7, 'lastClaimDate': '2026-01-01'});
+          .set({'streak': 7, 'lastClaimDate': todayLondon()});
 
       final value = await streakService.streakStream().first;
       expect(value, equals(7));
@@ -311,11 +317,48 @@ void main() {
       await fakeFirestore
           .collection('users')
           .doc(uid)
-          .set({'streak': 3.0, 'lastClaimDate': '2026-01-01'});
+          .set({'streak': 3.0, 'lastClaimDate': todayLondon()});
 
       final value = await streakService.streakStream().first;
       expect(value, equals(3));
       expect(value, isA<int>());
+    });
+
+    test('streakStream returns stored streak when last claim was yesterday',
+        () async {
+      await fakeFirestore
+          .collection('users')
+          .doc(uid)
+          .set({'streak': 4, 'lastClaimDate': yesterdayLondon()});
+
+      final value = await streakService.streakStream().first;
+      expect(value, equals(4));
+    });
+
+    test('streakStream returns 0 when last claim is older than yesterday',
+        () async {
+      // A user who last claimed three days ago has a broken streak; the UI
+      // must reflect that immediately rather than showing the stale value.
+      await fakeFirestore
+          .collection('users')
+          .doc(uid)
+          .set({'streak': 9, 'lastClaimDate': '2024-06-01'});
+
+      final value = await streakService.streakStream().first;
+      expect(value, equals(0));
+    });
+
+    test('streakStream returns 0 when lastClaimDate is missing but streak set',
+        () async {
+      // Defensive: if streak is present without lastClaimDate we cannot verify
+      // freshness so treat the streak as broken.
+      await fakeFirestore
+          .collection('users')
+          .doc(uid)
+          .set({'streak': 5});
+
+      final value = await streakService.streakStream().first;
+      expect(value, equals(0));
     });
   });
 
@@ -511,9 +554,11 @@ void main() {
         JamesMessages.claimOutOfRange,
         JamesMessages.claimSuccessRare,
         JamesMessages.claimSuccessStandard,
+        JamesMessages.claimScanEmpty,
         JamesMessages.claimErrorAlreadyClaimed,
         JamesMessages.claimErrorOutOfRange,
         JamesMessages.claimErrorGeneral,
+        JamesMessages.quizFailed,
         JamesMessages.introStep2,
         JamesMessages.introStep3,
       ];
@@ -536,11 +581,13 @@ void main() {
         JamesMessages.nearbyErrorGeneral,
         JamesMessages.errorOffline,
         JamesMessages.claimOutOfRange,
+        JamesMessages.claimScanEmpty,
         JamesMessages.claimSuccessRare,
         JamesMessages.claimSuccessStandard,
         JamesMessages.claimErrorAlreadyClaimed,
         JamesMessages.claimErrorOutOfRange,
         JamesMessages.claimErrorGeneral,
+        JamesMessages.quizFailed,
         JamesMessages.introStep2,
         JamesMessages.introStep3,
       ];
@@ -554,12 +601,18 @@ void main() {
       expect(JamesMessages.forTabIndex(1), equals(JamesMessages.navClaim));
       expect(JamesMessages.forTabIndex(2), equals(JamesMessages.navScores));
       expect(JamesMessages.forTabIndex(3), equals(JamesMessages.navFriends));
+      expect(JamesMessages.forTabIndex(4), equals(JamesMessages.navHistory));
     });
 
     test('forTabIndex returns null for out-of-range index', () {
       expect(JamesMessages.forTabIndex(-1), isNull);
-      expect(JamesMessages.forTabIndex(4), isNull);
+      expect(JamesMessages.forTabIndex(5), isNull);
       expect(JamesMessages.forTabIndex(99), isNull);
+    });
+
+    test('navHistory has non-empty key and resolves to a non-empty string', () {
+      expect(JamesMessages.navHistory.key, isNotEmpty);
+      expect(JamesMessages.navHistory.resolve(), isNotEmpty);
     });
 
     test('dynamic nearbyFound includes count and box word', () {
@@ -583,6 +636,141 @@ void main() {
       }
       expect(seen.length, greaterThanOrEqualTo(5),
           reason: 'idle pool should have at least 5 distinct variants');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // ClaimHistoryScreen tests
+  // ---------------------------------------------------------------------------
+
+  group('ClaimHistoryEntry.fromJson', () {
+    test('parses all fields from a full payload', () {
+      final entry = ClaimHistoryEntry.fromJson({
+        'postboxId': 'osm_12345',
+        'lat': 51.5,
+        'lng': -0.1,
+        'monarch': 'EIIR',
+        'reference': 'SW1A 1AA',
+        'timesClaimed': 3,
+        'firstClaimed': '2026-04-10',
+        'lastClaimed': '2026-04-15',
+        'totalPoints': 6,
+      });
+      expect(entry.postboxId, equals('osm_12345'));
+      expect(entry.lat, equals(51.5));
+      expect(entry.lng, equals(-0.1));
+      expect(entry.monarch, equals('EIIR'));
+      expect(entry.reference, equals('SW1A 1AA'));
+      expect(entry.timesClaimed, equals(3));
+      expect(entry.firstClaimed, equals('2026-04-10'));
+      expect(entry.lastClaimed, equals('2026-04-15'));
+      expect(entry.totalPoints, equals(6));
+    });
+
+    test('tolerates missing optional fields', () {
+      final entry = ClaimHistoryEntry.fromJson({
+        'postboxId': 'osm_1',
+        'lat': 50.0,
+        'lng': -1.0,
+      });
+      expect(entry.monarch, isNull);
+      expect(entry.reference, isNull);
+      expect(entry.timesClaimed, equals(1));
+      expect(entry.totalPoints, equals(0));
+      expect(entry.firstClaimed, isEmpty);
+    });
+
+    test('coerces numeric fields stored as double', () {
+      final entry = ClaimHistoryEntry.fromJson({
+        'postboxId': 'osm_2',
+        'lat': 50.0,
+        'lng': -1.0,
+        'timesClaimed': 2.0,
+        'totalPoints': 14.0,
+      });
+      expect(entry.timesClaimed, equals(2));
+      expect(entry.timesClaimed, isA<int>());
+      expect(entry.totalPoints, equals(14));
+    });
+  });
+
+  group('ClaimHistoryScreen', () {
+    testWidgets('renders all four period tabs', (tester) async {
+      // The per-tab FutureBuilder will remain in the loading state because
+      // FirebaseFunctions is not mocked — this smoke test just asserts the
+      // tab bar itself builds cleanly.
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(body: ClaimHistoryScreen()),
+        ),
+      );
+      await tester.pump();
+      expect(find.text('Today'), findsOneWidget);
+      expect(find.text('This week'), findsOneWidget);
+      expect(find.text('This month'), findsOneWidget);
+      expect(find.text('Lifetime'), findsOneWidget);
+    });
+  });
+
+  group('UserProfilePage', () {
+    testWidgets('renders display name and stat tiles without crashing',
+        (tester) async {
+      // UserProfilePage uses FirebaseFirestore.instance and FirebaseAuth.instance
+      // which are mocked by setupFirebaseMocks(). The FutureBuilder will remain
+      // in loading state — this test just verifies the widget tree builds cleanly.
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: UserProfilePage(uid: 'test-uid-123'),
+        ),
+      );
+      await tester.pump();
+      // AppBar should render with one of the two title strings.
+      expect(
+        find.textContaining('Profile'),
+        findsOneWidget,
+      );
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // SettingsScreen notification prefs tests
+  // ---------------------------------------------------------------------------
+
+  group('SettingsScreen notification prefs', () {
+    Widget buildSettings() {
+      final repo = UserRepository(
+        firebaseAuth: MockFirebaseAuth(),
+        firestore: FakeFirebaseFirestore(),
+      );
+      return MaterialApp(
+        home: BlocProvider<AuthenticationBloc>(
+          create: (_) => AuthenticationBloc(userRepository: repo),
+          child: const SettingsScreen(),
+        ),
+      );
+    }
+
+    testWidgets('Notifications section header is visible', (tester) async {
+      await tester.pumpWidget(buildSettings());
+      // Allow initState async calls (_loadPrefs, _loadNotifPrefs) to complete.
+      // No real user is signed in, so _loadNotifPrefs resolves immediately.
+      await tester.pump();
+      expect(find.text('Notifications', skipOffstage: false), findsOneWidget);
+    });
+
+    testWidgets('Three notification toggle titles appear after prefs load',
+        (tester) async {
+      // Use a tall viewport so the ListView builds all children eagerly —
+      // ListView is lazy and only builds items in the visible area.
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+
+      await tester.pumpWidget(buildSettings());
+      await tester.pump();
+      expect(find.text('First friend to score today'), findsOneWidget);
+      expect(find.text('Friend overtakes you'), findsOneWidget);
+      expect(find.text('Added as a friend'), findsOneWidget);
     });
   });
 }

@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:postbox_game/analytics_service.dart';
+import 'package:postbox_game/user_profile_page.dart';
 import 'package:postbox_game/theme.dart';
 
 /// Friends list and add-friend by UID.
@@ -18,6 +19,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
   final _uidController = TextEditingController();
   final _firestore = FirebaseFirestore.instance;
   bool _isAdding = false;
+  final Set<String> _removingUids = {};
 
   // Cache name lookups so FutureBuilder doesn't re-fetch on every rebuild.
   final Map<String, Future<DocumentSnapshot<Map<String, dynamic>>>> _nameCache = {};
@@ -99,7 +101,14 @@ class _FriendsScreenState extends State<FriendsScreen> {
         );
         _uidController.clear();
       }
-    } catch (e) {
+    } on FirebaseException catch (e) {
+      if (!mounted) return;
+      final msg = e.code == 'permission-denied'
+          ? 'Friends list is full (200 maximum)'
+          : 'Failed to add friend. Please try again.';
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(msg)));
+    } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Failed to add friend. Please try again.')),
@@ -110,9 +119,37 @@ class _FriendsScreenState extends State<FriendsScreen> {
     }
   }
 
-  Future<void> _removeFriend(String friendUid) async {
+  Future<void> _removeFriend(String friendUid, String? displayName) async {
+    if (_removingUids.contains(friendUid)) return;
     final uid = _currentUid;
     if (uid == null) return;
+
+    // Re-adding requires re-entering the friend's UID by hand, so guard
+    // against accidental taps on the remove icon with a confirmation prompt.
+    final who = (displayName != null && displayName.trim().isNotEmpty)
+        ? displayName.trim()
+        : 'this friend';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Remove friend?'),
+        content: Text(
+            'Remove $who from your friends list? You\'ll need their UID to add them again.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _removingUids.add(friendUid));
     try {
       await _firestore.collection('users').doc(uid).update({
         'friends': FieldValue.arrayRemove([friendUid]),
@@ -131,7 +168,17 @@ class _FriendsScreenState extends State<FriendsScreen> {
           const SnackBar(content: Text('Failed to remove friend. Please try again.')),
         );
       }
+    } finally {
+      if (mounted) setState(() => _removingUids.remove(friendUid));
     }
+  }
+
+  String _initials(String name) {
+    final t = name.trim();
+    if (t.isEmpty) return '?';
+    final parts = t.split(' ').where((p) => p.isNotEmpty).toList();
+    if (parts.length >= 2) return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+    return t.substring(0, t.length.clamp(0, 2)).toUpperCase();
   }
 
   void _copyUid() {
@@ -319,11 +366,10 @@ class _FriendsScreenState extends State<FriendsScreen> {
                     builder: (context, nameSnap) {
                       final isLoading = nameSnap.connectionState == ConnectionState.waiting;
                       final displayName = nameSnap.data?.data()?['displayName'] as String?;
-                      final initials = displayName != null && displayName.length >= 2
-                          ? displayName.substring(0, 2).toUpperCase()
-                          : '?';
+                      final initials = _initials(displayName ?? '');
                       return Card(
                         child: ListTile(
+                          onTap: () => Navigator.of(context).push(UserProfilePage.route(friendUid)),
                           leading: CircleAvatar(
                             backgroundColor: postalRed,
                             child: isLoading
@@ -355,12 +401,25 @@ class _FriendsScreenState extends State<FriendsScreen> {
                                   displayName ?? 'Unknown player',
                                   overflow: TextOverflow.ellipsis,
                                 ),
-                          trailing: IconButton(
-                            icon: Icon(Icons.person_remove_outlined,
-                                color: Theme.of(context).colorScheme.onSurfaceVariant),
-                            tooltip: 'Remove friend',
-                            onPressed: () => _removeFriend(friendUid),
-                          ),
+                          trailing: _removingUids.contains(friendUid)
+                              ? const Padding(
+                                  padding: EdgeInsets.all(12),
+                                  child: SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: postalRed,
+                                    ),
+                                  ),
+                                )
+                              : IconButton(
+                                  icon: Icon(Icons.person_remove_outlined,
+                                      color: Theme.of(context).colorScheme.onSurfaceVariant),
+                                  tooltip: 'Remove friend',
+                                  onPressed: () =>
+                                      _removeFriend(friendUid, displayName),
+                                ),
                         ),
                       );
                     },

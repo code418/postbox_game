@@ -13,7 +13,7 @@ final _random = Random();
 /// A fixed message or a pool of variant messages for Postman James.
 ///
 /// Call [resolve] at display time to get a string. If multiple variants are
-/// defined, one is chosen at random — keeping James from feeling repetitive.
+/// defined, one is chosen at random... keeping James from feeling repetitive.
 /// The [key] is an ARB-compatible name reserved for the future i18n migration.
 class JamesMessage {
   const JamesMessage(this.key, this._variants);
@@ -27,7 +27,7 @@ class JamesMessage {
       : _variants[_random.nextInt(_variants.length)];
 }
 
-/// All Postman James messages — single source of truth.
+/// All Postman James messages... single source of truth.
 ///
 /// Fixed messages use a one-element list; variant pools use multiple elements.
 /// Dynamic messages (requiring runtime data) are plain static String functions.
@@ -40,7 +40,7 @@ abstract final class JamesMessages {
     'jamesNavNearby',
     [
       "Nothing like a good wander. The compass shows roughly where postboxes "
-          "are — no exact locations, mind.",
+          "are... no exact locations, mind.",
       "There is nothing, and I mean nothing, I like more than being on the "
           "lookout for postboxes. I love it.",
       "Impress your friends and loved ones by finding nearby postboxes!"
@@ -59,7 +59,7 @@ abstract final class JamesMessages {
   static const navScores = JamesMessage(
     'jamesNavScores',
     [
-      "Daily, weekly, monthly — see how you stack up against the competition. "
+      "Daily, weekly, monthly... see how you stack up against the competition. "
           "The only thing better than spotting postboxes is knowing you have "
           "spotted more than your friends"
     ],
@@ -68,6 +68,15 @@ abstract final class JamesMessages {
   static const navFriends = JamesMessage(
     'jamesNavFriends',
     ["Add friends by UID to see them here. You do not have to do this alone."],
+  );
+
+  static const navHistory = JamesMessage(
+    'jamesNavHistory',
+    [
+      "Admiring your handiwork, are we? Every pin is somewhere you've been.",
+      "A walk down memory lane... or should I say, pillar-box lane.",
+      "Today, this week, this month, all-time. See where you have roamed.",
+    ],
   );
 
   static const navFriendsLeaderboard = JamesMessage(
@@ -81,18 +90,19 @@ abstract final class JamesMessages {
   static const navLifetimeScores = JamesMessage(
     'jamesNavLifetimeScores',
     [
-      "This is the all-time tally — unique postboxes ever claimed. "
+      "This is the all-time tally... unique postboxes ever claimed. "
           "Claiming the same box twice doesn't count, so get out and explore!",
       "There are over a hundred thousand postboxes out there, gotta spot them all!"
     ],
   );
 
-  /// Returns the nav hint for tab [index] (0–3), or null for unknown indices.
+  /// Returns the nav hint for tab [index] (0–4), or null for unknown indices.
   static JamesMessage? forTabIndex(int index) => switch (index) {
         0 => navNearby,
         1 => navClaim,
         2 => navScores,
         3 => navFriends,
+        4 => navHistory,
         _ => null,
       };
 
@@ -102,20 +112,16 @@ abstract final class JamesMessages {
     'jamesIdle',
     [
       "You cannot send an email using a postbox. Send more letters!",
-      "Did you know the oldest surviving postbox in the UK is in Botchergate, "
-          "Carlisle? Still standing. Still red.",
-      "A Victorian VR postbox weighs about 70 kilograms. Don't try to move one.",
-      "The first pillar boxes were painted green. Green! Can you imagine.",
+      "Evri? DPD? They can do one",
+      "The first pillar boxes were painted green. Green! Can you imagine. Crazy.",
       "There are roughly 115,000 postboxes in the UK. You've got a fair way to go.",
       "Edward VIII was only king for 325 days. His cyphers are rarer for it.",
       "Some postboxes have had the same collection time for over a hundred years. "
-          "Consistency — that's what I like.",
+          "Consistency... that's what I like.",
       "The correct term is 'pillar box'. Though 'postbox' will do. I'm not fussed.",
       "A postbox in Brixham is shaped like a lighthouse. Just thought you should know.",
       "Royal Mail red is officially called 'Pillar Box Red'. The colour is named "
           "after the thing. Marvellous.",
-      "Apparently squirrels occasionally nest inside postboxes. I've said nothing "
-          "about this to the sorting office.",
       "Sure, sex is great, but have you ever spotted a rare postbox?",
       "Have I ever told you how much I love postboxes?",
       "People say the internet will kill the need for postboxes. I feel personally "
@@ -132,7 +138,7 @@ abstract final class JamesMessages {
   static const nearbyNoneFound = JamesMessage(
     'jamesNearbyNoneFound',
     [
-      "Arse... nothing nearby. Try a different area — postboxes are everywhere. "
+      "Arse... nothing nearby. Try a different area... postboxes are everywhere. "
           "Just not here.",
       "By my calculations you are in the middle of nowhere, try not being there.",
       "An area without postboxes tears me up inside."
@@ -164,6 +170,17 @@ abstract final class JamesMessages {
     ["No signal out here. Find some Wi-Fi and give it another go."],
   );
 
+  // ── Claim scan found nothing (30 m radius empty) ─────────────────────────
+
+  static const claimScanEmpty = JamesMessage(
+    'jamesClaimScanEmpty',
+    [
+      "Nothing within range. You need to be right next to a postbox.",
+      "No postboxes in your immediate area. A few steps might make all the difference.",
+      "I'm not detecting any postboxes here. Move closer and try again.",
+    ],
+  );
+
   // ── Claim out-of-range ───────────────────────────────────────────────────
 
   static const claimOutOfRange = JamesMessage(
@@ -178,14 +195,14 @@ abstract final class JamesMessages {
 
   static const claimSuccessRare = JamesMessage(
     'jamesClaimSuccessRare',
-    ["Oh ho — a rare one! That's a find. Well done.", "Nice, big points"],
+    ["Oh ho... a rare one! That's a find. Well done.", "Nice, big points"],
   );
 
   /// Dynamic: multiple postboxes claimed in a single scan.
   static String claimSuccessMulti(int count, int pts) =>
-      "Blimey — $count at once! That's $pts points in one go. Impressive.";
+      "Blimey... $count at once! That's $pts points in one go. Impressive.";
 
-  /// Variant pool — keeps repeated standard claims feeling fresh.
+  /// Variant pool... keeps repeated standard claims feeling fresh.
   static const claimSuccessStandard = JamesMessage(
     'jamesClaimSuccessStandard',
     [
@@ -221,6 +238,18 @@ abstract final class JamesMessages {
     [
       "Hmm, something went wrong there. Give it another go.",
       "Whoops, messed up there, try again."
+    ],
+  );
+
+  // ── Quiz ─────────────────────────────────────────────────────────────────
+
+  static const quizFailed = JamesMessage(
+    'jamesQuizFailed',
+    [
+      "Not quite. Have another look at the cipher on the postbox.",
+      "Ooh, unlucky. The cipher is the emblem stamped on the front.",
+      "That's not it. Each monarch had their own design... worth a second look.",
+      "Wrong answer, I'm afraid. Don't worry, the postbox isn't going anywhere.",
     ],
   );
 

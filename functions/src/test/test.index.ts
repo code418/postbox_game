@@ -9,6 +9,7 @@ import { applyUserClaims } from "../_nearbyUtils";
 import { computeNewStreak } from "../_streakUtils";
 import { containsProfanity } from "../_profanityFilter";
 import { sanitiseName } from "../onUserCreated";
+import { aggregateClaimHistory, periodStartDate } from "../userClaimHistory";
 
 // ── Pure utility unit tests (no Firebase required) ────────────────────────────
 
@@ -441,24 +442,26 @@ describe("setPrecision", () => {
   //
   // IMPORTANT — import precision coupling: import_postboxes.js must store
   // postboxes at a geohash precision >= the highest precision returned here.
-  // The Claim screen uses a 30 m radius → precision 8 prefix queries.
-  // If stored precision < 8 the documents sort lexicographically before the
-  // prefix range, so every claim silently returns { found: false }.
   // Current import precision: 9 (maximum). Do not lower it.
+  //
+  // Thresholds use the SHORTER of each cell's lat/lng dimensions so that a
+  // 1-ring (center + 8 neighbors) fully covers a disc of the given radius
+  // around any point in the center cell. Using cell width (the longer dim
+  // at even precisions) leaves a coverage hole in the lat direction.
   it("returns 9 at exact upper boundary (0.00477 km)", () => assert.strictEqual(setPrecision(0.00477), 9));
   it("returns 8 just above precision-9 boundary", () => assert.strictEqual(setPrecision(0.005), 8));
-  it("returns 8 for 30 m radius (0.030 km, used by Claim screen)", () => assert.strictEqual(setPrecision(0.030), 8));
-  it("returns 8 at exact upper boundary (0.0382 km)", () => assert.strictEqual(setPrecision(0.0382), 8));
-  it("returns 7 just above precision-8 boundary", () => assert.strictEqual(setPrecision(0.039), 7));
+  it("returns 8 at exact upper boundary (0.0191 km = cell height)", () => assert.strictEqual(setPrecision(0.0191), 8));
+  it("returns 7 just above precision-8 boundary", () => assert.strictEqual(setPrecision(0.020), 7));
+  it("returns 7 for 30 m radius (0.030 km, used by Claim screen)", () => assert.strictEqual(setPrecision(0.030), 7));
   it("returns 7 at exact upper boundary (0.153 km)", () => assert.strictEqual(setPrecision(0.153), 7));
   it("returns 6 just above precision-7 boundary", () => assert.strictEqual(setPrecision(0.154), 6));
   it("returns 6 for 540 m radius (0.540 km, used by Nearby screen)", () => assert.strictEqual(setPrecision(0.540), 6));
-  it("returns 6 at exact upper boundary (1.22 km)", () => assert.strictEqual(setPrecision(1.22), 6));
-  it("returns 5 just above precision-6 boundary", () => assert.strictEqual(setPrecision(1.23), 5));
+  it("returns 6 at exact upper boundary (0.61 km = cell height)", () => assert.strictEqual(setPrecision(0.61), 6));
+  it("returns 5 just above precision-6 boundary", () => assert.strictEqual(setPrecision(0.62), 5));
   it("returns 5 at exact upper boundary (4.89 km)", () => assert.strictEqual(setPrecision(4.89), 5));
   it("returns 4 for 10 km radius", () => assert.strictEqual(setPrecision(10), 4));
-  it("returns 2 for 1000 km radius", () => assert.strictEqual(setPrecision(1000), 2));
-  it("returns 1 for very large radius (>1250 km)", () => assert.strictEqual(setPrecision(2000), 1));
+  it("returns 2 for 500 km radius", () => assert.strictEqual(setPrecision(500), 2));
+  it("returns 1 for very large radius (>625 km)", () => assert.strictEqual(setPrecision(1000), 1));
 });
 
 describe("getLatLng", () => {
@@ -573,6 +576,8 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
   const wrappedNearby = testEnv.wrap(myFunctions.nearbyPostboxes) as (data: unknown, context?: unknown) => Promise<unknown>;
   const wrappedStartScoring = testEnv.wrap(myFunctions.startScoring) as (data: unknown, context?: unknown) => Promise<unknown>;
   const wrappedUpdateDisplayName = testEnv.wrap(myFunctions.updateDisplayName) as (data: unknown, context?: unknown) => Promise<unknown>;
+  const wrappedRegisterFcmToken = testEnv.wrap(myFunctions.registerFcmToken) as (data: unknown, context?: unknown) => Promise<unknown>;
+  const wrappedUserClaimHistory = testEnv.wrap(myFunctions.userClaimHistory) as (data: unknown, context?: unknown) => Promise<unknown>;
 
   after(() => {
     testEnv.cleanup();
@@ -865,6 +870,121 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
       }
     });
   });
+
+  describe("registerFcmToken (onCall)", () => {
+    it("should throw unauthenticated when no auth context", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      const req = { data: { token: "some-fcm-token" } };
+      try {
+        await wrappedRegisterFcmToken(req);
+        assert.fail("Expected unauthenticated error");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "unauthenticated");
+      }
+    });
+
+    it("should throw invalid-argument when token is missing", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      const req = { data: {}, auth: { uid: "test-uid" } };
+      try {
+        await wrappedRegisterFcmToken(req);
+        assert.fail("Expected invalid-argument error");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("should throw invalid-argument when token is empty string", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      const req = { data: { token: "" }, auth: { uid: "test-uid" } };
+      try {
+        await wrappedRegisterFcmToken(req);
+        assert.fail("Expected invalid-argument error");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("should throw invalid-argument when token is not a string", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      const req = { data: { token: 12345 }, auth: { uid: "test-uid" } };
+      try {
+        await wrappedRegisterFcmToken(req);
+        assert.fail("Expected invalid-argument error");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+  });
+
+  describe("userClaimHistory (onCall)", () => {
+    it("should throw unauthenticated when no auth context", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      const req = { data: { period: "daily" } };
+      try {
+        await wrappedUserClaimHistory(req);
+        assert.fail("Expected unauthenticated error");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "unauthenticated");
+      }
+    });
+
+    it("should throw invalid-argument when period is missing", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      const req = { data: {}, auth: { uid: "test-uid" } };
+      try {
+        await wrappedUserClaimHistory(req);
+        assert.fail("Expected invalid-argument error");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("should throw invalid-argument when period is unknown", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      const req = { data: { period: "yearly" }, auth: { uid: "test-uid" } };
+      try {
+        await wrappedUserClaimHistory(req);
+        assert.fail("Expected invalid-argument error");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("should return an object with entries and period for a valid request", async function (this: Mocha.Context) {
+      this.timeout(10000);
+      const req = { data: { period: "daily" }, auth: { uid: "test-uid" } };
+      try {
+        const result = (await wrappedUserClaimHistory(req)) as Record<string, unknown>;
+        assert.strictEqual(typeof result, "object");
+        assert.ok("entries" in result);
+        assert.ok("period" in result);
+        assert.strictEqual(result.period, "daily");
+        assert.ok(Array.isArray(result.entries));
+      } catch (e: unknown) {
+        const err = e as { code?: string; message?: string };
+        // PERMISSION_DENIED is acceptable when Firebase emulator is not running.
+        if (!(err.message ?? "").includes("PERMISSION_DENIED") && err.code !== "permission-denied") {
+          throw e;
+        }
+      }
+    });
+
+    it("should accept each of daily / weekly / monthly / lifetime", async function (this: Mocha.Context) {
+      this.timeout(15000);
+      const periods = ["daily", "weekly", "monthly", "lifetime"];
+      const results = await Promise.allSettled(
+        periods.map((period) => wrappedUserClaimHistory({ data: { period }, auth: { uid: "test-uid" } }))
+      );
+      results.forEach((r, i) => {
+        if (r.status === "rejected") {
+          const err = r.reason as { code?: string; message?: string };
+          // Acceptable: PERMISSION_DENIED (no emulator) but NOT invalid-argument.
+          assert.notStrictEqual(err.code, "invalid-argument", `period '${periods[i]}' must not be rejected as invalid`);
+        }
+      });
+    });
+  });
 });
 
 // ── applyUserClaims pure unit tests (no Firebase required) ────────────────────
@@ -887,6 +1007,7 @@ describe("applyUserClaims", () => {
     assert.ok("updatedCounts" in result);
     assert.ok("updatedPoints" in result);
     assert.ok("updatedCompass" in result);
+    assert.ok("claimedCompass" in result);
   });
 
   it("all postboxes have claimedToday=false when user has no claims", () => {
@@ -1078,5 +1199,532 @@ describe("applyUserClaims", () => {
     assert.strictEqual(updatedPoints.min, 0);
     assert.strictEqual(updatedPoints.max, 0);
     assert.strictEqual(Object.keys(updatedCompass).length, 0);
+  });
+
+  it("claimedCompass is empty when user has no claims", () => {
+    const { claimedCompass } = applyUserClaims(makeFull(), new Set());
+    assert.strictEqual(Object.keys(claimedCompass).length, 0);
+  });
+
+  it("claimedCompass contains direction of claimed postbox", () => {
+    // box1 is at N; user has claimed it
+    const { claimedCompass } = applyUserClaims(makeFull(), new Set(["box1"]));
+    assert.strictEqual(claimedCompass["N"], 1);
+    assert.strictEqual(claimedCompass["S"] ?? 0, 0);
+  });
+
+  it("claimedCompass contains all claimed directions; updatedCompass has none", () => {
+    // Both boxes claimed: N (box1) and S (box2)
+    const { claimedCompass, updatedCompass } =
+      applyUserClaims(makeFull(), new Set(["box1", "box2"]));
+    assert.strictEqual(claimedCompass["N"], 1);
+    assert.strictEqual(claimedCompass["S"], 1);
+    assert.strictEqual(Object.keys(updatedCompass).length, 0);
+  });
+
+  it("claimed postbox without compass.exact is not added to claimedCompass", () => {
+    const full = {
+      postboxes: {
+        noCompass: { monarch: "EIIR" },
+      },
+      counts: { total: 1, claimedToday: 0 },
+      points: { min: 2, max: 2 },
+      compass: {},
+    };
+    const { claimedCompass } = applyUserClaims(full, new Set(["noCompass"]));
+    assert.strictEqual(Object.keys(claimedCompass).length, 0);
+  });
+});
+
+import { rebuildPeriodLeaderboard } from "../newDayScoreboard";
+
+describe("rebuildPeriodLeaderboard (unit, mock Firestore)", () => {
+  type ClaimDoc = { userid: string; dailyDate: string; points: number };
+  type UserDoc  = { displayName?: string };
+  type LbDoc    = { periodKey?: string; entries?: unknown[] };
+
+  function makeMockDb(
+    claims: ClaimDoc[],
+    users: Record<string, UserDoc> = {}
+  ) {
+    let writtenLb: { periodKey?: string; entries?: unknown[] } | undefined;
+
+    const db = {
+      collection: (name: string) => {
+        if (name === "claims") {
+          let preds: Array<{ field: string; op: string; val: unknown }> = [];
+          const q = {
+            where(f: string, o: string, v: unknown) {
+              preds = [...preds, { field: f, op: o, val: v }];
+              return q;
+            },
+            async get() {
+              return {
+                docs: claims
+                  .filter(doc =>
+                    preds.every(({ field, op, val }) => {
+                      const v = (doc as Record<string, unknown>)[field];
+                      if (op === "==") return v === val;
+                      if (op === ">=") return typeof v === "string" && typeof val === "string" && v >= val;
+                      if (op === "<=") return typeof v === "string" && typeof val === "string" && v <= val;
+                      return false;
+                    })
+                  )
+                  .map(d => ({ data: () => d as Record<string, unknown> })),
+              };
+            },
+          };
+          return q;
+        }
+        if (name === "users") {
+          return {
+            doc: (uid: string) => ({
+              async get() {
+                const u = users[uid];
+                return { data: () => u as Record<string, unknown> | undefined };
+              },
+            }),
+          };
+        }
+        if (name === "leaderboards") {
+          return {
+            doc: (_id: string) => ({
+              async set(data: LbDoc) { writtenLb = data; },
+              async get() {
+                return { data: () => writtenLb as Record<string, unknown> | undefined };
+              },
+            }),
+          };
+        }
+        throw new Error(`Unexpected collection: ${name}`);
+      },
+      async runTransaction<T>(
+        fn: (tx: {
+          get: (ref: { get: () => Promise<{ data: () => unknown }> }) => Promise<{ data: () => unknown }>;
+          set: (ref: { set: (d: unknown) => Promise<void> }, d: unknown) => void;
+        }) => Promise<T>
+      ): Promise<T> {
+        const tx = {
+          get: (ref: { get: () => Promise<{ data: () => unknown }> }) => ref.get(),
+          set: (ref: { set: (d: unknown) => Promise<void> }, d: unknown) => { void ref.set(d); },
+        };
+        return fn(tx);
+      },
+    };
+
+    return {
+      db: db as unknown as import("firebase-admin").firestore.Firestore,
+      getWrittenLb: () => writtenLb,
+    };
+  }
+
+  it("writes empty entries with correct periodKey when startDate > endDate (new period)", async () => {
+    const { db, getWrittenLb } = makeMockDb([]);
+    await rebuildPeriodLeaderboard("weekly", "2026-04-20", "2026-04-19", db);
+    const written = getWrittenLb();
+    assert.ok(written, "should have written a leaderboard document");
+    assert.strictEqual(written!.periodKey, "week:2026-04-20");
+    assert.deepStrictEqual(written!.entries, []);
+  });
+
+  it("does NOT clobber entries when stored periodKey already matches the new period", async () => {
+    // Simulates a claim that landed between midnight and the rebuild sweep:
+    // updateUserLeaderboards has already written entries under the new
+    // periodKey, and the empty-period rebuild must not overwrite them.
+    const { db, getWrittenLb } = makeMockDb([]);
+    const lbRef = db.collection("leaderboards").doc("weekly") as unknown as {
+      set: (d: unknown) => Promise<void>;
+    };
+    await lbRef.set({
+      periodKey: "week:2026-04-20",
+      entries: [{ uid: "u1", displayName: "Alice", points: 5 }],
+    });
+    await rebuildPeriodLeaderboard("weekly", "2026-04-20", "2026-04-19", db);
+    const written = getWrittenLb();
+    assert.strictEqual(written!.periodKey, "week:2026-04-20");
+    assert.deepStrictEqual(written!.entries, [
+      { uid: "u1", displayName: "Alice", points: 5 },
+    ]);
+  });
+
+  it("aggregates claims from multiple days and sorts by points descending", async () => {
+    const { db, getWrittenLb } = makeMockDb(
+      [
+        { userid: "u1", dailyDate: "2026-04-13", points: 5 },
+        { userid: "u1", dailyDate: "2026-04-14", points: 3 },
+        { userid: "u2", dailyDate: "2026-04-13", points: 10 },
+      ],
+      { u1: { displayName: "Alice" }, u2: { displayName: "Bob" } }
+    );
+    await rebuildPeriodLeaderboard("weekly", "2026-04-13", "2026-04-15", db);
+    const entries = getWrittenLb()!.entries as Array<{ uid: string; displayName: string; points: number }>;
+    assert.strictEqual(entries.length, 2);
+    assert.strictEqual(entries[0].uid, "u2");
+    assert.strictEqual(entries[0].points, 10);
+    assert.strictEqual(entries[1].uid, "u1");
+    assert.strictEqual(entries[1].points, 8);
+  });
+
+  it("uses fallback display name when user doc is missing", async () => {
+    const { db, getWrittenLb } = makeMockDb(
+      [{ userid: "abc123xyz", dailyDate: "2026-04-13", points: 4 }],
+      {} // no user docs
+    );
+    await rebuildPeriodLeaderboard("daily", "2026-04-13", "2026-04-13", db);
+    const entries = getWrittenLb()!.entries as Array<{ displayName: string }>;
+    assert.strictEqual(entries[0].displayName, "Player_abc123");
+  });
+
+  it("excludes claims outside the date range", async () => {
+    const { db, getWrittenLb } = makeMockDb(
+      [
+        { userid: "u1", dailyDate: "2026-04-12", points: 100 }, // before start
+        { userid: "u1", dailyDate: "2026-04-13", points: 5 },   // in range
+        { userid: "u1", dailyDate: "2026-04-16", points: 100 }, // after end
+      ],
+      { u1: { displayName: "Alice" } }
+    );
+    await rebuildPeriodLeaderboard("weekly", "2026-04-13", "2026-04-15", db);
+    const entries = getWrittenLb()!.entries as Array<{ points: number }>;
+    assert.strictEqual(entries[0].points, 5);
+  });
+
+  it("omits users with 0 total points", async () => {
+    const { db, getWrittenLb } = makeMockDb(
+      [{ userid: "u1", dailyDate: "2026-04-13", points: 0 }],
+      { u1: { displayName: "Alice" } }
+    );
+    await rebuildPeriodLeaderboard("daily", "2026-04-13", "2026-04-13", db);
+    assert.deepStrictEqual(getWrittenLb()!.entries, []);
+  });
+
+  it("caps entries at 100", async () => {
+    const claims = Array.from({ length: 120 }, (_, i) => ({
+      userid: `u${i}`,
+      dailyDate: "2026-04-13",
+      points: 120 - i,
+    }));
+    const users = Object.fromEntries(claims.map(c => [c.userid, { displayName: `Player ${c.userid}` }]));
+    const { db, getWrittenLb } = makeMockDb(claims, users);
+    await rebuildPeriodLeaderboard("monthly", "2026-04-01", "2026-04-13", db);
+    assert.strictEqual((getWrittenLb()!.entries as unknown[]).length, 100);
+  });
+
+  it("sets correct periodKey for daily period", async () => {
+    const { db, getWrittenLb } = makeMockDb(
+      [{ userid: "u1", dailyDate: "2026-04-17", points: 2 }],
+      { u1: { displayName: "Alice" } }
+    );
+    await rebuildPeriodLeaderboard("daily", "2026-04-17", "2026-04-17", db);
+    assert.strictEqual(getWrittenLb()!.periodKey, "2026-04-17");
+  });
+});
+
+import { updateFcmTokens, diffFriends, shouldNotifyFirstClaim, shouldNotifyOvertake } from "../_notifications";
+
+describe("updateFcmTokens", () => {
+  it("adds a token to an empty list", () => {
+    assert.deepStrictEqual(updateFcmTokens([], "tok1"), ["tok1"]);
+  });
+  it("deduplicates an existing token", () => {
+    assert.deepStrictEqual(updateFcmTokens(["tok1"], "tok1"), ["tok1"]);
+  });
+  it("appends a new token", () => {
+    assert.deepStrictEqual(updateFcmTokens(["a", "b"], "c"), ["a", "b", "c"]);
+  });
+  it("drops the oldest token when cap is exceeded", () => {
+    assert.deepStrictEqual(
+      updateFcmTokens(["a", "b", "c", "d", "e"], "f"),
+      ["b", "c", "d", "e", "f"]
+    );
+  });
+  it("result never exceeds the default cap of 5", () => {
+    const result = updateFcmTokens(["a", "b", "c", "d", "e"], "f");
+    assert.strictEqual(result.length, 5);
+  });
+});
+
+describe("diffFriends", () => {
+  it("returns empty array when lists are identical", () => {
+    assert.deepStrictEqual(diffFriends(["a", "b"], ["a", "b"]), []);
+  });
+  it("returns empty array when a friend is removed (not an addition)", () => {
+    assert.deepStrictEqual(diffFriends(["a", "b"], ["a"]), []);
+  });
+  it("returns the single newly-added UID", () => {
+    assert.deepStrictEqual(diffFriends(["a"], ["a", "b"]), ["b"]);
+  });
+  it("returns multiple newly-added UIDs", () => {
+    assert.deepStrictEqual(diffFriends([], ["a", "b"]), ["a", "b"]);
+  });
+  it("ignores UIDs already present in before", () => {
+    assert.deepStrictEqual(diffFriends(["x"], ["x", "y", "z"]), ["y", "z"]);
+  });
+  it("detects new friend even when list length is unchanged (simultaneous add+remove)", () => {
+    // This is the edge case that the removed `after.length <= before.length`
+    // guard would have incorrectly silenced: removing "a" and adding "c"
+    // leaves length == 2, but "c" is still a new friend who should be notified.
+    assert.deepStrictEqual(diffFriends(["a", "b"], ["b", "c"]), ["c"]);
+  });
+});
+
+describe("shouldNotifyFirstClaim", () => {
+  it("returns true when friend has no dailyPoints (undefined)", () =>
+    assert.strictEqual(shouldNotifyFirstClaim({}), true));
+
+  it("returns true when friend dailyPoints is 0", () =>
+    assert.strictEqual(shouldNotifyFirstClaim({ dailyPoints: 0 }), true));
+
+  it("returns false when friend dailyPoints > 0 (already scored today)", () =>
+    assert.strictEqual(shouldNotifyFirstClaim({ dailyPoints: 5 }), false));
+
+  it("returns false when friendFirstScore pref is explicitly false", () =>
+    assert.strictEqual(
+      shouldNotifyFirstClaim({ dailyPoints: 0, notificationPrefs: { friendFirstScore: false } }),
+      false
+    ));
+
+  it("returns true when friendFirstScore pref is true (opt-in)", () =>
+    assert.strictEqual(
+      shouldNotifyFirstClaim({ dailyPoints: 0, notificationPrefs: { friendFirstScore: true } }),
+      true
+    ));
+
+  it("returns true when notificationPrefs is absent", () =>
+    assert.strictEqual(shouldNotifyFirstClaim({ dailyPoints: 0 }), true));
+
+  it("returns false for undefined fdata", () =>
+    assert.strictEqual(shouldNotifyFirstClaim(undefined), true));
+
+  it("returns false when dailyPoints is stored as a float (e.g. 3.5)", () =>
+    assert.strictEqual(shouldNotifyFirstClaim({ dailyPoints: 3.5 }), false));
+
+  // With todayLondon provided, lastClaimDate becomes the authoritative source
+  // of "has claimed today" (guards against stale dailyPoints surviving past
+  // the midnight newDayScoreboard sweep).
+  it("returns true when lastClaimDate != today even if stale dailyPoints > 0", () =>
+    assert.strictEqual(
+      shouldNotifyFirstClaim(
+        { dailyPoints: 10, lastClaimDate: "2026-04-16" },
+        "2026-04-17"
+      ),
+      true
+    ));
+
+  it("returns false when lastClaimDate === today (regardless of dailyPoints)", () =>
+    assert.strictEqual(
+      shouldNotifyFirstClaim(
+        { dailyPoints: 0, lastClaimDate: "2026-04-17" },
+        "2026-04-17"
+      ),
+      false
+    ));
+
+  it("returns true when lastClaimDate is missing and todayLondon provided", () =>
+    assert.strictEqual(
+      shouldNotifyFirstClaim({ dailyPoints: 5 }, "2026-04-17"),
+      true
+    ));
+
+  // lastFirstClaimNotifiedDate — prevent duplicate "first of your friends" notifications
+  it("returns false when already notified about another friend today", () =>
+    assert.strictEqual(
+      shouldNotifyFirstClaim(
+        { lastFirstClaimNotifiedDate: "2026-04-17" },
+        "2026-04-17"
+      ),
+      false
+    ));
+
+  it("returns true when lastFirstClaimNotifiedDate is from a previous day", () =>
+    assert.strictEqual(
+      shouldNotifyFirstClaim(
+        { lastFirstClaimNotifiedDate: "2026-04-16" },
+        "2026-04-17"
+      ),
+      true
+    ));
+
+  it("ignores lastFirstClaimNotifiedDate when todayLondon is not provided (legacy path)", () =>
+    assert.strictEqual(
+      shouldNotifyFirstClaim({ lastFirstClaimNotifiedDate: "2026-04-17" }),
+      true
+    ));
+});
+
+describe("shouldNotifyOvertake", () => {
+  it("returns false for undefined fdata", () =>
+    assert.strictEqual(shouldNotifyOvertake(undefined, 5, 10), false));
+
+  it("returns false when friend has 0 dailyPoints (hasn't scored)", () =>
+    assert.strictEqual(shouldNotifyOvertake({ dailyPoints: 0 }, 5, 10), false));
+
+  it("returns false when friend dailyPoints is missing (treated as 0)", () =>
+    assert.strictEqual(shouldNotifyOvertake({}, 5, 10), false));
+
+  it("returns false when newDailyPoints equals friend's score (tie, not an overtake)", () =>
+    assert.strictEqual(shouldNotifyOvertake({ dailyPoints: 10 }, 5, 10), false));
+
+  it("returns false when newDailyPoints is less than friend's score", () =>
+    assert.strictEqual(shouldNotifyOvertake({ dailyPoints: 15 }, 5, 10), false));
+
+  it("returns true when newDailyPoints strictly exceeds friend's non-zero score", () =>
+    assert.strictEqual(shouldNotifyOvertake({ dailyPoints: 8 }, 5, 10), true));
+
+  it("returns false when friendOvertakes pref is explicitly false", () =>
+    assert.strictEqual(
+      shouldNotifyOvertake({ dailyPoints: 8, notificationPrefs: { friendOvertakes: false } }, 5, 10),
+      false
+    ));
+
+  it("returns true when friendOvertakes pref is true (opt-in)", () =>
+    assert.strictEqual(
+      shouldNotifyOvertake({ dailyPoints: 8, notificationPrefs: { friendOvertakes: true } }, 5, 10),
+      true
+    ));
+
+  it("returns true when notificationPrefs is absent and score genuinely overtakes", () =>
+    assert.strictEqual(shouldNotifyOvertake({ dailyPoints: 3 }, 0, 7), true));
+
+  it("returns false when newDailyPoints is 0 (user has no score, cannot overtake)", () =>
+    assert.strictEqual(shouldNotifyOvertake({ dailyPoints: 5 }, 0, 0), false));
+
+  it("returns false when user was already ahead before this claim (no re-notify)", () =>
+    assert.strictEqual(shouldNotifyOvertake({ dailyPoints: 5 }, 7, 10), false));
+
+  it("returns true on the exact claim that crosses the friend's score", () =>
+    assert.strictEqual(shouldNotifyOvertake({ dailyPoints: 5 }, 5, 7), true));
+
+  it("returns true when user was tied before and this claim breaks the tie", () =>
+    assert.strictEqual(shouldNotifyOvertake({ dailyPoints: 5 }, 5, 6), true));
+
+  // With todayLondon provided, a friend whose lastClaimDate isn't today is
+  // treated as 0 dailyPoints — so stale dailyPoints from yesterday can't
+  // incorrectly suppress the notification or fire it against someone who
+  // hasn't actually claimed today.
+  it("returns false when friend's lastClaimDate != today even with stale dailyPoints > 0", () =>
+    assert.strictEqual(
+      shouldNotifyOvertake(
+        { dailyPoints: 10, lastClaimDate: "2026-04-16" },
+        0,
+        5,
+        "2026-04-17"
+      ),
+      false
+    ));
+
+  it("returns true when friend claimed today and we cross their score", () =>
+    assert.strictEqual(
+      shouldNotifyOvertake(
+        { dailyPoints: 3, lastClaimDate: "2026-04-17" },
+        0,
+        5,
+        "2026-04-17"
+      ),
+      true
+    ));
+
+  it("returns false when friend has no lastClaimDate field (treated as hasn't claimed today)", () =>
+    assert.strictEqual(
+      shouldNotifyOvertake({ dailyPoints: 5 }, 0, 10, "2026-04-17"),
+      false
+    ));
+});
+
+// ── userClaimHistory pure unit tests (no Firebase required) ───────────────────
+
+describe("periodStartDate", () => {
+  it("daily returns today itself", () =>
+    assert.strictEqual(periodStartDate("daily", "2026-04-15"), "2026-04-15"));
+  it("weekly returns the Monday of the current ISO week", () =>
+    assert.strictEqual(periodStartDate("weekly", "2026-04-15"), "2026-04-13"));
+  it("monthly returns the 1st of the current month", () =>
+    assert.strictEqual(periodStartDate("monthly", "2026-04-15"), "2026-04-01"));
+  it("lifetime returns null (no lower bound)", () =>
+    assert.strictEqual(periodStartDate("lifetime", "2026-04-15"), null));
+});
+
+describe("aggregateClaimHistory", () => {
+  const postboxes = {
+    p1: { lat: 51.5, lng: -0.1, monarch: "EIIR", reference: "SW1A 1AA" },
+    p2: { lat: 55.9, lng: -3.2, monarch: "VR" },
+  };
+
+  it("returns an empty array for no claims", () => {
+    assert.deepStrictEqual(aggregateClaimHistory([], postboxes), []);
+  });
+
+  it("produces one entry per unique postbox", () => {
+    const result = aggregateClaimHistory(
+      [
+        { postboxId: "p1", dailyDate: "2026-04-15", points: 2 },
+        { postboxId: "p2", dailyDate: "2026-04-15", points: 7 },
+      ],
+      postboxes
+    );
+    assert.strictEqual(result.length, 2);
+    const ids = result.map((e) => e.postboxId).sort();
+    assert.deepStrictEqual(ids, ["p1", "p2"]);
+  });
+
+  it("dedupes multiple claims of the same postbox and accumulates fields", () => {
+    const result = aggregateClaimHistory(
+      [
+        { postboxId: "p1", dailyDate: "2026-04-10", points: 2 },
+        { postboxId: "p1", dailyDate: "2026-04-15", points: 2 },
+        { postboxId: "p1", dailyDate: "2026-04-12", points: 2 },
+      ],
+      postboxes
+    );
+    assert.strictEqual(result.length, 1);
+    assert.strictEqual(result[0].postboxId, "p1");
+    assert.strictEqual(result[0].timesClaimed, 3);
+    assert.strictEqual(result[0].totalPoints, 6);
+    assert.strictEqual(result[0].firstClaimed, "2026-04-10");
+    assert.strictEqual(result[0].lastClaimed, "2026-04-15");
+  });
+
+  it("joins in postbox geopoint, monarch and reference", () => {
+    const result = aggregateClaimHistory(
+      [{ postboxId: "p1", dailyDate: "2026-04-15", points: 2 }],
+      postboxes
+    );
+    assert.strictEqual(result[0].lat, 51.5);
+    assert.strictEqual(result[0].lng, -0.1);
+    assert.strictEqual(result[0].monarch, "EIIR");
+    assert.strictEqual(result[0].reference, "SW1A 1AA");
+  });
+
+  it("skips claims whose postbox document is missing", () => {
+    const result = aggregateClaimHistory(
+      [
+        { postboxId: "p1", dailyDate: "2026-04-15", points: 2 },
+        { postboxId: "ghost", dailyDate: "2026-04-15", points: 2 },
+      ],
+      postboxes
+    );
+    assert.strictEqual(result.length, 1);
+    assert.strictEqual(result[0].postboxId, "p1");
+  });
+
+  it("falls back to the claim's monarch when the postbox has no monarch", () => {
+    const pbNoMonarch = { p3: { lat: 52.0, lng: -1.0 } };
+    const result = aggregateClaimHistory(
+      [{ postboxId: "p3", dailyDate: "2026-04-15", points: 9, monarch: "CIIIR" }],
+      pbNoMonarch
+    );
+    assert.strictEqual(result[0].monarch, "CIIIR");
+  });
+
+  it("sorts entries with most-recent lastClaimed first", () => {
+    const result = aggregateClaimHistory(
+      [
+        { postboxId: "p1", dailyDate: "2026-04-10", points: 2 },
+        { postboxId: "p2", dailyDate: "2026-04-15", points: 7 },
+      ],
+      postboxes
+    );
+    assert.strictEqual(result[0].postboxId, "p2");
+    assert.strictEqual(result[1].postboxId, "p1");
   });
 });
