@@ -62,6 +62,10 @@ android {
         wear {
             dimension "device"
             minSdk 30 // Wear OS 3+ requires API 30
+            // Sit in a separate versionCode band so Play accepts both AABs
+            // for the same applicationId in one release.
+            versionCode flutterVersionCode.toInteger() + 10000
+            versionNameSuffix "-wear"
         }
     }
 
