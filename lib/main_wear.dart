@@ -1,10 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
-import 'package:postbox_game/authentication_bloc/bloc.dart';
-import 'package:postbox_game/user_repository.dart';
 import 'package:postbox_game/wear/wear_app.dart';
 import 'firebase_options.dart';
 
