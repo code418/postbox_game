@@ -125,11 +125,14 @@ class _ClaimState extends State<Claim> with TickerProviderStateMixin {
         postboxes[entry.key as String] =
             Map<String, dynamic>.from(entry.value as Map);
       }
+      // Cloud Functions serialise JS numbers as either int or double;
+      // assigning a double to a typed int field throws, so normalise via num.
+      int asInt(dynamic v) => (v as num?)?.toInt() ?? 0;
       setState(() {
-        _count = counts['total'] ?? 0;
-        _maxPoints = points['max'] ?? 0;
-        _minPoints = points['min'] ?? 0;
-        _claimedToday = counts['claimedToday'] ?? 0;
+        _count = asInt(counts['total']);
+        _maxPoints = asInt(points['max']);
+        _minPoints = asInt(points['min']);
+        _claimedToday = asInt(counts['claimedToday']);
         _postboxes = postboxes;
         currentStage = _count > 0 ? ClaimStage.results : ClaimStage.empty;
       });

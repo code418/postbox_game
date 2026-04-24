@@ -113,23 +113,26 @@ class _NearbyState extends State<Nearby> {
       final claimedCompass = data['claimedCompass'] != null
           ? Map<String, dynamic>.from(data['claimedCompass'] as Map)
           : <String, dynamic>{};
+      // Cloud Functions serialise JS numbers as either int or double; assigning
+      // a double to a typed int field throws, so normalise every count via num.
+      int asInt(dynamic v) => (v as num?)?.toInt() ?? 0;
       setState(() {
-        _count = counts['total'] ?? 0;
-        _maxPoints = pts['max'] ?? 0;
-        _minPoints = pts['min'] ?? 0;
+        _count = asInt(counts['total']);
+        _maxPoints = asInt(pts['max']);
+        _minPoints = asInt(pts['min']);
         currentStage = NearbyStage.results;
         for (final dir in const [
           'N', 'NNE', 'NE', 'ENE', 'E', 'ESE',
           'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW',
           'W', 'WNW', 'NW', 'NNW',
         ]) {
-          _compassCounts[dir] = compass[dir] ?? 0;
-          _claimedCompassCounts[dir] = claimedCompass[dir] ?? 0;
+          _compassCounts[dir] = asInt(compass[dir]);
+          _claimedCompassCounts[dir] = asInt(claimedCompass[dir]);
         }
-        _claimedToday = counts['claimedToday'] ?? 0;
+        _claimedToday = asInt(counts['claimedToday']);
         for (final cipher in MonarchInfo.all) {
-          _cipherTotals[cipher] = counts[cipher] ?? 0;
-          _cipherClaimed[cipher] = counts['${cipher}_claimed'] ?? 0;
+          _cipherTotals[cipher] = asInt(counts[cipher]);
+          _cipherClaimed[cipher] = asInt(counts['${cipher}_claimed']);
         }
         _lastScanned = DateTime.now();
       });
