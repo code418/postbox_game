@@ -75,8 +75,13 @@ class _WearCompassPageState extends State<WearCompassPage> {
       final counts = result.data['counts'] ?? {};
       final compassRaw = result.data['compass'] ?? {};
       setState(() {
-        _totalCount = (counts['total'] as int?) ?? 0;
-        _compassCounts = Map<String, int>.from(compassRaw);
+        // Cloud Functions serialise JS numbers as either int or double;
+        // `as int?` would throw on a double, so normalise via num.
+        _totalCount = (counts['total'] as num?)?.toInt() ?? 0;
+        _compassCounts = {
+          for (final e in (compassRaw as Map).entries)
+            e.key as String: (e.value as num).toInt(),
+        };
         _stage = _CompassStage.results;
       });
       // Haptic pulse to signal scan complete.

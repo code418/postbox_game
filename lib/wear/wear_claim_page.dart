@@ -52,8 +52,10 @@ class _WearClaimPageState extends State<WearClaimPage> {
       });
       if (!mounted) return;
       final counts = result.data['counts'] ?? {};
-      final total = (counts['total'] as int?) ?? 0;
-      final claimed = (counts['claimedToday'] as int?) ?? 0;
+      // Cloud Functions serialise JS numbers as either int or double; `as int?`
+      // would throw on a double, so normalise via num.
+      final total = (counts['total'] as num?)?.toInt() ?? 0;
+      final claimed = (counts['claimedToday'] as num?)?.toInt() ?? 0;
       _postboxes = Map<String, dynamic>.from(result.data['postboxes'] ?? {});
       setState(() {
         _count = total;
