@@ -18,10 +18,14 @@ class WearStatusPage extends StatefulWidget {
 class _WearStatusPageState extends State<WearStatusPage> {
   final StreakService _streakService = StreakService();
   late final Stream<int?> _streakStream = _streakService.streakStream();
+  // Cache so the StreamBuilder doesn't re-subscribe (and briefly show empty
+  // stats) on every rebuild. Computed once in initState from the uid at mount.
+  late final Stream<DocumentSnapshot<Map<String, dynamic>>>? _userDocStream =
+      _buildUserDocStream();
 
   String? get _displayName => FirebaseAuth.instance.currentUser?.displayName;
 
-  Stream<DocumentSnapshot<Map<String, dynamic>>>? _userDocStream() {
+  Stream<DocumentSnapshot<Map<String, dynamic>>>? _buildUserDocStream() {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return null;
     return FirebaseFirestore.instance.collection('users').doc(uid).snapshots();
@@ -71,7 +75,7 @@ class _WearStatusPageState extends State<WearStatusPage> {
 
               // Lifetime points
               StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                stream: _userDocStream(),
+                stream: _userDocStream,
                 builder: (context, snap) {
                   final data = snap.data?.data();
                   final lifetimePoints =
