@@ -206,7 +206,13 @@ class _WearCompassPageState extends State<WearCompassPage> {
               angle: -rotation,
               child: CustomPaint(
                 size: Size(size, size),
-                painter: FuzzyCompassPainter(sectors: sectorValues),
+                // Pass rotation so the painter counter-rotates the 'N' label;
+                // otherwise it spins with the canvas and is unreadable whenever
+                // the watch is not pointing north.
+                painter: FuzzyCompassPainter(
+                  sectors: sectorValues,
+                  rotation: rotation,
+                ),
               ),
             ),
             // Centre count overlay (doesn't rotate)
