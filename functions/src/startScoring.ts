@@ -3,10 +3,11 @@ import * as admin from "firebase-admin";
 import * as functions from "firebase-functions";
 import { getPoints } from "./_getPoints";
 import { getTodayLondon } from "./_dateUtils";
-import { lookupPostboxes } from "./_lookupPostboxes";
+import { lookupPostboxes, getLatLng } from "./_lookupPostboxes";
 import { updateUserLeaderboards, mergeLifetimeEntries, LifetimeLeaderboardEntry, getWeekStart, getMonthStart } from "./_leaderboardUtils";
 import { computeNewStreak } from "./_streakUtils";
 import { notifyFriendsFirstClaim, notifyFriendOvertake } from "./_notifications";
+import { checkTravelSpeed } from "./_travelSpeed";
 
 const database = admin.firestore();
 
@@ -35,6 +36,13 @@ export const startScoring = functions.https.onCall(async (request) => {
   if (!Number.isFinite(lng) || lng < -180 || lng > 180) {
     throw new functions.https.HttpsError("invalid-argument", "lng must be a finite number between -180 and 180");
   }
+
+  // Anti-spoof: reject claims whose implied travel speed from the user's
+  // previous claim exceeds a liberal physical limit. Fail-open when the
+  // previous claim's location can't be resolved (e.g. legacy claims where
+  // neither userLat/userLng nor the referenced postbox geopoint are
+  // available).
+  await enforceTravelSpeedLimit(userid, lat, lng);
 
   const results = await lookupPostboxes(lat, lng, CLAIM_RADIUS_METERS);
 
@@ -96,6 +104,10 @@ export const startScoring = functions.https.onCall(async (request) => {
           postboxes: `/postbox/${key}`,
           points: pts,
           dailyDate: todayLondon,
+          // Persist the user's GPS at claim time so the next claim's travel-speed
+          // check uses the user's own position, not the postbox coordinates.
+          userLat: lat,
+          userLng: lng,
         };
         if (postbox.monarch !== undefined) claimData.monarch = postbox.monarch;
         tx.set(claimRef, claimData);
@@ -300,3 +312,53 @@ export const startScoring = functions.https.onCall(async (request) => {
     dailyDate: todayLondon,
   };
 });
+
+/** Resolve the user's most recent claim location and reject the request if
+ *  the implied travel speed exceeds MAX_METRES_PER_MIN. Location resolution
+ *  order: (1) userLat/userLng stored on the claim doc (written going
+ *  forward); (2) geopoint of the referenced postbox (legacy fallback). If
+ *  neither yields a coordinate pair, the check is skipped. */
+async function enforceTravelSpeedLimit(userid: string, currentLat: number, currentLng: number): Promise<void> {
+  const lastSnap = await database.collection("claims")
+    .where("userid", "==", userid)
+    .orderBy("timestamp", "desc")
+    .limit(1)
+    .get();
+  if (lastSnap.empty) return;
+  const last = lastSnap.docs[0].data();
+  const tsMs = (last.timestamp as admin.firestore.Timestamp | undefined)?.toMillis?.();
+  if (!tsMs) return;
+
+  let lastLat = typeof last.userLat === "number" ? (last.userLat as number) : undefined;
+  let lastLng = typeof last.userLng === "number" ? (last.userLng as number) : undefined;
+
+  if (lastLat === undefined || lastLng === undefined) {
+    const postboxPath = last.postboxes as string | undefined;
+    const postboxKey = typeof postboxPath === "string"
+      ? postboxPath.replace(/^\/postbox\//, "")
+      : undefined;
+    if (!postboxKey) return;
+    const postboxSnap = await database.collection("postbox").doc(postboxKey).get();
+    if (!postboxSnap.exists) return;
+    const geo = getLatLng((postboxSnap.data() ?? {}).geopoint);
+    if (!geo) return;
+    lastLat = geo.lat;
+    lastLng = geo.lng;
+  }
+
+  const check = checkTravelSpeed({
+    lastLat,
+    lastLng,
+    lastTimestampMs: tsMs,
+    currentLat,
+    currentLng,
+    nowMs: Date.now(),
+  });
+  if (!check.ok) {
+    console.warn(`travel-speed check rejected uid=${userid} speed=${check.speedMPerMin.toFixed(1)} m/min distance=${check.distanceMetres}m elapsedMin=${check.elapsedMinutes.toFixed(3)}`);
+    throw new functions.https.HttpsError(
+      "failed-precondition",
+      "You're travelling too fast — slow down before your next postbox claim."
+    );
+  }
+}

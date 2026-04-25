@@ -55,8 +55,8 @@
         </receiver>
     </application>
     <!-- GPS is required for both phone and Wear OS builds. Device-specific
-         features (touchscreen, watch type) are declared in flavor manifests
-         under src/phone/ and src/wear/. -->
+         features (touchscreen, watch type, automotive) are declared in flavor
+         manifests under src/phone/ and src/wear/. -->
     <uses-feature android:name="android.hardware.location.gps" android:required="true"/>
 
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
