@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android Auto declaration: advertises the app as a templated Car App.
+     Referenced by the com.google.android.gms.car.application metadata in
+     AndroidManifest.xml. -->
+<automotiveApp>
+    <uses name="template" />
+</automotiveApp>
