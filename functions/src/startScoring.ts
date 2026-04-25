@@ -44,14 +44,14 @@ export const startScoring = functions.https.onCall(async (request) => {
   // available).
   await enforceTravelSpeedLimit(userid, lat, lng);
 
+  // Hoist date computation so all return paths include dailyDate for consistency.
+  const todayLondon = getTodayLondon();
+
   const results = await lookupPostboxes(lat, lng, CLAIM_RADIUS_METERS);
 
   if (results.counts.total === 0) {
-    return { found: false, claimed: 0, points: 0, allClaimedToday: false };
+    return { found: false, claimed: 0, points: 0, allClaimedToday: false, dailyDate: todayLondon };
   }
-
-  // Hoist date computation so all return paths include dailyDate for consistency.
-  const todayLondon = getTodayLondon();
 
   // Pre-fetch this user's today claims so we can check per-user claim status
   // without a postbox-document read inside every transaction.  One query covers
