@@ -841,13 +841,10 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
       const req = { data: { lat: 51.45, lng: -0.95 }, auth: { uid: "test-uid" } };
       try {
         const result = (await wrappedStartScoring(req)) as Record<string, unknown>;
-        // dailyDate is included on found:true paths only; omitted when found:false.
-        if (result.found === false) {
-          assert.ok(!("dailyDate" in result) || result.dailyDate === undefined);
-        } else {
-          assert.ok("dailyDate" in result, "dailyDate should be present when found:true");
-          assert.match(result.dailyDate as string, /^\d{4}-\d{2}-\d{2}$/);
-        }
+        // dailyDate is on every return path so callers don't have to special-case
+        // the empty-result shape.
+        assert.ok("dailyDate" in result, "dailyDate should be present");
+        assert.match(result.dailyDate as string, /^\d{4}-\d{2}-\d{2}$/);
       } catch (e: unknown) {
         const err = e as { code?: string; message?: string };
         if (!(err.message ?? "").includes("PERMISSION_DENIED") && err.code !== "permission-denied") {
