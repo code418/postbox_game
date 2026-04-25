@@ -77,7 +77,11 @@ class _WearCompassPageState extends State<WearCompassPage> {
       setState(() {
         // Cloud Functions serialise JS numbers as either int or double;
         // `as int?` would throw on a double, so normalise via num.
-        _totalCount = (counts['total'] as num?)?.toInt() ?? 0;
+        // Show unclaimed-only count so it agrees with the compass sectors,
+        // which only render directions of postboxes still claimable today.
+        final total = (counts['total'] as num?)?.toInt() ?? 0;
+        final claimed = (counts['claimedToday'] as num?)?.toInt() ?? 0;
+        _totalCount = (total - claimed).clamp(0, total);
         _compassCounts = {
           for (final e in (compassRaw as Map).entries)
             e.key as String: (e.value as num).toInt(),
@@ -181,7 +185,7 @@ class _WearCompassPageState extends State<WearCompassPage> {
             ),
             const SizedBox(height: WearSpacing.md),
             Text(
-              'None nearby',
+              'None to find',
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: WearSpacing.sm),
@@ -233,7 +237,7 @@ class _WearCompassPageState extends State<WearCompassPage> {
                   ),
                 ),
                 Text(
-                  _totalCount == 1 ? 'nearby' : 'nearby',
+                  'to find',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ],
