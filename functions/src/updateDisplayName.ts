@@ -73,7 +73,16 @@ export const updateDisplayName = functions.https.onCall(async (request) => {
   // updateUserLeaderboards uses allSettled and never throws; period
   // failures are logged inside it.
   const today = getTodayLondon();
-  await updateUserLeaderboards(uid, name, today, admin.firestore());
+  // Look up the user's avatar so the leaderboard refresh carries it through
+  // alongside the new display name; otherwise a name change would strip avatar
+  // from period entries until the user's next claim rewrote them.
+  const userSnapForAvatar = await admin.firestore()
+    .collection("users")
+    .doc(uid)
+    .get();
+  const avatarForLeaderboard =
+    userSnapForAvatar.data()?.avatar as Record<string, number> | undefined;
+  await updateUserLeaderboards(uid, name, today, admin.firestore(), avatarForLeaderboard);
 
   // Read user doc and update lifetime leaderboard atomically in one transaction
   // so a concurrent startScoring claim cannot race between our read of
@@ -91,7 +100,8 @@ export const updateDisplayName = functions.https.onCall(async (request) => {
       const uniquePostboxesClaimed = ((d.uniquePostboxesClaimed as number | undefined) ?? 0);
       const lifetimePoints = ((d.lifetimePoints as number | undefined) ?? 0);
       const existing = (lifetimeSnap.data()?.entries ?? []) as LifetimeLeaderboardEntry[];
-      const updated = mergeLifetimeEntries(existing, uid, name, uniquePostboxesClaimed, lifetimePoints);
+      const avatarInTx = (d.avatar as Record<string, number> | undefined) ?? avatarForLeaderboard;
+      const updated = mergeLifetimeEntries(existing, uid, name, uniquePostboxesClaimed, lifetimePoints, 100, avatarInTx);
       tx.set(lifetimeRef, { periodKey: "lifetime", entries: updated }, { merge: false });
     });
   } catch (lifetimeErr) {
