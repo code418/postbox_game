@@ -8,6 +8,9 @@ import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:postbox_game/app_preferences.dart';
 import 'package:postbox_game/authentication_bloc/bloc.dart';
+import 'package:postbox_game/avatar/avatar_config.dart';
+import 'package:postbox_game/avatar/avatar_creator_screen.dart';
+import 'package:postbox_game/avatar/postie_avatar.dart';
 import 'package:postbox_game/intro.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/user_repository.dart';
@@ -32,6 +35,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     'addedAsFriend': true,
   };
   bool _notifPrefsLoaded = false;
+  AvatarConfig? _avatar;
   final _userRepository = UserRepository();
 
   @override
@@ -68,6 +72,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           .doc(uid)
           .get();
       final raw = doc.data()?['notificationPrefs'] as Map<String, dynamic>?;
+      final avatar = AvatarConfig.tryFromMap(doc.data()?['avatar']);
       if (!mounted) return;
       setState(() {
         if (raw != null) {
@@ -77,6 +82,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             'addedAsFriend': raw['addedAsFriend'] as bool? ?? true,
           };
         }
+        _avatar = avatar;
         _notifPrefsLoaded = true;
       });
     } catch (_) {
@@ -464,11 +470,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             child: Row(
               children: [
-                CircleAvatar(
-                  backgroundColor: Colors.white,
-                  radius: 28,
-                  child: Icon(Icons.person, color: postalRed, size: 32),
-                ),
+                _avatar != null
+                    ? PostieAvatar(config: _avatar, size: 56)
+                    : const CircleAvatar(
+                        backgroundColor: Colors.white,
+                        radius: 28,
+                        child: Icon(Icons.person, color: postalRed, size: 32),
+                      ),
                 const SizedBox(width: AppSpacing.md),
                 Expanded(
                   child: Column(
@@ -537,6 +545,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const Divider(height: 24),
           _sectionHeader('App'),
+          ListTile(
+            leading: const Icon(Icons.face_outlined),
+            title: const Text('Your postie'),
+            subtitle: Text(_avatar == null
+                ? 'Build the avatar others will see you as'
+                : 'Edit how you appear to other players'),
+            onTap: () async {
+              await Navigator.of(context).push(AvatarCreatorScreen.route());
+              if (mounted) _loadNotifPrefs(); // refresh _avatar after returning
+            },
+          ),
           ListTile(
             leading: const Icon(Icons.play_circle_outline),
             title: const Text('Replay intro'),

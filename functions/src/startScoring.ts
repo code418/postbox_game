@@ -174,13 +174,14 @@ export const startScoring = functions.https.onCall(async (request) => {
     const displayName =
       (userDoc.data()?.displayName as string | undefined) ||
       `Player_${userid.slice(0, 6)}`;
+    const userAvatar = userDoc.data()?.avatar as Record<string, number> | undefined;
 
     // Run the period leaderboard update and the uniqueness checks in parallel.
     // updateUserLeaderboards uses Promise.allSettled internally and never
     // throws; uniqueness checks use allSettled so individual read failures
     // only affect that postbox's unique count without aborting the rest.
     const [periodSums, uniqueCheckResults] = await Promise.all([
-      updateUserLeaderboards(userid, displayName, todayLondon, database),
+      updateUserLeaderboards(userid, displayName, todayLondon, database, userAvatar),
       Promise.allSettled(
         // For each postbox claimed this session, check whether the user has any
         // prior claim on a different day. Empty result → first-ever claim for
@@ -247,6 +248,8 @@ export const startScoring = functions.https.onCall(async (request) => {
         // stale pre-fetched name when we write the lifetime entry below.
         const freshDisplayName =
           (d.displayName as string | undefined) || displayName;
+        const freshAvatar =
+          (d.avatar as Record<string, number> | undefined) ?? userAvatar;
 
         tx.set(
           userRef,
@@ -265,7 +268,7 @@ export const startScoring = functions.https.onCall(async (request) => {
         );
 
         const existingEntries = (lifetimeSnap.data()?.entries ?? []) as LifetimeLeaderboardEntry[];
-        const updatedEntries = mergeLifetimeEntries(existingEntries, userid, freshDisplayName, newUnique, newLifetimePoints);
+        const updatedEntries = mergeLifetimeEntries(existingEntries, userid, freshDisplayName, newUnique, newLifetimePoints, 100, freshAvatar);
         tx.set(lifetimeRef, { periodKey: "lifetime", entries: updatedEntries }, { merge: false });
       });
 
