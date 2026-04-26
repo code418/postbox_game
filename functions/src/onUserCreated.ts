@@ -41,6 +41,7 @@ export const onUserCreated = functions.auth.user().onCreate(async (user) => {
         lifetimePoints: 0,
         uniquePostboxesClaimed: 0,
         streak: 0,
+        maxDailyPoints: 0,
       },
       { merge: true }
     );

@@ -237,6 +237,10 @@ export const startScoring = functions.https.onCall(async (request) => {
         const d = userSnap.data() ?? {};
         const newUnique = ((d.uniquePostboxesClaimed as number | undefined) ?? 0) + uniqueIncrement;
         const newLifetimePoints = ((d.lifetimePoints as number | undefined) ?? 0) + lifetimePointsIncrement;
+        const newMaxDailyPoints = Math.max(
+          (d.maxDailyPoints as number | undefined) ?? 0,
+          periodSums.dailyPoints
+        );
         // Read displayName inside the transaction so a concurrent
         // updateDisplayName that commits between this function's earlier
         // userRef.get() and the tx commit doesn't get overwritten with the
@@ -255,6 +259,7 @@ export const startScoring = functions.https.onCall(async (request) => {
             weekStart: currentWeekStart,
             monthlyPoints: periodSums.monthlyPoints,
             monthStart: currentMonthStart,
+            maxDailyPoints: newMaxDailyPoints,
           },
           { merge: true }
         );

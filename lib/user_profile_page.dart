@@ -81,6 +81,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
       streak: streak,
       uniqueBoxes: (userData['uniquePostboxesClaimed'] as num?)?.toInt() ?? 0,
       lifetimePoints: (userData['lifetimePoints'] as num?)?.toInt() ?? 0,
+      maxDailyPoints: (userData['maxDailyPoints'] as num?)?.toInt() ?? 0,
       ranks: ranks,
     );
   }
@@ -132,6 +133,7 @@ class _ProfileData {
   final int streak;
   final int uniqueBoxes;
   final int lifetimePoints;
+  final int maxDailyPoints;
   final Map<String, int?> ranks;
 
   const _ProfileData({
@@ -140,6 +142,7 @@ class _ProfileData {
     required this.streak,
     required this.uniqueBoxes,
     required this.lifetimePoints,
+    required this.maxDailyPoints,
     required this.ranks,
   });
 }
@@ -216,23 +219,43 @@ class _ProfileBody extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.symmetric(
                 vertical: AppSpacing.md, horizontal: AppSpacing.sm),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            child: Column(
               children: [
-                _StatCell(
-                    value: '${data.uniqueBoxes}',
-                    label: 'Unique boxes',
-                    color: postalGold),
-                const VerticalDivider(),
-                _StatCell(
-                    value: '${data.lifetimePoints}',
-                    label: 'Lifetime pts',
-                    color: postalRed),
-                const VerticalDivider(),
-                _StatCell(
-                    value: '🔥 ${data.streak}',
-                    label: 'Day streak',
-                    color: Colors.green),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    Expanded(
+                      child: _StatCell(
+                          value: '${data.uniqueBoxes}',
+                          label: 'Unique boxes',
+                          color: postalGold),
+                    ),
+                    Expanded(
+                      child: _StatCell(
+                          value: '${data.lifetimePoints}',
+                          label: 'Lifetime pts',
+                          color: postalRed),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.md),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    Expanded(
+                      child: _StatCell(
+                          value: '🔥 ${data.streak}',
+                          label: 'Day streak',
+                          color: Colors.green),
+                    ),
+                    Expanded(
+                      child: _StatCell(
+                          value: '${data.maxDailyPoints}',
+                          label: 'Best day',
+                          color: Theme.of(context).colorScheme.primary),
+                    ),
+                  ],
+                ),
               ],
             ),
           ),
