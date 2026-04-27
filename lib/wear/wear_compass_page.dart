@@ -48,13 +48,19 @@ class _WearCompassPageState extends State<WearCompassPage> {
     super.dispose();
   }
 
+  static double _headingDelta(double a, double b) {
+    final d = (a - b).abs() % 360;
+    return d > 180 ? 360 - d : d;
+  }
+
   void _startCompassListener() {
     double? lastHeading;
     _compassSub = FlutterCompass.events?.listen((event) {
       final h = event.heading;
       if (h == null) return;
-      // Throttle updates — skip if heading delta < 5 degrees.
-      if (lastHeading != null && (h - lastHeading!).abs() < 5) return;
+      // Throttle updates — skip if heading delta < 5 degrees. Use modular
+      // distance so 359°→1° (delta = 2°) doesn't trip the naive abs-diff (358°).
+      if (lastHeading != null && _headingDelta(h, lastHeading!) < 5) return;
       lastHeading = h;
       if (mounted) setState(() => _heading = h);
     });
@@ -95,6 +101,13 @@ class _WearCompassPageState extends State<WearCompassPage> {
       if (!mounted) return;
       HapticFeedback.heavyImpact();
       setState(() => _stage = _CompassStage.error);
+    } finally {
+      // Safety net: ensure we never get permanently stuck on 'searching' if
+      // an unexpected Dart Error bypasses the catch block above. Without this
+      // the GestureDetector's `onTap` is null and the user can't re-scan.
+      if (mounted && _stage == _CompassStage.searching) {
+        setState(() => _stage = _CompassStage.error);
+      }
     }
   }
 
