@@ -70,6 +70,12 @@ class _WearClaimPageState extends State<WearClaimPage> {
       if (!mounted) return;
       HapticFeedback.heavyImpact();
       setState(() => _stage = _ClaimStage.empty);
+    } finally {
+      // Safety net: ensure we never get permanently stuck on 'scanning' if
+      // an unexpected Dart Error bypasses the catch block above.
+      if (mounted && _stage == _ClaimStage.scanning) {
+        setState(() => _stage = _ClaimStage.ready);
+      }
     }
   }
 
@@ -177,6 +183,12 @@ class _WearClaimPageState extends State<WearClaimPage> {
       if (!mounted) return;
       HapticFeedback.heavyImpact();
       setState(() => _stage = _ClaimStage.ready);
+    } finally {
+      // Safety net: ensure we never get permanently stuck on 'claiming' if
+      // an unexpected Dart Error bypasses the catch block above.
+      if (mounted && _stage == _ClaimStage.claiming) {
+        setState(() => _stage = _ClaimStage.ready);
+      }
     }
   }
 
