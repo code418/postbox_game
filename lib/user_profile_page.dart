@@ -2,6 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:postbox_game/avatar/avatar_config.dart';
+import 'package:postbox_game/avatar/postie_avatar.dart';
 import 'package:postbox_game/london_date.dart';
 import 'package:postbox_game/theme.dart';
 
@@ -82,6 +84,7 @@ class _UserProfilePageState extends State<UserProfilePage> {
       uniqueBoxes: (userData['uniquePostboxesClaimed'] as num?)?.toInt() ?? 0,
       lifetimePoints: (userData['lifetimePoints'] as num?)?.toInt() ?? 0,
       maxDailyPoints: (userData['maxDailyPoints'] as num?)?.toInt() ?? 0,
+      avatar: AvatarConfig.tryFromMap(userData['avatar']),
       ranks: ranks,
     );
   }
@@ -134,6 +137,7 @@ class _ProfileData {
   final int uniqueBoxes;
   final int lifetimePoints;
   final int maxDailyPoints;
+  final AvatarConfig? avatar;
   final Map<String, int?> ranks;
 
   const _ProfileData({
@@ -143,6 +147,7 @@ class _ProfileData {
     required this.uniqueBoxes,
     required this.lifetimePoints,
     required this.maxDailyPoints,
+    required this.avatar,
     required this.ranks,
   });
 }
@@ -157,16 +162,6 @@ class _ProfileBody extends StatelessWidget {
     return 'Joined ${DateFormat('MMMM yyyy').format(data.createdAt!)}';
   }
 
-  String _initials() {
-    final name = data.displayName.trim();
-    if (name.isEmpty) return '?';
-    final parts = name.split(' ').where((p) => p.isNotEmpty).toList();
-    if (parts.length >= 2) {
-      return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
-    }
-    return name.substring(0, name.length.clamp(0, 2)).toUpperCase();
-  }
-
   @override
   Widget build(BuildContext context) {
     return ListView(
@@ -175,17 +170,10 @@ class _ProfileBody extends StatelessWidget {
         // ── Header ──────────────────────────────────────────────────────────
         Row(
           children: [
-            CircleAvatar(
-              radius: 28,
-              backgroundColor: postalRed,
-              child: Text(
-                _initials(),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 20,
-                ),
-              ),
+            PostieAvatar(
+              config: data.avatar,
+              size: 64,
+              fallbackName: data.displayName,
             ),
             const SizedBox(width: AppSpacing.md),
             Expanded(

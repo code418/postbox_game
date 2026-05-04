@@ -3,6 +3,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:postbox_game/analytics_service.dart';
+import 'package:postbox_game/avatar/avatar_config.dart';
+import 'package:postbox_game/avatar/postie_avatar.dart';
 import 'package:postbox_game/user_profile_page.dart';
 import 'package:postbox_game/theme.dart';
 
@@ -171,14 +173,6 @@ class _FriendsScreenState extends State<FriendsScreen> {
     } finally {
       if (mounted) setState(() => _removingUids.remove(friendUid));
     }
-  }
-
-  String _initials(String name) {
-    final t = name.trim();
-    if (t.isEmpty) return '?';
-    final parts = t.split(' ').where((p) => p.isNotEmpty).toList();
-    if (parts.length >= 2) return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
-    return t.substring(0, t.length.clamp(0, 2)).toUpperCase();
   }
 
   void _copyUid() {
@@ -366,28 +360,29 @@ class _FriendsScreenState extends State<FriendsScreen> {
                     builder: (context, nameSnap) {
                       final isLoading = nameSnap.connectionState == ConnectionState.waiting;
                       final displayName = nameSnap.data?.data()?['displayName'] as String?;
-                      final initials = _initials(displayName ?? '');
+                      final avatarCfg =
+                          AvatarConfig.tryFromMap(nameSnap.data?.data()?['avatar']);
                       return Card(
                         child: ListTile(
                           onTap: () => Navigator.of(context).push(UserProfilePage.route(friendUid)),
-                          leading: CircleAvatar(
-                            backgroundColor: postalRed,
+                          leading: SizedBox(
+                            width: 40,
+                            height: 40,
                             child: isLoading
-                                ? const SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(
-                                      color: Colors.white,
-                                      strokeWidth: 2,
+                                ? const Center(
+                                    child: SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        color: postalRed,
+                                        strokeWidth: 2,
+                                      ),
                                     ),
                                   )
-                                : Text(
-                                    initials,
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 13,
-                                    ),
+                                : PostieAvatar(
+                                    config: avatarCfg,
+                                    size: 40,
+                                    fallbackName: displayName ?? '',
                                   ),
                           ),
                           title: isLoading

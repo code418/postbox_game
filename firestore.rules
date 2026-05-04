@@ -26,23 +26,29 @@ service cloud.firestore {
     // directly. The friends array is the only field clients may modify.
     match /users/{uid} {
       allow read: if request.auth != null;
-      // The friends array and notificationPrefs map are the only fields clients
-      // may modify on their own document. All other fields (displayName, streak,
-      // lastClaimDate, createdAt, points) are written by Cloud Functions using
-      // the Admin SDK, which bypasses these rules. FCM tokens live in the
-      // separate fcmTokens/{uid} collection to avoid exposure here.
-      // friends is capped at 200 entries to prevent O(n) leaderboard read abuse.
-      // notificationPrefs must be a map (type-validated to prevent garbage writes).
+      // The friends array, notificationPrefs map, and avatar map are the only
+      // fields clients may modify on their own document. All other fields
+      // (displayName, streak, lastClaimDate, createdAt, points) are written by
+      // Cloud Functions using the Admin SDK, which bypasses these rules. FCM
+      // tokens live in the separate fcmTokens/{uid} collection to avoid
+      // exposure here. friends is capped at 200 entries to prevent O(n)
+      // leaderboard read abuse. notificationPrefs and avatar must be maps
+      // (type-validated to prevent garbage writes); avatar is additionally
+      // size-capped to prevent payload abuse.
       allow update: if request.auth != null && request.auth.uid == uid
         && request.resource.data.diff(resource.data).affectedKeys()
-              .hasOnly(['friends', 'notificationPrefs'])
+              .hasOnly(['friends', 'notificationPrefs', 'avatar'])
         && (!request.resource.data.diff(resource.data).affectedKeys()
                 .hasAny(['friends'])
             || (request.resource.data.friends is list
                 && request.resource.data.friends.size() <= 200))
         && (!request.resource.data.diff(resource.data).affectedKeys()
                 .hasAny(['notificationPrefs'])
-            || request.resource.data.notificationPrefs is map);
+            || request.resource.data.notificationPrefs is map)
+        && (!request.resource.data.diff(resource.data).affectedKeys()
+                .hasAny(['avatar'])
+            || (request.resource.data.avatar is map
+                && request.resource.data.avatar.size() <= 20));
       // Create and all other writes are handled by Cloud Functions.
       allow create: if false;
     }

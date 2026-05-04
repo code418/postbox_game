@@ -751,6 +751,13 @@ void main() {
     }
 
     testWidgets('Notifications section header is visible', (tester) async {
+      // Use a tall viewport so the ListView builds all children eagerly —
+      // the Settings ListView is lazy and only builds items in or near the
+      // visible area, and the Notifications header sits below the fold.
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+
       await tester.pumpWidget(buildSettings());
       // Allow initState async calls (_loadPrefs, _loadNotifPrefs) to complete.
       // No real user is signed in, so _loadNotifPrefs resolves immediately.

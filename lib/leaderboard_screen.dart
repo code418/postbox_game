@@ -2,6 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/material.dart';
+import 'package:postbox_game/avatar/avatar_config.dart';
+import 'package:postbox_game/avatar/postie_avatar.dart';
 import 'package:postbox_game/james_controller.dart';
 import 'package:postbox_game/james_messages.dart';
 import 'package:postbox_game/london_date.dart';
@@ -271,6 +273,7 @@ class _LeaderboardListState extends State<_LeaderboardList>
               final displayName = e['displayName'] as String? ?? 'Unknown';
               final entryUid = e['uid'] as String?;
               final isCurrentUser = entryUid != null && entryUid == _currentUid;
+              final avatar = AvatarConfig.tryFromMap(e['avatar']);
 
               // Lifetime-specific fields
               final uniqueBoxes = _isLifetime
@@ -306,7 +309,11 @@ class _LeaderboardListState extends State<_LeaderboardList>
                   onTap: entryUid != null
                       ? () => Navigator.of(context).push(UserProfilePage.route(entryUid))
                       : null,
-                  leading: _rankWidget(rank),
+                  leading: _LeaderboardLeading(
+                    rank: rank,
+                    avatar: avatar,
+                    name: displayName,
+                  ),
                   title: Text(
                     displayName,
                     maxLines: 1,
@@ -337,26 +344,6 @@ class _LeaderboardListState extends State<_LeaderboardList>
     );
   }
 
-  Widget _rankWidget(int rank) {
-    switch (rank) {
-      case 1:
-        return const Icon(Icons.emoji_events, color: postalGold, size: 32);
-      case 2:
-        return Icon(Icons.emoji_events, color: Colors.grey.shade400, size: 32);
-      case 3:
-        return Icon(Icons.emoji_events, color: Colors.brown.shade300, size: 32);
-      default:
-        return CircleAvatar(
-          radius: 16,
-          backgroundColor: postalRed.withValues(alpha: 0.1),
-          child: Text(
-            '$rank',
-            style: const TextStyle(
-                color: postalRed, fontSize: 13, fontWeight: FontWeight.w600),
-          ),
-        );
-    }
-  }
 }
 
 /// Leaderboard tab showing the current user alongside their friends,
@@ -494,6 +481,7 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList>
         .map((d) => <String, dynamic>{
               'uid': d.id,
               'displayName': d.data()['displayName'] as String? ?? 'Unknown',
+              'avatar': d.data()['avatar'],
               'score': scoreFor(d.data()),
               'uniquePostboxesClaimed':
                   (d.data()['uniquePostboxesClaimed'] as num?)?.toInt() ?? 0,
@@ -692,7 +680,11 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList>
                           ? () => Navigator.of(context)
                               .push(UserProfilePage.route(entryUid))
                           : null,
-                      leading: _friendsRankWidget(rank),
+                      leading: _LeaderboardLeading(
+                        rank: rank,
+                        avatar: AvatarConfig.tryFromMap(e['avatar']),
+                        name: displayName,
+                      ),
                       title: Text(
                         displayName,
                         maxLines: 1,
@@ -724,27 +716,52 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList>
     );
   }
 
-  Widget _friendsRankWidget(int rank) {
-    switch (rank) {
-      case 1:
-        return const Icon(Icons.emoji_events, color: postalGold, size: 32);
-      case 2:
-        return Icon(Icons.emoji_events,
-            color: Colors.grey.shade400, size: 32);
-      case 3:
-        return Icon(Icons.emoji_events,
-            color: Colors.brown.shade300, size: 32);
-      default:
-        return CircleAvatar(
-          radius: 16,
-          backgroundColor: postalRed.withValues(alpha: 0.1),
+}
+
+/// Leading widget for a leaderboard row: trophy + small avatar for top-3,
+/// rank number + small avatar for everyone else. Falls back to initials when
+/// the player hasn't built an avatar yet.
+class _LeaderboardLeading extends StatelessWidget {
+  final int rank;
+  final AvatarConfig? avatar;
+  final String name;
+
+  const _LeaderboardLeading({
+    required this.rank,
+    required this.avatar,
+    required this.name,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final Widget marker = switch (rank) {
+      1 => const Icon(Icons.emoji_events, color: postalGold, size: 26),
+      2 => Icon(Icons.emoji_events, color: Colors.grey.shade400, size: 26),
+      3 => Icon(Icons.emoji_events, color: Colors.brown.shade300, size: 26),
+      _ => SizedBox(
+          width: 26,
           child: Text(
             '$rank',
+            textAlign: TextAlign.center,
             style: const TextStyle(
-                color: postalRed, fontSize: 13, fontWeight: FontWeight.w600),
+              color: postalRed,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
           ),
-        );
-    }
+        ),
+    };
+    return SizedBox(
+      width: 64,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          marker,
+          const SizedBox(width: 4),
+          PostieAvatar(config: avatar, size: 32, fallbackName: name),
+        ],
+      ),
+    );
   }
 }
 
