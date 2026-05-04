@@ -47,10 +47,26 @@ service cloud.firestore {
       allow create: if false;
     }
 
+    // Per-county lifetime stats kept under users/{uid}/countyStats/{slug}.
+    // Readable by any signed-in user (matches the parent users/{uid} rule
+    // used by friend-profile views); written only by Cloud Functions.
+    match /users/{uid}/countyStats/{countySlug} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
     // ── leaderboards collection ─────────────────────────────────────────────
     // Leaderboard documents are written by Cloud Functions only.
     // Authenticated users may read them.
     match /leaderboards/{period} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
+    // Per-county lifetime leaderboards live under
+    // leaderboards/lifetime_by_county/counties/{countySlug}. Same access
+    // pattern as the period docs above.
+    match /leaderboards/lifetime_by_county/counties/{countySlug} {
       allow read: if request.auth != null;
       allow write: if false;
     }

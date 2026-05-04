@@ -156,6 +156,32 @@ export async function updateUserLeaderboards(
   return sums;
 }
 
+/**
+ * Slugify a UK county / unitary authority name into the form used as the
+ * Firestore document ID under leaderboards/lifetime_by_county/{slug} and
+ * users/{uid}/countyStats/{slug}.
+ *
+ * Lower-cases, strips diacritics, and collapses non-alphanumeric runs to a
+ * single hyphen. Must stay in sync with the slug() helper in
+ * functions/util/county_lookup.js (server import) and the slugs baked into
+ * assets/uk_counties_simplified.geojson (Flutter heatmap).
+ *
+ *   "City of Edinburgh"   → "city-of-edinburgh"
+ *   "Bristol, City of"    → "bristol-city-of"
+ *   "  Cornwall  "        → "cornwall"
+ */
+export function countySlug(name: string): string | null {
+  if (!name) return null;
+  const slug = name
+    .toLowerCase()
+    .normalize("NFKD")
+    // eslint-disable-next-line no-misleading-character-class
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+  return slug || null;
+}
+
 export interface LifetimeLeaderboardEntry {
   uid: string;
   displayName: string;

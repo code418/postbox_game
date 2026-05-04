@@ -5,6 +5,8 @@ export interface PostboxDoc {
   monarch?: string;
   overpass_id?: number;
   reference?: string;
+  /** UK county / unitary authority name, set by import_postboxes.js. */
+  county?: string;
   distance?: number;
   compass?: { exact?: string };
   dailyClaim?: { date: string; by: string };

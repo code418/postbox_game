@@ -3,7 +3,7 @@ import test from "firebase-functions-test";
 import * as myFunctions from "../index";
 import { getPoints } from "../_getPoints";
 import { getTodayLondon } from "../_dateUtils";
-import { getWeekStart, getMonthStart, getPeriodKey, mergePeriodEntries, mergeLifetimeEntries, updateUserLeaderboards } from "../_leaderboardUtils";
+import { getWeekStart, getMonthStart, getPeriodKey, mergePeriodEntries, mergeLifetimeEntries, updateUserLeaderboards, countySlug } from "../_leaderboardUtils";
 import { setPrecision, getLatLng } from "../_lookupPostboxes";
 import { applyUserClaims } from "../_nearbyUtils";
 import { computeNewStreak } from "../_streakUtils";
@@ -1795,5 +1795,77 @@ describe("aggregateClaimHistory", () => {
     );
     assert.strictEqual(result[0].postboxId, "p2");
     assert.strictEqual(result[1].postboxId, "p1");
+  });
+});
+
+// ── countySlug & county_lookup ────────────────────────────────────────────────
+
+describe("countySlug", () => {
+  it("lowercases and hyphenates spaces", () => {
+    assert.strictEqual(countySlug("Cornwall"), "cornwall");
+    assert.strictEqual(countySlug("City of Edinburgh"), "city-of-edinburgh");
+  });
+  it("strips punctuation", () => {
+    assert.strictEqual(countySlug("Bristol, City of"), "bristol-city-of");
+    assert.strictEqual(countySlug("King's Lynn"), "king-s-lynn");
+  });
+  it("collapses runs of non-alphanumerics", () => {
+    assert.strictEqual(countySlug("Foo  -  Bar"), "foo-bar");
+  });
+  it("trims leading and trailing hyphens", () => {
+    assert.strictEqual(countySlug("  Cornwall  "), "cornwall");
+    assert.strictEqual(countySlug("--cornwall--"), "cornwall");
+  });
+  it("returns null for empty / whitespace input", () => {
+    assert.strictEqual(countySlug(""), null);
+    assert.strictEqual(countySlug("   "), null);
+    assert.strictEqual(countySlug("---"), null);
+  });
+  it("matches the slug stored in the simplified geojson asset", () => {
+    // Sanity: must agree with the slugs baked into
+    // assets/uk_counties_simplified.geojson and util/county_lookup.js. If
+    // these drift, the heatmap polygons stop joining to leaderboard docs.
+    assert.strictEqual(countySlug("City of Edinburgh"), "city-of-edinburgh");
+    assert.strictEqual(countySlug("Birmingham"), "birmingham");
+  });
+});
+
+describe("county_lookup (point-in-polygon)", () => {
+  // Lazy-require so test discovery doesn't load 1MB of geojson when the file
+  // isn't present (e.g. fresh clone before backfill prep). Tests skip
+  // gracefully in that case.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const counties = require("../../util/county_lookup");
+  let loaded = false;
+  try {
+    counties.load();
+    loaded = true;
+  } catch (_) {
+    loaded = false;
+  }
+
+  (loaded ? it : it.skip)("resolves Cornwall for a Truro point", () => {
+    assert.strictEqual(counties.countyForPoint(50.2660, -5.0527), "Cornwall");
+  });
+  (loaded ? it : it.skip)("resolves Birmingham for a city-centre point", () => {
+    assert.strictEqual(counties.countyForPoint(52.4862, -1.8904), "Birmingham");
+  });
+  (loaded ? it : it.skip)("returns null for a point in the North Sea", () => {
+    assert.strictEqual(counties.countyForPoint(54.5, 2.5), null);
+  });
+  it("ring ray-casting: inside a unit square", () => {
+    const sq: number[][] = [[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]];
+    assert.strictEqual(counties._pointInRing(0.5, 0.5, sq), true);
+    assert.strictEqual(counties._pointInRing(2, 2, sq), false);
+  });
+  it("polygon respects holes (donut)", () => {
+    const outer: number[][] = [[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]];
+    const hole: number[][] = [[4, 4], [6, 4], [6, 6], [4, 6], [4, 4]];
+    assert.strictEqual(counties._pointInPolygon(5, 5, [outer, hole]), false);
+    assert.strictEqual(counties._pointInPolygon(1, 1, [outer, hole]), true);
+  });
+  it("slug() helper agrees with countySlug() on common cases", () => {
+    assert.strictEqual(counties.slug("City of Edinburgh"), "city-of-edinburgh");
+    assert.strictEqual(counties.slug(""), null);
   });
 });

@@ -33,6 +33,7 @@ const fs   = require('fs');
 const path = require('path');
 const admin   = require('firebase-admin');
 const geohash = require('ngeohash');
+const counties = require('./util/county_lookup');
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -131,6 +132,12 @@ function buildDoc(node) {
   // Same as monarch: explicitly delete stale reference values on reimport.
   doc.reference = ref || admin.firestore.FieldValue.delete();
 
+  // County tagging (UK counties / unitary authorities). countyForPoint returns
+  // null for points outside coverage (e.g. NI postboxes); explicit delete keeps
+  // re-imports idempotent.
+  const county = counties.countyForPoint(node.lat, node.lon);
+  doc.county = county || admin.firestore.FieldValue.delete();
+
   return doc;
 }
 
@@ -159,6 +166,10 @@ async function main() {
   const raw = fs.readFileSync(filePath, 'utf8');
   const data = JSON.parse(raw);
   process.stderr.write(' done.\n');
+
+  // Load county polygons up-front so per-postbox lookups are zero-cost-ish.
+  const featureCount = counties.load().length;
+  console.log(`Loaded ${featureCount} UK county polygons.`);
 
   const elements = data.elements ?? [];
   const postboxes = elements.filter(

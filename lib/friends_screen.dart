@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:postbox_game/analytics_service.dart';
+import 'package:postbox_game/county_heatmap.dart';
 import 'package:postbox_game/user_profile_page.dart';
 import 'package:postbox_game/theme.dart';
 
@@ -320,11 +321,35 @@ class _FriendsScreenState extends State<FriendsScreen> {
               }
               final data = snapshot.data!.data();
               final list = data?['friends'] as List<dynamic>? ?? [];
+              // Heatmap is shown for both empty and populated friends lists —
+              // even with no friends, the user can see counties they lead
+              // themselves.
+              final heatmap = Padding(
+                padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.md, AppSpacing.sm, AppSpacing.md, AppSpacing.sm),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'COUNTY LEADERS',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color:
+                                Theme.of(context).colorScheme.onSurfaceVariant,
+                            letterSpacing: 0.8,
+                          ),
+                    ),
+                    const SizedBox(height: AppSpacing.xs),
+                    const CountyHeatmap(),
+                  ],
+                ),
+              );
+
               if (list.isEmpty) {
-                return Padding(
+                return ListView(
                   padding: const EdgeInsets.only(bottom: kJamesStripClearance),
-                  child: Center(
-                    child: Padding(
+                  children: [
+                    heatmap,
+                    Padding(
                       padding: const EdgeInsets.all(AppSpacing.xl),
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
@@ -351,15 +376,17 @@ class _FriendsScreenState extends State<FriendsScreen> {
                         ],
                       ),
                     ),
-                  ),
+                  ],
                 );
               }
               return ListView.builder(
-                itemCount: list.length,
+                // +1 for the heatmap header.
+                itemCount: list.length + 1,
                 padding: const EdgeInsets.only(
                     top: AppSpacing.sm, bottom: 100),
                 itemBuilder: (context, index) {
-                  final friendUid = list[index] as String;
+                  if (index == 0) return heatmap;
+                  final friendUid = list[index - 1] as String;
                   return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
                     future: _nameCache[friendUid] ??=
                         _firestore.collection('users').doc(friendUid).get(),

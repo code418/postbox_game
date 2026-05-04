@@ -4,7 +4,7 @@ import * as functions from "firebase-functions";
 import { getPoints } from "./_getPoints";
 import { getTodayLondon } from "./_dateUtils";
 import { lookupPostboxes, getLatLng } from "./_lookupPostboxes";
-import { updateUserLeaderboards, mergeLifetimeEntries, LifetimeLeaderboardEntry, getWeekStart, getMonthStart } from "./_leaderboardUtils";
+import { updateUserLeaderboards, mergeLifetimeEntries, LifetimeLeaderboardEntry, getWeekStart, getMonthStart, countySlug } from "./_leaderboardUtils";
 import { computeNewStreak } from "./_streakUtils";
 import { notifyFriendsFirstClaim, notifyFriendOvertake } from "./_notifications";
 import { checkTravelSpeed } from "./_travelSpeed";
@@ -275,6 +275,82 @@ export const startScoring = functions.https.onCall(async (request) => {
       capturedPrevDailyPoints = periodSums.dailyPoints - lifetimePointsIncrement;
     } catch (lifetimeErr) {
       console.error("lifetime leaderboard update failed (non-fatal):", lifetimeErr);
+    }
+
+    // ── Per-county lifetime updates ─────────────────────────────────────────
+    // Group this session's successful claims by the postbox's county, summing
+    // points and counting unique-postbox increments per county. Each county
+    // gets one transaction that updates users/{uid}/countyStats/{slug} and
+    // leaderboards/lifetime_by_county/{slug} atomically — same shape as the
+    // global lifetime update above.
+    //
+    // Postboxes without a `county` field (e.g. NI postboxes outside the GB
+    // boundary dataset, or pre-backfill imports) are silently skipped so this
+    // never blocks a claim.
+    const countyAgg = new Map<string, { name: string; points: number; unique: number }>();
+    for (let i = 0; i < successfulClaims.length; i++) {
+      const { key, pts } = successfulClaims[i];
+      const county = (results.postboxes[key]?.county as string | undefined);
+      if (!county) continue;
+      const slug = countySlug(county);
+      if (!slug) continue;
+      const uniqueResult = uniqueCheckResults[i];
+      const uniqueDelta = uniqueResult?.status === "fulfilled"
+        ? (uniqueResult as PromiseFulfilledResult<number>).value
+        : 0;
+      const existing = countyAgg.get(slug);
+      if (existing) {
+        existing.points += pts;
+        existing.unique += uniqueDelta;
+      } else {
+        countyAgg.set(slug, { name: county, points: pts, unique: uniqueDelta });
+      }
+    }
+
+    if (countyAgg.size > 0) {
+      // Re-read the displayName from inside each county tx for the same
+      // freshness reason as the global lifetime update.
+      const countyResults = await Promise.allSettled(
+        Array.from(countyAgg.entries()).map(([slug, agg]) => {
+          const statsRef = userRef.collection("countyStats").doc(slug);
+          const lbRef = database.collection("leaderboards")
+            .doc("lifetime_by_county").collection("counties").doc(slug);
+          return database.runTransaction(async (tx) => {
+            const [statsSnap, lbSnap, userSnap] = await Promise.all([
+              tx.get(statsRef),
+              tx.get(lbRef),
+              tx.get(userRef),
+            ]);
+            const prev = statsSnap.data() ?? {};
+            const newUnique = ((prev.uniquePostboxesClaimed as number | undefined) ?? 0) + agg.unique;
+            const newTotal = ((prev.totalPoints as number | undefined) ?? 0) + agg.points;
+            const freshDisplayName =
+              (userSnap.data()?.displayName as string | undefined) || displayName;
+
+            tx.set(statsRef, {
+              county: agg.name,
+              uniquePostboxesClaimed: newUnique,
+              totalPoints: newTotal,
+              updatedAt: admin.firestore.Timestamp.now(),
+            }, { merge: true });
+
+            const existingEntries =
+              (lbSnap.data()?.entries ?? []) as LifetimeLeaderboardEntry[];
+            const updatedEntries = mergeLifetimeEntries(
+              existingEntries, userid, freshDisplayName, newUnique, newTotal
+            );
+            tx.set(lbRef, {
+              county: agg.name,
+              entries: updatedEntries,
+            }, { merge: false });
+          });
+        })
+      );
+      for (const r of countyResults) {
+        if (r.status === "rejected") {
+          console.error("county leaderboard update failed (non-fatal):", r.reason);
+        }
+      }
     }
 
     // Fire-and-forget social notifications — not awaited so claim latency is
