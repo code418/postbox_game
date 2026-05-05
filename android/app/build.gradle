@@ -34,7 +34,7 @@ if (flutterVersionName == null) {
 android {
     namespace "com.code418.postbox_game"
     compileSdk 35
-    ndkVersion "27.0.12077973"
+    ndkVersion "28.2.13676358"
 
     sourceSets {
         main.java.srcDirs += 'src/main/kotlin'
@@ -46,7 +46,7 @@ android {
 
     defaultConfig {
         applicationId "com.code418.postbox_game"
-        minSdk 23
+        minSdkVersion flutter.minSdkVersion
         targetSdk 35
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
@@ -108,6 +108,7 @@ dependencies {
     phoneImplementation platform('com.google.firebase:firebase-bom:33.7.0')
     phoneImplementation 'com.google.firebase:firebase-auth'
     phoneImplementation 'com.google.firebase:firebase-functions'
+    phoneImplementation 'com.google.firebase:firebase-firestore'
     phoneImplementation 'com.google.android.gms:play-services-location:21.3.0'
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'androidx.test:runner:1.4.0'
