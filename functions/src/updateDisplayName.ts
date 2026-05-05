@@ -78,9 +78,9 @@ export const updateDisplayName = functions.https.onCall(async (request) => {
   // Read user doc and update lifetime leaderboard atomically in one transaction
   // so a concurrent startScoring claim cannot race between our read of
   // uniquePostboxesClaimed/lifetimePoints and our write to leaderboards/lifetime.
+  const db = admin.firestore();
+  const userRef = db.collection("users").doc(uid);
   try {
-    const db = admin.firestore();
-    const userRef = db.collection("users").doc(uid);
     const lifetimeRef = db.collection("leaderboards").doc("lifetime");
     await db.runTransaction(async (tx) => {
       const [userSnap, lifetimeSnap] = await Promise.all([
@@ -96,6 +96,48 @@ export const updateDisplayName = functions.https.onCall(async (request) => {
     });
   } catch (lifetimeErr) {
     console.error("lifetime leaderboard display name update failed (non-fatal):", lifetimeErr);
+  }
+
+  // Refresh per-county lifetime leaderboards so the user's old display name
+  // doesn't linger in counties they claimed before renaming. Without this, the
+  // county heatmap and user profile would show stale names until the user's
+  // next claim in each affected county. One transaction per county the user
+  // has stats in — bounded by the user's footprint, not the global county set.
+  try {
+    const statsSnap = await userRef.collection("countyStats").get();
+    if (!statsSnap.empty) {
+      const countyResults = await Promise.allSettled(
+        statsSnap.docs.map((statsDoc) => {
+          const slug = statsDoc.id;
+          const lbRef = db.collection("leaderboards")
+            .doc("lifetime_by_county").collection("counties").doc(slug);
+          const statsRef = userRef.collection("countyStats").doc(slug);
+          return db.runTransaction(async (tx) => {
+            const [freshStatsSnap, lbSnap] = await Promise.all([
+              tx.get(statsRef),
+              tx.get(lbRef),
+            ]);
+            const stats = freshStatsSnap.data();
+            if (!stats) return; // county stats was deleted between reads
+            const unique = (stats.uniquePostboxesClaimed as number | undefined) ?? 0;
+            const total = (stats.totalPoints as number | undefined) ?? 0;
+            const existing = (lbSnap.data()?.entries ?? []) as LifetimeLeaderboardEntry[];
+            const updated = mergeLifetimeEntries(existing, uid, name, unique, total);
+            tx.set(lbRef, {
+              county: stats.county ?? lbSnap.data()?.county,
+              entries: updated,
+            }, { merge: false });
+          });
+        })
+      );
+      for (const r of countyResults) {
+        if (r.status === "rejected") {
+          console.error("county lifetime leaderboard rename failed (non-fatal):", r.reason);
+        }
+      }
+    }
+  } catch (countyErr) {
+    console.error("county leaderboard display name refresh failed (non-fatal):", countyErr);
   }
 
   return { displayName: name };
