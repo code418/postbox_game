@@ -433,18 +433,29 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList>
       ...friendUids,
     }.toList();
 
+    // Firestore's whereIn supports up to 30 values, so split visibleUids into
+    // groups of 30 and fire all batches in parallel rather than sequentially —
+    // a 200-friend list would otherwise pay 7× round-trip latency.
     const batchSize = 30;
-    final allDocs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+    final batches = <List<String>>[];
     for (var i = 0; i < visibleUids.length; i += batchSize) {
-      final batch = visibleUids.sublist(
-          i, (i + batchSize).clamp(0, visibleUids.length));
+      batches.add(visibleUids.sublist(
+          i, (i + batchSize).clamp(0, visibleUids.length)));
+    }
+    final allDocs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+    final perBatch = await Future.wait(batches.map((batch) async {
       try {
         final snap = await FirebaseFirestore.instance
             .collection('users')
             .where(FieldPath.documentId, whereIn: batch)
             .get();
-        allDocs.addAll(snap.docs);
-      } catch (_) {}
+        return snap.docs;
+      } catch (_) {
+        return const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+      }
+    }));
+    for (final docs in perBatch) {
+      allDocs.addAll(docs);
     }
 
     final isLifetime = widget.period == 'lifetime';
