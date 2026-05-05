@@ -37,6 +37,12 @@ class AuthenticationBloc
     Emitter<AuthenticationState?> emit,
   ) async {
     emit(const Authenticated());
+    // Fire-and-forget: covers the race where a brand-new user reaches the
+    // app before onUserCreated finishes writing users/{uid}. backfillDisplayName
+    // calls the updateDisplayName Cloud Function (Admin SDK) which creates
+    // the doc if missing — so any client-side update on users/{uid} after
+    // this completes (e.g. adding a friend) is guaranteed to find the doc.
+    unawaited(_userRepository.backfillDisplayNameIfMissing());
   }
 
   Future<void> _mapLoggedOutToState(
