@@ -309,7 +309,7 @@ class _WearClaimPageState extends State<WearClaimPage> {
           Icon(
             Icons.location_off,
             size: 32,
-            color: Colors.white.withValues(alpha: 0.3),
+            color: Colors.white.withValues(alpha: 0.7),
           ),
           const SizedBox(height: WearSpacing.md),
           Text(

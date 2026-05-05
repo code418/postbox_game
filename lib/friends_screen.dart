@@ -321,9 +321,6 @@ class _FriendsScreenState extends State<FriendsScreen> {
               }
               final data = snapshot.data!.data();
               final list = data?['friends'] as List<dynamic>? ?? [];
-              // Heatmap is shown for both empty and populated friends lists —
-              // even with no friends, the user can see counties they lead
-              // themselves.
               final heatmap = Padding(
                 padding: const EdgeInsets.fromLTRB(
                     AppSpacing.md, AppSpacing.sm, AppSpacing.md, AppSpacing.sm),
@@ -348,7 +345,6 @@ class _FriendsScreenState extends State<FriendsScreen> {
                 return ListView(
                   padding: const EdgeInsets.only(bottom: kJamesStripClearance),
                   children: [
-                    heatmap,
                     Padding(
                       padding: const EdgeInsets.all(AppSpacing.xl),
                       child: Column(

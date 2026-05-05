@@ -1834,7 +1834,7 @@ describe("county_lookup (point-in-polygon)", () => {
   // Lazy-require so test discovery doesn't load 1MB of geojson when the file
   // isn't present (e.g. fresh clone before backfill prep). Tests skip
   // gracefully in that case.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
   const counties = require("../../util/county_lookup");
   let loaded = false;
   try {

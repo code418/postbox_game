@@ -22,6 +22,16 @@ import 'package:postbox_game/widgets/postbox_marker.dart';
 
 enum ClaimStage { initial, searching, results, empty, quiz, quizFailed, claimed }
 
+Color _success(BuildContext c) => Theme.of(c).brightness == Brightness.dark
+    ? AppColors.successTextDark
+    : AppColors.successTextLight;
+Color _warning(BuildContext c) => Theme.of(c).brightness == Brightness.dark
+    ? AppColors.warningTextDark
+    : AppColors.warningTextLight;
+Color _error(BuildContext c) => Theme.of(c).brightness == Brightness.dark
+    ? AppColors.errorTextDark
+    : AppColors.errorTextLight;
+
 class Claim extends StatefulWidget {
   const Claim({super.key, this.autoScan = false});
 
@@ -407,10 +417,13 @@ class _ClaimState extends State<Claim> with TickerProviderStateMixin {
         },
       );
     }
+    final mutedFill = Theme.of(context).brightness == Brightness.dark
+        ? AppColors.mutedTextDark
+        : AppColors.mutedTextLight;
     final borderColor = success
         ? postalGold.withValues(alpha: 0.7)
-        : Colors.grey.withValues(alpha: 0.5);
-    final fillColor = success ? postalGold : Colors.grey;
+        : mutedFill.withValues(alpha: 0.6);
+    final fillColor = success ? postalGold : mutedFill;
     return Card(
       clipBehavior: Clip.antiAlias,
       child: SizedBox(
@@ -441,13 +454,13 @@ class _ClaimState extends State<Claim> with TickerProviderStateMixin {
       padding: const EdgeInsets.symmetric(
           horizontal: AppSpacing.md, vertical: AppSpacing.sm),
       decoration: BoxDecoration(
-        color: Colors.orange.withValues(alpha: 0.1),
+        color: _warning(context).withValues(alpha: 0.10),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.orange.withValues(alpha: 0.35)),
+        border: Border.all(color: _warning(context).withValues(alpha: 0.40)),
       ),
       child: Row(
         children: [
-          Icon(Icons.lock_clock, color: Colors.orange.shade700),
+          Icon(Icons.lock_clock, color: _warning(context)),
           const SizedBox(width: AppSpacing.sm),
           Expanded(
             child: Column(
@@ -457,7 +470,7 @@ class _ClaimState extends State<Claim> with TickerProviderStateMixin {
                 Text(
                   'Already claimed today',
                   style: TextStyle(
-                      color: Colors.orange.shade800,
+                      color: _warning(context),
                       fontWeight: FontWeight.w600),
                 ),
                 Text(
@@ -465,7 +478,7 @@ class _ClaimState extends State<Claim> with TickerProviderStateMixin {
                   style: Theme.of(context)
                       .textTheme
                       .bodySmall
-                      ?.copyWith(color: Colors.orange.shade600),
+                      ?.copyWith(color: _warning(context)),
                 ),
               ],
             ),
@@ -480,7 +493,7 @@ class _ClaimState extends State<Claim> with TickerProviderStateMixin {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: Colors.red.shade700,
+        backgroundColor: _error(context),
       ),
     );
   }
@@ -490,7 +503,7 @@ class _ClaimState extends State<Claim> with TickerProviderStateMixin {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: const Text('Location permission permanently denied.'),
-        backgroundColor: Colors.red.shade700,
+        backgroundColor: _error(context),
         action: SnackBarAction(
           label: 'Open Settings',
           textColor: Colors.white,
@@ -505,7 +518,7 @@ class _ClaimState extends State<Claim> with TickerProviderStateMixin {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: const Text('Location services are disabled.'),
-        backgroundColor: Colors.red.shade700,
+        backgroundColor: _error(context),
         action: SnackBarAction(
           label: 'Open Settings',
           textColor: Colors.white,
@@ -586,9 +599,9 @@ class _ClaimState extends State<Claim> with TickerProviderStateMixin {
                   padding: const EdgeInsets.symmetric(
                       horizontal: AppSpacing.md, vertical: AppSpacing.xs),
                   decoration: BoxDecoration(
-                    color: Colors.orange.withValues(alpha: 0.1),
+                    color: _warning(context).withValues(alpha: 0.10),
                     borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: Colors.orange.withValues(alpha: 0.35)),
+                    border: Border.all(color: _warning(context).withValues(alpha: 0.40)),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
@@ -598,7 +611,7 @@ class _ClaimState extends State<Claim> with TickerProviderStateMixin {
                       Text(
                         '$streak-day streak',
                         style: TextStyle(
-                          color: Colors.orange.shade800,
+                          color: _warning(context),
                           fontWeight: FontWeight.w600,
                           fontSize: 14,
                         ),
@@ -861,7 +874,7 @@ class _ClaimState extends State<Claim> with TickerProviderStateMixin {
                     duration: const Duration(milliseconds: 200),
                     decoration: BoxDecoration(
                       color: isCorrectSelected
-                          ? const Color(0xFF2E7D32).withValues(alpha: 0.08)
+                          ? _success(context).withValues(alpha: 0.10)
                           : Colors.transparent,
                       borderRadius: BorderRadius.circular(8),
                     ),
@@ -871,8 +884,10 @@ class _ClaimState extends State<Claim> with TickerProviderStateMixin {
                         minimumSize: const Size(double.infinity, 56),
                         side: BorderSide(
                           color: isCorrectSelected
-                              ? const Color(0xFF2E7D32)
-                              : postalRed,
+                              ? _success(context)
+                              : (Theme.of(context).brightness == Brightness.dark
+                                  ? AppColors.brandTextDark
+                                  : AppColors.brandTextLight),
                           width: isCorrectSelected ? 2 : 1,
                         ),
                       ),
@@ -880,12 +895,12 @@ class _ClaimState extends State<Claim> with TickerProviderStateMixin {
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           if (isCorrectSelected) ...[
-                            const SizedBox(
+                            SizedBox(
                               width: 16,
                               height: 16,
                               child: CircularProgressIndicator(
                                 strokeWidth: 2,
-                                color: Color(0xFF2E7D32),
+                                color: _success(context),
                               ),
                             ),
                             const SizedBox(width: AppSpacing.sm),
@@ -898,7 +913,7 @@ class _ClaimState extends State<Claim> with TickerProviderStateMixin {
                                   fontWeight: FontWeight.bold,
                                   fontSize: 16,
                                   color: isCorrectSelected
-                                      ? const Color(0xFF2E7D32)
+                                      ? _success(context)
                                       : null,
                                 ),
                               ),
@@ -946,7 +961,7 @@ class _ClaimState extends State<Claim> with TickerProviderStateMixin {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.cancel_outlined, size: 80, color: Colors.red.shade400),
+            Icon(Icons.cancel_outlined, size: 80, color: _error(context)),
             const SizedBox(height: AppSpacing.lg),
             Text(
               'Not quite!',
@@ -1000,10 +1015,10 @@ class _ClaimState extends State<Claim> with TickerProviderStateMixin {
           children: [
             ScaleTransition(
               scale: _successScale,
-              child: const Icon(
+              child: Icon(
                 Icons.check_circle,
                 size: 100,
-                color: Color(0xFF2E7D32),
+                color: _success(context),
               ),
             ),
             const SizedBox(height: AppSpacing.lg),

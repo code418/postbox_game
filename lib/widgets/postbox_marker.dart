@@ -106,7 +106,7 @@ class _PostboxPin extends StatelessWidget {
           ),
           child: Icon(
             Icons.mail_outline,
-            color: Colors.white.withValues(alpha: claimed ? 0.6 : 1.0),
+            color: Colors.white.withValues(alpha: claimed ? 0.85 : 1.0),
             size: size * 0.5,
           ),
         ),

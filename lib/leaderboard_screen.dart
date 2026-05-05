@@ -321,7 +321,9 @@ class _LeaderboardListState extends State<_LeaderboardList>
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.titleSmall?.copyWith(
                           color: isCurrentUser
-                              ? postalRed
+                              ? (Theme.of(context).brightness == Brightness.dark
+                                  ? AppColors.brandTextDark
+                                  : AppColors.brandTextLight)
                               : Theme.of(context).colorScheme.onSurfaceVariant,
                           fontWeight: isCurrentUser
                               ? FontWeight.bold
@@ -338,21 +340,28 @@ class _LeaderboardListState extends State<_LeaderboardList>
   }
 
   Widget _rankWidget(int rank) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final brandText =
+        dark ? AppColors.brandTextDark : AppColors.brandTextLight;
     switch (rank) {
       case 1:
         return const Icon(Icons.emoji_events, color: postalGold, size: 32);
       case 2:
-        return Icon(Icons.emoji_events, color: Colors.grey.shade400, size: 32);
+        return Icon(Icons.emoji_events,
+            color: dark ? AppColors.mutedTextDark : AppColors.mutedTextLight,
+            size: 32);
       case 3:
-        return Icon(Icons.emoji_events, color: Colors.brown.shade300, size: 32);
+        return Icon(Icons.emoji_events,
+            color: dark ? const Color(0xFFD9A26A) : const Color(0xFF8C5A2B),
+            size: 32);
       default:
         return CircleAvatar(
           radius: 16,
-          backgroundColor: postalRed.withValues(alpha: 0.1),
+          backgroundColor: brandText.withValues(alpha: dark ? 0.18 : 0.12),
           child: Text(
             '$rank',
-            style: const TextStyle(
-                color: postalRed, fontSize: 13, fontWeight: FontWeight.w600),
+            style: TextStyle(
+                color: brandText, fontSize: 13, fontWeight: FontWeight.w600),
           ),
         );
     }
@@ -725,23 +734,28 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList>
   }
 
   Widget _friendsRankWidget(int rank) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final brandText =
+        dark ? AppColors.brandTextDark : AppColors.brandTextLight;
     switch (rank) {
       case 1:
         return const Icon(Icons.emoji_events, color: postalGold, size: 32);
       case 2:
         return Icon(Icons.emoji_events,
-            color: Colors.grey.shade400, size: 32);
+            color: dark ? AppColors.mutedTextDark : AppColors.mutedTextLight,
+            size: 32);
       case 3:
         return Icon(Icons.emoji_events,
-            color: Colors.brown.shade300, size: 32);
+            color: dark ? const Color(0xFFD9A26A) : const Color(0xFF8C5A2B),
+            size: 32);
       default:
         return CircleAvatar(
           radius: 16,
-          backgroundColor: postalRed.withValues(alpha: 0.1),
+          backgroundColor: brandText.withValues(alpha: dark ? 0.18 : 0.12),
           child: Text(
             '$rank',
-            style: const TextStyle(
-                color: postalRed, fontSize: 13, fontWeight: FontWeight.w600),
+            style: TextStyle(
+                color: brandText, fontSize: 13, fontWeight: FontWeight.w600),
           ),
         );
     }

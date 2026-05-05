@@ -100,6 +100,7 @@ class FuzzyCompass extends StatelessWidget {
                     // N label — otherwise the text renders sideways whenever
                     // the device heading is non-zero.
                     rotation: rotation,
+                    onSurface: Theme.of(context).colorScheme.onSurface,
                   ),
                 ),
               ),
@@ -116,7 +117,11 @@ class FuzzyCompass extends StatelessWidget {
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                   const SizedBox(width: AppSpacing.md),
-                  _LegendDot(color: Colors.grey.withValues(alpha: 0.6)),
+                  _LegendDot(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withValues(alpha: 0.6)),
                   const SizedBox(width: AppSpacing.xs),
                   Text(
                     'Already claimed',
@@ -175,11 +180,13 @@ class FuzzyCompassPainter extends CustomPainter {
   final List<int> sectors;
   final List<int> claimedSectors;
   final double rotation;
+  final Color onSurface;
 
   FuzzyCompassPainter({
     required this.sectors,
     this.claimedSectors = const [],
     this.rotation = 0.0,
+    this.onSurface = const Color(0xFF1A1A1A),
   });
 
   @override
@@ -207,7 +214,7 @@ class FuzzyCompassPainter extends CustomPainter {
       canvas.drawPath(
         bgPath,
         Paint()
-          ..color = Colors.grey.withValues(alpha: 0.12)
+          ..color = onSurface.withValues(alpha: 0.10)
           ..style = PaintingStyle.fill,
       );
 
@@ -223,13 +230,13 @@ class FuzzyCompassPainter extends CustomPainter {
         canvas.drawPath(
           claimedPath,
           Paint()
-            ..color = Colors.grey.withValues(alpha: 0.2 + 0.3 * (claimed / maxCount))
+            ..color = onSurface.withValues(alpha: 0.25 + 0.35 * (claimed / maxCount))
             ..style = PaintingStyle.fill,
         );
         canvas.drawPath(
           claimedPath,
           Paint()
-            ..color = Colors.grey.withValues(alpha: 0.4)
+            ..color = onSurface.withValues(alpha: 0.5)
             ..style = PaintingStyle.stroke
             ..strokeWidth = 1,
         );
@@ -297,5 +304,6 @@ class FuzzyCompassPainter extends CustomPainter {
   bool shouldRepaint(covariant FuzzyCompassPainter old) =>
       !listEquals(old.sectors, sectors) ||
       !listEquals(old.claimedSectors, claimedSectors) ||
-      old.rotation != rotation;
+      old.rotation != rotation ||
+      old.onSurface != onSurface;
 }

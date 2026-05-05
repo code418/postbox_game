@@ -95,7 +95,7 @@ class WearTheme {
         ),
         bodySmall: TextStyle(
           fontSize: 10,
-          color: Colors.white54,
+          color: Colors.white70,
         ),
         labelLarge: TextStyle(
           fontSize: 14,

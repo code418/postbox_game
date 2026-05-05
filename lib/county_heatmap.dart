@@ -283,15 +283,16 @@ class _HeatmapView extends StatelessWidget {
   Widget build(BuildContext context) {
     final polygons = <Polygon>[];
     final hitPolygons = <Polygon, _CountyShape>{};
+    final onSurface = Theme.of(context).colorScheme.onSurface;
     for (final shape in data.shapes) {
       final leader = data.leaderBySlug[shape.slug];
       final fill = leader == null
-          ? Colors.grey.withValues(alpha: 0.18)
+          ? onSurface.withValues(alpha: 0.18)
           : _colourFor(leader.uid, context).withValues(alpha: 0.55);
       final poly = Polygon(
         points: shape.ring,
         color: fill,
-        borderColor: Colors.black.withValues(alpha: 0.25),
+        borderColor: onSurface.withValues(alpha: 0.45),
         borderStrokeWidth: 0.6,
       );
       polygons.add(poly);
@@ -336,7 +337,10 @@ class _HeatmapView extends StatelessWidget {
                 },
               ),
               children: [
-                Container(color: const Color(0xFFF6F4F0)),
+                Container(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .surfaceContainerHighest),
                 PolygonLayer(polygons: polygons),
               ],
             ),
@@ -358,7 +362,10 @@ class _HeatmapView extends StatelessWidget {
               if (data.leaderBySlug.length <
                   data.shapes.map((s) => s.slug).toSet().length)
                 _LegendChip(
-                  colour: Colors.grey.withValues(alpha: 0.4),
+                  colour: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withValues(alpha: 0.4),
                   label: 'No leader',
                 ),
             ],
@@ -401,7 +408,11 @@ class _LegendChip extends StatelessWidget {
             color: colour,
             shape: BoxShape.circle,
             border: Border.all(
-                color: Colors.black.withValues(alpha: 0.25), width: 0.5),
+                color: Theme.of(context)
+                    .colorScheme
+                    .onSurface
+                    .withValues(alpha: 0.45),
+                width: 0.5),
           ),
         ),
         const SizedBox(width: 4),

@@ -94,7 +94,7 @@ class _WearHomeState extends State<WearHome> {
                     shape: BoxShape.circle,
                     color: isActive
                         ? postalRed
-                        : Colors.white.withValues(alpha: 0.3),
+                        : Colors.white.withValues(alpha: 0.6),
                   ),
                 );
               }),

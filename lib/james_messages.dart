@@ -61,13 +61,18 @@ abstract final class JamesMessages {
     [
       "Daily, weekly, monthly... see how you stack up against the competition. "
           "The only thing better than spotting postboxes is knowing you have "
-          "spotted more than your friends"
+          "spotted more than your friends",
+      "There is no prize for second place... or first place for that matter"
     ],
   );
 
   static const navFriends = JamesMessage(
     'jamesNavFriends',
-    ["Add friends by UID to see them here. You do not have to do this alone."],
+    [
+      "Add friends by UID to see them here. You do not have to do this alone.",
+      "Colour the map with your friends. Seize their territory!",
+      "Don't have any friends? Try hanging out with your local postie."
+    ],
   );
 
   static const navHistory = JamesMessage(
