@@ -139,7 +139,9 @@ class _PostboxMapState extends State<PostboxMap> {
       children: [
         TileLayer(
           urlTemplate: _defaultTileUrl,
-          userAgentPackageName: 'com.postboxgame.app',
+          // Must match the Android applicationId / iOS bundle id so OSM can
+          // attribute tile requests correctly per their tile-usage policy.
+          userAgentPackageName: 'com.code418.postbox_game',
           // maxNativeZoom matches maxZoom so tiles are never upscaled past 17
           // and no higher-zoom tile requests are ever made.
           maxNativeZoom: 17,
