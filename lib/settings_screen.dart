@@ -91,13 +91,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final previous = _notifPrefs;
     setState(() => _notifPrefs = {..._notifPrefs, key: value});
     try {
-      // Write the full merged map so other pref keys are not erased.
-      // Firestore's merge:true is field-level only; a nested map value
-      // replaces the whole nested map, not just the changed key.
+      // Use dot-notation update so only the toggled key is touched. A nested
+      // set/merge would replace the whole notificationPrefs map, wiping any
+      // future pref keys this client doesn't yet know about.
       await FirebaseFirestore.instance
           .collection('users')
           .doc(uid)
-          .set({'notificationPrefs': _notifPrefs}, SetOptions(merge: true));
+          .update({'notificationPrefs.$key': value});
     } catch (_) {
       // Rollback optimistic update on write failure.
       if (mounted) setState(() => _notifPrefs = previous);
