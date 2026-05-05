@@ -81,9 +81,15 @@ class HomeCarScreen(carContext: CarContext) : Screen(carContext) {
     }
 
     private fun refreshAuthPhase() {
-        if (FirebaseAuth.getInstance().currentUser == null && phase == Phase.Idle) {
+        val signedIn = FirebaseAuth.getInstance().currentUser != null
+        if (!signedIn && phase == Phase.Idle) {
             phase = Phase.SignedOut
             message = "Sign in on your phone to start claiming postboxes."
+        } else if (signedIn && phase == Phase.SignedOut) {
+            // User signed in on the phone after the car screen loaded; transition
+            // back to Idle so the Claim button becomes tappable on next refresh.
+            phase = Phase.Idle
+            message = "Tap to scan for nearby postboxes."
         }
     }
 
