@@ -22,6 +22,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:home_widget/home_widget.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'dart:io' show Platform;
 import 'firebase_options.dart';
 import 'secrets.dart';
 import 'analytics_service.dart';
@@ -41,7 +42,24 @@ void main() async {
         : const AndroidPlayIntegrityProvider(),
     providerApple: const AppleAppAttestProvider(),
   );
-  await GoogleSignIn.instance.initialize();
+  // google_sign_in 7.x needs explicit client IDs to issue an ID token usable
+  // by Firebase signInWithCredential. The Web client ID (Firebase Auth's
+  // OAuth client of type 3 from google-services.json) doubles as the
+  // Android serverClientId. iOS reads the iOS-type client ID from
+  // GoogleService-Info.plist when no clientId is passed, but we pass it
+  // explicitly so Firebase Auth's iosClientId stays authoritative.
+  // These values are not secrets — they live in the platform config files
+  // already shipped with the app.
+  const webClientId =
+      '176793005702-7lgiqssuu8i9p5ijn031kbv0tqlptvfg.apps.googleusercontent.com';
+  const iosClientId =
+      '176793005702-rmq2h89o58g1lbe6bnqtg9rnllu8gv80.apps.googleusercontent.com';
+  await GoogleSignIn.instance.initialize(
+    clientId: kIsWeb
+        ? webClientId
+        : (!kIsWeb && Platform.isIOS) ? iosClientId : null,
+    serverClientId: kIsWeb ? null : webClientId,
+  );
   await HomeWidgetService.init();
   await _checkInitialWidgetLaunch();
   runApp(const PostboxGame());
