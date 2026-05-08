@@ -208,23 +208,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: Text('Distance units',
                   style: Theme.of(context).textTheme.titleMedium),
             ),
-            ListTile(
-              title: const Text('Meters'),
-              leading: Radio<DistanceUnit>(
-                value: DistanceUnit.meters,
-                groupValue: _distanceUnit,
-                onChanged: (v) => Navigator.of(context).pop(v),
+            RadioGroup<DistanceUnit>(
+              groupValue: _distanceUnit,
+              onChanged: (v) => Navigator.of(context).pop(v),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ListTile(
+                    title: const Text('Meters'),
+                    leading: const Radio<DistanceUnit>(value: DistanceUnit.meters),
+                    onTap: () => Navigator.of(context).pop(DistanceUnit.meters),
+                  ),
+                  ListTile(
+                    title: const Text('Miles'),
+                    leading: const Radio<DistanceUnit>(value: DistanceUnit.miles),
+                    onTap: () => Navigator.of(context).pop(DistanceUnit.miles),
+                  ),
+                ],
               ),
-              onTap: () => Navigator.of(context).pop(DistanceUnit.meters),
-            ),
-            ListTile(
-              title: const Text('Miles'),
-              leading: Radio<DistanceUnit>(
-                value: DistanceUnit.miles,
-                groupValue: _distanceUnit,
-                onChanged: (v) => Navigator.of(context).pop(v),
-              ),
-              onTap: () => Navigator.of(context).pop(DistanceUnit.miles),
             ),
           ],
         ),

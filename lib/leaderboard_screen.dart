@@ -72,7 +72,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
                   style: Theme.of(context).textTheme.bodyMedium),
               Switch(
                 value: _friendsOnly,
-                activeColor: postalRed,
+                activeThumbColor: postalRed,
                 onChanged: (v) {
                   setState(() => _friendsOnly = v);
                   if (v) {
