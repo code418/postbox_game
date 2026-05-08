@@ -21,6 +21,7 @@ import 'package:postbox_game/user_repository.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:home_widget/home_widget.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'firebase_options.dart';
 import 'secrets.dart';
 import 'analytics_service.dart';
@@ -40,6 +41,7 @@ void main() async {
         : const AndroidPlayIntegrityProvider(),
     providerApple: const AppleAppAttestProvider(),
   );
+  await GoogleSignIn.instance.initialize();
   await HomeWidgetService.init();
   await _checkInitialWidgetLaunch();
   runApp(const PostboxGame());

@@ -34,10 +34,17 @@ Future<Position> getPosition({bool forceLocationManager = false}) async {
     throw Exception(
         'Location permission permanently denied. Enable it in Settings.');
   }
-  return Geolocator.getCurrentPosition(
-    desiredAccuracy: LocationAccuracy.high,
-    forceAndroidLocationManager:
-        forceLocationManager && !kIsWeb && Platform.isAndroid,
-    timeLimit: const Duration(seconds: 30),
-  );
+  final useAndroidManager =
+      forceLocationManager && !kIsWeb && Platform.isAndroid;
+  final LocationSettings settings = useAndroidManager
+      ? AndroidSettings(
+          accuracy: LocationAccuracy.high,
+          forceLocationManager: true,
+          timeLimit: const Duration(seconds: 30),
+        )
+      : const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 30),
+        );
+  return Geolocator.getCurrentPosition(locationSettings: settings);
 }

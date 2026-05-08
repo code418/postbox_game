@@ -54,7 +54,7 @@ class NotificationService {
         android: AndroidInitializationSettings('@mipmap/ic_launcher'),
         iOS: DarwinInitializationSettings(),
       );
-      await _localNotifications.initialize(initSettings);
+      await _localNotifications.initialize(settings: initSettings);
 
       await _localNotifications
           .resolvePlatformSpecificImplementation<
@@ -71,10 +71,10 @@ class NotificationService {
         final notification = message.notification;
         if (notification == null) return;
         _localNotifications.show(
-          notification.hashCode,
-          notification.title,
-          notification.body,
-          const NotificationDetails(
+          id: notification.hashCode,
+          title: notification.title,
+          body: notification.body,
+          notificationDetails: const NotificationDetails(
             android: AndroidNotificationDetails(
               _channelId,
               _channelName,

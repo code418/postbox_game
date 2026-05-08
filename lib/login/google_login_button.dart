@@ -10,7 +10,7 @@ class GoogleLoginButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return OutlinedButton.icon(
-      icon: const Icon(FontAwesomeIcons.google, size: 18),
+      icon: const FaIcon(FontAwesomeIcons.google, size: 18),
       label: const Text('Continue with Google'),
       onPressed: () {
         BlocProvider.of<LoginBloc>(context).add(LoginWithGooglePressed());
