@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:postbox_game/wear/wear_app.dart';
 import 'firebase_options.dart';
 
@@ -21,6 +22,13 @@ void main() async {
     providerAndroid: kDebugMode
         ? const AndroidDebugProvider()
         : const AndroidPlayIntegrityProvider(),
+  );
+  // google_sign_in 7.x requires initialize() before authenticate().
+  // serverClientId is the Firebase Auth web OAuth client (type 3 in
+  // google-services.json) — needed on Android to issue an ID token.
+  await GoogleSignIn.instance.initialize(
+    serverClientId:
+        '176793005702-7lgiqssuu8i9p5ijn031kbv0tqlptvfg.apps.googleusercontent.com',
   );
   runApp(const WearPostboxGame());
 }
