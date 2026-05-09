@@ -299,7 +299,10 @@ class _HeatmapView extends StatelessWidget {
               const SizedBox(height: AppSpacing.sm),
               if (leader == null)
                 Text(
-                  'No friend has claimed in this county yet.',
+                  // The candidate set is (you + your friends), so a missing
+                  // leader means neither you nor any friend has claimed here
+                  // yet. Wording works whether or not the user has friends.
+                  'No claims here yet — go grab the lead!',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color:
                             Theme.of(context).colorScheme.onSurfaceVariant,
