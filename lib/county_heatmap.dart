@@ -52,18 +52,36 @@ class _CountyHeatmapState extends State<CountyHeatmap> {
             .toList(growable: false);
 
     // Resolve display names for everyone in the candidate set so the bottom
-    // sheet can show "Alex" rather than a UID. One read per friend; cached
-    // for the lifetime of the widget.
+    // sheet can show "Alex" rather than a UID. Batch via whereIn (max 30 per
+    // query) — a 200-friend list pays 7 round-trips instead of 201.
     final candidates = <String>{uid, ...friends};
-    final nameDocs = await Future.wait(candidates.map(
-      (u) => db.collection('users').doc(u).get(),
+    final candidateList = candidates.toList(growable: false);
+    const batchSize = 30;
+    final batches = <List<String>>[
+      for (var i = 0; i < candidateList.length; i += batchSize)
+        candidateList.sublist(
+            i, (i + batchSize).clamp(0, candidateList.length)),
+    ];
+    final batchSnaps = await Future.wait(batches.map(
+      (b) => db.collection('users').where(FieldPath.documentId, whereIn: b).get(),
     ));
     final names = <String, String>{};
-    for (final d in nameDocs) {
-      final n = d.data()?['displayName'] as String?;
-      names[d.id] = (n == null || n.isEmpty)
-          ? 'Player_${d.id.substring(0, d.id.length.clamp(0, 6))}'
-          : n;
+    for (final snap in batchSnaps) {
+      for (final d in snap.docs) {
+        final n = d.data()['displayName'] as String?;
+        names[d.id] = (n == null || n.isEmpty)
+            ? 'Player_${d.id.substring(0, d.id.length.clamp(0, 6))}'
+            : n;
+      }
+    }
+    // Fall back to a synthesised name for any candidate whose user doc was
+    // missing from the batch result (e.g. a deleted account still in someone's
+    // friends list).
+    for (final u in candidates) {
+      names.putIfAbsent(
+        u,
+        () => 'Player_${u.substring(0, u.length.clamp(0, 6))}',
+      );
     }
 
     // Parse the geojson asset and build polygon geometry per county slug.
