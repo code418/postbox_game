@@ -88,9 +88,11 @@ class _WearCompassPageState extends State<WearCompassPage> {
         final total = (counts['total'] as num?)?.toInt() ?? 0;
         final claimed = (counts['claimedToday'] as num?)?.toInt() ?? 0;
         _totalCount = (total - claimed).clamp(0, total);
+        // Tolerate a missing/null sector value rather than crashing the scan
+        // (matches the `asInt` helper used by the phone Nearby screen).
         _compassCounts = {
           for (final e in (compassRaw as Map).entries)
-            e.key as String: (e.value as num).toInt(),
+            e.key as String: (e.value as num?)?.toInt() ?? 0,
         };
         _stage = _CompassStage.results;
       });
