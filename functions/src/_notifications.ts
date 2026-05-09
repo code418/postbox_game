@@ -48,11 +48,18 @@ async function sendToUser(uid: string, title: string, body: string): Promise<voi
 
   const staleTokens: string[] = [];
   response.responses.forEach((r, idx) => {
-    if (
-      !r.success &&
-      r.error?.code === "messaging/registration-token-not-registered"
-    ) {
-      staleTokens.push(tokens[idx]);
+    if (!r.success) {
+      // Both codes are permanent: not-registered means the install was
+      // uninstalled or the token was revoked, invalid-argument means the
+      // string was never a valid FCM token. Either way the token will never
+      // succeed again — prune it so we stop sending to it.
+      const code = r.error?.code;
+      if (
+        code === "messaging/registration-token-not-registered" ||
+        code === "messaging/invalid-registration-token"
+      ) {
+        staleTokens.push(tokens[idx]);
+      }
     }
   });
 
