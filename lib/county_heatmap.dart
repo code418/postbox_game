@@ -9,10 +9,62 @@ import 'package:latlong2/latlong.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/user_profile_page.dart';
 
+/// Named palette of colours users may pick to represent themselves on the
+/// heatmap. Keys are the stable strings persisted in `users/{uid}.mapColor`;
+/// adding a new colour is safe, but renaming a key will orphan existing
+/// preferences (they fall back to the auto-palette).
+const Map<String, Color> kMapColourPalette = {
+  'postal_red': postalRed,
+  'indigo': Colors.indigo,
+  'teal': Colors.teal,
+  'deep_orange': Colors.deepOrange,
+  'purple': Colors.purple,
+  'green': Color(0xFF388E3C),
+  'brown': Colors.brown,
+  'cyan': Color(0xFF0097A7),
+  'pink': Color(0xFFEC407A),
+  'amber': Color(0xFFFF8F00),
+  'blue_grey': Colors.blueGrey,
+};
+
+/// Auto-palette used when a user has no `mapColor` preference. Order is
+/// preserved from the original deterministic mapping so that existing friends
+/// keep the colour they had before chosen colours were introduced.
+const List<Color> _autoPalette = <Color>[
+  Colors.indigo,
+  Colors.teal,
+  Colors.deepOrange,
+  Colors.purple,
+  Color(0xFF388E3C),
+  Colors.brown,
+  Color(0xFF0097A7),
+  Color(0xFFEC407A),
+  Color(0xFFFF8F00),
+  Colors.blueGrey,
+];
+
+/// Resolves the heatmap colour for [uid]. If [chosenKey] names a palette
+/// entry, that colour wins; otherwise the deterministic uid-hash fallback is
+/// used. [isSelf] only affects the fallback (self gets postal red) so that an
+/// explicitly chosen colour always overrides the default.
+Color mapColourFor({
+  required String uid,
+  required bool isSelf,
+  String? chosenKey,
+}) {
+  if (chosenKey != null) {
+    final picked = kMapColourPalette[chosenKey];
+    if (picked != null) return picked;
+  }
+  if (isSelf) return postalRed;
+  final h = uid.codeUnits.fold<int>(0, (a, c) => (a * 31 + c) & 0x7fffffff);
+  return _autoPalette[h % _autoPalette.length];
+}
+
 /// UK county heatmap showing which of (the user + their friends) leads each
-/// county's lifetime ranking. Colours each polygon by the leading uid; the
-/// signed-in user's own colour is fixed (postal red); friends use a
-/// deterministic palette by uid hash.
+/// county's lifetime ranking. Colours each polygon by the leading uid using
+/// the user's chosen `mapColor` if set, falling back to a deterministic
+/// uid-hash palette (with self defaulting to postal red).
 ///
 /// The map intentionally has no tile layer — the heatmap is the content, a
 /// base map would distract and incur OSM tile traffic for no benefit.
@@ -66,12 +118,18 @@ class _CountyHeatmapState extends State<CountyHeatmap> {
       (b) => db.collection('users').where(FieldPath.documentId, whereIn: b).get(),
     ));
     final names = <String, String>{};
+    final chosenColours = <String, String>{};
     for (final snap in batchSnaps) {
       for (final d in snap.docs) {
-        final n = d.data()['displayName'] as String?;
+        final data = d.data();
+        final n = data['displayName'] as String?;
         names[d.id] = (n == null || n.isEmpty)
             ? 'Player_${d.id.substring(0, d.id.length.clamp(0, 6))}'
             : n;
+        final mc = data['mapColor'];
+        if (mc is String && kMapColourPalette.containsKey(mc)) {
+          chosenColours[d.id] = mc;
+        }
       }
     }
     // Fall back to a synthesised name for any candidate whose user doc was
@@ -163,6 +221,7 @@ class _CountyHeatmapState extends State<CountyHeatmap> {
       shapes: countyShapes,
       leaderBySlug: leaderBySlug,
       displayNames: names,
+      chosenColours: chosenColours,
     );
   }
 
@@ -215,15 +274,11 @@ class _HeatmapView extends StatelessWidget {
   const _HeatmapView({required this.data});
 
   Color _colourFor(String uid, BuildContext context) {
-    if (uid == data.myUid) return postalRed;
-    // Stable colour per friend uid via a low-bit hash into a fixed palette.
-    final palette = <Color>[
-      Colors.indigo, Colors.teal, Colors.deepOrange, Colors.purple,
-      Colors.green.shade700, Colors.brown, Colors.cyan.shade700,
-      Colors.pink.shade400, Colors.amber.shade800, Colors.blueGrey,
-    ];
-    final h = uid.codeUnits.fold<int>(0, (a, c) => (a * 31 + c) & 0x7fffffff);
-    return palette[h % palette.length];
+    return mapColourFor(
+      uid: uid,
+      isSelf: uid == data.myUid,
+      chosenKey: data.chosenColours[uid],
+    );
   }
 
   void _showLeaderSheet(BuildContext context, _CountyShape shape) {
@@ -447,6 +502,7 @@ class _HeatmapData {
   final List<_CountyShape> shapes;
   final Map<String, _CountyLeader> leaderBySlug;
   final Map<String, String> displayNames;
+  final Map<String, String> chosenColours;
 
   const _HeatmapData({
     required this.myUid,
@@ -454,6 +510,7 @@ class _HeatmapData {
     required this.shapes,
     required this.leaderBySlug,
     required this.displayNames,
+    required this.chosenColours,
   });
 }
 

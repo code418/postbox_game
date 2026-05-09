@@ -8,6 +8,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:postbox_game/app_preferences.dart';
 import 'package:postbox_game/authentication_bloc/bloc.dart';
+import 'package:postbox_game/county_heatmap.dart';
 import 'package:postbox_game/intro.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/user_repository.dart';
@@ -559,6 +560,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           _scanDistancesCard(),
           const Divider(height: 24),
+          _sectionHeader('Map'),
+          _mapColourPicker(),
+          const Divider(height: 24),
           _sectionHeader('Notifications'),
           if (!_notifPrefsLoaded)
             const Padding(
@@ -700,6 +704,74 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  Future<void> _setMapColour(String? key) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    try {
+      await FirebaseFirestore.instance.collection('users').doc(uid).update({
+        'mapColor': key ?? FieldValue.delete(),
+      });
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not save colour. Please try again.')),
+        );
+      }
+    }
+  }
+
+  Widget _mapColourPicker() {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) {
+      return const SizedBox.shrink();
+    }
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance.collection('users').doc(uid).snapshots(),
+      builder: (context, snap) {
+        final raw = snap.data?.data()?['mapColor'];
+        final selected = (raw is String && kMapColourPalette.containsKey(raw))
+            ? raw
+            : null;
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(
+              AppSpacing.md, AppSpacing.xs, AppSpacing.md, AppSpacing.sm),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Your colour on the County Leaders map. Friends see this colour for the regions you lead.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              Wrap(
+                spacing: AppSpacing.sm,
+                runSpacing: AppSpacing.sm,
+                children: [
+                  _ColourSwatch(
+                    label: 'Default',
+                    colour: postalRed,
+                    isSelected: selected == null,
+                    showDefaultRing: true,
+                    onTap: () => _setMapColour(null),
+                  ),
+                  for (final entry in kMapColourPalette.entries)
+                    _ColourSwatch(
+                      label: entry.key,
+                      colour: entry.value,
+                      isSelected: selected == entry.key,
+                      onTap: () => _setMapColour(entry.key),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   Widget _sectionHeader(String title) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(
@@ -710,6 +782,53 @@ class _SettingsScreenState extends State<SettingsScreen> {
               color: Theme.of(context).colorScheme.primary,
               fontWeight: FontWeight.w600,
             ),
+      ),
+    );
+  }
+}
+
+class _ColourSwatch extends StatelessWidget {
+  const _ColourSwatch({
+    required this.label,
+    required this.colour,
+    required this.isSelected,
+    required this.onTap,
+    this.showDefaultRing = false,
+  });
+
+  final String label;
+  final Color colour;
+  final bool isSelected;
+  final bool showDefaultRing;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final onSurface = Theme.of(context).colorScheme.onSurface;
+    return Semantics(
+      label: label,
+      selected: isSelected,
+      button: true,
+      child: InkResponse(
+        onTap: onTap,
+        radius: 28,
+        child: Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            color: colour,
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: isSelected ? onSurface : onSurface.withValues(alpha: 0.25),
+              width: isSelected ? 3 : 1,
+            ),
+          ),
+          child: isSelected
+              ? const Icon(Icons.check, color: Colors.white, size: 24)
+              : (showDefaultRing
+                  ? const Icon(Icons.refresh, color: Colors.white, size: 18)
+                  : null),
+        ),
       ),
     );
   }

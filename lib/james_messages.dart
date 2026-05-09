@@ -101,6 +101,15 @@ abstract final class JamesMessages {
     ],
   );
 
+  static const navCountyLeaders = JamesMessage(
+    'jamesNavCountyLeaders',
+    [
+      "See who is lording it over each county. Tap a region to see the local champion.",
+      "Colour the country in your shade. Cornwall is up for grabs, last I checked.",
+      "Each county belongs to whoever has claimed the most postboxes in it. Simple as that."
+    ],
+  );
+
   /// Returns the nav hint for tab [index] (0–4), or null for unknown indices.
   static JamesMessage? forTabIndex(int index) => switch (index) {
         0 => navNearby,

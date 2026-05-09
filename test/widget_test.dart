@@ -9,6 +9,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:postbox_game/app_preferences.dart';
 import 'package:postbox_game/authentication_bloc/bloc.dart';
 import 'package:postbox_game/claim_history_screen.dart';
+import 'package:postbox_game/county_heatmap.dart';
 import 'package:postbox_game/fuzzy_compass.dart';
 import 'package:postbox_game/james_messages.dart';
 import 'package:postbox_game/london_date.dart';
@@ -402,6 +403,41 @@ void main() {
   // FuzzyCompass unit tests
   // ---------------------------------------------------------------------------
 
+  group('mapColourFor', () {
+    test('chosen palette key wins over self default', () {
+      final c = mapColourFor(uid: 'abc', isSelf: true, chosenKey: 'teal');
+      expect(c, equals(kMapColourPalette['teal']));
+    });
+
+    test('self with no chosen key falls back to postal red', () {
+      final c = mapColourFor(uid: 'abc', isSelf: true);
+      expect(c, equals(postalRed));
+    });
+
+    test('friend with no chosen key uses deterministic auto palette', () {
+      final c1 = mapColourFor(uid: 'friend-uid', isSelf: false);
+      final c2 = mapColourFor(uid: 'friend-uid', isSelf: false);
+      expect(c1, equals(c2));
+      expect(kMapColourPalette.values.contains(c1), isTrue);
+    });
+
+    test('unknown chosen key falls back to auto palette', () {
+      final auto = mapColourFor(uid: 'x', isSelf: false);
+      final fallback = mapColourFor(uid: 'x', isSelf: false, chosenKey: 'no_such_colour');
+      expect(fallback, equals(auto));
+    });
+
+    test('different uids generally yield different auto colours', () {
+      final colours = <Color>{
+        for (final uid in ['a1', 'b2', 'c3', 'd4', 'e5'])
+          mapColourFor(uid: uid, isSelf: false),
+      };
+      // Not all 5 are guaranteed unique, but at least 2 distinct values is
+      // a meaningful sanity check on the hash distribution.
+      expect(colours.length, greaterThan(1));
+    });
+  });
+
   group('FuzzyCompass.vagueLabel', () {
     test('returns None for zero', () {
       expect(FuzzyCompass.vagueLabel(0), equals('None'));
@@ -546,6 +582,7 @@ void main() {
         JamesMessages.navFriends,
         JamesMessages.navFriendsLeaderboard,
         JamesMessages.navLifetimeScores,
+        JamesMessages.navCountyLeaders,
         JamesMessages.idle,
         JamesMessages.nearbyNoneFound,
         JamesMessages.nearbyErrorPermission,
@@ -575,6 +612,7 @@ void main() {
         JamesMessages.navFriends,
         JamesMessages.navFriendsLeaderboard,
         JamesMessages.navLifetimeScores,
+        JamesMessages.navCountyLeaders,
         JamesMessages.idle,
         JamesMessages.nearbyNoneFound,
         JamesMessages.nearbyErrorPermission,
@@ -751,6 +789,13 @@ void main() {
     }
 
     testWidgets('Notifications section header is visible', (tester) async {
+      // ListView.builder is lazy and only builds items in the visible area;
+      // expand the viewport so the Notifications header (now below the new
+      // Map section) is built before assertion.
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+
       await tester.pumpWidget(buildSettings());
       // Allow initState async calls (_loadPrefs, _loadNotifPrefs) to complete.
       // No real user is signed in, so _loadNotifPrefs resolves immediately.

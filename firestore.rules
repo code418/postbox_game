@@ -26,23 +26,32 @@ service cloud.firestore {
     // directly. The friends array is the only field clients may modify.
     match /users/{uid} {
       allow read: if request.auth != null;
-      // The friends array and notificationPrefs map are the only fields clients
-      // may modify on their own document. All other fields (displayName, streak,
-      // lastClaimDate, createdAt, points) are written by Cloud Functions using
-      // the Admin SDK, which bypasses these rules. FCM tokens live in the
-      // separate fcmTokens/{uid} collection to avoid exposure here.
+      // The friends array, notificationPrefs map, and mapColor string are the
+      // only fields clients may modify on their own document. All other fields
+      // (displayName, streak, lastClaimDate, createdAt, points) are written by
+      // Cloud Functions using the Admin SDK, which bypasses these rules. FCM
+      // tokens live in the separate fcmTokens/{uid} collection to avoid
+      // exposure here.
       // friends is capped at 200 entries to prevent O(n) leaderboard read abuse.
       // notificationPrefs must be a map (type-validated to prevent garbage writes).
+      // mapColor must be a short string (palette key) when present; deletion
+      // (FieldValue.delete()) is also allowed since the diff only fires on
+      // present fields.
       allow update: if request.auth != null && request.auth.uid == uid
         && request.resource.data.diff(resource.data).affectedKeys()
-              .hasOnly(['friends', 'notificationPrefs'])
+              .hasOnly(['friends', 'notificationPrefs', 'mapColor'])
         && (!request.resource.data.diff(resource.data).affectedKeys()
                 .hasAny(['friends'])
             || (request.resource.data.friends is list
                 && request.resource.data.friends.size() <= 200))
         && (!request.resource.data.diff(resource.data).affectedKeys()
                 .hasAny(['notificationPrefs'])
-            || request.resource.data.notificationPrefs is map);
+            || request.resource.data.notificationPrefs is map)
+        && (!request.resource.data.diff(resource.data).affectedKeys()
+                .hasAny(['mapColor'])
+            || !('mapColor' in request.resource.data)
+            || (request.resource.data.mapColor is string
+                && request.resource.data.mapColor.size() <= 32));
       // Create and all other writes are handled by Cloud Functions.
       allow create: if false;
     }

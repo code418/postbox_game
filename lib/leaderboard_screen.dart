@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/material.dart';
+import 'package:postbox_game/county_heatmap.dart';
 import 'package:postbox_game/james_controller.dart';
 import 'package:postbox_game/james_messages.dart';
 import 'package:postbox_game/london_date.dart';
@@ -19,7 +20,13 @@ class LeaderboardScreen extends StatefulWidget {
 
 class _LeaderboardScreenState extends State<LeaderboardScreen>
     with SingleTickerProviderStateMixin {
-  static const List<String> _periods = ['daily', 'weekly', 'monthly', 'lifetime'];
+  static const List<String> _periods = [
+    'daily',
+    'weekly',
+    'monthly',
+    'lifetime',
+    'counties',
+  ];
   bool _friendsOnly = true;
   late final TabController _tabController;
 
@@ -40,9 +47,13 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
   void _onTabChanged() {
     if (_tabController.indexIsChanging) return;
     if (!mounted) return;
-    if (_tabController.index == _periods.indexOf('lifetime')) {
+    final period = _periods[_tabController.index];
+    if (period == 'lifetime') {
       JamesController.of(context)
           ?.show(JamesMessages.navLifetimeScores.resolve());
+    } else if (period == 'counties') {
+      JamesController.of(context)
+          ?.show(JamesMessages.navCountyLeaders.resolve());
     }
   }
 
@@ -57,7 +68,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
             isScrollable: true,
             tabAlignment: TabAlignment.start,
             tabs: _periods
-                .map((p) => Tab(text: p[0].toUpperCase() + p.substring(1)))
+                .map((p) => Tab(text: _tabLabel(p)))
                 .toList(),
           ),
         ),
@@ -89,6 +100,11 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
           child: TabBarView(
             controller: _tabController,
             children: _periods.map<Widget>((period) {
+              if (period == 'counties') {
+                // County heatmap is inherently friend-scoped (uses your
+                // friends list); the friends-only toggle does not apply.
+                return const _CountyHeatmapTab();
+              }
               if (_friendsOnly) {
                 return _FriendsPeriodList(
                   key: ValueKey('friends_$period'),
@@ -770,6 +786,39 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList>
           ),
         );
     }
+  }
+}
+
+String _tabLabel(String period) {
+  // 'counties' renders as 'Map' so the tab reads naturally next to D/W/M/L.
+  if (period == 'counties') return 'Map';
+  return period[0].toUpperCase() + period.substring(1);
+}
+
+/// County leaders heatmap as a leaderboard tab. Wraps [CountyHeatmap] with the
+/// "COUNTY LEADERS" header label that previously lived on the Friends screen,
+/// inside a scrollable container so the legend wrap cannot overflow on small
+/// devices.
+class _CountyHeatmapTab extends StatelessWidget {
+  const _CountyHeatmapTab();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(
+          AppSpacing.md, AppSpacing.sm, AppSpacing.md, kJamesStripClearance),
+      children: [
+        Text(
+          'COUNTY LEADERS',
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                letterSpacing: 0.8,
+              ),
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        const CountyHeatmap(),
+      ],
+    );
   }
 }
 
