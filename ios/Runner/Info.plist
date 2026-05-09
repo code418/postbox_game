@@ -53,5 +53,21 @@
 	<string>Postbox Game needs your location to find postboxes near you and verify you're close enough to claim one.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>Postbox Game needs your location to find postboxes near you and verify you're close enough to claim one.</string>
+	<!-- Reversed iOS OAuth client ID (Firebase Auth client type 2). Google
+	     Sign-In needs this URL scheme registered so the OS can return to
+	     the app after the auth flow completes; without it, sign-in on iOS
+	     hangs at the consent screen. Mirrors the iosClientId passed to
+	     GoogleSignIn.instance.initialize() in lib/main.dart. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.176793005702-rmq2h89o58g1lbe6bnqtg9rnllu8gv80</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>
