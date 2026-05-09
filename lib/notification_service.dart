@@ -32,13 +32,13 @@ class NotificationService {
         return;
       }
 
-      // iOS suppresses foreground alerts by default; opt in so banners show
-      // while the app is open. No-op on Android.
-      await messaging.setForegroundNotificationPresentationOptions(
-        alert: true,
-        badge: true,
-        sound: true,
-      );
+      // Deliberately do NOT opt in to FCM's iOS foreground presentation here.
+      // FCM would then show a native banner *and* deliver the message to
+      // onMessage, where we already render a flutter_local_notifications
+      // banner — the user would see two stacked notifications for every
+      // event. By leaving FCM's foreground options at their default
+      // (alert: false), the native banner is suppressed and the local
+      // notification is the single source of truth on both iOS and Android.
 
       final token = await messaging.getToken();
       if (token != null) {
