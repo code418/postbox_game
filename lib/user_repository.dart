@@ -19,7 +19,14 @@ class UserRepository {
     try {
       googleUser = await _googleSignIn.authenticate();
     } on GoogleSignInException catch (e) {
-      if (e.code == GoogleSignInExceptionCode.canceled) return null;
+      // canceled  : user dismissed the chooser. interrupted: dialog closed
+      // mid-flow (e.g. user navigated away). The plugin classifies both as
+      // "no real error" — return null so the UI returns to its idle state
+      // instead of flashing a "Sign in failed" snack.
+      if (e.code == GoogleSignInExceptionCode.canceled ||
+          e.code == GoogleSignInExceptionCode.interrupted) {
+        return null;
+      }
       rethrow;
     }
     final GoogleSignInAuthentication googleAuth = googleUser.authentication;
