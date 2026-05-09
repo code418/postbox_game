@@ -150,7 +150,7 @@ class Analytics {
   // Navigation
   // ---------------------------------------------------------------------------
 
-  /// Bottom-nav tab selected (0=Nearby, 1=Claim, 2=Scores, 3=Friends).
+  /// Bottom-nav tab selected (0=Nearby, 1=Claim, 2=Scores, 3=Friends, 4=History).
   static Future<void> tabSelected({required int index, required String name}) =>
       _log('tab_selected', {'tab_index': index, 'tab_name': name});
 
