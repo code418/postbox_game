@@ -116,7 +116,7 @@ class HomeCarScreen(carContext: CarContext) : Screen(carContext) {
         pane.addRow(
             Row.Builder()
                 .setTitle("Total points")
-                .addText(s?.totalPoints?.toString() ?: "—")
+                .addText(s?.lifetimePoints?.toString() ?: "—")
                 .build()
         )
         pane.addRow(

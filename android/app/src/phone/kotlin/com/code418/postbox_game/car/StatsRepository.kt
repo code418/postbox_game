@@ -13,7 +13,7 @@ import kotlin.coroutines.resume
 object StatsRepository {
 
     data class UserStats(
-        val totalPoints: Int,
+        val lifetimePoints: Int,
         val uniquePostboxesClaimed: Int,
         val streak: Int,
         val displayName: String?,
@@ -35,7 +35,11 @@ object StatsRepository {
                 if (err != null || snap == null || !snap.exists()) return@addSnapshotListener
                 trySend(
                     UserStats(
-                        totalPoints = (snap.get("totalPoints") as? Number)?.toInt() ?: 0,
+                        // The user doc stores the cumulative total under
+                        // `lifetimePoints` (see startScoring's lifetime tx);
+                        // there is no `totalPoints` field on users/{uid}, so
+                        // the previous read always fell back to 0.
+                        lifetimePoints = (snap.get("lifetimePoints") as? Number)?.toInt() ?: 0,
                         uniquePostboxesClaimed = (snap.get("uniquePostboxesClaimed") as? Number)?.toInt() ?: 0,
                         streak = (snap.get("streak") as? Number)?.toInt() ?: 0,
                         displayName = snap.getString("displayName"),
