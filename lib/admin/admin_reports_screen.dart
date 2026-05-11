@@ -194,27 +194,31 @@ class _ReportCardState extends State<_ReportCard> {
 
   Future<void> _reject() async {
     final noteController = TextEditingController();
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Reject report'),
-        content: TextField(
-          controller: noteController,
-          maxLength: 280,
-          decoration: const InputDecoration(labelText: 'Reason (optional, shown to the reporter)'),
+    try {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Reject report'),
+          content: TextField(
+            controller: noteController,
+            maxLength: 280,
+            decoration: const InputDecoration(labelText: 'Reason (optional, shown to the reporter)'),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Reject')),
+          ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Reject')),
-        ],
-      ),
-    );
-    if (ok != true) return;
-    await _call({
-      'reportId': widget.id,
-      'decision': 'reject',
-      if (noteController.text.trim().isNotEmpty) 'reviewNote': noteController.text.trim(),
-    });
+      );
+      if (ok != true) return;
+      await _call({
+        'reportId': widget.id,
+        'decision': 'reject',
+        if (noteController.text.trim().isNotEmpty) 'reviewNote': noteController.text.trim(),
+      });
+    } finally {
+      noteController.dispose();
+    }
   }
 
   Future<void> _accept() async {
