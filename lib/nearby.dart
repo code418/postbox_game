@@ -13,6 +13,7 @@ import 'package:postbox_game/james_messages.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:postbox_game/location_service.dart';
 import 'package:postbox_game/monarch_info.dart';
+import 'package:postbox_game/reports/report_missing_postbox_screen.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/widgets/postbox_map.dart';
 import 'package:postbox_game/widgets/postbox_marker.dart';
@@ -482,6 +483,14 @@ class _NearbyState extends State<Nearby> {
                       .textTheme
                       .bodySmall
                       ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+                ),
+                const SizedBox(height: AppSpacing.md),
+                OutlinedButton.icon(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const ReportMissingPostboxScreen()),
+                  ),
+                  icon: const Icon(Icons.report_gmailerrorred_outlined),
+                  label: const Text('Report a missing postbox'),
                 ),
               ],
             ),

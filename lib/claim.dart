@@ -14,6 +14,7 @@ import 'package:postbox_game/james_controller.dart';
 import 'package:postbox_game/james_messages.dart';
 import 'package:postbox_game/location_service.dart';
 import 'package:postbox_game/monarch_info.dart';
+import 'package:postbox_game/reports/report_missing_postbox_screen.dart';
 import 'package:postbox_game/services/home_widget_service.dart';
 import 'package:postbox_game/streak_service.dart';
 import 'package:postbox_game/theme.dart';
@@ -697,6 +698,16 @@ class _ClaimState extends State<Claim> with TickerProviderStateMixin {
               onPressed: _startSearch,
               icon: const Icon(Icons.refresh),
               label: const Text('Try again'),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            OutlinedButton.icon(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => ReportMissingPostboxScreen(initialPosition: _scanPosition),
+                ),
+              ),
+              icon: const Icon(Icons.report_gmailerrorred_outlined),
+              label: const Text('Report a missing postbox'),
             ),
             const SizedBox(height: AppSpacing.sm),
             TextButton(

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:postbox_game/admin/admin_access.dart';
+import 'package:postbox_game/admin/admin_reports_screen.dart';
 import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/claim.dart';
 import 'package:postbox_game/claim_history_screen.dart';
@@ -10,6 +12,7 @@ import 'package:postbox_game/james_messages.dart';
 import 'package:postbox_game/james_strip.dart';
 import 'package:postbox_game/leaderboard_screen.dart';
 import 'package:postbox_game/nearby.dart';
+import 'package:postbox_game/reports/my_reports_screen.dart';
 import 'package:postbox_game/theme.dart';
 
 class Home extends StatefulWidget {
@@ -30,6 +33,7 @@ class Home extends StatefulWidget {
 class _HomeState extends State<Home> {
   late int _selectedIndex = widget.initialIndex;
   late final JamesController _jamesController = JamesController();
+  bool _isAdmin = false;
 
   static const _destinations = [
     NavigationDestination(
@@ -69,6 +73,17 @@ class _HomeState extends State<Home> {
     const FriendsScreen(),
     const ClaimHistoryScreen(),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    // The "Admin · Reports" menu item only appears for users holding the
+    // `admin` custom claim. Force a token refresh so a recently-granted claim
+    // shows up without requiring the user to sign out and back in.
+    AdminAccess.isAdmin(forceRefresh: true).then((isAdmin) {
+      if (mounted && isAdmin) setState(() => _isAdmin = true);
+    });
+  }
 
   @override
   void dispose() {
@@ -111,9 +126,36 @@ class _HomeState extends State<Home> {
                         builder: (_) => const Intro(replay: true),
                       ),
                     );
+                  case 'myReports':
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const MyReportsScreen()),
+                    );
+                  case 'adminReports':
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const AdminReportsScreen()),
+                    );
                 }
               },
               itemBuilder: (_) => [
+                const PopupMenuItem(
+                  value: 'myReports',
+                  child: ListTile(
+                    leading: Icon(Icons.flag_outlined),
+                    title: Text('My reports'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+                if (_isAdmin)
+                  const PopupMenuItem(
+                    value: 'adminReports',
+                    child: ListTile(
+                      leading: Icon(Icons.admin_panel_settings_outlined),
+                      title: Text('Admin · Reports'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
                 const PopupMenuItem(
                   value: 'settings',
                   child: ListTile(

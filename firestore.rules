@@ -88,6 +88,18 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // ── reports collection ───────────────────────────────────────────────────
+    // User-submitted reports about postbox data problems. Created and reviewed
+    // exclusively by Cloud Functions (submitReport / reviewReport, Admin SDK).
+    // A reporter may read their own reports; users with the `admin` custom
+    // claim may read all of them (the in-app admin review interface).
+    match /reports/{reportId} {
+      allow read: if request.auth != null
+        && (resource.data.reporterUid == request.auth.uid
+            || request.auth.token.admin == true);
+      allow write: if false;
+    }
+
     // ── fcmTokens collection ─────────────────────────────────────────────────
     // Stores FCM device tokens separate from the world-readable users collection
     // so that tokens are not exposed to other authenticated users. Written
