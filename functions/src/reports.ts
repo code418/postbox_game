@@ -13,6 +13,10 @@ import type { PostboxDoc, ReportPhoto } from "./types";
 const NOTE_MAX = 280;
 const REFERENCE_MAX = 40;
 const MAX_PHOTOS = 3;
+/** Per-user cap on accepted submitReport calls per London day. Abuse guard:
+ *  a malicious or buggy client can't flood the reports collection (and the
+ *  admin review queue / Storage with photos) faster than this. */
+const MAX_REPORTS_PER_DAY = 10;
 const OSM_NODE_API = "https://api.openstreetmap.org/api/0.6/node";
 const OSM_USER_AGENT = "PostboxGame/1.0 (https://the-postbox-game.web.app)";
 
@@ -96,6 +100,35 @@ export function parsePhotos(raw: unknown, uid: string): ReportPhoto[] {
     }
     return out;
   });
+}
+
+// ── per-user daily quota ────────────────────────────────────────────────────
+
+export interface QuotaState {
+  date: string;
+  count: number;
+}
+
+/**
+ * Pure helper: given the stored quota state for a user (or undefined for a
+ * first-ever report), today's London date, and the daily cap, decide whether
+ * another report is allowed and return the state to persist.
+ *
+ * Rolling over to a new day resets the count. When the cap has been hit the
+ * returned state is left unchanged (count not incremented) so a rejected
+ * attempt doesn't push the stored value past the cap. Exported for unit testing.
+ */
+export function nextQuotaState(
+  current: { date?: unknown; count?: unknown } | undefined,
+  today: string,
+  max: number
+): { allowed: boolean; state: QuotaState } {
+  const rawCount = current && current.date === today ? current.count : undefined;
+  const prevCount = typeof rawCount === "number" && rawCount > 0 ? Math.floor(rawCount) : 0;
+  if (prevCount >= max) {
+    return { allowed: false, state: { date: today, count: prevCount } };
+  }
+  return { allowed: true, state: { date: today, count: prevCount + 1 } };
 }
 
 // ── osmChange XML ───────────────────────────────────────────────────────────
@@ -238,6 +271,23 @@ export const submitReport = functions.https.onCall(async (request) => {
       throw err("a cypher report needs a suggested cypher, a note, or a photo");
     }
   }
+
+  // Per-user daily cap. Done in a transaction so two concurrent submissions
+  // can't both slip past the limit, and only once all validation has passed so
+  // a malformed request never consumes a user's quota.
+  const today = getTodayLondon();
+  const quotaRef = db.collection("reportQuotas").doc(uid);
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(quotaRef);
+    const r = nextQuotaState(snap.data() as { date?: unknown; count?: unknown } | undefined, today, MAX_REPORTS_PER_DAY);
+    if (!r.allowed) {
+      throw new functions.https.HttpsError(
+        "resource-exhausted",
+        `You've reached the daily limit of ${MAX_REPORTS_PER_DAY} reports. Please try again tomorrow.`
+      );
+    }
+    tx.set(quotaRef, r.state, { merge: false });
+  });
 
   const ref = await db.collection("reports").add(base);
   return { reportId: ref.id };

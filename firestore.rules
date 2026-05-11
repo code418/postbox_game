@@ -100,6 +100,14 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // ── reportQuotas collection ──────────────────────────────────────────────
+    // Per-user daily counter enforcing the submitReport rate limit. Written
+    // (and only ever read) by the submitReport Cloud Function (Admin SDK);
+    // clients have no business reading or writing it.
+    match /reportQuotas/{uid} {
+      allow read, write: if false;
+    }
+
     // ── fcmTokens collection ─────────────────────────────────────────────────
     // Stores FCM device tokens separate from the world-readable users collection
     // so that tokens are not exposed to other authenticated users. Written

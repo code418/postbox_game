@@ -1873,7 +1873,7 @@ describe("county_lookup (point-in-polygon)", () => {
 // ── reports + retroactive rescoring ──────────────────────────────────────────
 
 import { KNOWN_MONARCHS, pointsForMonarch } from "../_getPoints";
-import { parsePhotos, buildOsmChange } from "../reports";
+import { parsePhotos, buildOsmChange, nextQuotaState } from "../reports";
 import { maxDailyFromClaims } from "../_recomputeScores";
 
 describe("pointsForMonarch", () => {
@@ -1920,6 +1920,40 @@ describe("parsePhotos", () => {
   });
   it("rejects implausible EXIF coordinates", () => {
     assert.throws(() => parsePhotos([{ storagePath: `report_photos/${uid}/a.jpg`, exifLat: 200 }], uid));
+  });
+});
+
+describe("nextQuotaState", () => {
+  const today = "2026-05-11";
+  it("allows the first report of the day (no stored state)", () => {
+    const r = nextQuotaState(undefined, today, 10);
+    assert.strictEqual(r.allowed, true);
+    assert.deepStrictEqual(r.state, { date: today, count: 1 });
+  });
+  it("increments within the same day", () => {
+    const r = nextQuotaState({ date: today, count: 3 }, today, 10);
+    assert.strictEqual(r.allowed, true);
+    assert.deepStrictEqual(r.state, { date: today, count: 4 });
+  });
+  it("resets the count when the day rolls over", () => {
+    const r = nextQuotaState({ date: "2026-05-10", count: 10 }, today, 10);
+    assert.strictEqual(r.allowed, true);
+    assert.deepStrictEqual(r.state, { date: today, count: 1 });
+  });
+  it("rejects once the cap is reached and leaves the count unchanged", () => {
+    const r = nextQuotaState({ date: today, count: 10 }, today, 10);
+    assert.strictEqual(r.allowed, false);
+    assert.deepStrictEqual(r.state, { date: today, count: 10 });
+  });
+  it("rejects when stored count is somehow above the cap", () => {
+    const r = nextQuotaState({ date: today, count: 99 }, today, 10);
+    assert.strictEqual(r.allowed, false);
+    assert.deepStrictEqual(r.state, { date: today, count: 99 });
+  });
+  it("treats a malformed/negative stored count as zero", () => {
+    assert.deepStrictEqual(nextQuotaState({ date: today, count: -5 }, today, 10).state, { date: today, count: 1 });
+    assert.deepStrictEqual(nextQuotaState({ date: today, count: "x" }, today, 10).state, { date: today, count: 1 });
+    assert.deepStrictEqual(nextQuotaState({ date: today }, today, 10).state, { date: today, count: 1 });
   });
 });
 
