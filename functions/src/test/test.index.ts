@@ -1869,3 +1869,144 @@ describe("county_lookup (point-in-polygon)", () => {
     assert.strictEqual(counties.slug(""), null);
   });
 });
+
+// ── reports + retroactive rescoring ──────────────────────────────────────────
+
+import { KNOWN_MONARCHS, pointsForMonarch } from "../_getPoints";
+import { parsePhotos, buildOsmChange } from "../reports";
+import { maxDailyFromClaims } from "../_recomputeScores";
+
+describe("pointsForMonarch", () => {
+  it("treats null as plain (2 points)", () => assert.strictEqual(pointsForMonarch(null), 2));
+  it("treats undefined as plain (2 points)", () => assert.strictEqual(pointsForMonarch(undefined), 2));
+  it("treats empty string as plain (2 points)", () => assert.strictEqual(pointsForMonarch(""), 2));
+  it("delegates to getPoints for known cyphers", () => {
+    assert.strictEqual(pointsForMonarch("VR"), 7);
+    assert.strictEqual(pointsForMonarch("EVIIIR"), 12);
+  });
+  it("KNOWN_MONARCHS are all recognised by getPoints (none default to 2 by accident except EIIR)", () => {
+    // EIIR legitimately scores 2; the rest must score > 2.
+    for (const m of KNOWN_MONARCHS) {
+      if (m === "EIIR") assert.strictEqual(getPoints(m), 2);
+      else assert.ok(getPoints(m) > 2, `${m} should score > 2`);
+    }
+  });
+});
+
+describe("parsePhotos", () => {
+  const uid = "user123";
+  it("returns [] for undefined/null", () => {
+    assert.deepStrictEqual(parsePhotos(undefined, uid), []);
+    assert.deepStrictEqual(parsePhotos(null, uid), []);
+  });
+  it("accepts valid photo objects under the user's prefix", () => {
+    const out = parsePhotos([{ storagePath: `report_photos/${uid}/a.jpg`, exifLat: 51.5, exifLng: -0.1, takenAt: "2026:05:11 10:00:00" }], uid);
+    assert.strictEqual(out.length, 1);
+    assert.strictEqual(out[0].storagePath, `report_photos/${uid}/a.jpg`);
+    assert.strictEqual(out[0].exifLat, 51.5);
+    assert.strictEqual(out[0].exifLng, -0.1);
+    assert.strictEqual(out[0].takenAt, "2026:05:11 10:00:00");
+  });
+  it("rejects more than 3 photos", () => {
+    assert.throws(() => parsePhotos(Array.from({ length: 4 }, (_, i) => ({ storagePath: `report_photos/${uid}/${i}.jpg` })), uid));
+  });
+  it("rejects a path outside the user's prefix", () => {
+    assert.throws(() => parsePhotos([{ storagePath: "report_photos/otheruser/a.jpg" }], uid));
+    assert.throws(() => parsePhotos([{ storagePath: "osm_changesets/x.osc" }], uid));
+  });
+  it("rejects path traversal in the file name", () => {
+    assert.throws(() => parsePhotos([{ storagePath: `report_photos/${uid}/../secret.jpg` }], uid));
+    assert.throws(() => parsePhotos([{ storagePath: `report_photos/${uid}/sub/dir.jpg` }], uid));
+  });
+  it("rejects implausible EXIF coordinates", () => {
+    assert.throws(() => parsePhotos([{ storagePath: `report_photos/${uid}/a.jpg`, exifLat: 200 }], uid));
+  });
+});
+
+describe("buildOsmChange", () => {
+  it("builds a modify changeset with the node version and updated tags", () => {
+    const osc = buildOsmChange({ action: "modify", id: 12345, version: 7, lat: 51.5, lon: -0.1, tags: { amenity: "post_box", royal_cypher: "VR", ref: "SW1A 1" } });
+    assert.match(osc, /^<\?xml version="1\.0" encoding="UTF-8"\?>/);
+    assert.match(osc, /<osmChange version="0\.6" generator="PostboxGame">/);
+    assert.match(osc, /<modify>/);
+    assert.match(osc, /<node id="12345" version="7" lat="51\.5" lon="-0\.1" changeset="0">/);
+    assert.match(osc, /<tag k="royal_cypher" v="VR"\/>/);
+    assert.match(osc, /<tag k="ref" v="SW1A 1"\/>/);
+  });
+  it("builds a create changeset without a version attribute", () => {
+    const osc = buildOsmChange({ action: "create", id: -1, lat: 52, lon: -1.5, tags: { amenity: "post_box", royal_cypher: "EIIR" } });
+    assert.match(osc, /<create>/);
+    assert.match(osc, /<node id="-1" lat="52" lon="-1\.5" changeset="0">/);
+    assert.ok(!/<node[^>]*\bversion=/.test(osc), "create node should have no version attr");
+  });
+  it("escapes XML metacharacters in tag values", () => {
+    const osc = buildOsmChange({ action: "create", id: -1, lat: 0, lon: 0, tags: { note: 'a & b < c > "d"' } });
+    assert.match(osc, /v="a &amp; b &lt; c &gt; &quot;d&quot;"/);
+  });
+  it("omits empty tag values", () => {
+    const osc = buildOsmChange({ action: "create", id: -1, lat: 0, lon: 0, tags: { amenity: "post_box", royal_cypher: "" } });
+    assert.ok(!/royal_cypher/.test(osc));
+  });
+});
+
+describe("maxDailyFromClaims", () => {
+  it("returns 0 for no claims", () => assert.strictEqual(maxDailyFromClaims([]), 0));
+  it("sums points per day and returns the busiest day's total", () => {
+    const claims = [
+      { dailyDate: "2026-05-01", points: 2 },
+      { dailyDate: "2026-05-01", points: 7 },
+      { dailyDate: "2026-05-02", points: 4 },
+      { dailyDate: "2026-05-03", points: 12 },
+    ];
+    assert.strictEqual(maxDailyFromClaims(claims), 12);
+  });
+  it("reflects a downward correction (a day total dropping below another)", () => {
+    // Day 1 had 14 (2+12) but the 12-cypher was corrected to 2 → day1 = 4; day2 = 9 wins.
+    const before = [{ dailyDate: "d1", points: 2 }, { dailyDate: "d1", points: 12 }, { dailyDate: "d2", points: 9 }];
+    const after = [{ dailyDate: "d1", points: 2 }, { dailyDate: "d1", points: 2 }, { dailyDate: "d2", points: 9 }];
+    assert.strictEqual(maxDailyFromClaims(before), 14);
+    assert.strictEqual(maxDailyFromClaims(after), 9);
+  });
+  it("ignores entries with no dailyDate", () => {
+    assert.strictEqual(maxDailyFromClaims([{ points: 99 }, { dailyDate: "d1", points: 3 }]), 3);
+  });
+});
+
+describe("submitReport / reviewReport (onCall) — auth & validation", function (this: Mocha.Suite) {
+  this.timeout(10000);
+  const wrappedSubmit = testEnv.wrap(myFunctions.submitReport) as (data: unknown) => Promise<unknown>;
+  const wrappedReview = testEnv.wrap(myFunctions.reviewReport) as (data: unknown) => Promise<unknown>;
+
+  it("submitReport throws unauthenticated with no auth", async () => {
+    try {
+      await wrappedSubmit({ data: { type: "missing_postbox", lat: 51.5, lng: -0.1 } });
+      assert.fail("expected unauthenticated");
+    } catch (e) {
+      assert.strictEqual((e as { code?: string }).code, "unauthenticated");
+    }
+  });
+  it("submitReport throws invalid-argument for an unknown type", async () => {
+    try {
+      await wrappedSubmit({ data: { type: "nonsense" }, auth: { uid: "u1" } });
+      assert.fail("expected invalid-argument");
+    } catch (e) {
+      assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+    }
+  });
+  it("reviewReport throws permission-denied for a non-admin caller", async () => {
+    try {
+      await wrappedReview({ data: { reportId: "r1", decision: "reject" }, auth: { uid: "u1" } });
+      assert.fail("expected permission-denied");
+    } catch (e) {
+      assert.strictEqual((e as { code?: string }).code, "permission-denied");
+    }
+  });
+  it("reviewReport throws permission-denied even with auth but no admin claim flag", async () => {
+    try {
+      await wrappedReview({ data: { reportId: "r1", decision: "accept" }, auth: { uid: "u1", token: { admin: false } } });
+      assert.fail("expected permission-denied");
+    } catch (e) {
+      assert.strictEqual((e as { code?: string }).code, "permission-denied");
+    }
+  });
+});

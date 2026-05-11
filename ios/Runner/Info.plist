@@ -53,6 +53,10 @@
 	<string>Postbox Game needs your location to find postboxes near you and verify you're close enough to claim one.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>Postbox Game needs your location to find postboxes near you and verify you're close enough to claim one.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Postbox Game uses the camera so you can attach a photo when reporting a problem with postbox data.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Postbox Game lets you attach photos from your library when reporting a problem with postbox data.</string>
 	<!-- Reversed iOS OAuth client ID (Firebase Auth client type 2). Google
 	     Sign-In needs this URL scheme registered so the OS can return to
 	     the app after the auth flow completes; without it, sign-in on iOS

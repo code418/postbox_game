@@ -7,6 +7,13 @@ export interface PostboxDoc {
   reference?: string;
   /** UK county / unitary authority name, set by import_postboxes.js. */
   county?: string;
+  /** "osm" (imported) or "user_report" (added from an accepted missing-postbox report). */
+  source?: string;
+  /** reports/{id} this postbox was created from (source === "user_report"). */
+  reportId?: string;
+  /** Admin uid that applied the last accepted cypher correction. */
+  correctedBy?: string;
+  correctedAt?: unknown;
   distance?: number;
   compass?: { exact?: string };
   dailyClaim?: { date: string; by: string };
@@ -20,4 +27,43 @@ export interface LookupResult {
   counts: { total: number; claimedToday: number; [monarch: string]: number };
   points: { max: number; min: number };
   compass: Record<string, number>;
+}
+
+/** A photo attached to a problem report (stored under report_photos/{uid}/). */
+export interface ReportPhoto {
+  storagePath: string;
+  /** GPS extracted from the photo's EXIF on the client, when present. */
+  exifLat?: number;
+  exifLng?: number;
+  /** ISO timestamp from the photo's EXIF DateTimeOriginal, when present. */
+  takenAt?: string;
+}
+
+/** A user-submitted report about a problem with postbox data (reports/{id}). */
+export interface ReportDoc {
+  type: "missing_postbox" | "wrong_cypher";
+  status: "pending" | "accepted" | "rejected";
+  reporterUid: string;
+  createdAt?: unknown;
+  note?: string;
+  photos: ReportPhoto[];
+  // missing_postbox:
+  lat?: number;
+  lng?: number;
+  accuracyMeters?: number;
+  // wrong_cypher:
+  postboxId?: string;
+  overpassId?: number;
+  currentMonarch?: string | null;
+  // suggested correction (both types):
+  suggestedMonarch?: string | null;
+  suggestedReference?: string;
+  // review:
+  reviewedBy?: string;
+  reviewedAt?: unknown;
+  reviewNote?: string;
+  appliedToFirestore?: boolean;
+  osmStatus?: "not_started" | "changeset_generated" | "changeset_failed";
+  osmChangesetPath?: string;
+  osmEditUrl?: string;
 }

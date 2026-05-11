@@ -6,6 +6,7 @@ import { updateDisplayName } from "./updateDisplayName";
 import { newDayScoreboard } from "./newDayScoreboard";
 import { registerFcmToken, onFriendAdded } from "./_notifications";
 import { userClaimHistory } from "./userClaimHistory";
+import { submitReport, reviewReport } from "./reports";
 
 export {
   nearbyPostboxes,
@@ -16,4 +17,6 @@ export {
   registerFcmToken,
   onFriendAdded,
   userClaimHistory,
+  submitReport,
+  reviewReport,
 };

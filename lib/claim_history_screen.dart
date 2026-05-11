@@ -3,14 +3,17 @@ import 'dart:math' as math;
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:postbox_game/app_preferences.dart' show ViewMode;
 import 'package:postbox_game/monarch_info.dart';
+import 'package:postbox_game/reports/report_cypher_screen.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/widgets/postbox_map.dart';
 import 'package:postbox_game/widgets/postbox_marker.dart';
+import 'package:postbox_game/widgets/view_toggle.dart';
 
-/// A per-period map of the signed-in user's past claims. Pins are deduped per
-/// unique postbox (one pin per box, with the detail sheet showing how many
-/// times it was claimed and when).
+/// A per-period view of the signed-in user's past claims, as either a map of
+/// deduped postbox pins or a scrollable list. Tapping a pin/row opens a detail
+/// sheet (times claimed, dates, points) with a "report wrong cypher" action.
 ///
 /// The four tabs — Today, This week, This month, Lifetime — call the
 /// `userClaimHistory` Cloud Function, which joins each claim against its
@@ -32,6 +35,7 @@ class _ClaimHistoryScreenState extends State<ClaimHistoryScreen>
     'lifetime': 'Lifetime',
   };
   late final TabController _tabController;
+  ViewMode _view = ViewMode.list;
 
   @override
   void initState() {
@@ -51,11 +55,21 @@ class _ClaimHistoryScreenState extends State<ClaimHistoryScreen>
       children: [
         Container(
           color: Theme.of(context).colorScheme.surface,
-          child: TabBar(
-            controller: _tabController,
-            isScrollable: true,
-            tabAlignment: TabAlignment.start,
-            tabs: _periods.map((p) => Tab(text: _labels[p])).toList(),
+          child: Row(
+            children: [
+              Expanded(
+                child: TabBar(
+                  controller: _tabController,
+                  isScrollable: true,
+                  tabAlignment: TabAlignment.start,
+                  tabs: _periods.map((p) => Tab(text: _labels[p])).toList(),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
+                child: ViewToggle(mode: _view, onChanged: (m) => setState(() => _view = m)),
+              ),
+            ],
           ),
         ),
         const Divider(height: 1),
@@ -63,7 +77,7 @@ class _ClaimHistoryScreenState extends State<ClaimHistoryScreen>
           child: TabBarView(
             controller: _tabController,
             children: _periods
-                .map((p) => _HistoryMapTab(key: ValueKey('history_$p'), period: p))
+                .map((p) => _HistoryTab(key: ValueKey('history_$p'), period: p, view: _view))
                 .toList(),
           ),
         ),
@@ -72,17 +86,18 @@ class _ClaimHistoryScreenState extends State<ClaimHistoryScreen>
   }
 }
 
-/// One map view per period. Kept alive by [AutomaticKeepAliveClientMixin] so
-/// swiping between tabs doesn't refetch on every change.
-class _HistoryMapTab extends StatefulWidget {
-  const _HistoryMapTab({super.key, required this.period});
+/// One tab per period. Kept alive by [AutomaticKeepAliveClientMixin] so swiping
+/// between tabs doesn't refetch on every change.
+class _HistoryTab extends StatefulWidget {
+  const _HistoryTab({super.key, required this.period, required this.view});
   final String period;
+  final ViewMode view;
 
   @override
-  State<_HistoryMapTab> createState() => _HistoryMapTabState();
+  State<_HistoryTab> createState() => _HistoryTabState();
 }
 
-class _HistoryMapTabState extends State<_HistoryMapTab>
+class _HistoryTabState extends State<_HistoryTab>
     with AutomaticKeepAliveClientMixin {
   late Future<List<ClaimHistoryEntry>> _future;
 
@@ -131,39 +146,9 @@ class _HistoryMapTabState extends State<_HistoryMapTab>
         if (entries.isEmpty) {
           return _EmptyState(period: widget.period, onRefresh: _refresh);
         }
-        final points = entries.map((e) => LatLng(e.lat, e.lng)).toList();
-        return Stack(
-          children: [
-            PostboxMap(
-              center: _centroid(points),
-              zoom: _zoomForSpan(points),
-              markers: entries
-                  .map((e) => postboxMarker(
-                        LatLng(e.lat, e.lng),
-                        cipher: e.monarch,
-                        onTap: () => _showEntryDetails(context, e),
-                      ))
-                  .toList(),
-            ),
-            // Refresh overlay: keep-alive tabs fetch once in initState, so
-            // without this the map would show stale data until app restart
-            // after the user claims a new postbox.
-            Positioned(
-              top: AppSpacing.sm,
-              right: AppSpacing.sm,
-              child: Material(
-                color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.9),
-                shape: const CircleBorder(),
-                elevation: 2,
-                child: IconButton(
-                  icon: const Icon(Icons.refresh, color: postalRed),
-                  tooltip: 'Refresh',
-                  onPressed: _refresh,
-                ),
-              ),
-            ),
-          ],
-        );
+        return widget.view == ViewMode.list
+            ? _HistoryList(entries: entries, onRefresh: _refresh, onTap: (e) => _showEntryDetails(context, e))
+            : _HistoryMap(entries: entries, onRefresh: _refresh, onTap: (e) => _showEntryDetails(context, e));
       },
     );
   }
@@ -172,6 +157,84 @@ class _HistoryMapTabState extends State<_HistoryMapTab>
     showModalBottomSheet<void>(
       context: context,
       builder: (_) => _EntryDetailSheet(entry: entry),
+    );
+  }
+}
+
+class _HistoryMap extends StatelessWidget {
+  const _HistoryMap({required this.entries, required this.onRefresh, required this.onTap});
+  final List<ClaimHistoryEntry> entries;
+  final Future<void> Function() onRefresh;
+  final void Function(ClaimHistoryEntry) onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final points = entries.map((e) => LatLng(e.lat, e.lng)).toList();
+    return Stack(
+      children: [
+        PostboxMap(
+          center: _centroid(points),
+          zoom: _zoomForSpan(points),
+          markers: entries
+              .map((e) => postboxMarker(LatLng(e.lat, e.lng), cipher: e.monarch, onTap: () => onTap(e)))
+              .toList(),
+        ),
+        // Refresh overlay: keep-alive tabs fetch once in initState, so without
+        // this the map would show stale data until app restart after a claim.
+        Positioned(
+          top: AppSpacing.sm,
+          right: AppSpacing.sm,
+          child: Material(
+            color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.9),
+            shape: const CircleBorder(),
+            elevation: 2,
+            child: IconButton(
+              icon: const Icon(Icons.refresh, color: postalRed),
+              tooltip: 'Refresh',
+              onPressed: onRefresh,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _HistoryList extends StatelessWidget {
+  const _HistoryList({required this.entries, required this.onRefresh, required this.onTap});
+  final List<ClaimHistoryEntry> entries;
+  final Future<void> Function() onRefresh;
+  final void Function(ClaimHistoryEntry) onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return RefreshIndicator(
+      color: postalRed,
+      onRefresh: onRefresh,
+      child: ListView.separated(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(AppSpacing.md, AppSpacing.md, AppSpacing.md, kJamesStripClearance),
+        itemCount: entries.length,
+        separatorBuilder: (_, __) => const SizedBox(height: AppSpacing.sm),
+        itemBuilder: (_, i) {
+          final e = entries[i];
+          final label = e.monarch != null ? (MonarchInfo.labels[e.monarch!] ?? e.monarch!) : 'Unknown cipher';
+          final color = (e.monarch != null ? MonarchInfo.colors[e.monarch!] : null) ?? postalRed;
+          return Card(
+            child: ListTile(
+              leading: CircleAvatar(backgroundColor: color, child: const Icon(Icons.markunread_mailbox, color: Colors.white, size: 20)),
+              title: Text(label),
+              subtitle: Text(
+                '${e.timesClaimed == 1 ? 'Claimed once' : 'Claimed ${e.timesClaimed} times'}'
+                ' · ${e.totalPoints} pt${e.totalPoints == 1 ? '' : 's'}'
+                '${e.reference != null && e.reference!.isNotEmpty ? ' · Ref ${e.reference}' : ''}',
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => onTap(e),
+            ),
+          );
+        },
+      ),
     );
   }
 }
@@ -305,6 +368,24 @@ class _EntryDetailSheet extends StatelessWidget {
               label: entry.totalPoints == 1
                   ? '1 point earned'
                   : '${entry.totalPoints} points earned',
+            ),
+            const SizedBox(height: AppSpacing.md),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => ReportCypherScreen(
+                      postboxId: entry.postboxId,
+                      currentMonarch: entry.monarch,
+                      reference: entry.reference,
+                    ),
+                  ));
+                },
+                icon: const Icon(Icons.flag_outlined),
+                label: const Text('Report wrong cypher'),
+              ),
             ),
           ],
         ),

@@ -267,6 +267,17 @@ abstract final class JamesMessages {
     ],
   );
 
+  // ── Problem reports ──────────────────────────────────────────────────────
+
+  static const reportSent = JamesMessage(
+    'jamesReportSent',
+    [
+      "Report logged. I'll have a word with the sorting office.",
+      "Noted, and passed up the chain. Cheers for keeping the records straight.",
+      "Good spot. If it checks out we'll fix the data... and re-score your claims where it matters.",
+    ],
+  );
+
   // ── Intro dialogue ───────────────────────────────────────────────────────
 
   static const introStep2 = JamesMessage(
