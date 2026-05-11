@@ -236,6 +236,11 @@ class _WearCompassPageState extends State<WearCompassPage> {
                 painter: FuzzyCompassPainter(
                   sectors: sectorValues,
                   rotation: rotation,
+                  // Without this the painter falls back to its near-black
+                  // default, making the background sector ring (and the
+                  // counter-rotated 'N' label backdrop) invisible against the
+                  // watch's black canvas. Use the theme's onSurface (white).
+                  onSurface: Theme.of(context).colorScheme.onSurface,
                 ),
               ),
             ),
