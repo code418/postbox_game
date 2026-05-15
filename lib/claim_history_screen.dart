@@ -35,7 +35,9 @@ class _ClaimHistoryScreenState extends State<ClaimHistoryScreen>
     'lifetime': 'Lifetime',
   };
   late final TabController _tabController;
-  ViewMode _view = ViewMode.list;
+  // Default to the map view: the History screen's killer feature is seeing
+  // where you've been; the list is the supporting detail view.
+  ViewMode _view = ViewMode.map;
 
   @override
   void initState() {
@@ -55,24 +57,26 @@ class _ClaimHistoryScreenState extends State<ClaimHistoryScreen>
       children: [
         Container(
           color: Theme.of(context).colorScheme.surface,
-          child: Row(
-            children: [
-              Expanded(
-                child: TabBar(
-                  controller: _tabController,
-                  isScrollable: true,
-                  tabAlignment: TabAlignment.start,
-                  tabs: _periods.map((p) => Tab(text: _labels[p])).toList(),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
-                child: ViewToggle(mode: _view, onChanged: (m) => setState(() => _view = m)),
-              ),
-            ],
+          width: double.infinity,
+          // Full-width TabBar — the List/Map toggle moved to its own row below
+          // so the period tabs no longer have to fight it for horizontal space.
+          child: TabBar(
+            controller: _tabController,
+            isScrollable: true,
+            tabAlignment: TabAlignment.start,
+            tabs: _periods.map((p) => Tab(text: _labels[p])).toList(),
           ),
         ),
         const Divider(height: 1),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+              AppSpacing.md, AppSpacing.xs, AppSpacing.md, AppSpacing.xs),
+          child: ViewToggle(
+            mode: _view,
+            expand: true,
+            onChanged: (m) => setState(() => _view = m),
+          ),
+        ),
         Expanded(
           child: TabBarView(
             controller: _tabController,
@@ -384,7 +388,9 @@ class _EntryDetailSheet extends StatelessWidget {
                   ));
                 },
                 icon: const Icon(Icons.flag_outlined),
-                label: const Text('Report wrong cypher'),
+                label: Text(entry.monarch == null
+                    ? 'Report missing cypher'
+                    : 'Report wrong cypher'),
               ),
             ),
           ],
