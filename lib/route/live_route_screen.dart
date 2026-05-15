@@ -74,12 +74,24 @@ class LiveRouteScreen extends StatefulWidget {
   /// Inject an empty stream or null in tests to skip the platform channel.
   final Stream<CompassEvent>? compassStreamOverride;
 
+  /// Injectable `nearbyPostboxes` callable forwarded into [ClaimQuizSheet].
+  /// When null, [ClaimQuizSheet] uses the real Firebase callable.
+  /// Supply in tests to keep the sheet fully headless.
+  final NearbyPostboxesCallableFn? nearbyCallableForSheet;
+
+  /// Injectable `startScoring` callable forwarded into [ClaimQuizSheet].
+  /// When null, [ClaimQuizSheet] uses the real Firebase callable.
+  /// Supply in tests to keep the sheet fully headless.
+  final StartScoringCallableFn? startScoringCallableForSheet;
+
   const LiveRouteScreen({
     super.key,
     required this.session,
     this.positionStreamOverride,
     this.nearbyCallable,
     this.compassStreamOverride,
+    this.nearbyCallableForSheet,
+    this.startScoringCallableForSheet,
   });
 
   @override
@@ -370,6 +382,8 @@ class _LiveRouteScreenState extends State<LiveRouteScreen> {
         builder: (_, scrollController) => ClaimQuizSheet(
           scanPosition: scanPos,
           compact: true,
+          nearbyCallable: widget.nearbyCallableForSheet,
+          startScoringCallable: widget.startScoringCallableForSheet,
           onCompleted: (result) {
             Navigator.of(context).pop(result);
           },

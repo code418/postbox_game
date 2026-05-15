@@ -20,6 +20,22 @@ import 'package:postbox_game/widgets/postbox_map.dart';
 import 'package:postbox_game/widgets/postbox_marker.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Callable typedefs (injectable for testing)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Matches the signature of [HttpsCallable.call] for the `nearbyPostboxes`
+/// function. Tests can inject a stub without subclassing the sealed
+/// [HttpsCallable].
+typedef NearbyPostboxesCallableFn
+    = Future<HttpsCallableResult<dynamic>> Function(Map<String, dynamic>);
+
+/// Matches the signature of [HttpsCallable.call] for the `startScoring`
+/// function. Tests can inject a stub without subclassing the sealed
+/// [HttpsCallable].
+typedef StartScoringCallableFn
+    = Future<HttpsCallableResult<dynamic>> Function(Map<String, dynamic>);
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Result type
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -93,6 +109,8 @@ class ClaimQuizSheet extends StatefulWidget {
     this.onCancel,
     this.compact = false,
     this.streakStream,
+    this.nearbyCallable,
+    this.startScoringCallable,
   });
 
   /// The geographic position to scan around (passed in from the Claim screen
@@ -118,6 +136,16 @@ class ClaimQuizSheet extends StatefulWidget {
   /// cached stream so there is only one [StreakService] subscription at a time.
   /// When null the streak chip is omitted from [_buildClaimed].
   final Stream<int?>? streakStream;
+
+  /// Injectable stub for the `nearbyPostboxes` Firebase callable.
+  /// When null, defaults to [FirebaseFunctions.instance.httpsCallable].
+  /// Inject in tests to avoid real Firebase initialisation.
+  final NearbyPostboxesCallableFn? nearbyCallable;
+
+  /// Injectable stub for the `startScoring` Firebase callable.
+  /// When null, defaults to [FirebaseFunctions.instance.httpsCallable].
+  /// Inject in tests to avoid real Firebase initialisation.
+  final StartScoringCallableFn? startScoringCallable;
 
   @override
   State<ClaimQuizSheet> createState() => _ClaimQuizSheetState();
@@ -154,15 +182,22 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
   late ConfettiController _confettiController;
 
   // ── Services ──────────────────────────────────────────────────────────────
-  final HttpsCallable _nearbyCallable =
-      FirebaseFunctions.instance.httpsCallable('nearbyPostboxes');
-  final HttpsCallable _claimCallable =
-      FirebaseFunctions.instance.httpsCallable('startScoring');
+  late final NearbyPostboxesCallableFn _nearbyCallable;
+  late final StartScoringCallableFn _claimCallable;
   final HomeWidgetService _homeWidgetService = HomeWidgetService();
 
   @override
   void initState() {
     super.initState();
+
+    _nearbyCallable = widget.nearbyCallable ??
+        (payload) => FirebaseFunctions.instance
+            .httpsCallable('nearbyPostboxes')
+            .call(payload);
+    _claimCallable = widget.startScoringCallable ??
+        (payload) => FirebaseFunctions.instance
+            .httpsCallable('startScoring')
+            .call(payload);
 
     _successController = AnimationController(
       vsync: this,
@@ -211,7 +246,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
     try {
       _distanceUnit = await AppPreferences.getDistanceUnit();
 
-      final result = await _nearbyCallable.call(<String, dynamic>{
+      final result = await _nearbyCallable(<String, dynamic>{
         'lat': widget.scanPosition.latitude,
         'lng': widget.scanPosition.longitude,
         'meters': AppPreferences.claimRadiusMeters,
@@ -315,7 +350,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
     HapticFeedback.mediumImpact();
     try {
       final position = await getPosition();
-      final result = await _claimCallable.call(<String, dynamic>{
+      final result = await _claimCallable(<String, dynamic>{
         'lat': position.latitude,
         'lng': position.longitude,
       });
