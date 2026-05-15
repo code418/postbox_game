@@ -2097,9 +2097,9 @@ describe("filterToCorridor", () => {
   });
 
   it("returns empty array when half-width is 0 and no candidate is exactly on-line", () => {
-    // pb_near is 0.001° off, so expect only pb_on (perp dist ≈ 0 m numerically).
+    // pb_near is 0.001° off; pb_on lies exactly on the segment so its perp dist is 0.
     const result = filterToCorridor(makeCandidates(), start, end, 0);
-    // pb_on has near-zero perp dist; pb_near does not — so at most 1 returned.
-    assert.ok(result.length <= 1);
+    // Exactly one candidate (pb_on) has zero perpendicular distance.
+    assert.strictEqual(result.length, 1);
   });
 });

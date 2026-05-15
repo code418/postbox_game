@@ -31,7 +31,6 @@ export type SearchState = {
   current: Point;
   currentId: string;
   visited: Set<string>;
-  visitedKey: string;
   timeUsed: number;
   score: number;
   route: RouteStop[];
@@ -97,6 +96,7 @@ export function filterToCorridor(
     const py = (c.lat - start.lat) * mPerLat;
 
     // Projection parameter along segment (0 = start, 1 = end).
+    // degenerate segment: every candidate is "on" it; filter by distance to start instead.
     const t = segLenSq > 0 ? (px * sx + py * sy) / segLenSq : 0;
     if (t < 0 || t > 1) continue;
 
@@ -129,7 +129,6 @@ export function beamSearchOrienteering(
     current: start,
     currentId: "__START__",
     visited: new Set(),
-    visitedKey: "",
     timeUsed: 0,
     score: 0,
     route: [],
@@ -152,8 +151,7 @@ export function beamSearchOrienteering(
 
         const visited = new Set(state.visited);
         visited.add(c.id);
-        const visitedKey = Array.from(visited).sort().join("|");
-        const dedupKey = `${c.id}|${visitedKey}`;
+        const dedupKey = `${c.id}|${Array.from(visited).sort().join("|")}`;
         const existing = dedup.get(dedupKey);
         if (existing && existing.timeUsed <= newTime) continue;
 
@@ -161,7 +159,6 @@ export function beamSearchOrienteering(
           current: { lat: c.lat, lng: c.lng },
           currentId: c.id,
           visited,
-          visitedKey,
           timeUsed: newTime,
           score: state.score + c.points,
           route: [...state.route, { postbox: c, legMeters: legMetres, cumSeconds: newTime }],
