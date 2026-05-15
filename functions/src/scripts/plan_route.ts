@@ -21,36 +21,17 @@
 import * as fs from "fs";
 import * as admin from "firebase-admin";
 import * as geohash from "ngeohash";
-import * as geolib from "geolib";
 import { pointsForMonarch, KNOWN_MONARCHS } from "../_getPoints";
-
-type Point = { lat: number; lng: number };
-
-type Candidate = {
-  id: string;
-  lat: number;
-  lng: number;
-  monarch: string | null;
-  points: number;
-  reference?: string;
-  county?: string;
-};
-
-type RouteStop = {
-  postbox: Candidate;
-  legMeters: number;
-  cumSeconds: number;
-};
-
-type SearchState = {
-  current: Point;
-  currentId: string;
-  visited: Set<string>;
-  visitedKey: string;
-  timeUsed: number;
-  score: number;
-  route: RouteStop[];
-};
+import {
+  type Point,
+  type Candidate,
+  type RouteStop,
+  metresBetween,
+  midpoint,
+  filterToEllipse,
+  beamSearchOrienteering,
+  finaliseRoute,
+} from "../_routePlanner";
 
 type Options = {
   start: Point;
@@ -237,108 +218,6 @@ function loadFromFile(path: string): Candidate[] {
   return out;
 }
 
-// ---------- geometry helpers ----------
-
-function metresBetween(a: Point, b: Point): number {
-  return geolib.getDistance({ latitude: a.lat, longitude: a.lng }, { latitude: b.lat, longitude: b.lng });
-}
-
-function midpoint(a: Point, b: Point): Point {
-  // Crude midpoint — fine at city scale where the haversine vs planar error is negligible.
-  return { lat: (a.lat + b.lat) / 2, lng: (a.lng + b.lng) / 2 };
-}
-
-// ---------- beam-search orienteering ----------
-
-function filterToEllipse(candidates: Candidate[], start: Point, end: Point, budgetMetres: number): Candidate[] {
-  const out: Candidate[] = [];
-  for (const c of candidates) {
-    const p: Point = { lat: c.lat, lng: c.lng };
-    if (metresBetween(start, p) + metresBetween(p, end) <= budgetMetres) out.push(c);
-  }
-  return out;
-}
-
-function finalise(state: SearchState, end: Point, speedMps: number): {
-  state: SearchState;
-  closingMetres: number;
-  closingSeconds: number;
-  totalMetres: number;
-  totalSeconds: number;
-} {
-  const closingMetres = metresBetween(state.current, end);
-  const closingSeconds = closingMetres / speedMps;
-  const totalSeconds = state.timeUsed + closingSeconds;
-  const totalMetres = state.route.reduce((s, r) => s + r.legMeters, 0) + closingMetres;
-  return { state, closingMetres, closingSeconds, totalMetres, totalSeconds };
-}
-
-function beamSearch(
-  start: Point,
-  end: Point,
-  candidates: Candidate[],
-  budgetSeconds: number,
-  speedMps: number,
-  perClaimSeconds: number,
-  beamWidth: number,
-): SearchState {
-  const initial: SearchState = {
-    current: start,
-    currentId: "__START__",
-    visited: new Set(),
-    visitedKey: "",
-    timeUsed: 0,
-    score: 0,
-    route: [],
-  };
-
-  let best = initial;
-  let beam: SearchState[] = [initial];
-
-  while (beam.length > 0) {
-    const next: SearchState[] = [];
-    const dedup = new Map<string, SearchState>();
-
-    for (const state of beam) {
-      for (const c of candidates) {
-        if (state.visited.has(c.id)) continue;
-        const legMetres = metresBetween(state.current, { lat: c.lat, lng: c.lng });
-        const closingMetres = metresBetween({ lat: c.lat, lng: c.lng }, end);
-        const newTime = state.timeUsed + legMetres / speedMps + perClaimSeconds;
-        if (newTime + closingMetres / speedMps > budgetSeconds) continue;
-
-        const visited = new Set(state.visited);
-        visited.add(c.id);
-        const visitedKey = Array.from(visited).sort().join("|");
-        const dedupKey = `${c.id}|${visitedKey}`;
-        const existing = dedup.get(dedupKey);
-        if (existing && existing.timeUsed <= newTime) continue;
-
-        const candidateState: SearchState = {
-          current: { lat: c.lat, lng: c.lng },
-          currentId: c.id,
-          visited,
-          visitedKey,
-          timeUsed: newTime,
-          score: state.score + c.points,
-          route: [...state.route, { postbox: c, legMeters: legMetres, cumSeconds: newTime }],
-        };
-        dedup.set(dedupKey, candidateState);
-      }
-    }
-
-    for (const s of dedup.values()) {
-      next.push(s);
-      if (s.score > best.score || (s.score === best.score && s.timeUsed < best.timeUsed)) best = s;
-    }
-
-    next.sort((a, b) => (b.score - a.score) || (a.timeUsed - b.timeUsed));
-    beam = next.slice(0, beamWidth);
-  }
-
-  return best;
-}
-
 // ---------- formatting ----------
 
 function fmtMin(s: number): string {
@@ -369,7 +248,7 @@ function printReport(
   totalCandidates: number,
   retainedCandidates: number,
   directMetres: number,
-  result: ReturnType<typeof finalise>,
+  result: ReturnType<typeof finaliseRoute>,
 ): void {
   const { state, closingMetres, totalMetres, totalSeconds } = result;
   const budgetSeconds = opts.minutes * 60;
@@ -445,7 +324,7 @@ async function main(): Promise<void> {
   const inEllipse = filterToEllipse(allCandidates, opts.start, opts.end, budgetMetres);
   process.stderr.write(`Filtered to ${inEllipse.length} candidates inside the time ellipse.\n`);
 
-  const bestState = beamSearch(
+  const bestState = beamSearchOrienteering(
     opts.start,
     opts.end,
     inEllipse,
@@ -455,7 +334,7 @@ async function main(): Promise<void> {
     opts.beam,
   );
 
-  const result = finalise(bestState, opts.end, speedMps);
+  const result = finaliseRoute(bestState, opts.end, speedMps);
   printReport(opts, allCandidates.length, inEllipse.length, directMetres, result);
 }
 

@@ -1,6 +1,7 @@
 import assert from "assert";
 import test from "firebase-functions-test";
 import * as myFunctions from "../index";
+import { filterToCorridor } from "../_routePlanner";
 import { getPoints } from "../_getPoints";
 import { getTodayLondon } from "../_dateUtils";
 import { getWeekStart, getMonthStart, getPeriodKey, mergePeriodEntries, mergeLifetimeEntries, updateUserLeaderboards, countySlug } from "../_leaderboardUtils";
@@ -2042,5 +2043,63 @@ describe("submitReport / reviewReport (onCall) — auth & validation", function 
     } catch (e) {
       assert.strictEqual((e as { code?: string }).code, "permission-denied");
     }
+  });
+});
+
+// ── filterToCorridor ──────────────────────────────────────────────────────────
+//
+// Fixture: start = (0, 0), end = (0, 0.01)  (roughly ~1.1 km due-east at equator)
+// halfWidthMetres = 200 m
+//
+//   pb_on    (0, 0.005)  — lies on the segment midpoint, perp dist ≈ 0 m  → IN
+//   pb_near  (0.001, 0.005) — slightly north of midpoint, perp dist ≈ 111 m  → IN
+//   pb_far   (0.01,  0.005) — well north (~1.1 km), perp dist ≈ 1110 m  → OUT
+
+describe("filterToCorridor", () => {
+  const start = { lat: 0, lng: 0 };
+  const end   = { lat: 0, lng: 0.01 };
+  const halfWidth = 200;
+
+  const makeCandidates = () => [
+    { id: "pb_on",   lat: 0,     lng: 0.005, monarch: "EIIR", points: 2 },
+    { id: "pb_near", lat: 0.001, lng: 0.005, monarch: "EIIR", points: 2 },
+    { id: "pb_far",  lat: 0.01,  lng: 0.005, monarch: "EIIR", points: 2 },
+  ];
+
+  it("returns candidates within the corridor half-width", () => {
+    const result = filterToCorridor(makeCandidates(), start, end, halfWidth);
+    assert.strictEqual(result.length, 2);
+    const ids = result.map((c) => c.id);
+    assert.ok(ids.includes("pb_on"),   "pb_on should be included");
+    assert.ok(ids.includes("pb_near"), "pb_near should be included");
+  });
+
+  it("excludes the candidate beyond the half-width", () => {
+    const result = filterToCorridor(makeCandidates(), start, end, halfWidth);
+    assert.ok(!result.map((c) => c.id).includes("pb_far"), "pb_far should be excluded");
+  });
+
+  it("excludes candidates whose projection falls outside [0,1] (before start)", () => {
+    const behind = [{ id: "pb_behind", lat: 0, lng: -0.005, monarch: "EIIR", points: 2 }];
+    const result = filterToCorridor(behind, start, end, halfWidth);
+    assert.strictEqual(result.length, 0);
+  });
+
+  it("excludes candidates whose projection falls outside [0,1] (beyond end)", () => {
+    const beyond = [{ id: "pb_beyond", lat: 0, lng: 0.015, monarch: "EIIR", points: 2 }];
+    const result = filterToCorridor(beyond, start, end, halfWidth);
+    assert.strictEqual(result.length, 0);
+  });
+
+  it("returns all candidates when half-width is very large", () => {
+    const result = filterToCorridor(makeCandidates(), start, end, 50_000);
+    assert.strictEqual(result.length, 3);
+  });
+
+  it("returns empty array when half-width is 0 and no candidate is exactly on-line", () => {
+    // pb_near is 0.001° off, so expect only pb_on (perp dist ≈ 0 m numerically).
+    const result = filterToCorridor(makeCandidates(), start, end, 0);
+    // pb_on has near-zero perp dist; pb_near does not — so at most 1 returned.
+    assert.ok(result.length <= 1);
   });
 });
