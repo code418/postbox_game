@@ -10,7 +10,8 @@
     "start": "npm run shell",
     "deploy": "firebase deploy --only functions",
     "logs": "firebase functions:log",
-    "test": "npm run build && nyc mocha lib/test/test.index.js --reporter spec"
+    "test": "npm run build && nyc mocha lib/test/test.index.js --reporter spec",
+    "plan-route": "npm run build && node lib/scripts/plan_route.js"
   },
   "engines": {
     "node": "22"
