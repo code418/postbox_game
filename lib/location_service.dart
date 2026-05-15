@@ -48,3 +48,38 @@ Future<Position> getPosition({bool forceLocationManager = false}) async {
         );
   return Geolocator.getCurrentPosition(locationSettings: settings);
 }
+
+/// Returns a continuous stream of GPS positions for live tracking.
+///
+/// Callers must have already acquired location permission (e.g. via
+/// [getPosition]) before subscribing. The stream surfaces platform errors
+/// (permission denied, services off) directly as stream errors — it does
+/// **not** request permissions itself.
+///
+/// [accuracy] defaults to [LocationAccuracy.bestForNavigation] for the
+/// turn-by-turn fidelity needed by the live-route screen.
+/// [distanceFilterMetres] suppresses updates smaller than this distance
+/// (default 5 m) to avoid flooding the UI.
+///
+/// Pass [forceLocationManager] to bypass Play Services fused location and use
+/// Android's core `LocationManager` instead — required on Wear OS where the
+/// fused provider is not available.
+Stream<Position> positionStream({
+  LocationAccuracy accuracy = LocationAccuracy.bestForNavigation,
+  int distanceFilterMetres = 5,
+  bool forceLocationManager = false,
+}) {
+  final useAndroidManager =
+      forceLocationManager && !kIsWeb && Platform.isAndroid;
+  final LocationSettings settings = useAndroidManager
+      ? AndroidSettings(
+          accuracy: accuracy,
+          distanceFilter: distanceFilterMetres,
+          forceLocationManager: true,
+        )
+      : LocationSettings(
+          accuracy: accuracy,
+          distanceFilter: distanceFilterMetres,
+        );
+  return Geolocator.getPositionStream(locationSettings: settings);
+}
