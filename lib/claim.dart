@@ -190,6 +190,7 @@ class _ClaimState extends State<Claim> {
         scanPosition: _scanPosition!,
         onCompleted: _onQuizCompleted,
         onCancel: _resetToInitial,
+        streakStream: _streakStream,
       );
     }
 

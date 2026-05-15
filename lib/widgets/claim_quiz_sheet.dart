@@ -15,7 +15,6 @@ import 'package:postbox_game/location_service.dart';
 import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/reports/report_missing_postbox_screen.dart';
 import 'package:postbox_game/services/home_widget_service.dart';
-import 'package:postbox_game/streak_service.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/widgets/postbox_map.dart';
 import 'package:postbox_game/widgets/postbox_marker.dart';
@@ -93,6 +92,7 @@ class ClaimQuizSheet extends StatefulWidget {
     required this.onCompleted,
     this.onCancel,
     this.compact = false,
+    this.streakStream,
   });
 
   /// The geographic position to scan around (passed in from the Claim screen
@@ -112,6 +112,12 @@ class ClaimQuizSheet extends StatefulWidget {
   /// When `true`, scales up buttons and adds extra bottom padding for
   /// one-handed reach in the route-mode bottom sheet. Default: `false`.
   final bool compact;
+
+  /// Optional streak stream supplied by the parent. When non-null the claimed
+  /// screen shows a streak chip driven by this stream. Pass the parent's own
+  /// cached stream so there is only one [StreakService] subscription at a time.
+  /// When null the streak chip is omitted from [_buildClaimed].
+  final Stream<int?>? streakStream;
 
   @override
   State<ClaimQuizSheet> createState() => _ClaimQuizSheetState();
@@ -152,11 +158,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
       FirebaseFunctions.instance.httpsCallable('nearbyPostboxes');
   final HttpsCallable _claimCallable =
       FirebaseFunctions.instance.httpsCallable('startScoring');
-  final StreakService _streakService = StreakService();
   final HomeWidgetService _homeWidgetService = HomeWidgetService();
-
-  // Cached so StreamBuilder doesn't re-subscribe on every rebuild.
-  late final Stream<int?> _streakStream = _streakService.streakStream();
 
   @override
   void initState() {
@@ -200,9 +202,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
   // ── Search ────────────────────────────────────────────────────────────────
 
   Future<void> _runSearch() async {
-    if (_stage == _QuizStage.searching) {
-      // Already in searching state from initState; don't double-set.
-    } else {
+    if (_stage != _QuizStage.searching) {
       setState(() => _stage = _QuizStage.searching);
     }
 
@@ -535,6 +535,12 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
     );
   }
 
+  // ── Layout constants ──────────────────────────────────────────────────────
+
+  double get _bottomPad => widget.compact ? 120.0 : kJamesStripClearance;
+  double get _buttonHeight => widget.compact ? 60.0 : 52.0;
+  double get _optionHeight => widget.compact ? 68.0 : 56.0;
+
   // ── Map helper ─────────────────────────────────────────────────────────────
 
   Widget _claimRadiusMap({bool scanning = false, bool success = false}) {
@@ -669,10 +675,9 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
   // ── Stage builders ────────────────────────────────────────────────────────
 
   Widget _buildSearching(BuildContext context) {
-    final bottomPad = widget.compact ? 120.0 : kJamesStripClearance;
     return Padding(
       padding: EdgeInsets.fromLTRB(
-          AppSpacing.md, AppSpacing.lg, AppSpacing.md, bottomPad),
+          AppSpacing.md, AppSpacing.lg, AppSpacing.md, _bottomPad),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
@@ -688,17 +693,16 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
   }
 
   Widget _buildEmpty(BuildContext context) {
-    final bottomPad = widget.compact ? 120.0 : 100.0;
     return LayoutBuilder(
       builder: (context, constraints) => SingleChildScrollView(
         padding: EdgeInsets.only(
           top: AppSpacing.xl,
           left: AppSpacing.xl,
           right: AppSpacing.xl,
-          bottom: bottomPad,
+          bottom: _bottomPad,
         ),
         child: ConstrainedBox(
-          constraints: BoxConstraints(minHeight: constraints.maxHeight - bottomPad),
+          constraints: BoxConstraints(minHeight: constraints.maxHeight - _bottomPad),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -757,14 +761,12 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
   }
 
   Widget _buildResults(BuildContext context) {
-    final bottomPad = widget.compact ? 120.0 : 100.0;
-    final buttonHeight = widget.compact ? 60.0 : 52.0;
     return Stack(
       children: [
         ListView(
           padding: EdgeInsets.only(
             top: AppSpacing.md,
-            bottom: bottomPad + 64,
+            bottom: _bottomPad + 64,
           ),
           children: [
             Padding(
@@ -783,7 +785,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
                 icon: const Icon(Icons.refresh),
                 label: const Text('Rescan location'),
                 style: OutlinedButton.styleFrom(
-                  minimumSize: Size(double.infinity, buttonHeight),
+                  minimumSize: Size(double.infinity, _buttonHeight),
                 ),
               ),
             ),
@@ -792,7 +794,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
         Positioned(
           left: AppSpacing.md,
           right: AppSpacing.md,
-          bottom: bottomPad,
+          bottom: _bottomPad,
           child: _claimedToday == _count
               ? _buildAllClaimedBanner(context)
               : AbsorbPointer(
@@ -800,7 +802,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
                   child: FilledButton.icon(
                     onPressed: _isClaiming ? null : _startQuiz,
                     style: FilledButton.styleFrom(
-                      minimumSize: Size(double.infinity, buttonHeight),
+                      minimumSize: Size(double.infinity, _buttonHeight),
                     ),
                     icon: _isClaiming
                         ? const SizedBox(
@@ -875,19 +877,17 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
   }
 
   Widget _buildQuiz(BuildContext context) {
-    final bottomPad = widget.compact ? 120.0 : 100.0;
-    final optionHeight = widget.compact ? 68.0 : 56.0;
     return LayoutBuilder(
       builder: (context, constraints) => SingleChildScrollView(
         padding: EdgeInsets.only(
           top: AppSpacing.xl,
           left: AppSpacing.xl,
           right: AppSpacing.xl,
-          bottom: bottomPad,
+          bottom: _bottomPad,
         ),
         child: ConstrainedBox(
           constraints:
-              BoxConstraints(minHeight: constraints.maxHeight - bottomPad),
+              BoxConstraints(minHeight: constraints.maxHeight - _bottomPad),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -930,7 +930,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
                       onPressed:
                           _isClaiming ? null : () => _onQuizAnswer(code),
                       style: OutlinedButton.styleFrom(
-                        minimumSize: Size(double.infinity, optionHeight),
+                        minimumSize: Size(double.infinity, _optionHeight),
                         side: BorderSide(
                           color: isCorrectSelected
                               ? _success(context)
@@ -1001,19 +1001,17 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
   }
 
   Widget _buildQuizFailed(BuildContext context) {
-    final bottomPad = widget.compact ? 120.0 : 100.0;
-    final buttonHeight = widget.compact ? 60.0 : 52.0;
     return LayoutBuilder(
       builder: (context, constraints) => SingleChildScrollView(
         padding: EdgeInsets.only(
           top: AppSpacing.xl,
           left: AppSpacing.xl,
           right: AppSpacing.xl,
-          bottom: bottomPad,
+          bottom: _bottomPad,
         ),
         child: ConstrainedBox(
           constraints:
-              BoxConstraints(minHeight: constraints.maxHeight - bottomPad),
+              BoxConstraints(minHeight: constraints.maxHeight - _bottomPad),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -1037,7 +1035,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
               FilledButton.icon(
                 onPressed: () => setState(() => _stage = _QuizStage.results),
                 style: FilledButton.styleFrom(
-                  minimumSize: Size(double.infinity, buttonHeight),
+                  minimumSize: Size(double.infinity, _buttonHeight),
                 ),
                 icon: const Icon(Icons.arrow_back),
                 label: const Text('Try again'),
@@ -1055,8 +1053,6 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
   }
 
   Widget _buildClaimed(BuildContext context) {
-    final bottomPad = widget.compact ? 120.0 : 100.0;
-    final buttonHeight = widget.compact ? 60.0 : 52.0;
     return Stack(
       children: [
         LayoutBuilder(
@@ -1065,11 +1061,11 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
               top: AppSpacing.xl,
               left: AppSpacing.xl,
               right: AppSpacing.xl,
-              bottom: bottomPad,
+              bottom: _bottomPad,
             ),
             child: ConstrainedBox(
               constraints:
-                  BoxConstraints(minHeight: constraints.maxHeight - bottomPad),
+                  BoxConstraints(minHeight: constraints.maxHeight - _bottomPad),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -1112,28 +1108,29 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
                                 fontWeight: FontWeight.bold),
                       ),
                     ),
-                  StreamBuilder<int?>(
-                    stream: _streakStream,
-                    builder: (context, snap) {
-                      final streak = snap.data ?? 0;
-                      if (streak <= 0) return const SizedBox.shrink();
-                      return Padding(
-                        padding: const EdgeInsets.only(top: AppSpacing.sm),
-                        child: Text(
-                          streak == 1
-                              ? '🔥 Streak started!'
-                              : '🔥 $streak-day streak!',
-                          style: Theme.of(context).textTheme.titleMedium,
-                          textAlign: TextAlign.center,
-                        ),
-                      );
-                    },
-                  ),
+                  if (widget.streakStream != null)
+                    StreamBuilder<int?>(
+                      stream: widget.streakStream,
+                      builder: (context, snap) {
+                        final streak = snap.data ?? 0;
+                        if (streak <= 0) return const SizedBox.shrink();
+                        return Padding(
+                          padding: const EdgeInsets.only(top: AppSpacing.sm),
+                          child: Text(
+                            streak == 1
+                                ? '🔥 Streak started!'
+                                : '🔥 $streak-day streak!',
+                            style: Theme.of(context).textTheme.titleMedium,
+                            textAlign: TextAlign.center,
+                          ),
+                        );
+                      },
+                    ),
                   const SizedBox(height: AppSpacing.xxl),
                   FilledButton.icon(
                     onPressed: _completeSuccess,
                     style: FilledButton.styleFrom(
-                      minimumSize: Size(double.infinity, buttonHeight),
+                      minimumSize: Size(double.infinity, _buttonHeight),
                     ),
                     icon: const Icon(Icons.explore),
                     label: const Text('Keep exploring'),
