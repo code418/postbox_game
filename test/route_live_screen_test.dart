@@ -350,7 +350,10 @@ void main() {
       await tester.runAsync(() async {
         await Future<void>.delayed(const Duration(milliseconds: 100));
       });
-      await tester.pumpAndSettle();
+      // RouteCompletionScreen contains a ConfettiWidget that never "settles",
+      // so use bounded pumps rather than pumpAndSettle to avoid timing out.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
 
       // RouteCompletionScreen should be top of stack.
       expect(find.byType(RouteCompletionScreen), findsOneWidget);
@@ -487,10 +490,14 @@ void main() {
           ),
         ),
       );
+      // The new RouteCompletionScreen has a ConfettiWidget that never settles,
+      // so pump() is used instead of pumpAndSettle().
+      await tester.pump();
       expect(find.text('Route complete'), findsOneWidget);
-      expect(find.textContaining('14'), findsOneWidget);
-      expect(find.textContaining('3'), findsWidgets);
-      expect(find.textContaining('20.0 min'), findsOneWidget);
+      // 14 points, 3 postboxes, 1200 s = 20 min 00 sec.
+      expect(find.textContaining('14 points earned'), findsOneWidget);
+      expect(find.textContaining('3 postboxes claimed'), findsOneWidget);
+      expect(find.textContaining('20 min 00 sec'), findsOneWidget);
     });
 
     testWidgets('Done button is present', (tester) async {

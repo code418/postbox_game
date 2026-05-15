@@ -14,6 +14,7 @@ import 'package:postbox_game/widgets/claim_quiz_sheet.dart';
 
 import 'route_compass_view.dart';
 import 'route_completion_screen.dart';
+import 'route_notifications.dart';
 import 'route_session.dart';
 
 // ---------------------------------------------------------------------------
@@ -138,6 +139,10 @@ class _LiveRouteScreenState extends State<LiveRouteScreen> {
             FirebaseFunctions.instance
                 .httpsCallable('nearbyPostboxes')
                 .call(payload);
+
+    // Request notification permission once at screen mount.
+    // Failure is silently ignored — the in-app arrival flow still works.
+    RouteNotifications.requestPermission().ignore();
 
     // Subscribe to the device compass for heading.
     // Use the injected stream (if any) — otherwise fall back to FlutterCompass.
@@ -383,6 +388,19 @@ class _LiveRouteScreenState extends State<LiveRouteScreen> {
 
   void _navigateToCompletion() {
     if (!mounted) return;
+
+    // Fire the arrival notification before leaving the screen.
+    // Wrapped in try/catch so a notification failure never blocks navigation.
+    try {
+      RouteNotifications.notifyArrival(
+        destinationLabel: widget.session.destinationLabel,
+        pointsEarned: _pointsEarned,
+        claimedCount: _claimedCount,
+      ).ignore();
+    } catch (_) {
+      // Non-fatal: proceed to completion screen regardless.
+    }
+
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
         builder: (_) => RouteCompletionScreen(

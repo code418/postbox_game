@@ -27,6 +27,7 @@ import 'firebase_options.dart';
 import 'secrets.dart';
 import 'analytics_service.dart';
 import 'package:postbox_game/notification_service.dart';
+import 'package:postbox_game/route/route_notifications.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -62,6 +63,7 @@ void main() async {
   );
   await HomeWidgetService.init();
   await _checkInitialWidgetLaunch();
+  await RouteNotifications.initialise();
   runApp(const PostboxGame());
 }
 
