@@ -1,5 +1,7 @@
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // i18n NOTE (future)
 // When adding localisation, replace JamesMessage.resolve() with an
@@ -275,6 +277,94 @@ abstract final class JamesMessages {
       "Report logged. I'll have a word with the sorting office.",
       "Noted, and passed up the chain. Cheers for keeping the records straight.",
       "Good spot. If it checks out we'll fix the data... and re-score your claims where it matters.",
+    ],
+  );
+
+  // ── Route mode ───────────────────────────────────────────────────────────
+
+  /// Fires when the user enters Live Route mode.
+  static const routeStart = JamesMessage(
+    'jamesRouteStart',
+    [
+      "Right then, off we trot.",
+      "Best foot forward, eh?",
+      "Don't dawdle, there are postboxes to claim.",
+      "On your marks. Plenty out there, let's go.",
+      "A fine day for a walk. Let's make it count.",
+      "Right, I'll keep you company. Off we go.",
+      "Step lively, the postboxes won't claim themselves.",
+      "Ready when you are. Lead the way.",
+    ],
+  );
+
+  /// Fires when an unclaimed postbox is within ~50 m (one-shot per postbox).
+  static const routePostboxNearby = JamesMessage(
+    'jamesRoutePostboxNearby',
+    [
+      "Oi, there's one within whistling distance.",
+      "Look sharp, a claim is just around the corner.",
+      "Eyes peeled, we're getting close.",
+      "Hold on... there's one very nearby.",
+      "Can you smell that? That's the scent of points.",
+      "Nearly there, keep going.",
+      "Just a smidge further. You've got this.",
+      "Almost in range. Don't stop now.",
+    ],
+  );
+
+  /// Returns a direction hint phrase for one of "ahead", "left", "right",
+  /// "behind". Falls back to the "ahead" pool for unrecognised directions.
+  static String routeHint(String direction) {
+    final lists = <String, List<String>>{
+      'ahead': [
+        "Just keep ploughing on, mate.",
+        "Bit further straight on.",
+        "You're heading the right way. Carry on.",
+        "Straight ahead. Simple as that.",
+        "Keep going, you're on the right track.",
+      ],
+      'left': [
+        "Veer leftward, if you've the time.",
+        "Bear left a bit, I reckon.",
+        "Slight left from where you're standing.",
+        "Left a touch. Trust me on this one.",
+        "Nudge left and you should be in luck.",
+      ],
+      'right': [
+        "Right a bit, I reckon.",
+        "Bear right from here.",
+        "Try veering right, see how you get on.",
+        "Bit to the right. Off you go.",
+        "Right-ish. You'll figure it out.",
+      ],
+      'behind': [
+        "You're past it. Backtrack if you fancy.",
+        "It was behind you! Turn around.",
+        "Looks like you overshot. Worth doubling back.",
+        "Retrace your steps a little. It's back there.",
+        "Behind you, I'm afraid. No shame in it.",
+      ],
+    };
+    final pool = lists[direction];
+    if (pool == null) {
+      debugPrint('JamesMessages.routeHint: unrecognised direction "$direction", defaulting to "ahead"');
+      return routeHint('ahead');
+    }
+    return pool[_random.nextInt(pool.length)];
+  }
+
+  /// Fires when the user arrives at the destination.
+  static const routeArrival = JamesMessage(
+    'jamesRouteArrival',
+    [
+      "Tidy work, that.",
+      "Well there you go.",
+      "Right, that's a tidy round.",
+      "Made it! Not bad at all.",
+      "You got there in the end. Nicely done.",
+      "Destination reached. I am quietly impressed.",
+      "All the way there. Top effort.",
+      "Job done. Time for a sit-down, I'd say.",
     ],
   );
 

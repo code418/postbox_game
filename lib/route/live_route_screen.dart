@@ -8,6 +8,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:postbox_game/app_preferences.dart';
 import 'package:postbox_game/fuzzy_compass.dart';
 import 'package:postbox_game/james_controller.dart';
+import 'package:postbox_game/james_messages.dart';
 import 'package:postbox_game/location_service.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/widgets/claim_quiz_sheet.dart';
@@ -127,6 +128,10 @@ class _LiveRouteScreenState extends State<LiveRouteScreen> {
   // ── Arrived? ──────────────────────────────────────────────────────────────
   bool _arrived = false;
 
+  // ── James one-shot flags ──────────────────────────────────────────────────
+  /// Set to true after the first postbox-nearby James message fires this session.
+  bool _nearbyJamesFired = false;
+
   // ── Callable ──────────────────────────────────────────────────────────────
   late final NearbyCallableFn _nearby;
 
@@ -143,6 +148,13 @@ class _LiveRouteScreenState extends State<LiveRouteScreen> {
     // Request notification permission once at screen mount.
     // Failure is silently ignored — the in-app arrival flow still works.
     RouteNotifications.requestPermission().ignore();
+
+    // Fire the route-start James message once the widget is in the tree.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        JamesController.of(context)?.show(JamesMessages.routeStart.resolve());
+      }
+    });
 
     // Subscribe to the device compass for heading.
     // Use the injected stream (if any) — otherwise fall back to FlutterCompass.
@@ -340,6 +352,12 @@ class _LiveRouteScreenState extends State<LiveRouteScreen> {
     if (_claimSheetOpen) return;
     _claimSheetOpen = true;
 
+    // Fire postbox-nearby James message once per route session.
+    if (!_nearbyJamesFired) {
+      _nearbyJamesFired = true;
+      JamesController.of(context)?.show(JamesMessages.routePostboxNearby.resolve());
+    }
+
     showModalBottomSheet<ClaimQuizResult>(
       context: context,
       isScrollControlled: true,
@@ -474,8 +492,7 @@ class _LiveRouteScreenState extends State<LiveRouteScreen> {
 
   void _onHintTapped() {
     final direction = _pickHintDirection();
-    // T10 will swap in a proper JamesMessages pool for route mode.
-    JamesController.of(context)?.show('Try heading $direction.');
+    JamesController.of(context)?.show(JamesMessages.routeHint(direction));
   }
 
   // ── ETA helper ─────────────────────────────────────────────────────────────

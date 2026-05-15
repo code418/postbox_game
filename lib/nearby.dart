@@ -298,6 +298,13 @@ class _NearbyState extends State<Nearby> {
               icon: const Icon(Icons.search),
               label: const Text('Find nearby postboxes'),
             ),
+            const SizedBox(height: AppSpacing.sm),
+            OutlinedButton.icon(
+              onPressed: () =>
+                  Navigator.pushNamed(context, '/route'),
+              icon: const Icon(Icons.directions_walk),
+              label: const Text('Walk to a destination'),
+            ),
           ],
         ),
         ),

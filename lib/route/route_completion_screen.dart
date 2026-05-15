@@ -1,6 +1,7 @@
 import 'package:confetti/confetti.dart';
 import 'package:flutter/material.dart';
 import 'package:postbox_game/james_controller.dart';
+import 'package:postbox_game/james_messages.dart';
 import 'package:postbox_game/theme.dart';
 
 import 'route_session.dart';
@@ -54,7 +55,7 @@ class _RouteCompletionScreenState extends State<RouteCompletionScreen> {
       _jamesShown = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
-          JamesController.of(context)?.show('Tidy work, that.');
+          JamesController.of(context)?.show(JamesMessages.routeArrival.resolve());
         }
       });
     }

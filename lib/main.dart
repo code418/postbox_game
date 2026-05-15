@@ -27,6 +27,7 @@ import 'firebase_options.dart';
 import 'secrets.dart';
 import 'analytics_service.dart';
 import 'package:postbox_game/notification_service.dart';
+import 'package:postbox_game/route/destination_picker_screen.dart';
 import 'package:postbox_game/route/route_notifications.dart';
 
 void main() async {
@@ -194,6 +195,7 @@ class _PostboxGameState extends State<PostboxGame> {
             '/leaderboard': (context) => _guardRoute(context, () => const LeaderboardScreen()),
             '/history': (context) => _guardRoute(context, () => const ClaimHistoryScreen()),
             '/settings': (context) => _guardRoute(context, () => const SettingsScreen()),
+            '/route': (context) => _guardRoute(context, () => const DestinationPickerScreen()),
           }),
     );
   }

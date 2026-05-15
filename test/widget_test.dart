@@ -20,6 +20,9 @@ import 'package:postbox_game/streak_service.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/user_profile_page.dart';
 import 'package:postbox_game/user_repository.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:postbox_game/nearby.dart';
+import 'package:postbox_game/route/destination_picker_screen.dart';
 import 'package:postbox_game/validators.dart';
 
 // ---------------------------------------------------------------------------
@@ -818,4 +821,171 @@ void main() {
       expect(find.text('Added as a friend'), findsOneWidget);
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // JamesMessages route-mode unit tests
+  // ---------------------------------------------------------------------------
+
+  group('JamesMessages route mode', () {
+    test('routeStart resolves to a non-empty string', () {
+      expect(JamesMessages.routeStart.resolve(), isNotEmpty);
+    });
+
+    test('routeStart pool has at least 4 variants', () {
+      final seen = <String>{};
+      for (var i = 0; i < 50; i++) {
+        seen.add(JamesMessages.routeStart.resolve());
+      }
+      expect(seen.length, greaterThanOrEqualTo(4));
+    });
+
+    test('routePostboxNearby resolves to a non-empty string', () {
+      expect(JamesMessages.routePostboxNearby.resolve(), isNotEmpty);
+    });
+
+    test('routePostboxNearby pool has at least 4 variants', () {
+      final seen = <String>{};
+      for (var i = 0; i < 50; i++) {
+        seen.add(JamesMessages.routePostboxNearby.resolve());
+      }
+      expect(seen.length, greaterThanOrEqualTo(4));
+    });
+
+    test('routeHint("ahead") returns a non-empty string', () {
+      expect(JamesMessages.routeHint('ahead'), isNotEmpty);
+    });
+
+    test('routeHint("left") returns a non-empty string', () {
+      expect(JamesMessages.routeHint('left'), isNotEmpty);
+    });
+
+    test('routeHint("right") returns a non-empty string', () {
+      expect(JamesMessages.routeHint('right'), isNotEmpty);
+    });
+
+    test('routeHint("behind") returns a non-empty string', () {
+      expect(JamesMessages.routeHint('behind'), isNotEmpty);
+    });
+
+    test('routeHint with unknown direction falls back to ahead pool', () {
+      // Should not throw; returns a non-empty string from the "ahead" pool.
+      expect(JamesMessages.routeHint('diagonal'), isNotEmpty);
+    });
+
+    test('routeHint produces distinct lines for different directions', () {
+      // Sample each direction many times and verify the pools are not identical.
+      final aheadSamples = {for (var i = 0; i < 30; i++) JamesMessages.routeHint('ahead')};
+      final leftSamples  = {for (var i = 0; i < 30; i++) JamesMessages.routeHint('left')};
+      // The union of both sample sets should be larger than either alone (pools differ).
+      expect(aheadSamples.union(leftSamples).length,
+          greaterThan(aheadSamples.length));
+    });
+
+    test('routeArrival resolves to a non-empty string', () {
+      expect(JamesMessages.routeArrival.resolve(), isNotEmpty);
+    });
+
+    test('routeArrival pool has at least 4 variants', () {
+      final seen = <String>{};
+      for (var i = 0; i < 50; i++) {
+        seen.add(JamesMessages.routeArrival.resolve());
+      }
+      expect(seen.length, greaterThanOrEqualTo(4));
+    });
+
+    test('no route-mode message contains an em-dash', () {
+      // House style: em-dashes are banned in James dialogue.
+      const emDash = '—';
+      for (var i = 0; i < 20; i++) {
+        expect(JamesMessages.routeStart.resolve(), isNot(contains(emDash)));
+        expect(JamesMessages.routePostboxNearby.resolve(), isNot(contains(emDash)));
+        expect(JamesMessages.routeArrival.resolve(), isNot(contains(emDash)));
+        for (final dir in ['ahead', 'left', 'right', 'behind']) {
+          expect(JamesMessages.routeHint(dir), isNot(contains(emDash)));
+        }
+      }
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // /route named-route smoke test
+  // ---------------------------------------------------------------------------
+
+  group('/route named route', () {
+    testWidgets('resolves to DestinationPickerScreen when authenticated',
+        (tester) async {
+      // Build a minimal MaterialApp with the /route entry (same pattern as
+      // main.dart). Inject initialPosition so the screen does not attempt a
+      // real GPS fix (which would hang in a test environment).
+      const testPosition = LatLng(51.5074, -0.1278);
+      await tester.pumpWidget(
+        MaterialApp(
+          routes: {
+            '/route': (_) => const DestinationPickerScreen(
+                  initialPosition: testPosition,
+                ),
+          },
+          home: Builder(
+            builder: (ctx) => TextButton(
+              onPressed: () => Navigator.pushNamed(ctx, '/route'),
+              child: const Text('go'),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('go'));
+      // pump once to process the push, then a second time for the route
+      // animation frames.
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.byType(DestinationPickerScreen), findsOneWidget);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Nearby "Walk to a destination" button test
+  // ---------------------------------------------------------------------------
+
+  group('Nearby route-mode entry button', () {
+    testWidgets('tapping "Walk to a destination" pushes /route',
+        (tester) async {
+      // Use a NavigatorObserver spy to record pushNamed calls.
+      final pushedRoutes = <String>[];
+
+      await tester.pumpWidget(
+        MaterialApp(
+          navigatorObservers: [
+            _RouteNameObserver(pushedRoutes),
+          ],
+          // Register /route so Navigator.pushNamed does not throw.
+          routes: {
+            '/route': (_) => const Scaffold(body: Text('route screen')),
+          },
+          home: const Scaffold(body: Nearby()),
+        ),
+      );
+      // Nearby starts in the initial stage where the button is visible.
+      await tester.pump();
+      expect(find.text('Walk to a destination'), findsOneWidget);
+      await tester.tap(find.text('Walk to a destination'));
+      await tester.pumpAndSettle();
+      expect(pushedRoutes, contains('/route'));
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Helper: NavigatorObserver spy
+// ---------------------------------------------------------------------------
+
+class _RouteNameObserver extends NavigatorObserver {
+  _RouteNameObserver(this._pushedRoutes);
+
+  final List<String> _pushedRoutes;
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    final name = route.settings.name;
+    if (name != null) _pushedRoutes.add(name);
+  }
 }
