@@ -7,11 +7,17 @@
 //  - The loading state and "button disabled until pin dropped" cases are
 //    covered by injecting `initialPosition` so the screen bypasses the real
 //    getPosition() call entirely.
+//  - The NominatimService is injected as a mock to avoid real HTTP calls.
+
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:postbox_game/route/destination_picker_screen.dart';
+import 'package:postbox_game/route/nominatim_service.dart';
 import 'package:postbox_game/route/route_session.dart';
 import 'package:postbox_game/theme.dart';
 
@@ -20,10 +26,40 @@ import 'package:postbox_game/theme.dart';
 // ---------------------------------------------------------------------------
 
 /// Wraps the screen in the minimal widget tree required for MaterialApp theming.
-Widget _buildPicker({LatLng? initialPosition}) {
+Widget _buildPicker({
+  LatLng? initialPosition,
+  NominatimService? nominatimService,
+}) {
   return MaterialApp(
     theme: AppTheme.light,
-    home: DestinationPickerScreen(initialPosition: initialPosition),
+    home: DestinationPickerScreen(
+      initialPosition: initialPosition,
+      nominatimService: nominatimService,
+    ),
+  );
+}
+
+/// A [NominatimService] backed by a [MockClient] that returns a fixed JSON
+/// payload of one result.
+NominatimService _mockNominatimService({
+  List<Map<String, String>> results = const [
+    {
+      'display_name': 'Buckingham Palace, London',
+      'lat': '51.5014',
+      'lon': '-0.1419',
+    }
+  ],
+  int statusCode = 200,
+}) {
+  final body = statusCode == 200
+      ? jsonEncode(results.map((m) => {
+            'display_name': m['display_name']!,
+            'lat': m['lat']!,
+            'lon': m['lon']!,
+          }).toList())
+      : 'error';
+  return NominatimService(
+    client: MockClient((_) async => http.Response(body, statusCode)),
   );
 }
 
@@ -177,6 +213,125 @@ void main() {
         find.text('Tap the map to place a destination'),
         findsOneWidget,
       );
+    });
+
+    testWidgets('search bar is visible with correct placeholder text',
+        (tester) async {
+      await tester.pumpWidget(
+        _buildPicker(
+          initialPosition: const LatLng(51.5074, -0.1278),
+          nominatimService: _mockNominatimService(),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // The search TextField should be present.
+      expect(find.byType(TextField), findsOneWidget);
+      // Hint text should be shown when the field is empty.
+      expect(find.text('Search address…'), findsOneWidget);
+    });
+
+    testWidgets(
+        'typing into the search field then waiting for debounce shows results',
+        (tester) async {
+      await tester.pumpWidget(
+        _buildPicker(
+          initialPosition: const LatLng(51.5074, -0.1278),
+          nominatimService: _mockNominatimService(
+            results: [
+              {
+                'display_name': 'Buckingham Palace, London',
+                'lat': '51.5014',
+                'lon': '-0.1419',
+              }
+            ],
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // Type into the search field.
+      await tester.enterText(find.byType(TextField), 'Buckingham');
+      // Wait for the 500 ms debounce + async Nominatim response.
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // The result tile should appear.
+      expect(find.text('Buckingham Palace, London'), findsOneWidget);
+    });
+
+    testWidgets('tapping a result tile sets the destination label',
+        (tester) async {
+      await tester.pumpWidget(
+        _buildPicker(
+          initialPosition: const LatLng(51.5074, -0.1278),
+          nominatimService: _mockNominatimService(
+            results: [
+              {
+                'display_name': 'Buckingham Palace, London',
+                'lat': '51.5014',
+                'lon': '-0.1419',
+              }
+            ],
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // Type and wait for debounce + result.
+      await tester.enterText(find.byType(TextField), 'Buckingham');
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // Tap the result tile.
+      await tester.tap(find.text('Buckingham Palace, London'));
+      await tester.pump();
+
+      // After tapping:
+      // 1. The result list should collapse (text no longer in a ListTile).
+      // 2. The destination label should appear in the bottom panel.
+      // The search field should be cleared.
+      final textField = tester.widget<TextField>(find.byType(TextField));
+      expect(textField.controller?.text ?? '', isEmpty);
+
+      // The label should show in the bottom card.
+      expect(
+        find.text('Buckingham Palace, London'),
+        findsOneWidget,
+        reason: 'Destination label should appear in the bottom info card',
+      );
+    });
+
+    testWidgets(
+        'tapping a result enables the Set destination button',
+        (tester) async {
+      await tester.pumpWidget(
+        _buildPicker(
+          initialPosition: const LatLng(51.5074, -0.1278),
+          nominatimService: _mockNominatimService(),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // Confirm the button is initially disabled.
+      var button = tester.widget<FilledButton>(
+        find.widgetWithText(FilledButton, 'Set destination'),
+      );
+      expect(button.onPressed, isNull);
+
+      // Search and tap a result.
+      await tester.enterText(find.byType(TextField), 'Buckingham');
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.tap(find.text('Buckingham Palace, London'));
+      await tester.pump();
+
+      // Button should now be enabled.
+      button = tester.widget<FilledButton>(
+        find.widgetWithText(FilledButton, 'Set destination'),
+      );
+      expect(button.onPressed, isNotNull,
+          reason: 'Button should be enabled after a result is tapped');
     });
   });
 }
