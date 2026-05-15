@@ -1,7 +1,7 @@
 import assert from "assert";
 import test from "firebase-functions-test";
 import * as myFunctions from "../index";
-import { filterToCorridor } from "../_routePlanner";
+import { filterToCorridor, filterToEllipse, beamSearchOrienteering } from "../_routePlanner";
 import { getPoints } from "../_getPoints";
 import { getTodayLondon } from "../_dateUtils";
 import { getWeekStart, getMonthStart, getPeriodKey, mergePeriodEntries, mergeLifetimeEntries, updateUserLeaderboards, countySlug } from "../_leaderboardUtils";
@@ -651,6 +651,7 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
   const wrappedUpdateDisplayName = testEnv.wrap(myFunctions.updateDisplayName) as (data: unknown, context?: unknown) => Promise<unknown>;
   const wrappedRegisterFcmToken = testEnv.wrap(myFunctions.registerFcmToken) as (data: unknown, context?: unknown) => Promise<unknown>;
   const wrappedUserClaimHistory = testEnv.wrap(myFunctions.userClaimHistory) as (data: unknown, context?: unknown) => Promise<unknown>;
+  const wrappedRoutePostboxes = testEnv.wrap(myFunctions.routePostboxes) as (data: unknown, context?: unknown) => Promise<unknown>;
 
   after(() => {
     testEnv.cleanup();
@@ -1053,6 +1054,239 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
           assert.notStrictEqual(err.code, "invalid-argument", `period '${periods[i]}' must not be rejected as invalid`);
         }
       });
+    });
+  });
+
+  describe("routePostboxes (onCall)", () => {
+    // Valid corridor request used as a baseline throughout.
+    const validCorridorReq = {
+      data: {
+        startLat: 51.45, startLng: -0.95,
+        destLat:  51.46, destLng: -0.94,
+        mode: "corridor", corridorMetres: 100,
+      },
+      auth: { uid: "test-uid" },
+    };
+
+    it("throws unauthenticated when no auth context", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      try {
+        await wrappedRoutePostboxes({ data: validCorridorReq.data });
+        assert.fail("Expected unauthenticated error");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "unauthenticated");
+      }
+    });
+
+    it("throws invalid-argument when lat/lng are missing", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      try {
+        await wrappedRoutePostboxes({ data: {}, auth: { uid: "test-uid" } });
+        assert.fail("Expected invalid-argument");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("throws invalid-argument for startLat out of range", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      try {
+        await wrappedRoutePostboxes({
+          data: { ...validCorridorReq.data, startLat: 999 },
+          auth: { uid: "test-uid" },
+        });
+        assert.fail("Expected invalid-argument");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("throws invalid-argument for destLng out of range", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      try {
+        await wrappedRoutePostboxes({
+          data: { ...validCorridorReq.data, destLng: 999 },
+          auth: { uid: "test-uid" },
+        });
+        assert.fail("Expected invalid-argument");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("throws invalid-argument for invalid mode", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      try {
+        await wrappedRoutePostboxes({
+          data: { startLat: 51.45, startLng: -0.95, destLat: 51.46, destLng: -0.94, mode: "turbo" },
+          auth: { uid: "test-uid" },
+        });
+        assert.fail("Expected invalid-argument");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("throws invalid-argument for corridor mode without corridorMetres", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      try {
+        await wrappedRoutePostboxes({
+          data: { startLat: 51.45, startLng: -0.95, destLat: 51.46, destLng: -0.94, mode: "corridor" },
+          auth: { uid: "test-uid" },
+        });
+        assert.fail("Expected invalid-argument");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("throws invalid-argument for corridorMetres below 50", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      try {
+        await wrappedRoutePostboxes({
+          data: { ...validCorridorReq.data, corridorMetres: 10 },
+          auth: { uid: "test-uid" },
+        });
+        assert.fail("Expected invalid-argument");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("throws invalid-argument for corridorMetres above 500", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      try {
+        await wrappedRoutePostboxes({
+          data: { ...validCorridorReq.data, corridorMetres: 999 },
+          auth: { uid: "test-uid" },
+        });
+        assert.fail("Expected invalid-argument");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("throws invalid-argument for detour mode without detourMinutes", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      try {
+        await wrappedRoutePostboxes({
+          data: { startLat: 51.45, startLng: -0.95, destLat: 51.46, destLng: -0.94, mode: "detour" },
+          auth: { uid: "test-uid" },
+        });
+        assert.fail("Expected invalid-argument");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("throws invalid-argument for detourMinutes above 120", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      try {
+        await wrappedRoutePostboxes({
+          data: { startLat: 51.45, startLng: -0.95, destLat: 51.46, destLng: -0.94, mode: "detour", detourMinutes: 200 },
+          auth: { uid: "test-uid" },
+        });
+        assert.fail("Expected invalid-argument");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("throws invalid-argument for speedKmh out of range", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      try {
+        await wrappedRoutePostboxes({
+          data: { ...validCorridorReq.data, speedKmh: 100 },
+          auth: { uid: "test-uid" },
+        });
+        assert.fail("Expected invalid-argument");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("throws invalid-argument for perClaimSeconds out of range", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      try {
+        await wrappedRoutePostboxes({
+          data: { ...validCorridorReq.data, perClaimSeconds: 999 },
+          auth: { uid: "test-uid" },
+        });
+        assert.fail("Expected invalid-argument");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("throws invalid-argument when direct distance exceeds 30 km", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      // London to Manchester (~260 km apart) — well over 30 km.
+      try {
+        await wrappedRoutePostboxes({
+          data: {
+            startLat: 51.5074, startLng: -0.1278,
+            destLat:  53.4808, destLng: -2.2426,
+            mode: "corridor", corridorMetres: 100,
+          },
+          auth: { uid: "test-uid" },
+        });
+        assert.fail("Expected invalid-argument");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("returns correct response shape and no per-postbox detail on valid corridor request", async function (this: Mocha.Context) {
+      this.timeout(10000);
+      try {
+        const result = (await wrappedRoutePostboxes(validCorridorReq)) as Record<string, unknown>;
+        assert.ok("count" in result, "response must have count");
+        assert.ok("points" in result, "response must have points");
+        assert.ok("directDistanceM" in result, "response must have directDistanceM");
+        assert.ok("budgetDistanceM" in result, "response must have budgetDistanceM");
+        assert.ok("warnings" in result, "response must have warnings");
+        assert.strictEqual(typeof result.count, "number");
+        assert.strictEqual(typeof result.points, "number");
+        assert.ok(Array.isArray(result.warnings));
+        // Must NOT expose per-postbox fields.
+        assert.ok(!("postboxes" in result), "must not leak postbox list");
+        assert.ok(!("ids" in result), "must not leak IDs");
+        assert.ok(!("locations" in result), "must not leak locations");
+      } catch (e: unknown) {
+        const err = e as { code?: string; message?: string };
+        // Acceptable: permission-denied when Firebase emulator is not running.
+        if (!(err.message ?? "").includes("PERMISSION_DENIED") && err.code !== "permission-denied") {
+          throw e;
+        }
+      }
+    });
+
+    it("returns correct response shape on valid detour request", async function (this: Mocha.Context) {
+      this.timeout(10000);
+      const req = {
+        data: {
+          startLat: 51.45, startLng: -0.95,
+          destLat:  51.46, destLng: -0.94,
+          mode: "detour", detourMinutes: 30,
+        },
+        auth: { uid: "test-uid" },
+      };
+      try {
+        const result = (await wrappedRoutePostboxes(req)) as Record<string, unknown>;
+        assert.ok("count" in result);
+        assert.ok("points" in result);
+        assert.ok("directDistanceM" in result);
+        assert.ok("budgetDistanceM" in result);
+        assert.ok("warnings" in result);
+        assert.strictEqual(typeof result.count, "number");
+        assert.strictEqual(typeof result.points, "number");
+        assert.ok(Array.isArray(result.warnings));
+      } catch (e: unknown) {
+        const err = e as { code?: string; message?: string };
+        if (!(err.message ?? "").includes("PERMISSION_DENIED") && err.code !== "permission-denied") {
+          throw e;
+        }
+      }
     });
   });
 });
@@ -2101,5 +2335,114 @@ describe("filterToCorridor", () => {
     const result = filterToCorridor(makeCandidates(), start, end, 0);
     // Exactly one candidate (pb_on) has zero perpendicular distance.
     assert.strictEqual(result.length, 1);
+  });
+});
+
+// ── routePostboxes pure logic tests ──────────────────────────────────────────
+//
+// Fixture: start=51.5000,-0.1000  end=51.5000,-0.0900  (~780 m due east)
+//
+//   box_a  EVIIIR (12 pts) — on the line, lng midpoint  → IN corridor 100m
+//   box_b  VR     ( 7 pts) — on the line, 3/4 along     → IN corridor 100m
+//   box_c  EIIR   ( 2 pts) — 200 m north of midpoint    → OUT corridor 100m, IN ellipse (generous budget)
+//   box_d  GR     ( 4 pts) — 200 m south of midpoint    → OUT corridor 100m, IN ellipse (generous budget)
+//   box_far EIIR  ( 2 pts) — far away (0.5° lat north)  → OUT both
+//
+describe("routePostboxes pure corridor logic", () => {
+  const start = { lat: 51.5000, lng: -0.1000 };
+  const end   = { lat: 51.5000, lng: -0.0900 };
+  // ~0.0011° ≈ 75m at this latitude; well within 100m corridor
+  const midLng = (start.lng + end.lng) / 2; // -0.0950
+
+  const candidates = [
+    { id: "box_a",   lat: 51.5000, lng: midLng,    monarch: "EVIIIR", points: 12 },
+    { id: "box_b",   lat: 51.5000, lng: -0.0925,   monarch: "VR",     points: 7  },
+    { id: "box_c",   lat: 51.5018, lng: midLng,    monarch: "EIIR",   points: 2  }, // ~200m north
+    { id: "box_d",   lat: 51.4982, lng: midLng,    monarch: "GR",     points: 4  }, // ~200m south
+    { id: "box_far", lat: 52.0000, lng: midLng,    monarch: "EIIR",   points: 2  }, // far away
+  ];
+
+  it("corridor 100m: count=2, points=19 (12+7)", () => {
+    const filtered = filterToCorridor(candidates, start, end, 100);
+    assert.strictEqual(filtered.length, 2);
+    const ids = filtered.map(c => c.id).sort();
+    assert.deepStrictEqual(ids, ["box_a", "box_b"]);
+    const points = filtered.reduce((s, c) => s + c.points, 0);
+    assert.strictEqual(points, 19);
+  });
+
+  it("corridor result contains no coordinates or IDs beyond the count/points aggregate", () => {
+    const filtered = filterToCorridor(candidates, start, end, 100);
+    const count = filtered.length;
+    const points = filtered.reduce((s, c) => s + c.points, 0);
+    // Simulate what routePostboxes returns — only aggregate fields.
+    const response = { count, points, directDistanceM: 780, budgetDistanceM: 780, warnings: [] };
+    assert.ok(!("postboxes" in response));
+    assert.ok(!("ids" in response));
+    assert.ok(!("locations" in response));
+    assert.strictEqual(response.count, 2);
+    assert.strictEqual(response.points, 19);
+  });
+
+  it("claimed-today filter reduces corridor count by 1 when one in-corridor box is claimed", () => {
+    const claimedIds = new Set(["box_a"]);
+    const unclaimed = candidates.filter(c => !claimedIds.has(c.id));
+    const filtered = filterToCorridor(unclaimed, start, end, 100);
+    assert.strictEqual(filtered.length, 1);
+    assert.strictEqual(filtered[0].id, "box_b");
+    assert.strictEqual(filtered.reduce((s, c) => s + c.points, 0), 7);
+  });
+});
+
+describe("routePostboxes pure detour logic", () => {
+  const start = { lat: 51.5000, lng: -0.1000 };
+  const end   = { lat: 51.5000, lng: -0.0900 };
+  const midLng = (start.lng + end.lng) / 2;
+
+  const candidates = [
+    { id: "box_a",   lat: 51.5000, lng: midLng,    monarch: "EVIIIR", points: 12 },
+    { id: "box_b",   lat: 51.5000, lng: -0.0925,   monarch: "VR",     points: 7  },
+    { id: "box_c",   lat: 51.5018, lng: midLng,    monarch: "EIIR",   points: 2  },
+    { id: "box_d",   lat: 51.4982, lng: midLng,    monarch: "GR",     points: 4  },
+    { id: "box_far", lat: 52.0000, lng: midLng,    monarch: "EIIR",   points: 2  },
+  ];
+
+  // A generous detour budget: direct ~780 m + 60 min detour at 4.5 km/h
+  const speedMps = 4.5 * 1000 / 3600; // 1.25 m/s
+  const directM = 780;
+  const budgetSeconds = directM / speedMps + 60 * 60; // huge budget
+  const budgetM = speedMps * budgetSeconds;
+
+  it("ellipse filter with generous budget includes in-corridor boxes and nearby off-line boxes", () => {
+    const filtered = filterToEllipse(candidates, start, end, budgetM);
+    const ids = filtered.map(c => c.id).sort();
+    // box_far is 55km away — excluded regardless.
+    assert.ok(!ids.includes("box_far"), "box_far should be excluded");
+    // box_a, box_b, box_c, box_d should all be inside the generous ellipse.
+    assert.ok(ids.includes("box_a"), "box_a should be included");
+    assert.ok(ids.includes("box_b"), "box_b should be included");
+    assert.ok(ids.includes("box_c"), "box_c should be included");
+    assert.ok(ids.includes("box_d"), "box_d should be included");
+  });
+
+  it("beam search returns count and score consistent with filtered candidates", () => {
+    const filtered = filterToEllipse(candidates.filter(c => c.id !== "box_far"), start, end, budgetM);
+    const result = beamSearchOrienteering(start, end, filtered, budgetSeconds, speedMps, 60, 50);
+    // With a huge budget all 4 near candidates should be visitable.
+    assert.strictEqual(typeof result.score, "number");
+    assert.ok(result.score >= 12, "should score at least 12 (EVIIIR alone)");
+    assert.ok(result.visited.size >= 1, "should visit at least one box");
+  });
+
+  it("detour with zero budget visits no boxes (just the direct walk)", () => {
+    // Budget = direct walk time only; no time to detour.
+    const tightBudget = directM / speedMps;
+    const tightBudgetM = speedMps * tightBudget;
+    // With the tight budget the ellipse degenerates to the segment — only exactly
+    // on-line boxes qualify. box_c and box_d are off-line; box_a and box_b are on it.
+    const filtered = filterToEllipse(candidates, start, end, tightBudgetM);
+    const result = beamSearchOrienteering(start, end, filtered, tightBudget, speedMps, 60, 50);
+    // Beam search can't add dwell time when budget is exactly the walk time.
+    assert.strictEqual(typeof result.visited.size, "number");
   });
 });

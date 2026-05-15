@@ -7,6 +7,7 @@ import { newDayScoreboard } from "./newDayScoreboard";
 import { registerFcmToken, onFriendAdded } from "./_notifications";
 import { userClaimHistory } from "./userClaimHistory";
 import { submitReport, reviewReport } from "./reports";
+import { routePostboxes } from "./routePostboxes";
 
 export {
   nearbyPostboxes,
@@ -19,4 +20,5 @@ export {
   userClaimHistory,
   submitReport,
   reviewReport,
+  routePostboxes,
 };
