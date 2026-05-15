@@ -157,6 +157,13 @@ class _ClaimState extends State<Claim> with TickerProviderStateMixin {
         if (mounted && _claimedToday == _count) {
           JamesController.of(context)
               ?.show(JamesMessages.claimErrorAlreadyClaimed.resolve());
+        } else if (mounted && _claimedToday < _count) {
+          // Streamline: if there's at least one unclaimed postbox in range, go
+          // straight to the cipher quiz rather than parking on the results
+          // page and waiting for a tap. _startQuiz short-circuits to
+          // _claimPostbox when no nearby unclaimed box has a known cipher, so
+          // plain-box-only scans skip the quiz entirely.
+          _startQuiz();
         }
       } else {
         Analytics.scanEmpty();

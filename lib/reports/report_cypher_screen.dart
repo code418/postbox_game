@@ -81,7 +81,11 @@ class _ReportCypherScreenState extends State<ReportCypherScreen> {
         ? (MonarchInfo.labels[widget.currentMonarch!] ?? widget.currentMonarch!)
         : 'No cypher recorded';
     return Scaffold(
-      appBar: AppBar(title: const Text('Report wrong cypher')),
+      appBar: AppBar(
+        title: Text(widget.currentMonarch == null
+            ? 'Report missing cypher'
+            : 'Report wrong cypher'),
+      ),
       body: Stack(
         children: [
           ListView(
