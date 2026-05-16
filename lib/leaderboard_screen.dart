@@ -538,15 +538,30 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList>
             })
         .toList();
 
+    // Match the server's mergeLifetimeEntries / mergePeriodEntries: break
+    // every tier on uid ascending so two friends with the same score don't
+    // visibly reshuffle on every refresh (Dart's sort is stable but the
+    // _fetchScores result order depends on whereIn-batch iteration, which is
+    // not order-preserving across rebuilds).
+    int byUid(Map<String, dynamic> a, Map<String, dynamic> b) =>
+        (a['uid'] as String).compareTo(b['uid'] as String);
     if (isLifetime) {
       entries.sort((a, b) {
         final ua = a['uniquePostboxesClaimed'] as int;
         final ub = b['uniquePostboxesClaimed'] as int;
         if (ub != ua) return ub - ua;
-        return (b['totalPoints'] as int) - (a['totalPoints'] as int);
+        final ta = a['totalPoints'] as int;
+        final tb = b['totalPoints'] as int;
+        if (tb != ta) return tb - ta;
+        return byUid(a, b);
       });
     } else {
-      entries.sort((a, b) => (b['score'] as int) - (a['score'] as int));
+      entries.sort((a, b) {
+        final sa = a['score'] as int;
+        final sb = b['score'] as int;
+        if (sb != sa) return sb - sa;
+        return byUid(a, b);
+      });
     }
     return entries;
   }
