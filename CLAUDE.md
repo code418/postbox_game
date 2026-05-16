@@ -64,7 +64,7 @@ Fully implemented end-to-end.
 ## Tests
 
 - `test/widget_test.dart` uses `firebase_auth_mocks` + `fake_cloud_firestore` and `setupFirebaseCoreMocks()` — tests run without real Firebase. 105 Dart tests passing.
-- `functions/src/test/test.index.ts` uses `firebase-functions-test`. 268 TypeScript tests passing (pure unit tests + auth/validation integration tests that gracefully skip when no emulator is running). Includes tests for `updateFcmTokens`, `diffFriends`, `shouldNotifyFirstClaim`, `shouldNotifyOvertake`, `buildOsmChange`, `parsePhotos`, `nextQuotaState`, `pointsForMonarch`, `maxDailyFromClaims`, and `submitReport`/`reviewReport` auth & validation.
+- `functions/src/test/test.index.ts` uses `firebase-functions-test`. 279 TypeScript tests passing (pure unit tests + auth/validation integration tests that gracefully skip when no emulator is running). Includes tests for `updateFcmTokens`, `diffFriends`, `shouldNotifyFirstClaim`, `shouldNotifyOvertake`, `buildOsmChange`, `parsePhotos`, `nextQuotaState`, `pointsForMonarch`, `maxDailyFromClaims`, `repointClaimsForPostbox` (mock Firestore), and `submitReport`/`reviewReport` auth & validation.
 
 ## Security / release
 
