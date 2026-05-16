@@ -26,6 +26,7 @@ import 'dart:io' show Platform;
 import 'firebase_options.dart';
 import 'secrets.dart';
 import 'analytics_service.dart';
+import 'package:postbox_game/admin/admin_access.dart';
 import 'package:postbox_game/notification_service.dart';
 
 void main() async {
@@ -158,6 +159,10 @@ class _PostboxGameState extends State<PostboxGame> {
               } else if (state is Unauthenticated) {
                 unawaited(NotificationService.reset());
                 unawaited(_homeWidgetService.refresh());
+                // Forget any admin-claim result cached against the previous
+                // uid so a non-admin signing in next on the same device
+                // doesn't briefly see the admin entry points.
+                AdminAccess.reset();
               }
             },
             builder: (BuildContext context, AuthenticationState? state) {
