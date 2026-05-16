@@ -217,10 +217,17 @@ export async function rescoreAfterCypherChange(
   today: string = getTodayLondon()
 ): Promise<{ rescoredClaims: number; affectedUsers: number }> {
   const { deltaByUid, claimCount } = await repointClaimsForPostbox(db, postboxKey, newMonarch);
+  // Users whose point delta is 0 (corrected cypher maps to the same score —
+  // e.g. GR→GVR are both 4 pts) had their claims' monarch / audit fields
+  // updated by repointClaimsForPostbox, but their lifetimePoints, period
+  // sums, maxDailyPoints and county totals are all unchanged. Skip them so
+  // the post-correction sweep stays bounded by users actually affected
+  // numerically rather than every claimant of the box.
+  const affected = Array.from(deltaByUid.entries()).filter(([, delta]) => delta !== 0);
   await Promise.allSettled(
-    Array.from(deltaByUid.entries()).map(([uid, delta]) =>
+    affected.map(([uid, delta]) =>
       recomputeUserAggregates(db, uid, today, delta, countySlugVal, countyName)
     )
   );
-  return { rescoredClaims: claimCount, affectedUsers: deltaByUid.size };
+  return { rescoredClaims: claimCount, affectedUsers: affected.length };
 }
