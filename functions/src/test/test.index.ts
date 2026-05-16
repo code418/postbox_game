@@ -1647,6 +1647,29 @@ describe("shouldNotifyFirstClaim", () => {
       shouldNotifyFirstClaim({ lastFirstClaimNotifiedDate: "2026-04-17" }),
       true
     ));
+
+  // The streak tx writes lastClaimDate; the lifetime tx writes dailyDate (+
+  // dailyPoints). If the lifetime half succeeds but the streak half fails,
+  // dailyDate=today while lastClaimDate is yesterday — the friend HAS
+  // claimed today and we must not send them a "first claim of the day"
+  // notification about someone else.
+  it("returns false when dailyDate matches today (lifetime tx succeeded, streak tx didn't)", () =>
+    assert.strictEqual(
+      shouldNotifyFirstClaim(
+        { dailyDate: "2026-04-17", dailyPoints: 5, lastClaimDate: "2026-04-16" },
+        "2026-04-17"
+      ),
+      false
+    ));
+
+  it("returns false when lastClaimDate matches today (streak tx succeeded, lifetime tx didn't)", () =>
+    assert.strictEqual(
+      shouldNotifyFirstClaim(
+        { lastClaimDate: "2026-04-17", dailyDate: "2026-04-16", dailyPoints: 50 },
+        "2026-04-17"
+      ),
+      false
+    ));
 });
 
 describe("shouldNotifyOvertake", () => {

@@ -79,17 +79,19 @@ type UserData = Record<string, unknown> | undefined;
  * notification. False when the friend has already claimed today or has
  * explicitly disabled the notification.
  *
- * Treats today's claim as lastClaimDate === todayLondon rather than
- * dailyPoints > 0: dailyPoints is never reset server-side (the per-user
- * midnight sweep was removed for race-safety — see newDayScoreboard.ts),
- * so the stored value reflects whichever day's claim last touched it.
- * Using lastClaimDate ensures we only suppress when the friend has actually
- * claimed on London-today.
+ * "Claimed today" is determined by EITHER the dailyDate marker (written
+ * in the lifetime tx alongside dailyPoints) OR lastClaimDate (written in
+ * the separate streak tx) matching today. Either of the two transactions
+ * succeeding is evidence the user has actually claimed today; relying on
+ * only one would miss the case where the other half of the pair failed.
+ * Without a todayLondon argument we fall back to "dailyPoints > 0" (also
+ * a per-day stale-prone field, hence the optional explicit date).
  */
 export function shouldNotifyFirstClaim(fdata: UserData, todayLondon?: string): boolean {
+  const dailyDate = fdata?.dailyDate as string | undefined;
   const lastClaimDate = fdata?.lastClaimDate as string | undefined;
   const hasClaimedToday = todayLondon !== undefined
-    ? lastClaimDate === todayLondon
+    ? dailyDate === todayLondon || lastClaimDate === todayLondon
     : ((fdata?.dailyPoints as number | undefined) ?? 0) > 0;
   if (hasClaimedToday) return false;
   // Already notified about a different friend's first claim today — skip so
