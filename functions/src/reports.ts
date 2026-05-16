@@ -410,6 +410,18 @@ export const reviewReport = functions.https.onCall({ timeoutSeconds: 300 }, asyn
     if (typeof finalMonarch === "string") pbData.monarch = finalMonarch;
     if (finalReference) pbData.reference = finalReference;
     await db.collection("postbox").doc(newKey).set(pbData);
+    // Keep the lifetime leaderboard's "X of Y boxes (Z%)" denominator
+    // accurate immediately rather than waiting for the next OSM reimport.
+    // Best-effort: if the meta doc doesn't exist yet the increment is still
+    // a valid first-write because Firestore creates the field at value 1.
+    try {
+      await db.collection("meta").doc("stats").set(
+        { totalPostboxes: admin.firestore.FieldValue.increment(1) },
+        { merge: true }
+      );
+    } catch (e) {
+      console.error("meta/stats.totalPostboxes increment failed:", e);
+    }
 
     const tags: Record<string, string> = { amenity: "post_box" };
     if (typeof finalMonarch === "string") tags.royal_cypher = finalMonarch;
