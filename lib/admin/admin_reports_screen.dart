@@ -392,7 +392,13 @@ class _PhotoThumb extends StatelessWidget {
                     : FutureBuilder<String>(
                         future: FirebaseStorage.instance.ref(path).getDownloadURL(),
                         builder: (_, s) => s.hasData
-                            ? Image.network(s.data!, fit: BoxFit.cover)
+                            // Decode at thumbnail size — uploaded photos can
+                            // be 2400 px on the long edge, which would chew
+                            // many MB of decoded bitmap per row in the queue.
+                            ? Image.network(s.data!,
+                                fit: BoxFit.cover,
+                                cacheWidth: 168,
+                                cacheHeight: 168)
                             : const ColoredBox(color: Colors.black12, child: Center(child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)))),
                       ),
               ),
