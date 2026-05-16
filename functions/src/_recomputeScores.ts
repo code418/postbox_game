@@ -111,17 +111,11 @@ export async function recomputeUserAggregates(
   const displayName =
     (userSnap.data()?.displayName as string | undefined) || `Player_${uid.slice(0, 6)}`;
 
-  // Re-derive the uniqueness counter and maxDailyPoints from claims. Both
-  // self-heal on the next claim (startScoring writes them inside its lifetime
-  // tx), so a brief drift introduced by a concurrent claim during this
-  // recompute is bounded and recovers on the user's next activity.
+  // Re-derive maxDailyPoints from claims. A cypher correction can change the
+  // best day's total (re-pointing dropped its sum below another day's), and
+  // startScoring's per-claim max(stored, today's sum) only catches further
+  // upward moves — never the downward correction here, so we have to SET.
   const allClaims = await db.collection("claims").where("userid", "==", uid).get();
-  const uniqueBoxes = new Set(
-    allClaims.docs
-      .map((d) => d.data().postboxes as string | undefined)
-      .filter((p): p is string => typeof p === "string")
-  );
-  const uniquePostboxesClaimed = uniqueBoxes.size;
   const maxDailyPoints = maxDailyFromClaims(allClaims.docs.map((d) => d.data() as { dailyDate?: string; points?: number }));
 
   // Re-sum + rewrite the per-period leaderboards (daily/weekly/monthly).
@@ -139,6 +133,12 @@ export async function recomputeUserAggregates(
   // read and our tx commit, and our SET would overwrite that fresh total
   // with the stale pre-claim value — leaving the user permanently short by
   // that claim's points.
+  //
+  // uniquePostboxesClaimed isn't written here: a cypher correction never
+  // adds or removes unique boxes, so we read the current value inside the
+  // tx and use it only for the leaderboard entry. A SET-from-claims would
+  // have the same race as lifetimePoints did (concurrent first-claim of a
+  // new unique box would be overwritten).
   try {
     const lifetimeRef = db.collection("leaderboards").doc("lifetime");
     await db.runTransaction(async (tx) => {
@@ -147,11 +147,11 @@ export async function recomputeUserAggregates(
         (uSnap.data()?.displayName as string | undefined) || displayName;
       const currentLifetime = (uSnap.data()?.lifetimePoints as number | undefined) ?? 0;
       const newLifetimePoints = currentLifetime + countyDelta;
+      const currentUnique = (uSnap.data()?.uniquePostboxesClaimed as number | undefined) ?? 0;
       tx.set(
         userRef,
         {
           lifetimePoints: newLifetimePoints,
-          uniquePostboxesClaimed,
           maxDailyPoints,
           dailyPoints: periodSums.dailyPoints,
           dailyDate: today,
@@ -163,7 +163,7 @@ export async function recomputeUserAggregates(
         { merge: true }
       );
       const existing = (lSnap.data()?.entries ?? []) as LifetimeLeaderboardEntry[];
-      const updated = mergeLifetimeEntries(existing, uid, freshDisplayName, uniquePostboxesClaimed, newLifetimePoints);
+      const updated = mergeLifetimeEntries(existing, uid, freshDisplayName, currentUnique, newLifetimePoints);
       tx.set(lifetimeRef, { periodKey: "lifetime", entries: updated }, { merge: false });
     });
   } catch (err) {
