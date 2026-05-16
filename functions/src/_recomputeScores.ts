@@ -111,12 +111,11 @@ export async function recomputeUserAggregates(
   const displayName =
     (userSnap.data()?.displayName as string | undefined) || `Player_${uid.slice(0, 6)}`;
 
-  // Re-sum all of this user's claims for the authoritative lifetime figures.
+  // Re-derive the uniqueness counter and maxDailyPoints from claims. Both
+  // self-heal on the next claim (startScoring writes them inside its lifetime
+  // tx), so a brief drift introduced by a concurrent claim during this
+  // recompute is bounded and recovers on the user's next activity.
   const allClaims = await db.collection("claims").where("userid", "==", uid).get();
-  const lifetimePoints = allClaims.docs.reduce(
-    (s, d) => s + (typeof d.data().points === "number" ? (d.data().points as number) : 0),
-    0
-  );
   const uniqueBoxes = new Set(
     allClaims.docs
       .map((d) => d.data().postboxes as string | undefined)
@@ -131,16 +130,27 @@ export async function recomputeUserAggregates(
   const monthStart = getMonthStart(today);
 
   // Lifetime: write user doc + leaderboards/lifetime atomically.
+  //
+  // lifetimePoints is updated by DELTA — `countyDelta` is the user's total
+  // points change for the rewritten claims on the affected postbox. Applying
+  // it inside the transaction (rather than SET-ing a value computed from a
+  // pre-transaction claims sum) closes a race: a concurrent startScoring
+  // claim could otherwise commit a higher lifetimePoints between our claims
+  // read and our tx commit, and our SET would overwrite that fresh total
+  // with the stale pre-claim value — leaving the user permanently short by
+  // that claim's points.
   try {
     const lifetimeRef = db.collection("leaderboards").doc("lifetime");
     await db.runTransaction(async (tx) => {
       const [uSnap, lSnap] = await Promise.all([tx.get(userRef), tx.get(lifetimeRef)]);
       const freshDisplayName =
         (uSnap.data()?.displayName as string | undefined) || displayName;
+      const currentLifetime = (uSnap.data()?.lifetimePoints as number | undefined) ?? 0;
+      const newLifetimePoints = currentLifetime + countyDelta;
       tx.set(
         userRef,
         {
-          lifetimePoints,
+          lifetimePoints: newLifetimePoints,
           uniquePostboxesClaimed,
           maxDailyPoints,
           dailyPoints: periodSums.dailyPoints,
@@ -153,7 +163,7 @@ export async function recomputeUserAggregates(
         { merge: true }
       );
       const existing = (lSnap.data()?.entries ?? []) as LifetimeLeaderboardEntry[];
-      const updated = mergeLifetimeEntries(existing, uid, freshDisplayName, uniquePostboxesClaimed, lifetimePoints);
+      const updated = mergeLifetimeEntries(existing, uid, freshDisplayName, uniquePostboxesClaimed, newLifetimePoints);
       tx.set(lifetimeRef, { periodKey: "lifetime", entries: updated }, { merge: false });
     });
   } catch (err) {
