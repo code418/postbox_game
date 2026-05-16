@@ -70,6 +70,7 @@ function parseArgs(argv) {
     projectId: 'the-postbox-game',
     limit:     Infinity,
     dryRun:    false,
+    overwriteCorrections: false,
   };
 
   let i = 0;
@@ -78,6 +79,7 @@ function parseArgs(argv) {
     if (a === '--project')  { opts.projectId = args[++i]; }
     else if (a === '--limit')    { opts.limit = parseInt(args[++i], 10); }
     else if (a === '--dry-run')  { opts.dryRun = true; }
+    else if (a === '--overwrite-corrections') { opts.overwriteCorrections = true; }
     else if (a === '--help' || a === '-h') { printHelp(); process.exit(0); }
     else if (!a.startsWith('--')) { opts.file = a; }
     i++;
@@ -89,10 +91,14 @@ function printHelp() {
   console.log(`Usage: node import_postboxes.js <input.json> [options]
 
 Options:
-  --project  <projectId>  Firebase project ID (default: the-postbox-game)
-  --limit    <N>          Only import first N postboxes (useful for testing)
-  --dry-run               Parse and show 5 sample docs without writing
-  --help                  Show this help
+  --project  <projectId>          Firebase project ID (default: the-postbox-game)
+  --limit    <N>                  Only import first N postboxes (useful for testing)
+  --dry-run                       Parse and show 5 sample docs without writing
+  --overwrite-corrections         Re-import even over docs flagged correctedBy
+                                  (an admin's reviewReport correction). Default
+                                  is to skip them so an OSM round-trip lag
+                                  doesn't silently undo manual fixes.
+  --help                          Show this help
 
 Authentication:
   Set GOOGLE_APPLICATION_CREDENTIALS=<path/to/serviceAccount.json>
@@ -216,20 +222,47 @@ async function main() {
   // Batch-write in chunks.
   const col = db.collection(COLLECTION);
   let written = 0;
+  let skippedCorrected = 0;
   const start = Date.now();
+
+  // Look up the existing correctedBy field for every doc we're about to write.
+  // A bare read per chunk would gate writes on N round-trips; a getAll across
+  // the chunk is one round-trip. We only need to know which docs to SKIP, so
+  // an empty/missing snapshot just means "not corrected, write freely".
+  async function correctedSetFor(chunk) {
+    if (opts.overwriteCorrections) return new Set();
+    const refs = chunk.map((node) => col.doc(`osm_${node.id}`));
+    const snaps = await db.getAll(...refs);
+    const corrected = new Set();
+    for (const snap of snaps) {
+      if (snap.exists && snap.data()?.correctedBy) corrected.add(snap.id);
+    }
+    return corrected;
+  }
 
   for (let i = 0; i < toImport.length; i += BATCH_SIZE) {
     const chunk = toImport.slice(i, i + BATCH_SIZE);
+    const corrected = await correctedSetFor(chunk);
     const batch = db.batch();
+    let writesInChunk = 0;
     for (const node of chunk) {
       const docId = `osm_${node.id}`;
+      if (corrected.has(docId)) {
+        skippedCorrected++;
+        continue;
+      }
       batch.set(col.doc(docId), buildDoc(node), { merge: true });
+      writesInChunk++;
     }
-    await batch.commit();
-    written += chunk.length;
-    const pct = ((written / toImport.length) * 100).toFixed(1);
+    if (writesInChunk > 0) await batch.commit();
+    written += writesInChunk;
+    const processed = i + chunk.length;
+    const pct = ((processed / toImport.length) * 100).toFixed(1);
     const elapsed = ((Date.now() - start) / 1000).toFixed(0);
-    process.stdout.write(`\r  ${written.toLocaleString()} / ${toImport.length.toLocaleString()} (${pct}%) — ${elapsed}s elapsed`);
+    process.stdout.write(`\r  ${written.toLocaleString()} written / ${processed.toLocaleString()} of ${toImport.length.toLocaleString()} (${pct}%) — ${elapsed}s elapsed`);
+  }
+  if (skippedCorrected > 0) {
+    console.log(`\n  Skipped ${skippedCorrected.toLocaleString()} doc(s) flagged correctedBy (use --overwrite-corrections to force).`);
   }
 
   const totalSecs = ((Date.now() - start) / 1000).toFixed(1);
