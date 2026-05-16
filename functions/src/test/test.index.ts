@@ -1902,7 +1902,7 @@ describe("county_lookup (point-in-polygon)", () => {
 
 import { KNOWN_MONARCHS, pointsForMonarch } from "../_getPoints";
 import { parsePhotos, buildOsmChange, nextQuotaState } from "../reports";
-import { maxDailyFromClaims } from "../_recomputeScores";
+import { maxDailyFromClaims, repointClaimsForPostbox } from "../_recomputeScores";
 
 describe("pointsForMonarch", () => {
   it("treats null as plain (2 points)", () => assert.strictEqual(pointsForMonarch(null), 2));
@@ -2008,6 +2008,153 @@ describe("buildOsmChange", () => {
   it("omits empty tag values", () => {
     const osc = buildOsmChange({ action: "create", id: -1, lat: 0, lon: 0, tags: { amenity: "post_box", royal_cypher: "" } });
     assert.ok(!/royal_cypher/.test(osc));
+  });
+});
+
+describe("repointClaimsForPostbox (unit, mock Firestore)", () => {
+  // Minimal mock of the Admin SDK surface used by repointClaimsForPostbox:
+  //   db.collection("claims").where(...).get()  → returns docs with data() + ref
+  //   db.batch().set(ref, update, { merge: true })  → records writes
+  //   batch.commit() → resolves
+  type ClaimDoc = {
+    id: string;
+    userid?: string;
+    points?: number;
+    monarch?: string;
+    postboxes?: string;
+  };
+
+  type CapturedWrite = {
+    ref: { id: string };
+    update: Record<string, unknown>;
+  };
+
+  function makeMockDb(claims: ClaimDoc[]) {
+    const writes: CapturedWrite[] = [];
+    const commits: number[] = [];
+
+    const db = {
+      collection: (name: string) => {
+        if (name !== "claims") throw new Error(`unexpected collection ${name}`);
+        let postboxFilter: string | undefined;
+        const q = {
+          where(field: string, op: string, val: unknown) {
+            if (field !== "postboxes" || op !== "==") {
+              throw new Error(`unexpected where ${field} ${op}`);
+            }
+            postboxFilter = val as string;
+            return q;
+          },
+          async get() {
+            const docs = claims
+              .filter((c) => c.postboxes === postboxFilter)
+              .map((c) => ({
+                ref: { id: c.id },
+                data: () => c as Record<string, unknown>,
+              }));
+            return { docs };
+          },
+        };
+        return q;
+      },
+      batch() {
+        const batchWrites: CapturedWrite[] = [];
+        return {
+          set(ref: { id: string }, update: Record<string, unknown>) {
+            batchWrites.push({ ref, update });
+          },
+          async commit() {
+            writes.push(...batchWrites);
+            commits.push(batchWrites.length);
+          },
+        };
+      },
+    };
+    return {
+      db: db as unknown as import("firebase-admin").firestore.Firestore,
+      writes,
+      commits,
+    };
+  }
+
+  it("returns empty result for a postbox with no claims", async () => {
+    const { db } = makeMockDb([]);
+    const result = await repointClaimsForPostbox(db, "osm_42", "VR");
+    assert.strictEqual(result.claimCount, 0);
+    assert.strictEqual(result.deltaByUid.size, 0);
+  });
+
+  it("rewrites every claim's points and tracks deltas per user", async () => {
+    const claims: ClaimDoc[] = [
+      { id: "c1", userid: "u1", points: 9, monarch: "EVIIR", postboxes: "/postbox/osm_42" },
+      { id: "c2", userid: "u1", points: 9, monarch: "EVIIR", postboxes: "/postbox/osm_42" },
+      { id: "c3", userid: "u2", points: 9, monarch: "EVIIR", postboxes: "/postbox/osm_42" },
+      // Unrelated postbox — must not be touched.
+      { id: "c4", userid: "u3", points: 7, monarch: "VR", postboxes: "/postbox/osm_99" },
+    ];
+    const { db, writes } = makeMockDb(claims);
+
+    // Correct the cypher from EVIIR (9 pts) to GR (4 pts). Delta per claim = -5.
+    const result = await repointClaimsForPostbox(db, "osm_42", "GR");
+
+    assert.strictEqual(result.claimCount, 3);
+    // u1 had 2 claims: delta = 2 * -5 = -10; u2 had 1: -5; u3 untouched.
+    assert.strictEqual(result.deltaByUid.get("u1"), -10);
+    assert.strictEqual(result.deltaByUid.get("u2"), -5);
+    assert.strictEqual(result.deltaByUid.has("u3"), false);
+
+    // Every rewrite carries the new points and the audit fields.
+    assert.strictEqual(writes.length, 3);
+    for (const w of writes) {
+      assert.strictEqual(w.update.points, 4);
+      assert.strictEqual(w.update.monarch, "GR");
+      assert.strictEqual(w.update.correctedFromMonarch, "EVIIR");
+      assert.strictEqual(w.update.correctedFromPoints, 9);
+      assert.ok(w.update.correctedAt, "correctedAt timestamp present");
+    }
+    // None of the writes target the unrelated postbox's claim.
+    assert.ok(!writes.some((w) => w.ref.id === "c4"));
+  });
+
+  it("deletes the monarch field when correcting to plain (null)", async () => {
+    const claims: ClaimDoc[] = [
+      { id: "c1", userid: "u1", points: 9, monarch: "EVIIR", postboxes: "/postbox/osm_42" },
+    ];
+    const { db, writes } = makeMockDb(claims);
+    await repointClaimsForPostbox(db, "osm_42", null);
+    assert.strictEqual(writes.length, 1);
+    // The monarch field is set to a FieldValue sentinel — we just check it
+    // isn't a plain string, since the test runner has Admin SDK loaded and
+    // the sentinel is an object.
+    assert.notStrictEqual(typeof writes[0].update.monarch, "string");
+    assert.strictEqual(writes[0].update.points, 2); // plain → 2 pts
+  });
+
+  it("preserves a null delta entry when the new points equal the old (no-op correction)", async () => {
+    // E.g. correcting from one cypher worth 2 to another cypher worth 2 — the
+    // claims' points don't change but the audit fields and monarch field do.
+    const claims: ClaimDoc[] = [
+      { id: "c1", userid: "u1", points: 2, monarch: "EIIR", postboxes: "/postbox/osm_42" },
+    ];
+    const { db, writes } = makeMockDb(claims);
+    // Use null (plain, 2 pts) — delta = 0.
+    const result = await repointClaimsForPostbox(db, "osm_42", null);
+    assert.strictEqual(result.claimCount, 1);
+    assert.strictEqual(result.deltaByUid.get("u1"), 0);
+    assert.strictEqual(writes[0].update.points, 2);
+  });
+
+  it("ignores claims missing a userid (no delta entry written)", async () => {
+    const claims: ClaimDoc[] = [
+      { id: "c1", points: 9, monarch: "EVIIR", postboxes: "/postbox/osm_42" },
+    ];
+    const { db, writes } = makeMockDb(claims);
+    const result = await repointClaimsForPostbox(db, "osm_42", "GR");
+    assert.strictEqual(result.claimCount, 1);
+    assert.strictEqual(result.deltaByUid.size, 0);
+    // The claim is still rewritten — just not attributed to any uid.
+    assert.strictEqual(writes.length, 1);
+    assert.strictEqual(writes[0].update.points, 4);
   });
 });
 
