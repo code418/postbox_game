@@ -1726,6 +1726,34 @@ describe("shouldNotifyOvertake", () => {
       shouldNotifyOvertake({ dailyPoints: 5 }, 0, 10, "2026-04-17"),
       false
     ));
+
+  // Regression: lifetime tx writes both dailyDate and dailyPoints; streak tx
+  // writes lastClaimDate. If the streak tx commits but the lifetime tx fails,
+  // lastClaimDate is today while dailyPoints is yesterday's stale value.
+  // Prefer dailyDate when present so we don't compare against the stale total.
+  it("trusts dailyDate over lastClaimDate when both are present", () =>
+    assert.strictEqual(
+      shouldNotifyOvertake(
+        // dailyDate=yesterday, lastClaimDate=today (streak ok, lifetime tx
+        // failed): the 50 is stale, friend hasn't actually scored today.
+        { dailyPoints: 50, dailyDate: "2026-04-16", lastClaimDate: "2026-04-17" },
+        0,
+        10,
+        "2026-04-17"
+      ),
+      false
+    ));
+
+  it("uses dailyDate when present and lastClaimDate is missing (legacy field absent)", () =>
+    assert.strictEqual(
+      shouldNotifyOvertake(
+        { dailyPoints: 3, dailyDate: "2026-04-17" },
+        0,
+        5,
+        "2026-04-17"
+      ),
+      true
+    ));
 });
 
 // ── userClaimHistory pure unit tests (no Firebase required) ───────────────────

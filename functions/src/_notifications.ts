@@ -110,12 +110,13 @@ export function shouldNotifyFirstClaim(fdata: UserData, todayLondon?: string): b
  * AND `newDailyPoints > friendDaily`. Without the prev check, a user already ahead
  * of a friend would re-trigger the notification on every subsequent claim of the day.
  *
- * When `todayLondon` is provided, friends whose `lastClaimDate` is not today are
- * treated as having 0 daily points regardless of stored value. This guards
- * against stale `dailyPoints` left over from a previous day (the per-user
- * midnight sweep was removed for race-safety) inflating the threshold and
- * either suppressing legitimate overtakes or firing a notification against
- * a friend who hasn't actually scored today.
+ * When `todayLondon` is provided, the friend's stored `dailyPoints` is trusted
+ * only if their `dailyDate` marker matches today. The previous version trusted
+ * `lastClaimDate` instead, which is written by a separate streak transaction —
+ * if a friend's streak tx commits but the lifetime tx fails, `lastClaimDate`
+ * is today while `dailyPoints` is still yesterday's value, and we'd wrongly
+ * compare against an inflated threshold. Fall back to `lastClaimDate` for
+ * legacy users with no `dailyDate` field yet.
  */
 export function shouldNotifyOvertake(
   fdata: UserData,
@@ -124,9 +125,13 @@ export function shouldNotifyOvertake(
   todayLondon?: string
 ): boolean {
   if (!fdata) return false;
+  const dailyDate = fdata.dailyDate as string | undefined;
+  const lastClaimDate = fdata.lastClaimDate as string | undefined;
   const friendClaimedToday = todayLondon === undefined
     ? true
-    : (fdata.lastClaimDate as string | undefined) === todayLondon;
+    : dailyDate !== undefined
+      ? dailyDate === todayLondon
+      : lastClaimDate === todayLondon;
   const friendDaily = friendClaimedToday
     ? ((fdata.dailyPoints as number | undefined) ?? 0)
     : 0;
