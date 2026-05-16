@@ -92,8 +92,6 @@ export function parsePhotos(raw: unknown, uid: string): ReportPhoto[] {
     const out: ReportPhoto = { storagePath };
     if (obj.exifLat !== undefined) out.exifLat = parseLat(obj.exifLat);
     if (obj.exifLng !== undefined) out.exifLng = parseLng(obj.exifLng);
-    if (out.exifLat === undefined) delete out.exifLat;
-    if (out.exifLng === undefined) delete out.exifLng;
     if (obj.takenAt !== undefined) {
       if (typeof obj.takenAt !== "string" || obj.takenAt.length > 40) throw err(`photos[${i}].takenAt must be a short string`);
       out.takenAt = obj.takenAt;

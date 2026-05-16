@@ -140,6 +140,22 @@ describe("mergePeriodEntries", () => {
     const result = mergePeriodEntries(existing, "extra", "Extra", 1);
     assert.strictEqual(result.length, 100);
   });
+
+  it("breaks point ties deterministically by uid ascending", () => {
+    // Three users on identical points — ordering must be stable across
+    // repeated merge calls so the leaderboard does not visibly reshuffle on
+    // every refresh.
+    const charlie = { uid: "c", displayName: "Charlie", points: 10 };
+    const alice   = { uid: "a", displayName: "Alice",   points: 10 };
+    const result = mergePeriodEntries([charlie], "a", "Alice", 10);
+    assert.strictEqual(result[0].uid, "a");
+    assert.strictEqual(result[1].uid, "c");
+    // And it is order-independent: inserting in the reverse direction yields
+    // the same ranking.
+    const result2 = mergePeriodEntries([alice], "c", "Charlie", 10);
+    assert.strictEqual(result2[0].uid, "a");
+    assert.strictEqual(result2[1].uid, "c");
+  });
 });
 
 describe("mergeLifetimeEntries", () => {
@@ -204,6 +220,18 @@ describe("mergeLifetimeEntries", () => {
   it("updates displayName when upserted", () => {
     const result = mergeLifetimeEntries([alice], "a", "Alice v2", 10, 50);
     assert.strictEqual(result[0].displayName, "Alice v2");
+  });
+
+  it("breaks full ties (boxes and points) deterministically by uid ascending", () => {
+    // Two users on identical boxes AND identical points — order must be
+    // stable across repeated merges so the leaderboard does not reshuffle.
+    const carol = { uid: "c", displayName: "Carol", uniquePostboxesClaimed: 10, totalPoints: 50 };
+    const result = mergeLifetimeEntries([carol], "a", "Alice", 10, 50);
+    assert.strictEqual(result[0].uid, "a");
+    assert.strictEqual(result[1].uid, "c");
+    const result2 = mergeLifetimeEntries([{ uid: "a", displayName: "Alice", uniquePostboxesClaimed: 10, totalPoints: 50 }], "c", "Carol", 10, 50);
+    assert.strictEqual(result2[0].uid, "a");
+    assert.strictEqual(result2[1].uid, "c");
   });
 });
 
