@@ -379,8 +379,19 @@ class _HeatmapView extends StatelessWidget {
     final leaderUids = <String>{
       for (final l in data.leaderBySlug.values) l.uid,
     };
+    // Self first, then friends ordered alphabetically by display name so the
+    // chip row is stable across rebuilds (a comparator returning 0 for any
+    // friend pair leaves the order at the mercy of set-iteration order, which
+    // changes between rebuilds).
     final orderedLeaders = leaderUids.toList()
-      ..sort((a, b) => a == data.myUid ? -1 : (b == data.myUid ? 1 : 0));
+      ..sort((a, b) {
+        if (a == data.myUid) return -1;
+        if (b == data.myUid) return 1;
+        final na = data.displayNames[a] ?? '';
+        final nb = data.displayNames[b] ?? '';
+        final byName = na.toLowerCase().compareTo(nb.toLowerCase());
+        return byName != 0 ? byName : a.compareTo(b);
+      });
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
