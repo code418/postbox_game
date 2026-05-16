@@ -77,7 +77,12 @@ export async function rebuildPeriodLeaderboard(
     entries.push({ uid, displayName, points: pts });
   }
 
-  entries.sort((a, b) => b.points - a.points);
+  // Sort matches mergePeriodEntries: descending by points, ties broken by uid
+  // ascending so the rebuilt board has the same ordering as one maintained
+  // incrementally by updateUserLeaderboards.
+  entries.sort((a, b) =>
+    (b.points - a.points) || (a.uid < b.uid ? -1 : a.uid > b.uid ? 1 : 0)
+  );
 
   // Only overwrite when the leaderboard still belongs to the previous period.
   // If storedPeriodKey already equals the current periodKey, updateUserLeaderboards
