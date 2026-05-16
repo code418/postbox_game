@@ -327,10 +327,12 @@ class _ClaimState extends State<Claim> with TickerProviderStateMixin {
     }
   }
 
-  String? _pickQuizCipher() {
-    // Collect all ciphers from unclaimed postboxes and pick randomly so the
-    // quiz varies when multiple postboxes with different ciphers are nearby.
-    final ciphers = <String>[];
+  /// Distinct known ciphers currently on nearby unclaimed postboxes — any of
+  /// these counts as a correct quiz answer. Recomputed at quiz start.
+  Set<String> _validQuizCiphers = const {};
+
+  Set<String> _collectValidCiphers() {
+    final ciphers = <String>{};
     for (final p in _postboxes.values) {
       final map = p as Map<String, dynamic>;
       if (map['claimedToday'] == true) continue;
@@ -346,26 +348,42 @@ class _ClaimState extends State<Claim> with TickerProviderStateMixin {
         ciphers.add(monarch);
       }
     }
-    if (ciphers.isEmpty) return null;
-    ciphers.shuffle();
-    return ciphers.first;
+    return ciphers;
   }
 
-  List<String> _buildQuizOptions(String correct) {
-    final pool = List<String>.from(MonarchInfo.all)..remove(correct)..shuffle();
-    return ([correct, ...pool.take(3)]..shuffle());
+  /// Builds 4 quiz options that always include every nearby valid cipher (so
+  /// the user can pick the one they actually see), padded with distractors
+  /// from the rest of the catalogue. With more than 4 valid nearby ciphers
+  /// (very rare) only [maxOptions] of them appear — the rest are still
+  /// accepted as correct by [_onQuizAnswer], they just don't get an option
+  /// row in this round.
+  List<String> _buildQuizOptions(Set<String> validCiphers,
+      {int maxOptions = 4}) {
+    final valid = validCiphers.toList()..shuffle();
+    final pickedValid = valid.take(maxOptions).toList();
+    final pool = List<String>.from(MonarchInfo.all)
+      ..removeWhere(pickedValid.contains)
+      ..shuffle();
+    final fillers = pool.take(maxOptions - pickedValid.length).toList();
+    return ([...pickedValid, ...fillers]..shuffle());
   }
 
   void _startQuiz() {
-    final cipher = _pickQuizCipher();
-    if (cipher == null) {
+    final valid = _collectValidCiphers();
+    if (valid.isEmpty) {
       unawaited(_claimPostbox());
       return;
     }
-    Analytics.quizStarted(cipher: cipher);
+    // Track for analytics (which cipher we framed the prompt around) — the
+    // user can pass by recognising ANY cipher actually on a nearby unclaimed
+    // box, see _onQuizAnswer.
+    final ciphers = valid.toList()..shuffle();
+    final picked = ciphers.first;
+    Analytics.quizStarted(cipher: picked);
     setState(() {
-      _quizCipher = cipher;
-      _quizOptions = _buildQuizOptions(cipher);
+      _quizCipher = picked;
+      _validQuizCiphers = valid;
+      _quizOptions = _buildQuizOptions(valid);
       _selectedAnswer = null;
       currentStage = ClaimStage.quiz;
     });
@@ -373,8 +391,8 @@ class _ClaimState extends State<Claim> with TickerProviderStateMixin {
 
   void _onQuizAnswer(String answer) {
     setState(() => _selectedAnswer = answer);
-    if (answer == _quizCipher) {
-      Analytics.quizCorrect(cipher: _quizCipher!);
+    if (_validQuizCiphers.contains(answer)) {
+      Analytics.quizCorrect(cipher: answer);
       HapticFeedback.lightImpact();
       unawaited(_claimPostbox());
     } else {
