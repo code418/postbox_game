@@ -219,6 +219,11 @@ class _LiveRouteScreenState extends State<LiveRouteScreen> {
 
   void _onPosition(Position pos) {
     if (!mounted) return;
+    // Once arrival has been triggered the screen is unmounting via
+    // pushReplacement; skip both the setState and any further scans so we
+    // don't fire a `nearbyPostboxes` call (or update bearing chips) for a
+    // screen the user is already leaving.
+    if (_arrived) return;
 
     final dest = widget.session.destination;
     final dist = Geolocator.distanceBetween(
@@ -239,7 +244,7 @@ class _LiveRouteScreenState extends State<LiveRouteScreen> {
     });
 
     // Arrival detection — only navigate once.
-    if (!_arrived && dist < _kArrivalRadiusM) {
+    if (dist < _kArrivalRadiusM) {
       _arrived = true;
       _navigateToCompletion();
       return;
