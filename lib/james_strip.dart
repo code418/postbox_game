@@ -72,9 +72,16 @@ class _JamesStripState extends State<JamesStrip> with SingleTickerProviderStateM
     if (_slideCtrl.isCompleted) {
       _startTyping(msg);
     } else {
-      _slideCtrl.forward().then((_) {
-        if (mounted && _currentMessage == msg) _startTyping(msg);
-      });
+      // .orCancel surfaces dispose-mid-slide as TickerCanceled so the
+      // continuation can be collected; the bare .then would never fire and
+      // would hold this closure (and msg) alive forever. onError swallows the
+      // cancellation cleanly — the typing tail just doesn't run.
+      _slideCtrl.forward().orCancel.then(
+        (_) {
+          if (mounted && _currentMessage == msg) _startTyping(msg);
+        },
+        onError: (_) {},
+      );
     }
   }
 
@@ -98,15 +105,20 @@ class _JamesStripState extends State<JamesStrip> with SingleTickerProviderStateM
     _typeTimer?.cancel();
     _dismissTimer?.cancel();
     final messageToDismiss = _currentMessage;
-    _slideCtrl.reverse().then((_) {
-      if (mounted && _currentMessage == messageToDismiss) {
-        widget.controller.clear();
-        setState(() {
-          _currentMessage = '';
-          _charIndex = 0;
-        });
-      }
-    });
+    // Same TickerFuture-cancellation concern as _handleNewMessage: a bare
+    // .then would leak this closure on dispose-mid-reverse.
+    _slideCtrl.reverse().orCancel.then(
+      (_) {
+        if (mounted && _currentMessage == messageToDismiss) {
+          widget.controller.clear();
+          setState(() {
+            _currentMessage = '';
+            _charIndex = 0;
+          });
+        }
+      },
+      onError: (_) {},
+    );
   }
 
   void _startDismissTimer() {
@@ -116,16 +128,20 @@ class _JamesStripState extends State<JamesStrip> with SingleTickerProviderStateM
     final readMs = (_currentMessage.length * 40).clamp(3000, 8000);
     _dismissTimer = Timer(Duration(milliseconds: readMs), () {
       if (!mounted) return;
-      _slideCtrl.reverse().then((_) {
-        // Only clear if no new message arrived while sliding out.
-        if (mounted && _currentMessage == messageToDismiss) {
-          widget.controller.clear();
-          setState(() {
-            _currentMessage = '';
-            _charIndex = 0;
-          });
-        }
-      });
+      // Same TickerFuture-cancellation concern as _handleNewMessage.
+      _slideCtrl.reverse().orCancel.then(
+        (_) {
+          // Only clear if no new message arrived while sliding out.
+          if (mounted && _currentMessage == messageToDismiss) {
+            widget.controller.clear();
+            setState(() {
+              _currentMessage = '';
+              _charIndex = 0;
+            });
+          }
+        },
+        onError: (_) {},
+      );
     });
   }
 
