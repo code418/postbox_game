@@ -155,6 +155,56 @@ void main() {
       expect(saved[HomeWidgetService.keyTodayPoints], 0);
     });
 
+    test('dailyDate=today is trusted over a stale lastClaimDate', () async {
+      // Race scenario: the lifetime tx (writes dailyDate + dailyPoints) commits
+      // but the parallel streak tx (writes lastClaimDate) hasn't yet — or
+      // failed. The widget must trust the dailyDate marker, otherwise it would
+      // wrongly show 0 points for a user who just claimed today.
+      final firestore = FakeFirebaseFirestore();
+      final auth = MockFirebaseAuth(
+        signedIn: true,
+        mockUser: MockUser(uid: 'u_dd_fresh'),
+      );
+      await firestore.collection('users').doc('u_dd_fresh').set({
+        'streak': 4,
+        'dailyPoints': 27,
+        'dailyDate': todayLondon(),
+        'lastClaimDate': yesterdayLondon(), // stale relative to dailyDate
+      });
+
+      final service = HomeWidgetService(firestore: firestore, auth: auth);
+      await service.refresh();
+
+      final saved = _savedValues(calls);
+      expect(saved[HomeWidgetService.keyTodayPoints], 27);
+      // Streak still alive because lastClaimDate==yesterday is fine.
+      expect(saved[HomeWidgetService.keyStreak], 4);
+    });
+
+    test('dailyDate=yesterday forces todayPoints to 0 ignoring lastClaimDate',
+        () async {
+      // dailyDate is the authoritative per-period marker. If it's yesterday,
+      // dailyPoints belongs to yesterday — even if lastClaimDate==today (which
+      // would only happen via a buggy partial-tx state).
+      final firestore = FakeFirebaseFirestore();
+      final auth = MockFirebaseAuth(
+        signedIn: true,
+        mockUser: MockUser(uid: 'u_dd_stale'),
+      );
+      await firestore.collection('users').doc('u_dd_stale').set({
+        'streak': 2,
+        'dailyPoints': 50,
+        'dailyDate': yesterdayLondon(),
+        'lastClaimDate': todayLondon(),
+      });
+
+      final service = HomeWidgetService(firestore: firestore, auth: auth);
+      await service.refresh();
+
+      final saved = _savedValues(calls);
+      expect(saved[HomeWidgetService.keyTodayPoints], 0);
+    });
+
     test('missing user doc defaults to zeros without throwing', () async {
       final firestore = FakeFirebaseFirestore();
       final auth = MockFirebaseAuth(
