@@ -165,6 +165,12 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
   String? _quizCipher;
   String? _selectedAnswer;
   List<String> _quizOptions = [];
+  // Distinct known ciphers on nearby unclaimed-today postboxes — any one is a
+  // correct answer. The UI prompts the user to look at "one of the nearby
+  // postboxes" when there are multiple, so locking the answer to a single
+  // randomly-picked cipher would reject correct identifications of other
+  // postboxes the user might have looked at.
+  Set<String> _validQuizCiphers = const {};
 
   // ── Claim result ─────────────────────────────────────────────────────────
   int _pointsEarned = 0;
@@ -448,12 +454,15 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
 
   // ── Quiz helpers ──────────────────────────────────────────────────────────
 
-  String? _pickQuizCipher() {
-    final ciphers = <String>[];
+  Set<String> _collectValidCiphers() {
+    final ciphers = <String>{};
     for (final p in _postboxes.values) {
       final map = p as Map<String, dynamic>;
       if (map['claimedToday'] == true) continue;
       final monarch = map['monarch'];
+      // Only ciphers in MonarchInfo.all so the option pool can always render
+      // the correct answer; unknown OSM cyphers are accepted via the direct
+      // claim path (no quiz triggered) elsewhere.
       if (monarch != null &&
           monarch is String &&
           monarch.isNotEmpty &&
@@ -461,28 +470,36 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
         ciphers.add(monarch);
       }
     }
-    if (ciphers.isEmpty) return null;
-    ciphers.shuffle();
-    return ciphers.first;
+    return ciphers;
   }
 
-  List<String> _buildQuizOptions(String correct) {
+  /// Always include every nearby valid cipher (so the user can pick the one
+  /// they actually see), padded with distractors. With more than [maxOptions]
+  /// valid nearby ciphers only [maxOptions] of them appear — the rest are
+  /// still accepted as correct by [_onQuizAnswer], they just don't get a row.
+  List<String> _buildQuizOptions(Set<String> validCiphers,
+      {int maxOptions = 4}) {
+    final valid = validCiphers.toList()..shuffle();
+    final pickedValid = valid.take(maxOptions).toList();
     final pool = List<String>.from(MonarchInfo.all)
-      ..remove(correct)
+      ..removeWhere(pickedValid.contains)
       ..shuffle();
-    return ([correct, ...pool.take(3)]..shuffle());
+    final fillers = pool.take(maxOptions - pickedValid.length).toList();
+    return ([...pickedValid, ...fillers]..shuffle());
   }
 
   void _startQuiz() {
-    final cipher = _pickQuizCipher();
-    if (cipher == null) {
+    final valid = _collectValidCiphers();
+    if (valid.isEmpty) {
       unawaited(_claimPostbox());
       return;
     }
-    Analytics.quizStarted(cipher: cipher);
+    final picked = (valid.toList()..shuffle()).first;
+    Analytics.quizStarted(cipher: picked);
     setState(() {
-      _quizCipher = cipher;
-      _quizOptions = _buildQuizOptions(cipher);
+      _quizCipher = picked;
+      _validQuizCiphers = valid;
+      _quizOptions = _buildQuizOptions(valid);
       _selectedAnswer = null;
       _stage = _QuizStage.quiz;
     });
@@ -490,8 +507,8 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
 
   void _onQuizAnswer(String answer) {
     setState(() => _selectedAnswer = answer);
-    if (answer == _quizCipher) {
-      Analytics.quizCorrect(cipher: _quizCipher!);
+    if (_validQuizCiphers.contains(answer)) {
+      Analytics.quizCorrect(cipher: answer);
       HapticFeedback.lightImpact();
       unawaited(_claimPostbox());
     } else {
