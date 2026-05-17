@@ -162,7 +162,7 @@ async function loadFromFirestore(centre: Point, radiusMetres: number, projectId:
   const cells = [centreHash, ...geohash.neighbors(centreHash)];
 
   const snapshots = await Promise.all(
-    cells.map((prefix) => db.collection("postbox").orderBy("geohash").startAt(prefix).endAt(prefix + "").get()),
+    cells.map((prefix) => db.collection("postbox").orderBy("geohash").startAt(prefix).endAt(prefix + "\uf8ff").get()),
   );
 
   const seen = new Set<string>();

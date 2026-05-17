@@ -138,7 +138,7 @@ export const routePostboxes = functions.https.onCall(async (request) => {
   const db = admin.firestore();
   const postboxRef = db.collection("postbox");
   const queries = areas.map((prefix) => {
-    const end = prefix + "";
+    const end = prefix + "\uf8ff";
     return postboxRef.orderBy("geohash").startAt(prefix).endAt(end).get();
   });
 
