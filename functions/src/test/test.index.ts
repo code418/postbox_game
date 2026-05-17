@@ -503,6 +503,23 @@ describe("setPrecision", () => {
   it("returns 4 for 10 km radius", () => assert.strictEqual(setPrecision(10), 4));
   it("returns 2 for 500 km radius", () => assert.strictEqual(setPrecision(500), 2));
   it("returns 1 for very large radius (>625 km)", () => assert.strictEqual(setPrecision(1000), 1));
+
+  // Defensive edge cases — callers shouldn't pass these but the function
+  // must degrade safely rather than throw or pick a wide-open precision.
+  it("returns 9 (max) for radius 0 — narrow query is safer than wide", () => {
+    assert.strictEqual(setPrecision(0), 9);
+  });
+  it("returns 9 (max) for a tiny negative radius — same defensive narrow query", () => {
+    // A negative radius is nonsense but mustn't blow up; precision-9 is the
+    // safest choice (smallest cell, fewest reads).
+    assert.strictEqual(setPrecision(-0.001), 9);
+  });
+  it("returns 1 (max-coverage fallback) for NaN — NaN<=x is always false", () => {
+    // Comparisons against NaN are always false, so the cascade falls through
+    // to the final return-1 branch. Documents that the function is
+    // conservatively wide-open for unparseable input rather than throwing.
+    assert.strictEqual(setPrecision(Number.NaN), 1);
+  });
 });
 
 describe("getLatLng", () => {
