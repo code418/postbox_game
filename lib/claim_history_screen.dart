@@ -242,7 +242,7 @@ class _HistoryList extends StatelessWidget {
           final e = entries[i];
           final label = e.monarch != null
               ? (MonarchInfo.labels[e.monarch!] ?? e.monarch!)
-              : 'Unknown cipher';
+              : 'No cypher recorded';
           final color =
               (e.monarch != null ? MonarchInfo.colors[e.monarch!] : null) ??
                   postalRed;
@@ -344,7 +344,7 @@ class _EntryDetailSheet extends StatelessWidget {
     final textTheme = Theme.of(context).textTheme;
     final monarchLabel = entry.monarch != null
         ? (MonarchInfo.labels[entry.monarch!] ?? entry.monarch!)
-        : 'Unknown cipher';
+        : 'No cypher recorded';
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(
