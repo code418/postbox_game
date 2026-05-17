@@ -15,16 +15,28 @@ import 'package:url_launcher/url_launcher.dart';
 /// holding the `admin` custom claim (see [AdminAccess]). Accepting a report
 /// calls the `reviewReport` Cloud Function, which updates the Firestore postbox
 /// entry, re-scores affected claims, and generates an osmChange file.
-class AdminReportsScreen extends StatelessWidget {
+class AdminReportsScreen extends StatefulWidget {
   const AdminReportsScreen({super.key});
 
+  @override
+  State<AdminReportsScreen> createState() => _AdminReportsScreenState();
+}
+
+class _AdminReportsScreenState extends State<AdminReportsScreen> {
   static const _statuses = ['pending', 'accepted', 'rejected'];
   static const _labels = {'pending': 'Pending', 'accepted': 'Accepted', 'rejected': 'Rejected'};
+
+  // Force a token refresh once on entry to pick up a freshly-granted admin
+  // claim, then cache the result so a Theme/orientation rebuild doesn't
+  // re-issue `getIdTokenResult(forceRefresh: true)` (a Firebase Auth network
+  // round-trip).
+  late final Future<bool> _adminCheck =
+      AdminAccess.isAdmin(forceRefresh: true);
 
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<bool>(
-      future: AdminAccess.isAdmin(forceRefresh: true),
+      future: _adminCheck,
       builder: (context, snap) {
         if (!snap.hasData) {
           return const Scaffold(body: Center(child: CircularProgressIndicator(color: postalRed)));
