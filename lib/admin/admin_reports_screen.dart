@@ -385,14 +385,33 @@ class _ReviewOutcome extends StatelessWidget {
   }
 }
 
-class _PhotoThumb extends StatelessWidget {
+class _PhotoThumb extends StatefulWidget {
   const _PhotoThumb({required this.photo});
   final Map<String, dynamic> photo;
 
   @override
+  State<_PhotoThumb> createState() => _PhotoThumbState();
+}
+
+class _PhotoThumbState extends State<_PhotoThumb> {
+  /// Cached download URL future — built once per path so a parent rebuild
+  /// (Accept tap, photo dialog open, sibling busy toggling) doesn't fire a
+  /// fresh Storage round-trip per thumb on every frame.
+  Future<String>? _urlFuture;
+  String? _lastPath;
+
+  Future<String> _urlFor(String path) {
+    if (_urlFuture == null || _lastPath != path) {
+      _lastPath = path;
+      _urlFuture = FirebaseStorage.instance.ref(path).getDownloadURL();
+    }
+    return _urlFuture!;
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final path = photo['storagePath'] as String?;
-    final hasGps = photo['exifLat'] != null && photo['exifLng'] != null;
+    final path = widget.photo['storagePath'] as String?;
+    final hasGps = widget.photo['exifLat'] != null && widget.photo['exifLng'] != null;
     return Padding(
       padding: const EdgeInsets.only(right: AppSpacing.sm),
       child: GestureDetector(
@@ -407,7 +426,7 @@ class _PhotoThumb extends StatelessWidget {
                 child: path == null
                     ? const ColoredBox(color: Colors.black12, child: Icon(Icons.broken_image_outlined))
                     : FutureBuilder<String>(
-                        future: FirebaseStorage.instance.ref(path).getDownloadURL(),
+                        future: _urlFor(path),
                         builder: (_, s) => s.hasData
                             // Decode at thumbnail size — uploaded photos can
                             // be 2400 px on the long edge, which would chew
@@ -429,11 +448,13 @@ class _PhotoThumb extends StatelessWidget {
   }
 
   Future<void> _open(BuildContext context, String path) async {
-    final url = await FirebaseStorage.instance.ref(path).getDownloadURL();
+    // Reuse the cached URL future (same Storage download URL) instead of
+    // firing a fresh getDownloadURL request on every tap.
+    final url = await _urlFor(path);
     if (!context.mounted) return;
-    final exifLat = (photo['exifLat'] as num?)?.toDouble();
-    final exifLng = (photo['exifLng'] as num?)?.toDouble();
-    final takenAt = photo['takenAt'] as String?;
+    final exifLat = (widget.photo['exifLat'] as num?)?.toDouble();
+    final exifLng = (widget.photo['exifLng'] as num?)?.toDouble();
+    final takenAt = widget.photo['takenAt'] as String?;
     showDialog<void>(
       context: context,
       builder: (ctx) => Dialog(
