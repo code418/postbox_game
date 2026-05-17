@@ -13,6 +13,7 @@ import 'package:postbox_game/james_messages.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:postbox_game/location_service.dart';
 import 'package:postbox_game/monarch_info.dart';
+import 'package:postbox_game/remote_config_service.dart';
 import 'package:postbox_game/reports/report_missing_postbox_screen.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/widgets/postbox_map.dart';
@@ -68,7 +69,8 @@ class _NearbyState extends State<Nearby> {
     // channel. Wrap so a missing magnetometer (test or e.g. desktop runs)
     // doesn't blow up the whole screen on first build.
     try {
-      _compassSubscription = FlutterCompass.events?.listen((CompassEvent event) {
+      _compassSubscription =
+          FlutterCompass.events?.listen((CompassEvent event) {
         final heading = event.heading;
         if (heading == null) return;
         final prev = _headingNotifier.value;
@@ -131,9 +133,22 @@ class _NearbyState extends State<Nearby> {
         _minPoints = asInt(pts['min']);
         currentStage = NearbyStage.results;
         for (final dir in const [
-          'N', 'NNE', 'NE', 'ENE', 'E', 'ESE',
-          'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW',
-          'W', 'WNW', 'NW', 'NNW',
+          'N',
+          'NNE',
+          'NE',
+          'ENE',
+          'E',
+          'ESE',
+          'SE',
+          'SSE',
+          'S',
+          'SSW',
+          'SW',
+          'WSW',
+          'W',
+          'WNW',
+          'NW',
+          'NNW',
         ]) {
           _compassCounts[dir] = asInt(compass[dir]);
           _claimedCompassCounts[dir] = asInt(claimedCompass[dir]);
@@ -185,7 +200,8 @@ class _NearbyState extends State<Nearby> {
       setState(() => currentStage = NearbyStage.initial);
     } on TimeoutException {
       if (!mounted) return;
-      JamesController.of(context)?.show(JamesMessages.nearbyErrorGeneral.resolve());
+      JamesController.of(context)
+          ?.show(JamesMessages.nearbyErrorGeneral.resolve());
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Text(
@@ -279,42 +295,44 @@ class _NearbyState extends State<Nearby> {
           constraints: BoxConstraints(minHeight: constraints.maxHeight - 100),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.location_searching,
-                size: 80,
-                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.2)),
-            const SizedBox(height: AppSpacing.lg),
-            Text(
-              'Find nearby postboxes',
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            Text(
-              'Scan within ${AppPreferences.formatDistance(AppPreferences.nearbyRadiusMeters, _distanceUnit)} to see which postboxes are around you.',
-              style: Theme.of(context)
-                  .textTheme
-                  .bodyMedium
-                  ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: AppSpacing.xl),
-            FilledButton.icon(
-              onPressed: _startSearch,
-              icon: const Icon(Icons.search),
-              label: const Text('Find nearby postboxes'),
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            OutlinedButton.icon(
-              onPressed: () =>
-                  Navigator.pushNamed(context, '/route'),
-              icon: const Icon(Icons.directions_walk),
-              label: const Text('Walk to a destination'),
-            ),
-          ],
-        ),
+            children: [
+              Icon(Icons.location_searching,
+                  size: 80,
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withValues(alpha: 0.2)),
+              const SizedBox(height: AppSpacing.lg),
+              Text(
+                'Find nearby postboxes',
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                'Scan within ${AppPreferences.formatDistance(AppPreferences.nearbyRadiusMeters, _distanceUnit)} to see which postboxes are around you.',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: AppSpacing.xl),
+              FilledButton.icon(
+                onPressed: _startSearch,
+                icon: const Icon(Icons.search),
+                label: const Text('Find nearby postboxes'),
+              ),
+              if (!RemoteConfigService.instance.killSwitchRouteMode) ...[
+                const SizedBox(height: AppSpacing.sm),
+                OutlinedButton.icon(
+                  onPressed: () => Navigator.pushNamed(context, '/route'),
+                  icon: const Icon(Icons.directions_walk),
+                  label: const Text('Walk to a destination'),
+                ),
+              ],
+            ],
+          ),
         ),
       ),
     );
@@ -329,7 +347,8 @@ class _NearbyState extends State<Nearby> {
           children: [
             const CircularProgressIndicator(color: postalRed),
             const SizedBox(height: AppSpacing.md),
-            Text('Scanning ${AppPreferences.formatDistance(AppPreferences.nearbyRadiusMeters, _distanceUnit)} radius...'),
+            Text(
+                'Scanning ${AppPreferences.formatDistance(AppPreferences.nearbyRadiusMeters, _distanceUnit)} radius...'),
           ],
         ),
       ),
@@ -372,7 +391,8 @@ class _NearbyState extends State<Nearby> {
       center: center,
       zoom: 14,
       circleMarkers: [
-        scanRadiusCircle(center, radiusMeters: AppPreferences.nearbyRadiusMeters),
+        scanRadiusCircle(center,
+            radiusMeters: AppPreferences.nearbyRadiusMeters),
       ],
       markers: [userPositionMarker(center)],
     );
@@ -391,182 +411,202 @@ class _NearbyState extends State<Nearby> {
       color: postalRed,
       onRefresh: _startSearch,
       child: AnimationLimiter(
-      child: ListView(
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.only(
-          top: AppSpacing.md, bottom: 100, left: 0, right: 0),
-      children: [
-        // Context map — "You Are Here" with scan radius
-        if (_scanPosition != null)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(
-                AppSpacing.md, AppSpacing.xs, AppSpacing.md, 0),
-            child: _contextMap(_scanPosition!),
-          ),
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.only(
+              top: AppSpacing.md, bottom: 100, left: 0, right: 0),
+          children: [
+            // Context map — "You Are Here" with scan radius
+            if (_scanPosition != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.md, AppSpacing.xs, AppSpacing.md, 0),
+                child: _contextMap(_scanPosition!),
+              ),
 
-        // Summary card
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(AppSpacing.md),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(AppSpacing.sm),
-                  decoration: BoxDecoration(
-                    color: postalRed.withValues(alpha:0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(Icons.location_on, color: postalRed),
-                ),
-                const SizedBox(width: AppSpacing.md),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '$_count postbox${_count == 1 ? '' : 'es'} nearby',
-                        style:
-                            Theme.of(context).textTheme.titleMedium?.copyWith(
+            // Summary card
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(AppSpacing.md),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(AppSpacing.sm),
+                      decoration: BoxDecoration(
+                        color: postalRed.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(Icons.location_on, color: postalRed),
+                    ),
+                    const SizedBox(width: AppSpacing.md),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '$_count postbox${_count == 1 ? '' : 'es'} nearby',
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
+                                ?.copyWith(
                                   fontWeight: FontWeight.bold,
                                 ),
-                      ),
-                      if (_count > 0 && _claimedToday < _count)
-                        Text(
-                          _maxPoints == _minPoints
-                              ? 'Worth $_maxPoints pts'
-                              : 'Worth $_minPoints–$_maxPoints pts',
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodySmall
-                              ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
-                        ),
-                      if (_lastScanned != null)
-                        Text(
-                          'Scanned at ${TimeOfDay.fromDateTime(_lastScanned!).format(context)}',
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodySmall
-                              ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
-                        ),
-                      if (_claimedToday > 0)
-                        Row(
-                          children: [
-                            const Icon(Icons.lock_clock, size: 12, color: Colors.orange),
-                            const SizedBox(width: 4),
+                          ),
+                          if (_count > 0 && _claimedToday < _count)
                             Text(
-                              '$_claimedToday claimed today',
-                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                    color: Colors.orange.shade700,
-                                  ),
+                              _maxPoints == _minPoints
+                                  ? 'Worth $_maxPoints pts'
+                                  : 'Worth $_minPoints–$_maxPoints pts',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurfaceVariant),
                             ),
-                          ],
-                        ),
-                    ],
-                  ),
-                ),
-                TextButton.icon(
-                  onPressed: _startSearch,
-                  icon: const Icon(Icons.refresh, size: 18),
-                  label: const Text('Refresh'),
-                  style: TextButton.styleFrom(
-                    visualDensity: VisualDensity.compact,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-
-        // Empty state
-        if (_count == 0)
-          Padding(
-            padding: const EdgeInsets.all(AppSpacing.xl),
-            child: Column(
-              children: [
-                Icon(Icons.location_off, size: 60,
-                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.2)),
-                const SizedBox(height: AppSpacing.md),
-                Text(
-                  'No postboxes found within ${AppPreferences.formatDistance(AppPreferences.nearbyRadiusMeters, _distanceUnit)}',
-                  style: Theme.of(context).textTheme.titleMedium,
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: AppSpacing.xs),
-                Text(
-                  'Try a different location.',
-                  style: Theme.of(context)
-                      .textTheme
-                      .bodySmall
-                      ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
-                ),
-                const SizedBox(height: AppSpacing.md),
-                OutlinedButton.icon(
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const ReportMissingPostboxScreen()),
-                  ),
-                  icon: const Icon(Icons.report_gmailerrorred_outlined),
-                  label: const Text('Report a missing postbox'),
-                ),
-              ],
-            ),
-          ),
-
-        // Monarch breakdown
-        if (monarchEntries.isNotEmpty) ...[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(
-                AppSpacing.md, AppSpacing.md, AppSpacing.md, AppSpacing.xs),
-            child: Text(
-              'Postbox types',
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    color: Theme.of(context).colorScheme.primary,
-                    fontWeight: FontWeight.w600,
-                  ),
-            ),
-          ),
-          ...monarchEntries.asMap().entries.map((entry) {
-            final cipher = entry.value.key;
-            final total = entry.value.value;
-            final claimed = _cipherClaimed[cipher] ?? 0;
-            return AnimationConfiguration.staggeredList(
-              position: entry.key,
-              duration: const Duration(milliseconds: 375),
-              child: SlideAnimation(
-                verticalOffset: 50,
-                child: FadeInAnimation(
-                  child: _monarchCard(context, cipher, total, claimed),
+                          if (_lastScanned != null)
+                            Text(
+                              'Scanned at ${TimeOfDay.fromDateTime(_lastScanned!).format(context)}',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurfaceVariant),
+                            ),
+                          if (_claimedToday > 0)
+                            Row(
+                              children: [
+                                const Icon(Icons.lock_clock,
+                                    size: 12, color: Colors.orange),
+                                const SizedBox(width: 4),
+                                Text(
+                                  '$_claimedToday claimed today',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
+                                      ?.copyWith(
+                                        color: Colors.orange.shade700,
+                                      ),
+                                ),
+                              ],
+                            ),
+                        ],
+                      ),
+                    ),
+                    TextButton.icon(
+                      onPressed: _startSearch,
+                      icon: const Icon(Icons.refresh, size: 18),
+                      label: const Text('Refresh'),
+                      style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            );
-          }),
-        ],
+            ),
 
-        // Compass — shown whenever postboxes are nearby (claimed or not).
-        // Red sectors = unclaimed (to find); grey sectors = already claimed today.
-        if (_count > 0) ...[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(
-                AppSpacing.md, AppSpacing.lg, AppSpacing.md, AppSpacing.xs),
-            child: Text(
-              _claimedToday < _count ? 'Where to look' : 'Where you\'ve been',
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    color: Theme.of(context).colorScheme.primary,
-                    fontWeight: FontWeight.w600,
+            // Empty state
+            if (_count == 0)
+              Padding(
+                padding: const EdgeInsets.all(AppSpacing.xl),
+                child: Column(
+                  children: [
+                    Icon(Icons.location_off,
+                        size: 60,
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withValues(alpha: 0.2)),
+                    const SizedBox(height: AppSpacing.md),
+                    Text(
+                      'No postboxes found within ${AppPreferences.formatDistance(AppPreferences.nearbyRadiusMeters, _distanceUnit)}',
+                      style: Theme.of(context).textTheme.titleMedium,
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: AppSpacing.xs),
+                    Text(
+                      'Try a different location.',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color:
+                              Theme.of(context).colorScheme.onSurfaceVariant),
+                    ),
+                    if (!RemoteConfigService.instance.killSwitchReporting) ...[
+                      const SizedBox(height: AppSpacing.md),
+                      OutlinedButton.icon(
+                        onPressed: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                              builder: (_) =>
+                                  const ReportMissingPostboxScreen()),
+                        ),
+                        icon: const Icon(Icons.report_gmailerrorred_outlined),
+                        label: const Text('Report a missing postbox'),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+
+            // Monarch breakdown
+            if (monarchEntries.isNotEmpty) ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.md, AppSpacing.md, AppSpacing.md, AppSpacing.xs),
+                child: Text(
+                  'Postbox types',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        color: Theme.of(context).colorScheme.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+              ),
+              ...monarchEntries.asMap().entries.map((entry) {
+                final cipher = entry.value.key;
+                final total = entry.value.value;
+                final claimed = _cipherClaimed[cipher] ?? 0;
+                return AnimationConfiguration.staggeredList(
+                  position: entry.key,
+                  duration: const Duration(milliseconds: 375),
+                  child: SlideAnimation(
+                    verticalOffset: 50,
+                    child: FadeInAnimation(
+                      child: _monarchCard(context, cipher, total, claimed),
+                    ),
                   ),
-            ),
-          ),
-          ValueListenableBuilder<double?>(
-            valueListenable: _headingNotifier,
-            builder: (_, heading, __) => FuzzyCompass(
-              compassCounts: compassMap,
-              claimedCompassCounts: _claimedCompassCounts,
-              headingDegrees: heading,
-            ),
-          ),
-        ],
+                );
+              }),
+            ],
 
-      ],
-    ),
+            // Compass — shown whenever postboxes are nearby (claimed or not).
+            // Red sectors = unclaimed (to find); grey sectors = already claimed today.
+            if (_count > 0) ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.md, AppSpacing.lg, AppSpacing.md, AppSpacing.xs),
+                child: Text(
+                  _claimedToday < _count
+                      ? 'Where to look'
+                      : 'Where you\'ve been',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        color: Theme.of(context).colorScheme.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+              ),
+              ValueListenableBuilder<double?>(
+                valueListenable: _headingNotifier,
+                builder: (_, heading, __) => FuzzyCompass(
+                  compassCounts: compassMap,
+                  claimedCompassCounts: _claimedCompassCounts,
+                  headingDegrees: heading,
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
@@ -597,7 +637,8 @@ class _NearbyState extends State<Nearby> {
     );
   }
 
-  Widget _monarchCard(BuildContext context, String code, int count, int claimed) {
+  Widget _monarchCard(
+      BuildContext context, String code, int count, int claimed) {
     final label = MonarchInfo.labels[code] ?? code;
     final color = MonarchInfo.colors[code] ?? postalRed;
     final available = count - claimed;
@@ -631,13 +672,15 @@ class _NearbyState extends State<Nearby> {
     return Card(
       child: ListTile(
         leading: CircleAvatar(
-          backgroundColor:
-              color.withValues(alpha: allClaimed ? 0.06 : 0.12),
+          backgroundColor: color.withValues(alpha: allClaimed ? 0.06 : 0.12),
           child: Text(
             allClaimed ? '✓' : '$available',
             style: TextStyle(
               color: allClaimed
-                  ? Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.38)
+                  ? Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withValues(alpha: 0.38)
                   : color,
               fontWeight: FontWeight.bold,
             ),
@@ -646,7 +689,11 @@ class _NearbyState extends State<Nearby> {
         title: Text(
           label,
           style: allClaimed
-              ? TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.38))
+              ? TextStyle(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withValues(alpha: 0.38))
               : null,
         ),
         subtitle: Text(
@@ -656,7 +703,11 @@ class _NearbyState extends State<Nearby> {
                   ? '$code · ${MonarchInfo.getPoints(code)} pts · $available of $count available'
                   : '$code · ${MonarchInfo.getPoints(code)} pts each',
           style: allClaimed
-              ? TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.38))
+              ? TextStyle(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withValues(alpha: 0.38))
               : null,
         ),
         trailing: allClaimed ? null : trailing,

@@ -1,0 +1,28 @@
+{
+  "parameters": {
+    "kill_switch_route_mode": {
+      "defaultValue": {
+        "value": "false"
+      },
+      "description": "When true, hides the 'Walk to a destination' CTA on the Nearby tab so Route Mode can be disabled without a release.",
+      "valueType": "BOOLEAN"
+    },
+    "kill_switch_reporting": {
+      "defaultValue": {
+        "value": "false"
+      },
+      "description": "When true, hides the 'Report a missing postbox' and 'Report wrong cypher' entry points app-wide so problem-reporting can be disabled without a release.",
+      "valueType": "BOOLEAN"
+    },
+    "james_welcome_variant": {
+      "defaultValue": {
+        "value": "classic"
+      },
+      "description": "Postman James's first-launch line variant. 'classic' = the shipped copy; 'cheeky' = the A/B variant. Other values fall back to 'classic'.",
+      "valueType": "STRING"
+    }
+  },
+  "version": {
+    "description": "Initial Remote Config template for Postbox Game: two kill switches (Route Mode, problem reporting) and one A/B copy variant (James welcome line)."
+  }
+}

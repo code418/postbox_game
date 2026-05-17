@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:postbox_game/admin/admin_access.dart';
+import 'package:postbox_game/admin/admin_remote_config_screen.dart';
 import 'package:postbox_game/admin/admin_reports_screen.dart';
 import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/claim.dart';
@@ -129,12 +130,20 @@ class _HomeState extends State<Home> {
                   case 'myReports':
                     Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (_) => const MyReportsScreen()),
+                      MaterialPageRoute(
+                          builder: (_) => const MyReportsScreen()),
                     );
                   case 'adminReports':
                     Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (_) => const AdminReportsScreen()),
+                      MaterialPageRoute(
+                          builder: (_) => const AdminReportsScreen()),
+                    );
+                  case 'adminRemoteConfig':
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const AdminRemoteConfigScreen()),
                     );
                 }
               },
@@ -153,6 +162,15 @@ class _HomeState extends State<Home> {
                     child: ListTile(
                       leading: Icon(Icons.admin_panel_settings_outlined),
                       title: Text('Admin · Reports'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                if (_isAdmin)
+                  const PopupMenuItem(
+                    value: 'adminRemoteConfig',
+                    child: ListTile(
+                      leading: Icon(Icons.tune_outlined),
+                      title: Text('Admin · Remote Config'),
                       contentPadding: EdgeInsets.zero,
                     ),
                   ),
@@ -194,8 +212,15 @@ class _HomeState extends State<Home> {
           selectedIndex: _selectedIndex,
           onDestinationSelected: (i) {
             setState(() => _selectedIndex = i);
-            const tabNames = ['nearby', 'claim', 'scores', 'friends', 'history'];
-            final tabName = i >= 0 && i < tabNames.length ? tabNames[i] : 'unknown';
+            const tabNames = [
+              'nearby',
+              'claim',
+              'scores',
+              'friends',
+              'history'
+            ];
+            final tabName =
+                i >= 0 && i < tabNames.length ? tabNames[i] : 'unknown';
             Analytics.tabSelected(index: i, name: tabName);
             final msg = JamesMessages.forTabIndex(i);
             if (msg != null) _jamesController.show(msg.resolve());

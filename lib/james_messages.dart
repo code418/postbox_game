@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
+import 'package:postbox_game/remote_config_service.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // i18n NOTE (future)
@@ -347,7 +348,8 @@ abstract final class JamesMessages {
     };
     final pool = lists[direction];
     if (pool == null) {
-      debugPrint('JamesMessages.routeHint: unrecognised direction "$direction", defaulting to "ahead"');
+      debugPrint(
+          'JamesMessages.routeHint: unrecognised direction "$direction", defaulting to "ahead"');
       return routeHint('ahead');
     }
     return pool[_random.nextInt(pool.length)];
@@ -370,10 +372,25 @@ abstract final class JamesMessages {
 
   // ── Intro dialogue ───────────────────────────────────────────────────────
 
-  static const introStep2 = JamesMessage(
+  static const _introStep2Classic = JamesMessage(
     'jamesIntroStep2',
     ['Ah, you found one!\nWhat you see here is a perfectly ordinary postbox.'],
   );
+
+  static const _introStep2Cheeky = JamesMessage(
+    'jamesIntroStep2Cheeky',
+    ['Oi oi... look who it is.\nNow that, my friend, is a proper postbox.'],
+  );
+
+  /// First-launch greeting. The variant is driven by the
+  /// `james_welcome_variant` Remote Config flag — defaults to the classic
+  /// copy. Future variants can be added without changing call sites.
+  static JamesMessage get introStep2 {
+    final variant = RemoteConfigService.instance.jamesWelcomeVariant;
+    return variant == RemoteConfigService.welcomeVariantCheeky
+        ? _introStep2Cheeky
+        : _introStep2Classic;
+  }
 
   static const introStep3 = JamesMessage(
     'jamesIntroStep3',

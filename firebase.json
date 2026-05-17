@@ -19,6 +19,9 @@
   "storage": {
     "rules": "storage.rules"
   },
+  "remoteconfig": {
+    "template": "remoteconfig.template.json"
+  },
   "flutter": {
     "platforms": {
       "android": {

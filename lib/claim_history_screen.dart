@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:postbox_game/app_preferences.dart' show ViewMode;
 import 'package:postbox_game/monarch_info.dart';
+import 'package:postbox_game/remote_config_service.dart';
 import 'package:postbox_game/reports/report_cypher_screen.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/widgets/postbox_map.dart';
@@ -27,7 +28,12 @@ class ClaimHistoryScreen extends StatefulWidget {
 
 class _ClaimHistoryScreenState extends State<ClaimHistoryScreen>
     with SingleTickerProviderStateMixin {
-  static const List<String> _periods = ['daily', 'weekly', 'monthly', 'lifetime'];
+  static const List<String> _periods = [
+    'daily',
+    'weekly',
+    'monthly',
+    'lifetime'
+  ];
   static const Map<String, String> _labels = {
     'daily': 'Today',
     'weekly': 'This week',
@@ -81,7 +87,8 @@ class _ClaimHistoryScreenState extends State<ClaimHistoryScreen>
           child: TabBarView(
             controller: _tabController,
             children: _periods
-                .map((p) => _HistoryTab(key: ValueKey('history_$p'), period: p, view: _view))
+                .map((p) => _HistoryTab(
+                    key: ValueKey('history_$p'), period: p, view: _view))
                 .toList(),
           ),
         ),
@@ -121,7 +128,8 @@ class _HistoryTabState extends State<_HistoryTab>
     final data = Map<String, dynamic>.from(result.data as Map);
     final raw = data['entries'] as List<dynamic>? ?? const [];
     return raw
-        .map((e) => ClaimHistoryEntry.fromJson(Map<String, dynamic>.from(e as Map)))
+        .map((e) =>
+            ClaimHistoryEntry.fromJson(Map<String, dynamic>.from(e as Map)))
         .toList();
   }
 
@@ -151,8 +159,14 @@ class _HistoryTabState extends State<_HistoryTab>
           return _EmptyState(period: widget.period, onRefresh: _refresh);
         }
         return widget.view == ViewMode.list
-            ? _HistoryList(entries: entries, onRefresh: _refresh, onTap: (e) => _showEntryDetails(context, e))
-            : _HistoryMap(entries: entries, onRefresh: _refresh, onTap: (e) => _showEntryDetails(context, e));
+            ? _HistoryList(
+                entries: entries,
+                onRefresh: _refresh,
+                onTap: (e) => _showEntryDetails(context, e))
+            : _HistoryMap(
+                entries: entries,
+                onRefresh: _refresh,
+                onTap: (e) => _showEntryDetails(context, e));
       },
     );
   }
@@ -166,7 +180,8 @@ class _HistoryTabState extends State<_HistoryTab>
 }
 
 class _HistoryMap extends StatelessWidget {
-  const _HistoryMap({required this.entries, required this.onRefresh, required this.onTap});
+  const _HistoryMap(
+      {required this.entries, required this.onRefresh, required this.onTap});
   final List<ClaimHistoryEntry> entries;
   final Future<void> Function() onRefresh;
   final void Function(ClaimHistoryEntry) onTap;
@@ -180,7 +195,8 @@ class _HistoryMap extends StatelessWidget {
           center: _centroid(points),
           zoom: _zoomForSpan(points),
           markers: entries
-              .map((e) => postboxMarker(LatLng(e.lat, e.lng), cipher: e.monarch, onTap: () => onTap(e)))
+              .map((e) => postboxMarker(LatLng(e.lat, e.lng),
+                  cipher: e.monarch, onTap: () => onTap(e)))
               .toList(),
         ),
         // Refresh overlay: keep-alive tabs fetch once in initState, so without
@@ -205,7 +221,8 @@ class _HistoryMap extends StatelessWidget {
 }
 
 class _HistoryList extends StatelessWidget {
-  const _HistoryList({required this.entries, required this.onRefresh, required this.onTap});
+  const _HistoryList(
+      {required this.entries, required this.onRefresh, required this.onTap});
   final List<ClaimHistoryEntry> entries;
   final Future<void> Function() onRefresh;
   final void Function(ClaimHistoryEntry) onTap;
@@ -217,16 +234,24 @@ class _HistoryList extends StatelessWidget {
       onRefresh: onRefresh,
       child: ListView.separated(
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(AppSpacing.md, AppSpacing.md, AppSpacing.md, kJamesStripClearance),
+        padding: const EdgeInsets.fromLTRB(
+            AppSpacing.md, AppSpacing.md, AppSpacing.md, kJamesStripClearance),
         itemCount: entries.length,
         separatorBuilder: (_, __) => const SizedBox(height: AppSpacing.sm),
         itemBuilder: (_, i) {
           final e = entries[i];
-          final label = e.monarch != null ? (MonarchInfo.labels[e.monarch!] ?? e.monarch!) : 'Unknown cipher';
-          final color = (e.monarch != null ? MonarchInfo.colors[e.monarch!] : null) ?? postalRed;
+          final label = e.monarch != null
+              ? (MonarchInfo.labels[e.monarch!] ?? e.monarch!)
+              : 'Unknown cipher';
+          final color =
+              (e.monarch != null ? MonarchInfo.colors[e.monarch!] : null) ??
+                  postalRed;
           return Card(
             child: ListTile(
-              leading: CircleAvatar(backgroundColor: color, child: const Icon(Icons.markunread_mailbox, color: Colors.white, size: 20)),
+              leading: CircleAvatar(
+                  backgroundColor: color,
+                  child: const Icon(Icons.markunread_mailbox,
+                      color: Colors.white, size: 20)),
               title: Text(label),
               subtitle: Text(
                 '${e.timesClaimed == 1 ? 'Claimed once' : 'Claimed ${e.timesClaimed} times'}'
@@ -338,13 +363,17 @@ class _EntryDetailSheet extends StatelessWidget {
                 height: 4,
                 margin: const EdgeInsets.only(bottom: AppSpacing.md),
                 decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.2),
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
             ),
             Text(monarchLabel,
-                style: textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+                style: textTheme.titleLarge
+                    ?.copyWith(fontWeight: FontWeight.bold)),
             if (entry.reference != null && entry.reference!.isNotEmpty) ...[
               const SizedBox(height: AppSpacing.xs),
               Text('Ref ${entry.reference}',
@@ -373,26 +402,28 @@ class _EntryDetailSheet extends StatelessWidget {
                   ? '1 point earned'
                   : '${entry.totalPoints} points earned',
             ),
-            const SizedBox(height: AppSpacing.md),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: TextButton.icon(
-                onPressed: () {
-                  Navigator.of(context).pop();
-                  Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => ReportCypherScreen(
-                      postboxId: entry.postboxId,
-                      currentMonarch: entry.monarch,
-                      reference: entry.reference,
-                    ),
-                  ));
-                },
-                icon: const Icon(Icons.flag_outlined),
-                label: Text(entry.monarch == null
-                    ? 'Report missing cypher'
-                    : 'Report wrong cypher'),
+            if (!RemoteConfigService.instance.killSwitchReporting) ...[
+              const SizedBox(height: AppSpacing.md),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => ReportCypherScreen(
+                        postboxId: entry.postboxId,
+                        currentMonarch: entry.monarch,
+                        reference: entry.reference,
+                      ),
+                    ));
+                  },
+                  icon: const Icon(Icons.flag_outlined),
+                  label: Text(entry.monarch == null
+                      ? 'Report missing cypher'
+                      : 'Report wrong cypher'),
+                ),
               ),
-            ),
+            ],
           ],
         ),
       ),
@@ -409,10 +440,11 @@ class _DetailRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Icon(icon, size: 20,
-            color: Theme.of(context).colorScheme.onSurfaceVariant),
+        Icon(icon,
+            size: 20, color: Theme.of(context).colorScheme.onSurfaceVariant),
         const SizedBox(width: AppSpacing.sm),
-        Expanded(child: Text(label, style: Theme.of(context).textTheme.bodyLarge)),
+        Expanded(
+            child: Text(label, style: Theme.of(context).textTheme.bodyLarge)),
       ],
     );
   }
@@ -448,7 +480,10 @@ class _EmptyState extends StatelessWidget {
               children: [
                 Icon(Icons.map_outlined,
                     size: 72,
-                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.2)),
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withValues(alpha: 0.2)),
                 const SizedBox(height: AppSpacing.md),
                 Text('Nothing here yet',
                     style: Theme.of(context).textTheme.titleLarge?.copyWith(
@@ -456,7 +491,8 @@ class _EmptyState extends StatelessWidget {
                         )),
                 const SizedBox(height: AppSpacing.xs),
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
                   child: Text(
                     empty[period] ?? empty['lifetime']!,
                     textAlign: TextAlign.center,

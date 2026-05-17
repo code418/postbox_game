@@ -13,6 +13,7 @@ import 'package:postbox_game/james_controller.dart';
 import 'package:postbox_game/james_messages.dart';
 import 'package:postbox_game/location_service.dart';
 import 'package:postbox_game/monarch_info.dart';
+import 'package:postbox_game/remote_config_service.dart';
 import 'package:postbox_game/reports/report_missing_postbox_screen.dart';
 import 'package:postbox_game/services/home_widget_service.dart';
 import 'package:postbox_game/theme.dart';
@@ -26,14 +27,14 @@ import 'package:postbox_game/widgets/postbox_marker.dart';
 /// Matches the signature of [HttpsCallable.call] for the `nearbyPostboxes`
 /// function. Tests can inject a stub without subclassing the sealed
 /// [HttpsCallable].
-typedef NearbyPostboxesCallableFn
-    = Future<HttpsCallableResult<dynamic>> Function(Map<String, dynamic>);
+typedef NearbyPostboxesCallableFn = Future<HttpsCallableResult<dynamic>>
+    Function(Map<String, dynamic>);
 
 /// Matches the signature of [HttpsCallable.call] for the `startScoring`
 /// function. Tests can inject a stub without subclassing the sealed
 /// [HttpsCallable].
-typedef StartScoringCallableFn
-    = Future<HttpsCallableResult<dynamic>> Function(Map<String, dynamic>);
+typedef StartScoringCallableFn = Future<HttpsCallableResult<dynamic>> Function(
+    Map<String, dynamic>);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Result type
@@ -390,9 +391,9 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
       }
       final points = claimData['points'] ?? 0;
       if (!mounted) return;
-      final earnedPts =
-          points is int ? points : (points as num).toInt();
-      Analytics.claimSuccess(pointsEarned: earnedPts, claimedCount: claimedCount);
+      final earnedPts = points is int ? points : (points as num).toInt();
+      Analytics.claimSuccess(
+          pointsEarned: earnedPts, claimedCount: claimedCount);
       setState(() {
         _pointsEarned = earnedPts;
         _claimedCount = claimedCount;
@@ -618,8 +619,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
                     radius: AppPreferences.claimRadiusMeters,
                     useRadiusInMeter: true,
                     color: postalRed.withValues(alpha: 0.1),
-                    borderColor:
-                        postalRed.withValues(alpha: 0.4 + alpha * 0.5),
+                    borderColor: postalRed.withValues(alpha: 0.4 + alpha * 0.5),
                     borderStrokeWidth: strokeWidth,
                   ),
                 ],
@@ -754,7 +754,8 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
           bottom: _bottomPad,
         ),
         child: ConstrainedBox(
-          constraints: BoxConstraints(minHeight: constraints.maxHeight - _bottomPad),
+          constraints:
+              BoxConstraints(minHeight: constraints.maxHeight - _bottomPad),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -782,22 +783,24 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
                     color: Theme.of(context).colorScheme.onSurfaceVariant),
                 textAlign: TextAlign.center,
               ),
-              const SizedBox(height: AppSpacing.xl),
-              OutlinedButton.icon(
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => ReportMissingPostboxScreen(
-                      // Convert LatLng back to a null Position; the screen
-                      // will use its own live-GPS fix as the authoritative
-                      // location. Pass null so it doesn't prefill with stale
-                      // coords — the user is already in this area anyway.
-                      initialPosition: null,
+              if (!RemoteConfigService.instance.killSwitchReporting) ...[
+                const SizedBox(height: AppSpacing.xl),
+                OutlinedButton.icon(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => ReportMissingPostboxScreen(
+                        // Convert LatLng back to a null Position; the screen
+                        // will use its own live-GPS fix as the authoritative
+                        // location. Pass null so it doesn't prefill with stale
+                        // coords — the user is already in this area anyway.
+                        initialPosition: null,
+                      ),
                     ),
                   ),
+                  icon: const Icon(Icons.report_gmailerrorred_outlined),
+                  label: const Text('Report a missing postbox'),
                 ),
-                icon: const Icon(Icons.report_gmailerrorred_outlined),
-                label: const Text('Report a missing postbox'),
-              ),
+              ],
               const SizedBox(height: AppSpacing.sm),
               TextButton(
                 onPressed: () {
@@ -824,14 +827,12 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
             Padding(
               padding: const EdgeInsets.fromLTRB(
                   AppSpacing.md, 0, AppSpacing.md, AppSpacing.sm),
-              child:
-                  _claimRadiusMap(success: _claimedToday < _count),
+              child: _claimRadiusMap(success: _claimedToday < _count),
             ),
             _summaryCard(context),
             const SizedBox(height: AppSpacing.sm),
             Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
               child: OutlinedButton.icon(
                 onPressed: _isClaiming ? null : _cancel,
                 icon: const Icon(Icons.refresh),
@@ -979,15 +980,13 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: OutlinedButton(
-                      onPressed:
-                          _isClaiming ? null : () => _onQuizAnswer(code),
+                      onPressed: _isClaiming ? null : () => _onQuizAnswer(code),
                       style: OutlinedButton.styleFrom(
                         minimumSize: Size(double.infinity, _optionHeight),
                         side: BorderSide(
                           color: isCorrectSelected
                               ? _success(context)
-                              : (Theme.of(context).brightness ==
-                                      Brightness.dark
+                              : (Theme.of(context).brightness == Brightness.dark
                                   ? AppColors.brandTextDark
                                   : AppColors.brandTextLight),
                           width: isCorrectSelected ? 2 : 1,
@@ -1152,12 +1151,8 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
                       ),
                       child: Text(
                         '+$_pointsEarned points',
-                        style: Theme.of(context)
-                            .textTheme
-                            .titleLarge
-                            ?.copyWith(
-                                color: postalGold,
-                                fontWeight: FontWeight.bold),
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            color: postalGold, fontWeight: FontWeight.bold),
                       ),
                     ),
                   if (widget.streakStream != null)

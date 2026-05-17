@@ -28,6 +28,7 @@ import 'secrets.dart';
 import 'analytics_service.dart';
 import 'package:postbox_game/admin/admin_access.dart';
 import 'package:postbox_game/notification_service.dart';
+import 'package:postbox_game/remote_config_service.dart';
 import 'package:postbox_game/route/destination_picker_screen.dart';
 import 'package:postbox_game/route/route_notifications.dart';
 
@@ -60,12 +61,18 @@ void main() async {
   await GoogleSignIn.instance.initialize(
     clientId: kIsWeb
         ? webClientId
-        : (!kIsWeb && Platform.isIOS) ? iosClientId : null,
+        : (!kIsWeb && Platform.isIOS)
+            ? iosClientId
+            : null,
     serverClientId: kIsWeb ? null : webClientId,
   );
   await HomeWidgetService.init();
   await _checkInitialWidgetLaunch();
   await RouteNotifications.initialise();
+  // Defaults serve immediately; the fetch runs in the background so the splash
+  // never blocks on a Remote Config round-trip. Errors are logged and swallowed
+  // inside init().
+  unawaited(RemoteConfigService.instance.init());
   runApp(const PostboxGame());
 }
 
@@ -77,7 +84,8 @@ bool _pendingWidgetAutoScan = false;
 Future<void> _checkInitialWidgetLaunch() async {
   try {
     final uri = await HomeWidget.initiallyLaunchedFromHomeWidget();
-    if (uri != null && uri.host == 'claim' &&
+    if (uri != null &&
+        uri.host == 'claim' &&
         uri.queryParameters['source'] == 'widget') {
       _pendingWidgetAutoScan = true;
     }
@@ -114,7 +122,8 @@ class _PostboxGameState extends State<PostboxGame> {
     _pendingWidgetAutoScan = false;
     try {
       _widgetClickSub = HomeWidget.widgetClicked.listen((uri) {
-        if (uri != null && uri.host == 'claim' &&
+        if (uri != null &&
+            uri.host == 'claim' &&
             uri.queryParameters['source'] == 'widget') {
           setState(() => _autoScanEpoch++);
         }
@@ -137,7 +146,9 @@ class _PostboxGameState extends State<PostboxGame> {
     return BlocBuilder<AuthenticationBloc, AuthenticationState?>(
       builder: (context, state) {
         if (state is Authenticated) return page();
-        if (state is Unauthenticated) return LoginScreen(userRepository: _userRepository);
+        if (state is Unauthenticated) {
+          return LoginScreen(userRepository: _userRepository);
+        }
         return const Splash();
       },
     );
@@ -196,15 +207,19 @@ class _PostboxGameState extends State<PostboxGame> {
           routes: {
             '/nearby': (context) => _guardRoute(context, () => const Nearby()),
             '/claim': (context) => _guardRoute(context, () => const Claim()),
-            '/friends': (context) => _guardRoute(context, () => const FriendsScreen()),
-            '/leaderboard': (context) => _guardRoute(context, () => const LeaderboardScreen()),
-            '/history': (context) => _guardRoute(context, () => const ClaimHistoryScreen()),
-            '/settings': (context) => _guardRoute(context, () => const SettingsScreen()),
-            '/route': (context) => _guardRoute(context, () => const DestinationPickerScreen()),
+            '/friends': (context) =>
+                _guardRoute(context, () => const FriendsScreen()),
+            '/leaderboard': (context) =>
+                _guardRoute(context, () => const LeaderboardScreen()),
+            '/history': (context) =>
+                _guardRoute(context, () => const ClaimHistoryScreen()),
+            '/settings': (context) =>
+                _guardRoute(context, () => const SettingsScreen()),
+            '/route': (context) =>
+                _guardRoute(context, () => const DestinationPickerScreen()),
           }),
     );
   }
-
 }
 
 /// Shows intro on first run, then login. Subsequent launches go straight to login.
