@@ -361,7 +361,24 @@ class _ReviewOutcome extends StatelessWidget {
               icon: const Icon(Icons.open_in_new, size: 16),
               label: const Text('OSM editor'),
             ),
-          if (accepted && oscPath != null) Text('osmChange: $oscPath', style: Theme.of(context).textTheme.bodySmall),
+          if (accepted && oscPath != null)
+            // Match the post-accept dialog: surface the storage path with a
+            // copy button so the admin can paste it into the Firebase console
+            // to download the .osc, rather than scraping it from the text.
+            Row(
+              children: [
+                Expanded(
+                  child: Text('osmChange: $oscPath',
+                      style: Theme.of(context).textTheme.bodySmall),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.copy, size: 18),
+                  tooltip: 'Copy storage path',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => Clipboard.setData(ClipboardData(text: oscPath)),
+                ),
+              ],
+            ),
         ],
       ),
     );
