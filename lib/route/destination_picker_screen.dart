@@ -95,6 +95,10 @@ class _DestinationPickerScreenState extends State<DestinationPickerScreen> {
 
   @override
   void dispose() {
+    // Cancel the debounced search so a fast back-navigation doesn't fire
+    // a Nominatim HTTP request whose result we'll immediately throw away —
+    // a wasted slot in the 1-rps throttle and a useless network round-trip.
+    _debounceTimer?.cancel();
     _searchController.dispose();
     _mapController.dispose();
     super.dispose();
