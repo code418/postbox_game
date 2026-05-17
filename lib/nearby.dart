@@ -63,14 +63,22 @@ class _NearbyState extends State<Nearby> {
   @override
   void initState() {
     super.initState();
-    _compassSubscription = FlutterCompass.events?.listen((CompassEvent event) {
-      final heading = event.heading;
-      if (heading == null) return;
-      final prev = _headingNotifier.value;
-      if (prev == null || _headingDelta(prev, heading) >= 5) {
-        _headingNotifier.value = heading;
-      }
-    });
+    // FlutterCompass.events is non-null in production but throws a
+    // MissingPluginException in test environments without the platform
+    // channel. Wrap so a missing magnetometer (test or e.g. desktop runs)
+    // doesn't blow up the whole screen on first build.
+    try {
+      _compassSubscription = FlutterCompass.events?.listen((CompassEvent event) {
+        final heading = event.heading;
+        if (heading == null) return;
+        final prev = _headingNotifier.value;
+        if (prev == null || _headingDelta(prev, heading) >= 5) {
+          _headingNotifier.value = heading;
+        }
+      });
+    } catch (_) {
+      _compassSubscription = null;
+    }
     AppPreferences.getDistanceUnit().then((unit) {
       if (mounted) setState(() => _distanceUnit = unit);
     });

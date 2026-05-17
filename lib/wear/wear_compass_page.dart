@@ -55,15 +55,22 @@ class _WearCompassPageState extends State<WearCompassPage> {
 
   void _startCompassListener() {
     double? lastHeading;
-    _compassSub = FlutterCompass.events?.listen((event) {
-      final h = event.heading;
-      if (h == null) return;
-      // Throttle updates — skip if heading delta < 5 degrees. Use modular
-      // distance so 359°→1° (delta = 2°) doesn't trip the naive abs-diff (358°).
-      if (lastHeading != null && _headingDelta(h, lastHeading!) < 5) return;
-      lastHeading = h;
-      if (mounted) setState(() => _heading = h);
-    });
+    // FlutterCompass.events throws a MissingPluginException in test envs
+    // without the platform channel — guard the listen() call so a missing
+    // magnetometer doesn't crash the wear page on first build.
+    try {
+      _compassSub = FlutterCompass.events?.listen((event) {
+        final h = event.heading;
+        if (h == null) return;
+        // Throttle updates — skip if heading delta < 5 degrees. Use modular
+        // distance so 359°→1° (delta = 2°) doesn't trip the naive abs-diff (358°).
+        if (lastHeading != null && _headingDelta(h, lastHeading!) < 5) return;
+        lastHeading = h;
+        if (mounted) setState(() => _heading = h);
+      });
+    } catch (_) {
+      _compassSub = null;
+    }
   }
 
   Future<void> _scan() async {
