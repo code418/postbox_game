@@ -79,22 +79,12 @@ class _WearClaimPageState extends State<WearClaimPage> {
     }
   }
 
-  void _startQuiz() {
-    final cipher = _pickQuizCipher();
-    if (cipher == null) {
-      _claimPostbox();
-      return;
-    }
-    Analytics.quizStarted(cipher: cipher);
-    setState(() {
-      _quizCipher = cipher;
-      _quizOptions = _buildQuizOptions(cipher);
-      _stage = _ClaimStage.quiz;
-    });
-  }
+  /// Distinct known ciphers currently on nearby unclaimed postboxes — any of
+  /// these counts as a correct quiz answer.
+  Set<String> _validQuizCiphers = const {};
 
-  String? _pickQuizCipher() {
-    final ciphers = <String>[];
+  Set<String> _collectValidCiphers() {
+    final ciphers = <String>{};
     for (final p in _postboxes.values) {
       final map = p as Map<dynamic, dynamic>;
       if (map['claimedToday'] == true) continue;
@@ -106,22 +96,43 @@ class _WearClaimPageState extends State<WearClaimPage> {
         ciphers.add(monarch);
       }
     }
-    if (ciphers.isEmpty) return null;
-    ciphers.shuffle();
-    return ciphers.first;
+    return ciphers;
   }
 
-  /// Build 2 quiz options for watch (correct + 1 random distractor).
-  List<String> _buildQuizOptions(String correct) {
+  void _startQuiz() {
+    final valid = _collectValidCiphers();
+    if (valid.isEmpty) {
+      _claimPostbox();
+      return;
+    }
+    final shuffled = valid.toList()..shuffle();
+    final picked = shuffled.first;
+    Analytics.quizStarted(cipher: picked);
+    setState(() {
+      _quizCipher = picked;
+      _validQuizCiphers = valid;
+      _quizOptions = _buildQuizOptions(valid);
+      _stage = _ClaimStage.quiz;
+    });
+  }
+
+  /// Build 2 quiz options for the watch. With multiple nearby ciphers, the
+  /// options include up to 2 of them so the user can pick the one they
+  /// actually see; otherwise it's the picked cipher plus a random distractor.
+  List<String> _buildQuizOptions(Set<String> validCiphers,
+      {int maxOptions = 2}) {
+    final valid = validCiphers.toList()..shuffle();
+    final pickedValid = valid.take(maxOptions).toList();
     final pool = List<String>.from(MonarchInfo.all)
-      ..remove(correct)
+      ..removeWhere(pickedValid.contains)
       ..shuffle();
-    return ([correct, pool.first]..shuffle());
+    final fillers = pool.take(maxOptions - pickedValid.length).toList();
+    return ([...pickedValid, ...fillers]..shuffle());
   }
 
   void _onQuizAnswer(String answer) {
-    if (answer == _quizCipher) {
-      Analytics.quizCorrect(cipher: _quizCipher!);
+    if (_validQuizCiphers.contains(answer)) {
+      Analytics.quizCorrect(cipher: answer);
       HapticFeedback.lightImpact();
       _claimPostbox();
     } else {
@@ -132,7 +143,7 @@ class _WearClaimPageState extends State<WearClaimPage> {
       HapticFeedback.heavyImpact();
       // Reshuffle and let them try again.
       setState(() {
-        _quizOptions = _buildQuizOptions(_quizCipher!);
+        _quizOptions = _buildQuizOptions(_validQuizCiphers);
       });
     }
   }

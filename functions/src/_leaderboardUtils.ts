@@ -44,7 +44,10 @@ export interface LeaderboardEntry {
  * - Removes any prior entry for `uid`.
  * - Adds a new entry if `userPoints > 0`; omits it if zero (name-change
  *   before first claim in a period should not add a 0-point entry).
- * - Sorts descending by points and caps at `limit` entries (default 100).
+ * - Sorts descending by points, with ties broken deterministically by `uid`
+ *   (ascending) so two users on identical scores get a stable ranking that
+ *   doesn't shift on every leaderboard refresh.
+ * - Caps at `limit` entries (default 100).
  */
 export function mergePeriodEntries(
   existing: LeaderboardEntry[],
@@ -58,7 +61,7 @@ export function mergePeriodEntries(
     ...others,
     ...(userPoints > 0 ? [{ uid, displayName, points: userPoints }] : []),
   ]
-    .sort((a, b) => b.points - a.points)
+    .sort((a, b) => (b.points - a.points) || (a.uid < b.uid ? -1 : a.uid > b.uid ? 1 : 0))
     .slice(0, limit);
 }
 
@@ -195,8 +198,10 @@ export interface LifetimeLeaderboardEntry {
  *
  * - Removes any prior entry for `uid`.
  * - Adds an entry if either `uniquePostboxesClaimed > 0` or `totalPoints > 0`.
- * - Sorts descending by `uniquePostboxesClaimed` (secondary: totalPoints) and
- *   caps at `limit` entries (default 100).
+ * - Sorts descending by `uniquePostboxesClaimed`, then descending by
+ *   `totalPoints`, then ascending by `uid` so identical scores get a stable
+ *   ranking that doesn't shift on every leaderboard refresh.
+ * - Caps at `limit` entries (default 100).
  */
 export function mergeLifetimeEntries(
   existing: LifetimeLeaderboardEntry[],
@@ -213,11 +218,13 @@ export function mergeLifetimeEntries(
       ? [{ uid, displayName, uniquePostboxesClaimed, totalPoints }]
       : []),
   ]
-    .sort((a, b) =>
-      b.uniquePostboxesClaimed !== a.uniquePostboxesClaimed
-        ? b.uniquePostboxesClaimed - a.uniquePostboxesClaimed
-        : b.totalPoints - a.totalPoints
-    )
+    .sort((a, b) => {
+      if (b.uniquePostboxesClaimed !== a.uniquePostboxesClaimed) {
+        return b.uniquePostboxesClaimed - a.uniquePostboxesClaimed;
+      }
+      if (b.totalPoints !== a.totalPoints) return b.totalPoints - a.totalPoints;
+      return a.uid < b.uid ? -1 : a.uid > b.uid ? 1 : 0;
+    })
     .slice(0, limit);
 }
 

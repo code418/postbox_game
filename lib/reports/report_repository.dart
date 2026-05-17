@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:cloud_functions/cloud_functions.dart';
@@ -89,15 +90,16 @@ class ReportRepository {
     String? suggestedReference,
     List<PendingPhoto> photos = const [],
   }) async {
+    final uploaded = await _uploadPhotos(photos);
     final data = <String, dynamic>{
       'type': 'missing_postbox',
       'lat': lat,
       'lng': lng,
       if (accuracyMeters != null) 'accuracyMeters': accuracyMeters,
       ..._optionalFields(note, suggestedMonarch, suggestedReference),
-      'photos': await _uploadPhotos(photos),
+      'photos': uploaded,
     };
-    return _call(data);
+    return _callAndCleanup(data, uploaded);
   }
 
   /// Submits a "wrong / missing cypher" report against an existing postbox.
@@ -108,13 +110,14 @@ class ReportRepository {
     String? suggestedReference,
     List<PendingPhoto> photos = const [],
   }) async {
+    final uploaded = await _uploadPhotos(photos);
     final data = <String, dynamic>{
       'type': 'wrong_cypher',
       'postboxId': postboxId,
       ..._optionalFields(note, suggestedMonarch, suggestedReference),
-      'photos': await _uploadPhotos(photos),
+      'photos': uploaded,
     };
-    return _call(data);
+    return _callAndCleanup(data, uploaded);
   }
 
   // ── internals ──────────────────────────────────────────────────────────────
@@ -142,25 +145,63 @@ class ReportRepository {
     final storage = FirebaseStorage.instance;
     final stamp = DateTime.now().millisecondsSinceEpoch;
     final result = <Map<String, dynamic>>[];
-    for (var i = 0; i < photos.length && i < maxPhotos; i++) {
-      final p = photos[i];
-      final ext = p.contentType.contains('png') ? 'png' : 'jpg';
-      final path = 'report_photos/$uid/${stamp}_$i.$ext';
-      await storage.ref(path).putData(p.bytes, SettableMetadata(contentType: p.contentType));
-      result.add({
-        'storagePath': path,
-        if (p.exifLat != null) 'exifLat': p.exifLat,
-        if (p.exifLng != null) 'exifLng': p.exifLng,
-        if (p.takenAt != null) 'takenAt': p.takenAt,
-      });
+    try {
+      for (var i = 0; i < photos.length && i < maxPhotos; i++) {
+        final p = photos[i];
+        final ext = p.contentType.contains('png') ? 'png' : 'jpg';
+        final path = 'report_photos/$uid/${stamp}_$i.$ext';
+        await storage.ref(path).putData(p.bytes, SettableMetadata(contentType: p.contentType));
+        result.add({
+          'storagePath': path,
+          if (p.exifLat != null) 'exifLat': p.exifLat,
+          if (p.exifLng != null) 'exifLng': p.exifLng,
+          if (p.takenAt != null) 'takenAt': p.takenAt,
+        });
+      }
+    } catch (e) {
+      // Mid-upload failure: clean up whatever did make it to Storage so we
+      // don't leak orphan files into the user's report_photos/ folder when
+      // the report is never submitted.
+      unawaited(_deleteUploaded(result));
+      rethrow;
     }
     return result;
+  }
+
+  /// Submits the report; on failure deletes any photos that were uploaded
+  /// during the call so they don't sit in Storage forever attached to a
+  /// report doc that never got written.
+  static Future<String> _callAndCleanup(
+    Map<String, dynamic> data,
+    List<Map<String, dynamic>> uploaded,
+  ) async {
+    try {
+      return await _call(data);
+    } catch (e) {
+      unawaited(_deleteUploaded(uploaded));
+      rethrow;
+    }
   }
 
   static Future<String> _call(Map<String, dynamic> data) async {
     final result = await FirebaseFunctions.instance.httpsCallable('submitReport').call(data);
     final map = Map<String, dynamic>.from(result.data as Map);
     return map['reportId'] as String? ?? '';
+  }
+
+  static Future<void> _deleteUploaded(List<Map<String, dynamic>> uploaded) async {
+    if (uploaded.isEmpty) return;
+    final storage = FirebaseStorage.instance;
+    await Future.wait(uploaded.map((p) async {
+      final path = p['storagePath'];
+      if (path is! String || path.isEmpty) return;
+      try {
+        await storage.ref(path).delete();
+      } catch (_) {
+        // Best-effort cleanup — a failure here is preferable to surfacing
+        // a "report failed AND cleanup failed" double error to the user.
+      }
+    }));
   }
 
   /// Extracts GPS coordinates and capture time from a JPEG's EXIF. Any field

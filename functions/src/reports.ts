@@ -92,8 +92,6 @@ export function parsePhotos(raw: unknown, uid: string): ReportPhoto[] {
     const out: ReportPhoto = { storagePath };
     if (obj.exifLat !== undefined) out.exifLat = parseLat(obj.exifLat);
     if (obj.exifLng !== undefined) out.exifLng = parseLng(obj.exifLng);
-    if (out.exifLat === undefined) delete out.exifLat;
-    if (out.exifLng === undefined) delete out.exifLng;
     if (obj.takenAt !== undefined) {
       if (typeof obj.takenAt !== "string" || obj.takenAt.length > 40) throw err(`photos[${i}].takenAt must be a short string`);
       out.takenAt = obj.takenAt;
@@ -403,6 +401,14 @@ export const reviewReport = functions.https.onCall({ timeoutSeconds: 300 }, asyn
     const lng = typeof report.lng === "number" ? report.lng : NaN;
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) throw new functions.https.HttpsError("failed-precondition", "report is missing coordinates");
     const newKey = `manual_${reportId}`;
+    const pbRef = db.collection("postbox").doc(newKey);
+    // Idempotency: an earlier reviewReport run for this report may have
+    // already created the postbox doc but then failed to mark the report
+    // accepted. Without this check, an admin retry would re-increment
+    // meta/stats.totalPostboxes per attempt and silently inflate the
+    // denominator.
+    const existing = await pbRef.get();
+    const isNewBox = !existing.exists;
     const pbData: Record<string, unknown> = {
       geohash: geohash.encode(lat, lng, 9),
       geopoint: new admin.firestore.GeoPoint(lat, lng),
@@ -411,7 +417,20 @@ export const reviewReport = functions.https.onCall({ timeoutSeconds: 300 }, asyn
     };
     if (typeof finalMonarch === "string") pbData.monarch = finalMonarch;
     if (finalReference) pbData.reference = finalReference;
-    await db.collection("postbox").doc(newKey).set(pbData);
+    await pbRef.set(pbData);
+    // Keep the lifetime leaderboard's "X of Y boxes (Z%)" denominator
+    // accurate immediately rather than waiting for the next OSM reimport.
+    // Only fire on first creation so retries don't double-count.
+    if (isNewBox) {
+      try {
+        await db.collection("meta").doc("stats").set(
+          { totalPostboxes: admin.firestore.FieldValue.increment(1) },
+          { merge: true }
+        );
+      } catch (e) {
+        console.error("meta/stats.totalPostboxes increment failed:", e);
+      }
+    }
 
     const tags: Record<string, string> = { amenity: "post_box" };
     if (typeof finalMonarch === "string") tags.royal_cypher = finalMonarch;

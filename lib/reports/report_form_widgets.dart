@@ -146,7 +146,18 @@ class _Thumb extends StatelessWidget {
         children: [
           ClipRRect(
             borderRadius: BorderRadius.circular(8),
-            child: Image.memory(photo.bytes, width: 96, height: 96, fit: BoxFit.cover),
+            // cacheWidth/cacheHeight tell Flutter to decode at thumbnail size
+            // instead of holding the full ~2400 px source in the image cache.
+            // Without this, 3 attached photos can sit at ~15-25 MB of decoded
+            // bitmap memory on the picker screen alone.
+            child: Image.memory(
+              photo.bytes,
+              width: 96,
+              height: 96,
+              fit: BoxFit.cover,
+              cacheWidth: 192,
+              cacheHeight: 192,
+            ),
           ),
           if (photo.hasLocation)
             const Positioned(

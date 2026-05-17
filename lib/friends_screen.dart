@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:postbox_game/analytics_service.dart';
@@ -21,8 +22,14 @@ class _FriendsScreenState extends State<FriendsScreen> {
   bool _isAdding = false;
   final Set<String> _removingUids = {};
 
-  // Cache name lookups so FutureBuilder doesn't re-fetch on every rebuild.
-  final Map<String, Future<DocumentSnapshot<Map<String, dynamic>>>> _nameCache = {};
+  // Batched display-name lookups: the StreamBuilder fires _ensureNames whenever
+  // the friends list changes; that method splits unknown uids into whereIn
+  // batches of 30 and stores the resolved names in _namesByUid. The list view
+  // reads straight from this map. A per-friend FutureBuilder issued one read
+  // per row, so a 200-friend list paid 200 round-trips on first render — this
+  // brings it down to ⌈N/30⌉ batches running in parallel.
+  final Map<String, String> _namesByUid = {};
+  Set<String> _knownUids = const {};
 
   String? get _currentUid => FirebaseAuth.instance.currentUser?.uid;
 
@@ -94,7 +101,8 @@ class _FriendsScreenState extends State<FriendsScreen> {
       });
       Analytics.friendAdded();
       // Bust the name cache so a re-add shows fresh data.
-      _nameCache.remove(friendUid);
+      _namesByUid.remove(friendUid);
+      _knownUids = _knownUids.where((u) => u != friendUid).toSet();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Friend added')),
@@ -156,7 +164,8 @@ class _FriendsScreenState extends State<FriendsScreen> {
       });
       Analytics.friendRemoved();
       // Bust the cache so re-adding this friend fetches fresh data.
-      _nameCache.remove(friendUid);
+      _namesByUid.remove(friendUid);
+      _knownUids = _knownUids.where((u) => u != friendUid).toSet();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Friend removed')),
@@ -179,6 +188,56 @@ class _FriendsScreenState extends State<FriendsScreen> {
     final parts = t.split(' ').where((p) => p.isNotEmpty).toList();
     if (parts.length >= 2) return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
     return t.substring(0, t.length.clamp(0, 2)).toUpperCase();
+  }
+
+  /// Triggers a batched fetch of any friend uids in [uids] that aren't already
+  /// resolved in [_namesByUid]. Idempotent — the in-flight fetch is awaited
+  /// rather than restarted, and missing uids are simply added on subsequent
+  /// runs.
+  void _ensureNames(Set<String> uids) {
+    if (setEquals(uids, _knownUids)) return;
+    _knownUids = uids;
+    final unknown = uids.where((u) => !_namesByUid.containsKey(u)).toList();
+    if (unknown.isEmpty) return;
+    // Fire-and-forget: completion is signalled via setState inside _fetchNames.
+    // Any future change to the friends list re-enters this method and resolves
+    // only the newly-added uids.
+    // ignore: discarded_futures
+    _fetchNames(unknown);
+  }
+
+  Future<void> _fetchNames(List<String> uids) async {
+    const batchSize = 30; // Firestore whereIn cap
+    final batches = <List<String>>[
+      for (var i = 0; i < uids.length; i += batchSize)
+        uids.sublist(i, (i + batchSize).clamp(0, uids.length)),
+    ];
+    final results = await Future.wait(batches.map((batch) async {
+      try {
+        return await _firestore
+            .collection('users')
+            .where(FieldPath.documentId, whereIn: batch)
+            .get();
+      } catch (_) {
+        return null;
+      }
+    }));
+    if (!mounted) return;
+    setState(() {
+      for (final snap in results) {
+        if (snap == null) continue;
+        for (final doc in snap.docs) {
+          final name = (doc.data()['displayName'] as String?) ?? '';
+          _namesByUid[doc.id] = name;
+        }
+      }
+      // Any uid in `uids` that came back missing (deleted account) gets an
+      // empty-string marker so the list rendering shows "Unknown player"
+      // immediately instead of spinning a loader forever.
+      for (final u in uids) {
+        _namesByUid.putIfAbsent(u, () => '');
+      }
+    });
   }
 
   void _copyUid() {
@@ -320,6 +379,11 @@ class _FriendsScreenState extends State<FriendsScreen> {
               }
               final data = snapshot.data!.data();
               final list = data?['friends'] as List<dynamic>? ?? [];
+              // Schedule a batched lookup for any uid we haven't resolved yet.
+              // This runs once per friend-set change; per-row reads are gone.
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted) _ensureNames(list.whereType<String>().toSet());
+              });
 
               if (list.isEmpty) {
                 return ListView(
@@ -361,69 +425,67 @@ class _FriendsScreenState extends State<FriendsScreen> {
                     top: AppSpacing.sm, bottom: 100),
                 itemBuilder: (context, index) {
                   final friendUid = list[index] as String;
-                  return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                    future: _nameCache[friendUid] ??=
-                        _firestore.collection('users').doc(friendUid).get(),
-                    builder: (context, nameSnap) {
-                      final isLoading = nameSnap.connectionState == ConnectionState.waiting;
-                      final displayName = nameSnap.data?.data()?['displayName'] as String?;
-                      final initials = _initials(displayName ?? '');
-                      return Card(
-                        child: ListTile(
-                          onTap: () => Navigator.of(context).push(UserProfilePage.route(friendUid)),
-                          leading: CircleAvatar(
-                            backgroundColor: postalRed,
-                            child: isLoading
-                                ? const SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(
-                                      color: Colors.white,
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                : Text(
-                                    initials,
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 13,
-                                    ),
-                                  ),
-                          ),
-                          title: isLoading
-                              ? Text(
-                                  'Loading...',
-                                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                                      ),
-                                )
-                              : Text(
-                                  displayName ?? 'Unknown player',
-                                  overflow: TextOverflow.ellipsis,
+                  final resolved = _namesByUid[friendUid];
+                  final isLoading = resolved == null;
+                  // Empty-string marker means the batch lookup returned no
+                  // user doc for this uid (deleted account, etc.).
+                  final displayName =
+                      (resolved != null && resolved.isNotEmpty) ? resolved : null;
+                  final initials = _initials(displayName ?? '');
+                  return Card(
+                    child: ListTile(
+                      onTap: () => Navigator.of(context).push(UserProfilePage.route(friendUid)),
+                      leading: CircleAvatar(
+                        backgroundColor: postalRed,
+                        child: isLoading
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  color: Colors.white,
+                                  strokeWidth: 2,
                                 ),
-                          trailing: _removingUids.contains(friendUid)
-                              ? const Padding(
-                                  padding: EdgeInsets.all(12),
-                                  child: SizedBox(
-                                    width: 20,
-                                    height: 20,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: postalRed,
-                                    ),
-                                  ),
-                                )
-                              : IconButton(
-                                  icon: Icon(Icons.person_remove_outlined,
-                                      color: Theme.of(context).colorScheme.onSurfaceVariant),
-                                  tooltip: 'Remove friend',
-                                  onPressed: () =>
-                                      _removeFriend(friendUid, displayName),
+                              )
+                            : Text(
+                                initials,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
                                 ),
-                        ),
-                      );
-                    },
+                              ),
+                      ),
+                      title: isLoading
+                          ? Text(
+                              'Loading...',
+                              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                  ),
+                            )
+                          : Text(
+                              displayName ?? 'Unknown player',
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                      trailing: _removingUids.contains(friendUid)
+                          ? const Padding(
+                              padding: EdgeInsets.all(12),
+                              child: SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: postalRed,
+                                ),
+                              ),
+                            )
+                          : IconButton(
+                              icon: Icon(Icons.person_remove_outlined,
+                                  color: Theme.of(context).colorScheme.onSurfaceVariant),
+                              tooltip: 'Remove friend',
+                              onPressed: () =>
+                                  _removeFriend(friendUid, displayName),
+                            ),
+                    ),
                   );
                 },
               );

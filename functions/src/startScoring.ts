@@ -248,21 +248,34 @@ export const startScoring = functions.https.onCall(async (request) => {
         const freshDisplayName =
           (d.displayName as string | undefined) || displayName;
 
-        tx.set(
-          userRef,
-          {
-            uniquePostboxesClaimed: newUnique,
-            lifetimePoints: newLifetimePoints,
-            dailyPoints: periodSums.dailyPoints,
-            dailyDate: todayLondon,
-            weeklyPoints: periodSums.weeklyPoints,
-            weekStart: currentWeekStart,
-            monthlyPoints: periodSums.monthlyPoints,
-            monthStart: currentMonthStart,
-            maxDailyPoints: newMaxDailyPoints,
-          },
-          { merge: true }
-        );
+        // Streak resilience: the parallel streak tx is fire-and-forget and
+        // can silently fail (its error is just logged). Detect the post-tx
+        // state here and recover. If lastClaimDate is already today, the
+        // streak tx committed and we leave it alone. Otherwise, compute the
+        // streak update inline and include it in this tx's write so a
+        // dropped streak update doesn't permanently break the user's chain.
+        const lastClaimDate = d.lastClaimDate as string | undefined;
+        const currentStreak = (d.streak as number | undefined) ?? 0;
+        const fallbackStreak = lastClaimDate === todayLondon
+          ? null
+          : computeNewStreak(lastClaimDate, currentStreak, todayLondon, yesterday);
+
+        const userUpdate: Record<string, unknown> = {
+          uniquePostboxesClaimed: newUnique,
+          lifetimePoints: newLifetimePoints,
+          dailyPoints: periodSums.dailyPoints,
+          dailyDate: todayLondon,
+          weeklyPoints: periodSums.weeklyPoints,
+          weekStart: currentWeekStart,
+          monthlyPoints: periodSums.monthlyPoints,
+          monthStart: currentMonthStart,
+          maxDailyPoints: newMaxDailyPoints,
+        };
+        if (fallbackStreak !== null) {
+          userUpdate.lastClaimDate = todayLondon;
+          userUpdate.streak = fallbackStreak;
+        }
+        tx.set(userRef, userUpdate, { merge: true });
 
         const existingEntries = (lifetimeSnap.data()?.entries ?? []) as LifetimeLeaderboardEntry[];
         const updatedEntries = mergeLifetimeEntries(existingEntries, userid, freshDisplayName, newUnique, newLifetimePoints);

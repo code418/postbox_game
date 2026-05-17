@@ -179,30 +179,49 @@ class _CountyHeatmapState extends State<CountyHeatmap> {
       }
     }
 
-    // Fetch the per-county leaderboard docs in parallel — one read per
-    // distinct slug present in the geojson. ~218 reads worst case.
+    // Fetch the per-county leaderboard docs in batches via whereIn
+    // (max 30 per query) rather than one read per slug. ~218 distinct slugs
+    // therefore take ~8 round-trips instead of 218 — Firestore charges the
+    // same per-doc read either way, but the wire latency is dramatically
+    // lower and there's no thundering-herd of 218 concurrent gets.
     final distinctSlugs = countyShapes.map((c) => c.slug).toSet().toList();
-    final leaderboardSnaps = await Future.wait(distinctSlugs.map(
-      (s) => db
-          .collection('leaderboards')
-          .doc('lifetime_by_county')
-          .collection('counties')
-          .doc(s)
-          .get(),
-    ));
+    const lbBatchSize = 30;
+    final lbBatches = <List<String>>[
+      for (var i = 0; i < distinctSlugs.length; i += lbBatchSize)
+        distinctSlugs.sublist(
+            i, (i + lbBatchSize).clamp(0, distinctSlugs.length)),
+    ];
+    final countyLbCollection = db
+        .collection('leaderboards')
+        .doc('lifetime_by_county')
+        .collection('counties');
+    final lbBatchSnaps = await Future.wait(lbBatches.map((batch) async {
+      try {
+        final snap = await countyLbCollection
+            .where(FieldPath.documentId, whereIn: batch)
+            .get();
+        return snap.docs;
+      } catch (_) {
+        return const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+      }
+    }));
+    final lbBySlug = <String, Map<String, dynamic>>{
+      for (final docs in lbBatchSnaps)
+        for (final d in docs) d.id: d.data(),
+    };
 
     // For each county, find the leader within the candidate set (entries are
     // already sorted server-side by uniqueBoxes desc, totalPoints desc).
     final leaderBySlug = <String, _CountyLeader>{};
-    for (var i = 0; i < distinctSlugs.length; i++) {
-      final lb = leaderboardSnaps[i].data();
+    for (final slug in distinctSlugs) {
+      final lb = lbBySlug[slug];
       if (lb == null) continue;
       final entries = (lb['entries'] as List<dynamic>?) ?? const [];
       for (final e in entries) {
         if (e is! Map) continue;
         final entryUid = e['uid'] as String?;
         if (entryUid == null || !candidates.contains(entryUid)) continue;
-        leaderBySlug[distinctSlugs[i]] = _CountyLeader(
+        leaderBySlug[slug] = _CountyLeader(
           uid: entryUid,
           displayName: (e['displayName'] as String?) ??
               names[entryUid] ??
@@ -379,8 +398,19 @@ class _HeatmapView extends StatelessWidget {
     final leaderUids = <String>{
       for (final l in data.leaderBySlug.values) l.uid,
     };
+    // Self first, then friends ordered alphabetically by display name so the
+    // chip row is stable across rebuilds (a comparator returning 0 for any
+    // friend pair leaves the order at the mercy of set-iteration order, which
+    // changes between rebuilds).
     final orderedLeaders = leaderUids.toList()
-      ..sort((a, b) => a == data.myUid ? -1 : (b == data.myUid ? 1 : 0));
+      ..sort((a, b) {
+        if (a == data.myUid) return -1;
+        if (b == data.myUid) return 1;
+        final na = data.displayNames[a] ?? '';
+        final nb = data.displayNames[b] ?? '';
+        final byName = na.toLowerCase().compareTo(nb.toLowerCase());
+        return byName != 0 ? byName : a.compareTo(b);
+      });
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
