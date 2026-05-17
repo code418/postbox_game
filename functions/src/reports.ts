@@ -417,6 +417,29 @@ export const reviewReport = functions.https.onCall({ timeoutSeconds: 300 }, asyn
     };
     if (typeof finalMonarch === "string") pbData.monarch = finalMonarch;
     if (finalReference) pbData.reference = finalReference;
+    // Tag the county so future claims on this box flow into county
+    // leaderboards. Without this, startScoring's per-county aggregation
+    // would skip the box (it bails when `county` is absent), leaving these
+    // user-reported boxes invisible on the county heatmap / lifetime-by-county
+    // rankings even after claims accumulate.
+    //
+    // Lazy-require so other functions sharing this module (nearbyPostboxes,
+    // startScoring, …) don't pay the ~900 kB GeoJSON parse on their cold
+    // starts. The util's own `_features` cache then keeps subsequent calls
+    // within a single warm reviewReport instance cheap.
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const counties = require("../util/county_lookup") as {
+        countyForPoint: (lat: number, lng: number) => string | null;
+      };
+      const county = counties.countyForPoint(lat, lng);
+      if (county) pbData.county = county;
+    } catch (e) {
+      // County lookup is best-effort: NI postboxes legitimately lack a
+      // county, the GeoJSON could be missing in some packaging configurations,
+      // etc. Fall through without tagging rather than blocking the accept.
+      console.error("county lookup failed (non-fatal):", e);
+    }
     await pbRef.set(pbData);
     // Keep the lifetime leaderboard's "X of Y boxes (Z%)" denominator
     // accurate immediately rather than waiting for the next OSM reimport.
