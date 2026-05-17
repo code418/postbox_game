@@ -161,7 +161,12 @@ export async function recomputeUserAggregates(
       const freshDisplayName =
         (uSnap.data()?.displayName as string | undefined) || displayName;
       const currentLifetime = (uSnap.data()?.lifetimePoints as number | undefined) ?? 0;
-      const newLifetimePoints = currentLifetime + countyDelta;
+      // Clamp at 0 in case earlier bugs left lifetimePoints under-reported
+      // and a points-reducing cypher correction's delta would otherwise push
+      // it negative. Defensive — in healthy state currentLifetime is always
+      // ≥ |countyDelta| because countyDelta is the sum of point deltas on
+      // claims the user actually made.
+      const newLifetimePoints = Math.max(0, currentLifetime + countyDelta);
       const currentUnique = (uSnap.data()?.uniquePostboxesClaimed as number | undefined) ?? 0;
       // Only stamp the per-period markers when the user actually has claims
       // in that period. Otherwise the rescore would overwrite a stale-but-
@@ -200,7 +205,16 @@ export async function recomputeUserAggregates(
       await db.runTransaction(async (tx) => {
         const [sSnap, lbSnap, uSnap] = await Promise.all([tx.get(statsRef), tx.get(lbRef), tx.get(userRef)]);
         const prev = sSnap.data() ?? {};
-        const newTotal = ((prev.totalPoints as number | undefined) ?? 0) + countyDelta;
+        // Clamp at 0: if the stats doc doesn't exist (legacy claim made
+        // before per-county tracking, never backfilled), a negative
+        // countyDelta from a points-reducing cypher correction would
+        // otherwise write negative totalPoints. The leaderboard then
+        // sorts the user below users with 0 points, which is the right
+        // user-facing result.
+        const newTotal = Math.max(
+          0,
+          ((prev.totalPoints as number | undefined) ?? 0) + countyDelta,
+        );
         const newUnique = (prev.uniquePostboxesClaimed as number | undefined) ?? 0;
         const name = (prev.county as string | undefined) || countyName || countySlugVal;
         const freshDisplayName =
