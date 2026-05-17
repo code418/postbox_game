@@ -2,6 +2,8 @@
 **/android/captures/
 **/android/**/GeneratedPluginRegistrant.java
 **/android/.gradle
+**/android/build/
+**/android/app/build/
 **/android/gradlew
 **/android/gradlew.bat
 **/android/**/gradle-wrapper.jar
