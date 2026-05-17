@@ -31,8 +31,10 @@ class _ReportCypherScreenState extends State<ReportCypherScreen> {
   bool _submitting = false;
 
   String _initialCypher() {
-    final m = widget.currentMonarch;
-    if (m != null && MonarchInfo.labels.containsKey(m)) return m;
+    // Always start at "I'm not sure" — the user is here because they think the
+    // CURRENT cypher is wrong, so pre-filling the dropdown with the current
+    // value would let them submit a no-op suggestion (and frame the question
+    // backwards).
     return notSureCypher;
   }
 
