@@ -92,6 +92,17 @@ class _RoutePreviewScreenState extends State<RoutePreviewScreen> {
 
   void _scheduleFetch({bool immediate = false}) {
     _debounceTimer?.cancel();
+    // Flip to loading right now (not after the debounce) so the headline and
+    // the Start-route button reflect that the displayed result no longer
+    // matches the current session params. Without this, a user could tap
+    // Start within the 400 ms debounce window and begin a route whose stats
+    // banner shows the previous params' count/points.
+    if (!immediate && _headlineState != _HeadlineState.loading) {
+      setState(() {
+        _headlineState = _HeadlineState.loading;
+        _errorMessage = null;
+      });
+    }
     _debounceTimer = Timer(
       immediate ? Duration.zero : const Duration(milliseconds: 400),
       _fetch,

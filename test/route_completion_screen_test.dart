@@ -170,11 +170,17 @@ void main() {
       expect(find.text('Go'), findsOneWidget);
     });
 
-    testWidgets('"Plan another route" also returns to first route',
+    testWidgets('"Plan another route" pops the route attempt and pushes /route',
         (tester) async {
       await tester.pumpWidget(
         MaterialApp(
           theme: AppTheme.light,
+          // Register /route so the post-pop pushNamed lands somewhere — this
+          // mirrors main.dart's routes table where /route resolves to the
+          // destination picker.
+          routes: {
+            '/route': (_) => const Scaffold(body: Text('Picker stub')),
+          },
           home: Builder(
             builder: (context) => ElevatedButton(
               onPressed: () => Navigator.push(
@@ -199,7 +205,10 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 500));
 
-      expect(find.text('Start'), findsOneWidget);
+      // The picker is pushed on top of the home (Start) — Start exists in the
+      // back-stack and the picker stub is now on top.
+      expect(find.text('Picker stub'), findsOneWidget);
+      expect(find.byType(RouteCompletionScreen), findsNothing);
     });
   });
 }
