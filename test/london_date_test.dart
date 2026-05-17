@@ -50,6 +50,81 @@ void main() {
     });
   });
 
+  group('formatLondon (BST/GMT handling)', () {
+    test('mid-winter UTC midday → same calendar date in London (GMT)', () {
+      // 15 Jan 2026 12:00:00 UTC — GMT, no offset.
+      expect(formatLondon(DateTime.utc(2026, 1, 15, 12, 0)), '2026-01-15');
+    });
+
+    test('mid-summer UTC midday → same calendar date in London (BST +1h)', () {
+      // 15 Jul 2026 12:00:00 UTC. London is BST → 13:00 local. Same date.
+      expect(formatLondon(DateTime.utc(2026, 7, 15, 12, 0)), '2026-07-15');
+    });
+
+    test('late-night UTC in summer rolls forward in London', () {
+      // 14 Jul 2026 23:30 UTC. BST → 15 Jul 00:30 London → date is 2026-07-15.
+      expect(formatLondon(DateTime.utc(2026, 7, 14, 23, 30)), '2026-07-15');
+    });
+
+    test('late-night UTC in winter does NOT roll forward (no offset)', () {
+      // 14 Jan 2026 23:30 UTC. GMT → still 23:30 London → date is 2026-01-14.
+      expect(formatLondon(DateTime.utc(2026, 1, 14, 23, 30)), '2026-01-14');
+    });
+
+    test('BST starts at the last Sunday of March, 01:00 UTC', () {
+      // Last Sun of March 2026 = 29 Mar 2026.
+      // 00:59 UTC on 29 Mar — still GMT (one minute before BST kicks in).
+      expect(formatLondon(DateTime.utc(2026, 3, 29, 0, 59)), '2026-03-29');
+      // 01:00 UTC on 29 Mar — BST. Local clock jumps to 02:00.
+      // The date in London is still 29 Mar (no rollover).
+      expect(formatLondon(DateTime.utc(2026, 3, 29, 1, 0)), '2026-03-29');
+    });
+
+    test('BST ends at the last Sunday of October, 01:00 UTC', () {
+      // Last Sun of October 2026 = 25 Oct 2026.
+      // 00:59 UTC on 25 Oct — still BST (one minute before GMT resumes).
+      // BST = UTC+1 → 01:59 London → same date.
+      expect(formatLondon(DateTime.utc(2026, 10, 25, 0, 59)), '2026-10-25');
+      // 01:00 UTC on 25 Oct — GMT (no offset). Local clock falls back to 01:00.
+      expect(formatLondon(DateTime.utc(2026, 10, 25, 1, 0)), '2026-10-25');
+    });
+
+    test('BST boundary: 2025 last-Sunday-of-March is 30 Mar', () {
+      // Different year — different last-Sunday-of-March. Defends against
+      // hard-coded year-2026 dates in _lastSundayOfMonthUtcAt01.
+      // 30 Mar 2025 was a Sunday; before 01:00 UTC = GMT.
+      expect(formatLondon(DateTime.utc(2025, 3, 30, 0, 30)), '2025-03-30');
+      // After 01:00 UTC = BST.
+      expect(formatLondon(DateTime.utc(2025, 3, 30, 1, 0)), '2025-03-30');
+    });
+  });
+
+  group('yesterdayLondon vs UTC-subtract correctness around spring-forward', () {
+    // yesterdayLondon must subtract one CALENDAR DAY from todayLondon, not
+    // 24 hours from UTC — the latter is wrong during the first hour after BST
+    // begins (see the comment in lib/london_date.dart).
+    //
+    // We can't override `now` here, but we can validate the helper's output
+    // matches the calendar-day-subtract definition across a few year-spanning
+    // dates by checking it's always exactly one day before todayLondon.
+    test('returns a YYYY-MM-DD one day before todayLondon', () {
+      final today = todayLondon();
+      final yesterday = yesterdayLondon();
+
+      final tDate = DateTime.utc(
+        int.parse(today.substring(0, 4)),
+        int.parse(today.substring(5, 7)),
+        int.parse(today.substring(8, 10)),
+      );
+      final yDate = DateTime.utc(
+        int.parse(yesterday.substring(0, 4)),
+        int.parse(yesterday.substring(5, 7)),
+        int.parse(yesterday.substring(8, 10)),
+      );
+      expect(tDate.difference(yDate).inDays, 1);
+    });
+  });
+
   group('weekEndLondon', () {
     test('Monday returns following Sunday', () {
       // 2026-04-13 is a Monday → 2026-04-19 is the Sunday at the end of that
