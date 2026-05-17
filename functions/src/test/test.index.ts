@@ -2473,6 +2473,31 @@ describe("repointClaimsForPostbox (unit, mock Firestore)", () => {
     assert.strictEqual(writes.length, 1);
     assert.strictEqual(writes[0].update.points, 4);
   });
+
+  it("skips claims already at the target monarch+points (idempotent retry)", async () => {
+    // Simulates an admin re-running reviewReport after a partial-success run:
+    // some claims were already rewritten on the first attempt. The retry must
+    // not re-stamp those claims' correctedFromMonarch with the new (post-
+    // correction) monarch, which would erase the original pre-correction
+    // value from the audit trail.
+    const claims: ClaimDoc[] = [
+      // Already rewritten on the first run: monarch === target, points === target.
+      { id: "c1", userid: "u1", points: 4, monarch: "GR", postboxes: "/postbox/osm_42" },
+      // Not yet rewritten — still on the old cypher.
+      { id: "c2", userid: "u2", points: 9, monarch: "EVIIR", postboxes: "/postbox/osm_42" },
+    ];
+    const { db, writes } = makeMockDb(claims);
+    const result = await repointClaimsForPostbox(db, "osm_42", "GR");
+    // Only the unrewritten claim is touched.
+    assert.strictEqual(result.claimCount, 1);
+    assert.strictEqual(writes.length, 1);
+    assert.strictEqual(writes[0].ref.id, "c2");
+    assert.strictEqual(writes[0].update.correctedFromMonarch, "EVIIR",
+      "audit trail preserves the real pre-correction monarch on the still-old claim");
+    // u1 contributes no delta — its claim already matches; u2 contributes -5.
+    assert.strictEqual(result.deltaByUid.has("u1"), false);
+    assert.strictEqual(result.deltaByUid.get("u2"), -5);
+  });
 });
 
 describe("maxDailyFromClaims", () => {

@@ -61,12 +61,23 @@ export async function repointClaimsForPostbox(
   const plain = !(typeof newMonarch === "string" && newMonarch.length > 0);
 
   const batches: admin.firestore.WriteBatch[] = [];
+  let rewritten = 0;
   for (let i = 0; i < snap.docs.length; i += WRITE_BATCH_SIZE) {
     const batch = db.batch();
+    let writesInBatch = 0;
     for (const doc of snap.docs.slice(i, i + WRITE_BATCH_SIZE)) {
       const d = doc.data();
       const uid = d.userid as string | undefined;
       const oldPts = typeof d.points === "number" ? d.points : 0;
+      const currentMonarch = (typeof d.monarch === "string" && d.monarch.length > 0) ? d.monarch : null;
+      const targetMonarch = plain ? null : newMonarch;
+      // Skip claims that already match the target state. Two reasons:
+      //  - Avoids re-stamping correctedFromMonarch / correctedFromPoints with
+      //    the post-correction values (which would happen on a retry after a
+      //    partial-success run), corrupting the audit trail by losing the
+      //    real pre-correction values.
+      //  - Saves writes on no-op admin retries.
+      if (currentMonarch === targetMonarch && oldPts === newPts) continue;
       const update: Record<string, unknown> = {
         points: newPts,
         correctedAt: now,
@@ -75,13 +86,17 @@ export async function repointClaimsForPostbox(
         monarch: plain ? admin.firestore.FieldValue.delete() : newMonarch,
       };
       batch.set(doc.ref, update, { merge: true });
+      writesInBatch++;
       if (uid) deltaByUid.set(uid, (deltaByUid.get(uid) ?? 0) + (newPts - oldPts));
     }
-    batches.push(batch);
+    if (writesInBatch > 0) {
+      batches.push(batch);
+      rewritten += writesInBatch;
+    }
   }
   await Promise.all(batches.map((b) => b.commit()));
 
-  return { deltaByUid, claimCount: snap.docs.length };
+  return { deltaByUid, claimCount: rewritten };
 }
 
 /**
