@@ -4,6 +4,17 @@ import { LookupResult } from "./types";
 export interface SlimPostbox {
   monarch?: string;
   claimedToday: boolean;
+  /** Metres from the user's scan position. Present whenever the underlying
+   *  LookupResult computed a distance (always, in current callers). Omitted
+   *  only as a defensive fallback — clients must treat absence as "unknown".
+   *
+   *  Required for the Route Mode auto-claim trigger: it scans at 1 km radius
+   *  for the fuzzy compass, then opens the claim sheet when any returned box
+   *  is within the 30 m claim radius. Privacy impact is bounded — the user
+   *  is at most `meters` from the box (≤ 2 km server cap), and they already
+   *  have their own GPS fix, so multiple coordinated scans would be needed
+   *  to triangulate exact postbox coordinates. */
+  distance?: number;
 }
 
 export interface UserSpecificResult {
@@ -28,12 +39,15 @@ export function applyUserClaims(
   full: LookupResult,
   userClaimedKeys: Set<string>
 ): UserSpecificResult {
-  // Strip precise location fields; override claimedToday per-user.
+  // Strip precise location fields; override claimedToday per-user. Distance is
+  // carried over so the client can show range cues and so Route Mode can detect
+  // when an unclaimed box is within the claim radius.
   const slimPostboxes: Record<string, SlimPostbox> = {};
   for (const [id, pb] of Object.entries(full.postboxes)) {
     slimPostboxes[id] = {
       ...(pb.monarch !== undefined ? { monarch: pb.monarch } : {}),
       claimedToday: userClaimedKeys.has(id),
+      ...(typeof pb.distance === "number" ? { distance: pb.distance } : {}),
     };
   }
 

@@ -1465,6 +1465,37 @@ describe("applyUserClaims", () => {
     assert.strictEqual(updatedPoints.max, 0);
   });
 
+  it("carries through distance on slim postboxes when present on input", () => {
+    // Route Mode auto-claim trigger reads box['distance'] from this callable
+    // to detect when a postbox is within the 30 m claim radius. Without it the
+    // trigger never fires.
+    const full = {
+      postboxes: {
+        near: { monarch: "EIIR", compass: { exact: "N" }, distance: 12 },
+        far:  { monarch: "VR",   compass: { exact: "S" }, distance: 450 },
+      },
+      counts: { total: 2, claimedToday: 0, EIIR: 1, VR: 1 },
+      points: { min: 2, max: 7 },
+      compass: { N: 1, S: 1 },
+    };
+    const { slimPostboxes } = applyUserClaims(full, new Set());
+    assert.strictEqual(slimPostboxes.near.distance, 12);
+    assert.strictEqual(slimPostboxes.far.distance, 450);
+  });
+
+  it("omits distance on slim postboxes when missing on input", () => {
+    const full = {
+      postboxes: {
+        noDistance: { monarch: "EIIR", compass: { exact: "N" } },
+      },
+      counts: { total: 1, claimedToday: 0 },
+      points: { min: 2, max: 2 },
+      compass: { N: 1 },
+    };
+    const { slimPostboxes } = applyUserClaims(full, new Set());
+    assert.strictEqual("distance" in slimPostboxes.noDistance, false);
+  });
+
   it("slim postbox for no-monarch has no monarch field", () => {
     const full = {
       postboxes: {
