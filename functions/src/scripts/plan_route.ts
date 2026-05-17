@@ -78,26 +78,26 @@ function parseArgs(argv: string[]): Options {
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    const next = () => {
+    const takeValue = () => {
       const v = argv[++i];
       if (v === undefined) throw new Error(`missing value for ${a}`);
       return v;
     };
     switch (a) {
-      case "--start": opts.start = parseLatLng(next(), "--start"); break;
-      case "--end": opts.end = parseLatLng(next(), "--end"); break;
-      case "--minutes": opts.minutes = Number(next()); break;
-      case "--speed-kmh": opts.speedKmh = Number(next()); break;
-      case "--per-claim-seconds": opts.perClaimSeconds = Number(next()); break;
-      case "--beam": opts.beam = Number(next()); break;
+      case "--start": opts.start = parseLatLng(takeValue(), "--start"); break;
+      case "--end": opts.end = parseLatLng(takeValue(), "--end"); break;
+      case "--minutes": opts.minutes = Number(takeValue()); break;
+      case "--speed-kmh": opts.speedKmh = Number(takeValue()); break;
+      case "--per-claim-seconds": opts.perClaimSeconds = Number(takeValue()); break;
+      case "--beam": opts.beam = Number(takeValue()); break;
       case "--source": {
-        const v = next();
+        const v = takeValue();
         if (v !== "firestore" && v !== "file") throw new Error(`--source must be firestore|file (got: ${v})`);
         opts.source = v;
         break;
       }
-      case "--input": opts.inputPath = next(); break;
-      case "--project": opts.projectId = next(); break;
+      case "--input": opts.inputPath = takeValue(); break;
+      case "--project": opts.projectId = takeValue(); break;
       case "--help":
       case "-h":
         printUsage();
