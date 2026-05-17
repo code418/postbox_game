@@ -181,8 +181,14 @@ class _RouteCompletionScreenState extends State<RouteCompletionScreen> {
                   ),
                   const SizedBox(height: AppSpacing.sm),
                   TextButton(
-                    onPressed: () =>
-                        Navigator.popUntil(context, (r) => r.isFirst),
+                    onPressed: () {
+                      // Drop everything from this route attempt (preview,
+                      // completion) then push a fresh destination picker, so
+                      // back from there returns to Home rather than peeling
+                      // back through this attempt's stale screens.
+                      Navigator.popUntil(context, (r) => r.isFirst);
+                      Navigator.pushNamed(context, '/route');
+                    },
                     child: const Text('Plan another route'),
                   ),
                   const SizedBox(height: kJamesStripClearance),
