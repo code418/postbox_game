@@ -49,4 +49,54 @@ void main() {
       expect(expectedPeriodKey('yearly', '2026-04-17'), isNull);
     });
   });
+
+  group('formatDateRange', () {
+    test('same month: month and year shown once at the end', () {
+      // 2026-04-13 (Mon) .. 2026-04-19 (Sun)
+      expect(
+        formatDateRange('2026-04-13', '2026-04-19'),
+        'Mon 13th – Sun 19th Apr 2026',
+      );
+    });
+
+    test('same year, different months: month after each day', () {
+      // 2026-04-27 (Mon) .. 2026-05-03 (Sun)
+      expect(
+        formatDateRange('2026-04-27', '2026-05-03'),
+        'Mon 27th Apr – Sun 3rd May 2026',
+      );
+    });
+
+    test('different years: year after each side', () {
+      // 2025-12-29 (Mon) .. 2026-01-04 (Sun)
+      expect(
+        formatDateRange('2025-12-29', '2026-01-04'),
+        'Mon 29th Dec 2025 – Sun 4th Jan 2026',
+      );
+    });
+
+    test('ordinal suffixes 11–13 are "th" (not -1st/-2nd/-3rd)', () {
+      // 11th, 12th, 13th — the classic ordinal-rule edge case.
+      expect(
+        formatDateRange('2026-04-11', '2026-04-13'),
+        'Sat 11th – Mon 13th Apr 2026',
+      );
+    });
+
+    test('ordinal suffixes 21st / 22nd / 23rd / 24th', () {
+      expect(
+        formatDateRange('2026-04-21', '2026-04-24'),
+        'Tue 21st – Fri 24th Apr 2026',
+      );
+    });
+
+    test('single-day range is rendered as start–end with same date', () {
+      // A daily range collapses to the same date on both sides; the formatter
+      // still produces a readable line rather than blowing up.
+      expect(
+        formatDateRange('2026-04-17', '2026-04-17'),
+        'Fri 17th – Fri 17th Apr 2026',
+      );
+    });
+  });
 }
