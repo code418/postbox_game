@@ -148,20 +148,23 @@ export async function recomputeUserAggregates(
       const currentLifetime = (uSnap.data()?.lifetimePoints as number | undefined) ?? 0;
       const newLifetimePoints = currentLifetime + countyDelta;
       const currentUnique = (uSnap.data()?.uniquePostboxesClaimed as number | undefined) ?? 0;
-      tx.set(
-        userRef,
-        {
-          lifetimePoints: newLifetimePoints,
-          maxDailyPoints,
-          dailyPoints: periodSums.dailyPoints,
-          dailyDate: today,
-          weeklyPoints: periodSums.weeklyPoints,
-          weekStart,
-          monthlyPoints: periodSums.monthlyPoints,
-          monthStart,
-        },
-        { merge: true }
-      );
+      // Only stamp the per-period markers when the user actually has claims
+      // in that period. Otherwise the rescore would overwrite a stale-but-
+      // truthful marker (e.g. yesterday) with today, and downstream code
+      // that treats `dailyDate === today` as evidence of a claim (notably
+      // shouldNotifyFirstClaim / shouldNotifyOvertake) would wrongly skip
+      // notifications for a user who hasn't claimed today.
+      const userUpdate: Record<string, unknown> = {
+        lifetimePoints: newLifetimePoints,
+        maxDailyPoints,
+        dailyPoints: periodSums.dailyPoints,
+        weeklyPoints: periodSums.weeklyPoints,
+        monthlyPoints: periodSums.monthlyPoints,
+      };
+      if (periodSums.dailyPoints > 0) userUpdate.dailyDate = today;
+      if (periodSums.weeklyPoints > 0) userUpdate.weekStart = weekStart;
+      if (periodSums.monthlyPoints > 0) userUpdate.monthStart = monthStart;
+      tx.set(userRef, userUpdate, { merge: true });
       const existing = (lSnap.data()?.entries ?? []) as LifetimeLeaderboardEntry[];
       const updated = mergeLifetimeEntries(existing, uid, freshDisplayName, currentUnique, newLifetimePoints);
       tx.set(lifetimeRef, { periodKey: "lifetime", entries: updated }, { merge: false });
