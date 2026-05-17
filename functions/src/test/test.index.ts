@@ -2728,3 +2728,60 @@ describe("routePostboxes pure detour logic", () => {
     assert.strictEqual(typeof result.visited.size, "number");
   });
 });
+
+describe("finaliseRoute", () => {
+  // Pure helper used by the plan_route CLI to compute closing-leg metres /
+  // seconds and total route stats after the beam search picks stops.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+  const planner = require("../_routePlanner") as typeof import("../_routePlanner");
+
+  const start = { lat: 51.5000, lng: -0.1000 };
+  const end   = { lat: 51.5000, lng: -0.0900 }; // ~780 m due east
+
+  it("computes closing leg and totals from an empty route", () => {
+    // No intermediate stops — we walk straight from start to end.
+    const initial = {
+      current: start,
+      currentId: "__START__",
+      visited: new Set<string>(),
+      timeUsed: 0,
+      score: 0,
+      route: [],
+    };
+    const speedMps = 1.25; // 4.5 km/h
+    const r = planner.finaliseRoute(initial, end, speedMps);
+    // Distance from start to end (~780 m at this latitude).
+    assert.ok(r.closingMetres > 600 && r.closingMetres < 900,
+      `closingMetres should be ~780, got ${r.closingMetres}`);
+    assert.ok(Math.abs(r.closingSeconds - r.closingMetres / speedMps) < 0.001);
+    // No stops → totalMetres equals closing leg, totalSeconds equals closing.
+    assert.strictEqual(r.totalMetres, r.closingMetres);
+    assert.strictEqual(r.totalSeconds, r.closingSeconds);
+  });
+
+  it("adds the closing leg on top of accumulated leg distances", () => {
+    // Two synthetic stops with known leg distances. The "current" position is
+    // wherever the second stop sits; finaliseRoute should add the leg from
+    // there to end on top of legMeters.reduce.
+    const stopA = { id: "a", lat: 51.5000, lng: -0.0950, monarch: null, points: 5 };
+    const stopB = { id: "b", lat: 51.5000, lng: -0.0925, monarch: null, points: 5 };
+    const state = {
+      current: { lat: stopB.lat, lng: stopB.lng },
+      currentId: "b",
+      visited: new Set<string>(["a", "b"]),
+      timeUsed: 300, // arbitrary cumulative seconds
+      score: 10,
+      route: [
+        { postbox: stopA, legMeters: 350, cumSeconds: 200 },
+        { postbox: stopB, legMeters: 180, cumSeconds: 300 },
+      ],
+    };
+    const speedMps = 1.25;
+    const r = planner.finaliseRoute(state, end, speedMps);
+    // totalMetres == sum(legMeters) + closing leg.
+    assert.strictEqual(r.totalMetres, 350 + 180 + r.closingMetres);
+    // totalSeconds == timeUsed + closingSeconds (NOT cumSeconds — that's just
+    // an inner annotation; the authoritative running total is timeUsed).
+    assert.strictEqual(r.totalSeconds, state.timeUsed + r.closingSeconds);
+  });
+});
