@@ -179,6 +179,57 @@ void main() {
       expect(counter.count, greaterThan(callsAfterInit));
     });
 
+    testWidgets(
+        'slider change flips Start route to disabled before the debounce fires',
+        (tester) async {
+      // First call resolves immediately so the screen reaches the result
+      // state with the button enabled; the second is held by a completer so
+      // we can inspect the in-flight (post-slider, pre-fetch) state.
+      var callIndex = 0;
+      final secondCallCompleter = Completer<HttpsCallableResult<dynamic>>();
+      Future<HttpsCallableResult<dynamic>> fn(Map<String, dynamic> _) {
+        callIndex++;
+        if (callIndex == 1) {
+          return Future.value(_FakeCallableResult<dynamic>(_successPayload()));
+        }
+        return secondCallCompleter.future;
+      }
+
+      await tester
+          .pumpWidget(_buildPreview(session: _defaultSession(), callableFn: fn));
+      await _pumpAndWait(tester);
+
+      // After the first response the button is enabled.
+      expect(
+        tester
+            .widget<FilledButton>(
+                find.widgetWithText(FilledButton, 'Start route'))
+            .onPressed,
+        isNotNull,
+      );
+
+      // Drag the corridor slider. The debounce timer hasn't fired yet, but the
+      // headline state must already have flipped to loading so the user can't
+      // start a route whose headline is showing the previous params' figures.
+      await tester.drag(find.byType(Slider).first, const Offset(50, 0));
+      await tester.pump();
+
+      expect(
+        tester
+            .widget<FilledButton>(
+                find.widgetWithText(FilledButton, 'Start route'))
+            .onPressed,
+        isNull,
+        reason: 'Start route must be disabled while the new result is loading',
+      );
+
+      // Complete the held call so pending-timer assertions pass.
+      await tester.pump(const Duration(milliseconds: 450));
+      secondCallCompleter
+          .complete(_FakeCallableResult<dynamic>(_successPayload()));
+      await tester.pumpAndSettle();
+    });
+
     testWidgets('shows error state when callable throws', (tester) async {
       final (:fn, :counter) = _makeStub(
         error: FirebaseFunctionsException(
