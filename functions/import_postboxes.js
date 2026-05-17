@@ -271,12 +271,18 @@ async function main() {
 
   // Only persist the total count when importing without a --limit so the
   // stored value reflects the full dataset (not a subset used for testing).
+  // Read the actual collection count rather than `written` — that figure
+  // excludes both the docs we skipped (correctedBy) and the manual_* docs
+  // added by accepted missing-postbox reports, so using it as the lifetime
+  // leaderboard's "X of Y" denominator would silently undercount.
   if (opts.limit === Infinity) {
+    const countSnap = await col.count().get();
+    const totalPostboxes = countSnap.data().count;
     await db.collection('meta').doc('stats').set(
-      { totalPostboxes: written },
+      { totalPostboxes },
       { merge: true }
     );
-    console.log(`meta/stats.totalPostboxes updated to ${written.toLocaleString()}.`);
+    console.log(`meta/stats.totalPostboxes updated to ${totalPostboxes.toLocaleString()} (collection count).`);
   }
 }
 
