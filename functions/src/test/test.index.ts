@@ -2266,6 +2266,52 @@ describe("parsePhotos", () => {
   it("rejects implausible EXIF coordinates", () => {
     assert.throws(() => parsePhotos([{ storagePath: `report_photos/${uid}/a.jpg`, exifLat: 200 }], uid));
   });
+  it("rejects implausible EXIF longitude", () => {
+    assert.throws(() => parsePhotos([{ storagePath: `report_photos/${uid}/a.jpg`, exifLng: 999 }], uid));
+  });
+  it("rejects non-array input", () => {
+    assert.throws(() => parsePhotos("not an array", uid));
+    assert.throws(() => parsePhotos({ storagePath: `report_photos/${uid}/a.jpg` }, uid));
+  });
+  it("rejects non-object array entries", () => {
+    assert.throws(() => parsePhotos(["just a string"], uid));
+    assert.throws(() => parsePhotos([null], uid));
+    assert.throws(() => parsePhotos([42], uid));
+  });
+  it("rejects an empty file name (path is exactly the prefix)", () => {
+    assert.throws(() => parsePhotos([{ storagePath: `report_photos/${uid}/` }], uid));
+  });
+  it("rejects a takenAt longer than 40 chars", () => {
+    const longTakenAt = "a".repeat(41);
+    assert.throws(() => parsePhotos(
+      [{ storagePath: `report_photos/${uid}/a.jpg`, takenAt: longTakenAt }],
+      uid,
+    ));
+  });
+  it("accepts a takenAt at the 40-char boundary", () => {
+    const maxTakenAt = "a".repeat(40);
+    const out = parsePhotos(
+      [{ storagePath: `report_photos/${uid}/a.jpg`, takenAt: maxTakenAt }],
+      uid,
+    );
+    assert.strictEqual(out[0].takenAt, maxTakenAt);
+  });
+  it("rejects a non-string takenAt", () => {
+    assert.throws(() => parsePhotos(
+      [{ storagePath: `report_photos/${uid}/a.jpg`, takenAt: 12345 }],
+      uid,
+    ));
+  });
+  it("accepts a photo with no EXIF metadata at all", () => {
+    // Browsers strip EXIF on upload; iOS without "Camera location" returns
+    // no GPS. The reporter must still be able to attach evidence photos.
+    const out = parsePhotos([{ storagePath: `report_photos/${uid}/no-exif.jpg` }], uid);
+    assert.strictEqual(out.length, 1);
+    assert.strictEqual(out[0].storagePath, `report_photos/${uid}/no-exif.jpg`);
+    assert.strictEqual(out[0].exifLat, undefined);
+    assert.strictEqual(out[0].exifLng, undefined);
+    assert.strictEqual(out[0].takenAt, undefined);
+  });
 });
 
 describe("nextQuotaState", () => {
