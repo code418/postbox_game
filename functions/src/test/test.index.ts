@@ -2784,6 +2784,31 @@ describe("routePostboxes pure detour logic", () => {
     // Beam search can't add dwell time when budget is exactly the walk time.
     assert.strictEqual(typeof result.visited.size, "number");
   });
+
+  it("empty candidates returns the initial state with score 0", () => {
+    // No postboxes in range at all — the search must terminate cleanly with
+    // the initial state (no visits, no score), not loop or throw.
+    const result = beamSearchOrienteering(start, end, [], budgetSeconds, speedMps, 60, 50);
+    assert.strictEqual(result.score, 0);
+    assert.strictEqual(result.visited.size, 0);
+    assert.strictEqual(result.route.length, 0);
+    assert.strictEqual(result.timeUsed, 0);
+    assert.deepStrictEqual(result.current, start);
+  });
+
+  it("candidate beyond the time budget is not visited", () => {
+    // Synthetic candidate far enough that even reaching it eats more than the
+    // budget; beam search should report 0 visits despite the candidate being
+    // present.
+    const farAway = [
+      { id: "unreachable", lat: 52.5, lng: -0.5, monarch: null, points: 100 },
+    ];
+    // Tight budget = just the direct walk time, no detour room.
+    const tight = directM / speedMps;
+    const result = beamSearchOrienteering(start, end, farAway, tight, speedMps, 60, 50);
+    assert.strictEqual(result.score, 0);
+    assert.strictEqual(result.visited.size, 0);
+  });
 });
 
 describe("finaliseRoute", () => {
