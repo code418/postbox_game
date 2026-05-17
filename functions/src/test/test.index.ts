@@ -208,6 +208,17 @@ describe("mergeLifetimeEntries", () => {
     assert.strictEqual(result[1].uid, "c");   // 10 boxes, 30 pts
   });
 
+  it("uniqueBoxes outranks totalPoints (collection beats grinding)", () => {
+    // The lifetime sort is "most unique boxes first, points only as tiebreaker"
+    // — pin the priority so a future change to mergeLifetimeEntries can't
+    // silently flip it back to points-first without failing a test.
+    // grinder has fewer unique boxes but vastly more points.
+    const grinder = { uid: "g", displayName: "Grinder", uniquePostboxesClaimed: 3, totalPoints: 999 };
+    const result = mergeLifetimeEntries([grinder], "c", "Collector", 10, 30);
+    assert.strictEqual(result[0].uid, "c", "Collector (10 boxes) ranks above Grinder (3 boxes, 999 pts)");
+    assert.strictEqual(result[1].uid, "g");
+  });
+
   it("caps at the given limit", () => {
     const existing = Array.from({ length: 3 }, (_, i) => ({
       uid: `u${i}`, displayName: `User${i}`,
