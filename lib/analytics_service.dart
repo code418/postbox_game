@@ -10,7 +10,13 @@ class Analytics {
 
   static final FirebaseAnalytics _fa = FirebaseAnalytics.instance;
 
-  static FirebaseAnalyticsObserver get observer =>
+  // One shared observer for the app lifetime — `navigatorObservers` is read
+  // on every MaterialApp build, so a getter that returned a fresh
+  // FirebaseAnalyticsObserver each time would create one new observer per
+  // PostboxGame rebuild and immediately orphan the previous one. The
+  // observer holds RouteObserver subscriber lists, so this is wasted work
+  // and a minor memory churn even though it's not a true leak.
+  static final FirebaseAnalyticsObserver observer =
       FirebaseAnalyticsObserver(analytics: _fa);
 
   // ---------------------------------------------------------------------------
