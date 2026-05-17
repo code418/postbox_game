@@ -50,6 +50,47 @@ void main() {
     });
   });
 
+  group('weekEndLondon', () {
+    test('Monday returns following Sunday', () {
+      // 2026-04-13 is a Monday → 2026-04-19 is the Sunday at the end of that
+      // ISO week.
+      expect(weekEndLondon('2026-04-13'), '2026-04-19');
+    });
+    test('Sunday returns itself (same ISO week)', () {
+      expect(weekEndLondon('2026-04-19'), '2026-04-19');
+    });
+    test('crosses month boundary forwards', () {
+      // 2026-04-27 (Mon) → Sun 2026-05-03.
+      expect(weekEndLondon('2026-04-27'), '2026-05-03');
+    });
+    test('crosses year boundary', () {
+      // 2025-12-29 (Mon) → Sun 2026-01-04 — same week, different years.
+      expect(weekEndLondon('2025-12-29'), '2026-01-04');
+    });
+  });
+
+  group('monthEndLondon', () {
+    test('non-leap February', () {
+      expect(monthEndLondon('2026-02-15'), '2026-02-28');
+    });
+    test('leap February', () {
+      // 2024 is a leap year — 29 days.
+      expect(monthEndLondon('2024-02-15'), '2024-02-29');
+    });
+    test('30-day month', () {
+      expect(monthEndLondon('2026-04-17'), '2026-04-30');
+    });
+    test('31-day month', () {
+      expect(monthEndLondon('2026-07-04'), '2026-07-31');
+    });
+    test('December rolls into the same year (not next)', () {
+      // Day 0 of month 13 must resolve to Dec 31 of the input year, not
+      // Nov 30 of the next year — defends the "Day 0 of next month" trick
+      // against an off-by-one regression.
+      expect(monthEndLondon('2025-12-15'), '2025-12-31');
+    });
+  });
+
   group('formatDateRange', () {
     test('same month: month and year shown once at the end', () {
       // 2026-04-13 (Mon) .. 2026-04-19 (Sun)
