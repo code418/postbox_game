@@ -44,7 +44,21 @@ class NominatimService {
   /// Timestamp of the last HTTP call (null = no call yet).
   DateTime? _lastCallAt;
 
-  NominatimService({http.Client? client}) : _client = client ?? http.Client();
+  /// True when [_client] was created by this instance and so should be
+  /// closed in [close]. False when the caller supplied a client (e.g. test
+  /// stubs whose lifecycle belongs to the test).
+  final bool _ownsClient;
+
+  NominatimService({http.Client? client})
+      : _client = client ?? http.Client(),
+        _ownsClient = client == null;
+
+  /// Releases the underlying HTTP client's connection pool. Safe to call
+  /// multiple times. Callers that create their own [NominatimService] should
+  /// call this from their `dispose` so screen reopens don't leak clients.
+  void close() {
+    if (_ownsClient) _client.close();
+  }
 
   /// Search OSM Nominatim. Returns up to 5 results, UK-biased.
   ///

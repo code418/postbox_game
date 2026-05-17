@@ -80,9 +80,15 @@ class _DestinationPickerScreenState extends State<DestinationPickerScreen> {
   /// Timer used to debounce search-field input (500 ms).
   Timer? _debounceTimer;
 
+  /// True when we created the NominatimService ourselves (and so are
+  /// responsible for closing its HTTP client). False when the caller
+  /// injected one (e.g. tests) and owns its lifecycle.
+  late final bool _ownsNominatimService;
+
   @override
   void initState() {
     super.initState();
+    _ownsNominatimService = widget.nominatimService == null;
     _nominatimService = widget.nominatimService ?? NominatimService();
     if (widget.initialPosition != null) {
       // Injected for tests — skip real GPS.
@@ -101,6 +107,7 @@ class _DestinationPickerScreenState extends State<DestinationPickerScreen> {
     _debounceTimer?.cancel();
     _searchController.dispose();
     _mapController.dispose();
+    if (_ownsNominatimService) _nominatimService.close();
     super.dispose();
   }
 
