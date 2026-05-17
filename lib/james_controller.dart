@@ -25,7 +25,13 @@ class JamesController extends ChangeNotifier {
   bool _isTalking = false;
   bool get isTalking => _isTalking;
 
+  /// Set to true in [dispose] so any already-fired idle-timer callback that
+  /// races with disposal becomes a no-op rather than calling notifyListeners
+  /// on a disposed ChangeNotifier (which asserts in debug).
+  bool _disposed = false;
+
   void show(String message) {
+    if (_disposed) return;
     _pendingMessage = message;
     _messageSeq++;
     _isTalking = true;
@@ -35,6 +41,7 @@ class JamesController extends ChangeNotifier {
 
   /// Called internally by JamesStrip after slide-out completes.
   void clear() {
+    if (_disposed) return;
     _pendingMessage = null;
     _isTalking = false;
     notifyListeners();
@@ -49,15 +56,18 @@ class JamesController extends ChangeNotifier {
   final _random = Random();
 
   void _scheduleIdleCheck() {
+    if (_disposed) return;
     _idleTimer?.cancel();
     final extraSeconds = _random.nextInt((_idleMax - _idleMin).inSeconds);
     _idleTimer = Timer(_idleMin + Duration(seconds: extraSeconds), () {
+      if (_disposed) return;
       show(JamesMessages.idle.resolve());
     });
   }
 
   @override
   void dispose() {
+    _disposed = true;
     _idleTimer?.cancel();
     super.dispose();
   }
