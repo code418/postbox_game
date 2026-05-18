@@ -2853,6 +2853,54 @@ describe("filterToCorridor", () => {
   });
 });
 
+describe("midpoint", () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+  const planner = require("../_routePlanner") as typeof import("../_routePlanner");
+
+  it("averages lat/lng of two points", () => {
+    const m = planner.midpoint({ lat: 0, lng: 0 }, { lat: 10, lng: 20 });
+    assert.strictEqual(m.lat, 5);
+    assert.strictEqual(m.lng, 10);
+  });
+
+  it("midpoint of coincident points is the same point", () => {
+    const p = { lat: 51.5, lng: -0.1 };
+    assert.deepStrictEqual(planner.midpoint(p, p), p);
+  });
+
+  it("handles negative coordinates symmetrically", () => {
+    const m = planner.midpoint({ lat: -1, lng: -2 }, { lat: 1, lng: 2 });
+    assert.strictEqual(m.lat, 0);
+    assert.strictEqual(m.lng, 0);
+  });
+});
+
+describe("metresBetween", () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+  const planner = require("../_routePlanner") as typeof import("../_routePlanner");
+
+  it("returns 0 for coincident points", () => {
+    assert.strictEqual(
+      planner.metresBetween({ lat: 51.5, lng: -0.1 }, { lat: 51.5, lng: -0.1 }),
+      0,
+    );
+  });
+
+  it("approximates 1° of latitude ≈ 111 km", () => {
+    // The Earth's polar radius is approximately constant for latitude lines.
+    // 1° of latitude ≈ 111.32 km; geolib returns ~111,195 m at sea level.
+    const d = planner.metresBetween({ lat: 0, lng: 0 }, { lat: 1, lng: 0 });
+    assert.ok(d > 110_000 && d < 112_000,
+      `expected ~111 km, got ${d} m`);
+  });
+
+  it("symmetric: d(a,b) == d(b,a)", () => {
+    const a = { lat: 51.5, lng: -0.1 };
+    const b = { lat: 52.5, lng: -1.1 };
+    assert.strictEqual(planner.metresBetween(a, b), planner.metresBetween(b, a));
+  });
+});
+
 describe("filterToEllipse (boundary cases)", () => {
   // start→end is roughly 1.1 km east (1° of longitude at the equator is
   // ~111.32 km; 0.01° ≈ 1.11 km).
