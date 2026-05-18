@@ -15,6 +15,33 @@ void main() {
     await Firebase.initializeApp();
   });
 
+  group('HomeWidgetService key contract', () {
+    // The Kotlin widget provider reads SharedPreferences by literal key name.
+    // If the Dart-side constants drift, the Kotlin reader silently returns
+    // defaults (0 / false) for every renamed key — the widget would show
+    // zeros without any compile-time signal. Pin each literal here; the
+    // mirror is in PostboxWidgetProvider.kt:68–73. Any rename requires a
+    // matching Kotlin change.
+    test('keySignedIn === "signedIn"', () {
+      expect(HomeWidgetService.keySignedIn, equals('signedIn'));
+    });
+    test('keyStreak === "streak"', () {
+      expect(HomeWidgetService.keyStreak, equals('streak'));
+    });
+    test('keyTodayPoints === "todayPoints"', () {
+      expect(HomeWidgetService.keyTodayPoints, equals('todayPoints'));
+    });
+    test('keyWeekPoints === "weekPoints"', () {
+      expect(HomeWidgetService.keyWeekPoints, equals('weekPoints'));
+    });
+    test('keyBoxesFound === "boxesFound"', () {
+      expect(HomeWidgetService.keyBoxesFound, equals('boxesFound'));
+    });
+    test('keyLifetimePoints === "lifetimePoints"', () {
+      expect(HomeWidgetService.keyLifetimePoints, equals('lifetimePoints'));
+    });
+  });
+
   group('HomeWidgetService', () {
     const channel = MethodChannel('home_widget');
     late List<MethodCall> calls;
