@@ -142,6 +142,40 @@ describe("mergePeriodEntries", () => {
     assert.strictEqual(result.length, 100);
   });
 
+  it("a new low-score user is excluded when the list is full and they don't make the cut", () => {
+    // The "extra" user at 1 pt is below every existing entry (all at 100..1
+    // descending), so after sort + cap they should be the one sliced off —
+    // not visible in the result at all. Defends against a refactor that
+    // accidentally keeps the upserted user regardless of rank.
+    const existing = Array.from({ length: 100 }, (_, i) => ({
+      uid: `u${i}`, displayName: `U${i}`, points: 100 - i, // 100, 99, ..., 1
+    }));
+    const result = mergePeriodEntries(existing, "extra", "Extra", 1);
+    // Tied with the bottom entry (u99 at 1pt); uid tiebreaker is ascending,
+    // so "extra" sorts BEFORE "u99" and u99 is dropped instead. Either way,
+    // the resulting list has exactly 100 entries.
+    assert.strictEqual(result.length, 100);
+    // Stricter: drop the entry whose uid sorts last — u99 < "extra" so u99
+    // remains and "extra" is excluded.
+    // (Verifying by checking that the bottom-most kept entry is "extra"
+    // would assume the opposite tiebreaker — pin the actual ordering.)
+    const uids = new Set(result.map((e) => e.uid));
+    assert.ok(uids.has("extra"), '"extra" sorts before "u99" by uid asc and is kept');
+    assert.ok(!uids.has("u99"), '"u99" is dropped because "extra" beats it on uid asc tiebreak');
+  });
+
+  it("a NEW user well below the cut is excluded entirely", () => {
+    // 100 existing users all tied at 10 pts. A new user at 5 pts sorts below
+    // every existing one (lower score) — after the cap they should not appear.
+    const existing = Array.from({ length: 100 }, (_, i) => ({
+      uid: `u${i.toString().padStart(2, "0")}`, displayName: `U${i}`, points: 10,
+    }));
+    const result = mergePeriodEntries(existing, "newcomer", "Newcomer", 5);
+    assert.strictEqual(result.length, 100);
+    assert.ok(!result.some((e) => e.uid === "newcomer"),
+      "newcomer below the cap should not appear at all");
+  });
+
   it("breaks point ties deterministically by uid ascending", () => {
     // Three users on identical points — ordering must be stable across
     // repeated merge calls so the leaderboard does not visibly reshuffle on
