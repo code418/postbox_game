@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
+import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/app_preferences.dart';
 import 'package:postbox_game/route/live_route_screen.dart';
 import 'package:postbox_game/route/route_session.dart';
@@ -328,6 +329,14 @@ class _RoutePreviewScreenState extends State<RoutePreviewScreen> {
                         !_hasResult)
                     ? null
                     : () {
+                        Analytics.routeStarted(
+                          count: session.computedCount ?? 0,
+                          points: session.computedPoints ?? 0,
+                          mode: session.mode == RouteMode.detour
+                              ? 'detour'
+                              : 'corridor',
+                          pace: session.pace == RoutePace.jog ? 'jog' : 'walk',
+                        );
                         Navigator.of(context).push(
                           MaterialPageRoute(
                             builder: (_) =>

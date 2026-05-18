@@ -161,6 +161,38 @@ class Analytics {
       _log('tab_selected', {'tab_index': index, 'tab_name': name});
 
   // ---------------------------------------------------------------------------
+  // Route mode — funnel from preview through navigation to arrival/abandon.
+  // ---------------------------------------------------------------------------
+
+  /// User tapped "Start route" on the route preview screen with a usable
+  /// preview (count/points loaded). Marks the top of the route-mode funnel.
+  static Future<void> routeStarted({
+    required int count,
+    required int points,
+    required String mode, // 'corridor' or 'detour'
+    required String pace, // 'walk' or 'jog'
+  }) =>
+      _log('route_started', {
+        'postbox_count': count,
+        'points': points,
+        'mode': mode,
+        'pace': pace,
+      });
+
+  /// User reached the destination (auto-arrival inside the 25 m radius).
+  /// [walkSeconds] is the elapsed time from "Start route" to arrival.
+  static Future<void> routeArrived({
+    required int pointsEarned,
+    required int claimedCount,
+    required int walkSeconds,
+  }) =>
+      _log('route_arrived', {
+        'points_earned': pointsEarned,
+        'claimed_count': claimedCount,
+        'walk_seconds': walkSeconds,
+      });
+
+  // ---------------------------------------------------------------------------
   // Internal
   // ---------------------------------------------------------------------------
 

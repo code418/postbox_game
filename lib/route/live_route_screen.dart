@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_compass/flutter_compass.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/app_preferences.dart';
 import 'package:postbox_game/fuzzy_compass.dart';
 import 'package:postbox_game/james_controller.dart';
@@ -426,6 +427,13 @@ class _LiveRouteScreenState extends State<LiveRouteScreen> {
   void _navigateToCompletion() {
     if (!mounted) return;
 
+    final walkSeconds = _stopwatch.elapsed.inSeconds;
+    Analytics.routeArrived(
+      pointsEarned: _pointsEarned,
+      claimedCount: _claimedCount,
+      walkSeconds: walkSeconds,
+    );
+
     // Fire the arrival notification before leaving the screen.
     // Wrapped in try/catch so a notification failure never blocks navigation.
     try {
@@ -444,7 +452,7 @@ class _LiveRouteScreenState extends State<LiveRouteScreen> {
           session: widget.session,
           pointsEarned: _pointsEarned,
           claimedCount: _claimedCount,
-          walkSeconds: _stopwatch.elapsed.inSeconds,
+          walkSeconds: walkSeconds,
         ),
       ),
     );
