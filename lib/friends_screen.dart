@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show setEquals;
@@ -204,8 +206,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
     // Fire-and-forget: completion is signalled via setState inside _fetchNames.
     // Any future change to the friends list re-enters this method and resolves
     // only the newly-added uids.
-    // ignore: discarded_futures
-    _fetchNames(unknown);
+    unawaited(_fetchNames(unknown));
   }
 
   Future<void> _fetchNames(List<String> uids) async {
