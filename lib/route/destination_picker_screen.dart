@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/location_service.dart';
 import 'package:postbox_game/route/nominatim_service.dart';
 import 'package:postbox_game/route/route_preview_screen.dart';
@@ -124,6 +125,9 @@ class _DestinationPickerScreenState extends State<DestinationPickerScreen> {
       if (!mounted) return;
       setState(() => _userPosition = LatLng(pos.latitude, pos.longitude));
     } on LocationServiceException catch (e) {
+      if (e.kind == LocationErrorKind.permissionPermanentlyDenied) {
+        unawaited(Analytics.locationPermissionPermanentlyDenied());
+      }
       if (!mounted) return;
       setState(() => _locationError = e.message);
       SnackBarAction? action;
