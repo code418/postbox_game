@@ -8,8 +8,8 @@
   "functions": {
     "source": "functions",
     "predeploy": [
-      "(cd functions && node_modules/.bin/eslint src --ext .ts)",
-      "(cd functions && node_modules/.bin/tsc)"
+      "(cd functions && npm run lint)",
+      "(cd functions && npm test)"
     ]
   },
   "firestore": {
