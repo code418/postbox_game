@@ -2853,6 +2853,61 @@ describe("filterToCorridor", () => {
   });
 });
 
+describe("filterToEllipse (boundary cases)", () => {
+  // start→end is roughly 1.1 km east (1° of longitude at the equator is
+  // ~111.32 km; 0.01° ≈ 1.11 km).
+  const start = { lat: 0, lng: 0 };
+  const end   = { lat: 0, lng: 0.01 };
+  const candidates = [
+    // On the segment midpoint — start→p + p→end equals direct distance.
+    { id: "pb_on", lat: 0,     lng: 0.005, monarch: null, points: 2 },
+    // Slightly north — start→p + p→end is greater (a bit of a detour).
+    { id: "pb_off", lat: 0.001, lng: 0.005, monarch: null, points: 2 },
+  ];
+
+  it("returns empty for budget 0 (impossible to even reach any point)", () => {
+    const result = filterToEllipse(candidates, start, end, 0);
+    assert.strictEqual(result.length, 0);
+  });
+
+  it("returns empty when budget < direct distance (degenerate ellipse)", () => {
+    // Direct distance is ~1100m; budget of 500m means even reaching the
+    // segment midpoint would exceed budget (start→mid + mid→end ≈ 1100m).
+    const result = filterToEllipse(candidates, start, end, 500);
+    assert.strictEqual(result.length, 0);
+  });
+
+  it("budget == direct distance includes only on-segment candidates", () => {
+    // The ellipse collapses to the segment itself; only pb_on (on the line)
+    // satisfies start→p + p→end == direct distance. pb_off requires a detour.
+    // 0.01° lng ≈ 1113 m at the equator, with a few metres slack for the
+    // great-circle vs equirectangular discrepancy and floating-point.
+    const direct = 1115;
+    const result = filterToEllipse(candidates, start, end, direct);
+    const ids = result.map((c) => c.id);
+    assert.ok(ids.includes("pb_on"), "pb_on must be included at the segment-budget");
+    assert.ok(!ids.includes("pb_off"), "pb_off detour exceeds the segment-budget");
+  });
+
+  it("returns empty for an empty candidates list", () => {
+    assert.deepStrictEqual(filterToEllipse([], start, end, 10000), []);
+  });
+
+  it("degenerate start==end ellipse collapses to a disc of radius budget/2", () => {
+    // start→p + p→end = 2 * distance(start, p). Candidates with
+    // distance(start,p) <= budget/2 are included.
+    const here = { lat: 0, lng: 0 };
+    const candidates = [
+      { id: "near", lat: 0, lng: 0.001, monarch: null, points: 2 }, // ~111 m east
+      { id: "far",  lat: 0, lng: 0.01,  monarch: null, points: 2 }, // ~1.1 km east
+    ];
+    // Budget 400m → disc radius 200m → only "near" fits.
+    const result = filterToEllipse(candidates, here, here, 400);
+    assert.strictEqual(result.length, 1);
+    assert.strictEqual(result[0].id, "near");
+  });
+});
+
 // ── routePostboxes pure logic tests ──────────────────────────────────────────
 //
 // Fixture: start=51.5000,-0.1000  end=51.5000,-0.0900  (~780 m due east)
