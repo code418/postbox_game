@@ -4,6 +4,7 @@ import 'package:postbox_game/authentication_bloc/bloc.dart';
 import 'package:postbox_game/register/bloc/bloc.dart';
 import 'package:postbox_game/register/register_button.dart';
 import 'package:postbox_game/theme.dart';
+import 'package:postbox_game/validators.dart';
 
 class RegisterForm extends StatefulWidget {
   const RegisterForm({super.key});
@@ -92,7 +93,8 @@ class _RegisterFormState extends State<RegisterForm> {
                       decoration: InputDecoration(
                         prefixIcon: const Icon(Icons.lock_outline),
                         labelText: 'Password',
-                        helperText: 'At least 6 characters',
+                        helperText:
+                            'At least ${Validators.minPasswordChars} characters',
                         suffixIcon: IconButton(
                           icon: Icon(
                             _obscurePassword
@@ -111,7 +113,7 @@ class _RegisterFormState extends State<RegisterForm> {
                       },
                       validator: (_) {
                         return !state.isPasswordValid
-                            ? 'Password must be at least 6 characters'
+                            ? 'Password must be at least ${Validators.minPasswordChars} characters'
                             : null;
                       },
                     ),

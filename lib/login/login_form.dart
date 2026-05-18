@@ -11,6 +11,7 @@ import 'package:postbox_game/login/google_login_button.dart';
 import 'package:postbox_game/login/login_button.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/user_repository.dart';
+import 'package:postbox_game/validators.dart';
 
 class LoginForm extends StatefulWidget {
   final UserRepository _userRepository;
@@ -118,7 +119,7 @@ class _LoginFormState extends State<LoginForm> {
                       },
                       validator: (_) {
                         return !state.isPasswordValid
-                            ? 'Password must be at least 6 characters'
+                            ? 'Password must be at least ${Validators.minPasswordChars} characters'
                             : null;
                       },
                     ),

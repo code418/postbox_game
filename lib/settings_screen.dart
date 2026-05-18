@@ -311,7 +311,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         textInputAction: TextInputAction.next,
                         decoration: InputDecoration(
                           labelText: 'New password',
-                          helperText: 'At least 6 characters',
+                          helperText:
+                              'At least ${Validators.minPasswordChars} characters',
                           prefixIcon: const Icon(Icons.lock_outline),
                           errorText: newError,
                           suffixIcon: IconButton(
