@@ -26,6 +26,14 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
   int _step = 0;
   static const int _totalSteps = 7;
 
+  /// True once [_advance] has fired the terminal-step branch (pop / onDone)
+  /// so a double-tap on "Get started" can't pop the screen twice or invoke
+  /// [Intro.onDone] more than once. Without this guard, a rapid second tap
+  /// before the navigator transition completes would re-enter the else
+  /// branch with `_step` unchanged and either pop the screen below Intro
+  /// (replay mode) or mark intro-seen twice.
+  bool _completed = false;
+
   late AnimationController _jamesWalkController;
   late Animation<double> _jamesSlide;
 
@@ -48,11 +56,13 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
   }
 
   void _advance() {
+    if (_completed) return;
     // Start the walk animation when entering step 1 (James slides in from left).
     if (_step == 0) _jamesWalkController.forward();
     if (_step < _totalSteps - 1) {
       setState(() => _step++);
     } else {
+      _completed = true;
       if (widget.replay) {
         Navigator.of(context).pop();
       } else {
