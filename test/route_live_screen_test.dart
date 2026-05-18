@@ -637,6 +637,32 @@ void main() {
       );
       expect(find.text('Done'), findsOneWidget);
     });
+
+    testWidgets('hides gold pill and uses "No postboxes" copy on zero arrival',
+        (tester) async {
+      // When the user reaches the destination without claiming anything,
+      // we don't want to render the gold "0 points earned" pill or the
+      // awkward "0 postboxes claimed" line.
+      final sess = RouteSession(
+        start: const LatLng(51.5074, -0.1278),
+        destination: const LatLng(51.52, -0.11),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light,
+          home: RouteCompletionScreen(
+            session: sess,
+            pointsEarned: 0,
+            claimedCount: 0,
+            walkSeconds: 300,
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(find.text('0 points earned'), findsNothing);
+      expect(find.text('0 postboxes claimed'), findsNothing);
+      expect(find.text('No postboxes this time'), findsOneWidget);
+    });
   });
 
   // --------------------------------------------------------------------------

@@ -113,31 +113,39 @@ class _RouteCompletionScreenState extends State<RouteCompletionScreen> {
                             const SizedBox(height: AppSpacing.lg),
 
                             // ── Points headline ─────────────────────────────
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: AppSpacing.lg,
-                                vertical: AppSpacing.sm,
-                              ),
-                              decoration: BoxDecoration(
-                                color: postalGold.withValues(alpha: 0.15),
-                                borderRadius: BorderRadius.circular(20),
-                              ),
-                              child: Text(
-                                '${widget.pointsEarned} points earned',
-                                style: theme.textTheme.headlineSmall?.copyWith(
-                                  color: postalGold,
-                                  fontWeight: FontWeight.bold,
+                            // Hide the gold pill on a zero-claim arrival —
+                            // "0 points earned" reads awkwardly when the user
+                            // walked the route without finding anything.
+                            if (widget.pointsEarned > 0) ...[
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: AppSpacing.lg,
+                                  vertical: AppSpacing.sm,
                                 ),
-                                textAlign: TextAlign.center,
+                                decoration: BoxDecoration(
+                                  color: postalGold.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Text(
+                                  '${widget.pointsEarned} points earned',
+                                  style:
+                                      theme.textTheme.headlineSmall?.copyWith(
+                                    color: postalGold,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
                               ),
-                            ),
-                            const SizedBox(height: AppSpacing.md),
+                              const SizedBox(height: AppSpacing.md),
+                            ],
 
                             // ── Claimed count ────────────────────────────────
                             Text(
-                              widget.claimedCount == 1
-                                  ? '1 postbox claimed'
-                                  : '${widget.claimedCount} postboxes claimed',
+                              widget.claimedCount == 0
+                                  ? 'No postboxes this time'
+                                  : widget.claimedCount == 1
+                                      ? '1 postbox claimed'
+                                      : '${widget.claimedCount} postboxes claimed',
                               style: theme.textTheme.titleMedium?.copyWith(
                                 fontWeight: FontWeight.w600,
                               ),
