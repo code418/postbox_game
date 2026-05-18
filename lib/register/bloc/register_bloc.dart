@@ -60,7 +60,7 @@ class RegisterBloc extends Bloc<RegisterEvent, RegisterState> {
       case 'invalid-email':
         return 'That email address isn\'t valid.';
       case 'weak-password':
-        return 'Password is too weak. Use at least 6 characters.';
+        return 'Password is too weak. Use at least ${Validators.minPasswordChars} characters.';
       case 'operation-not-allowed':
         return 'Email sign-up is not enabled.';
       case 'network-request-failed':

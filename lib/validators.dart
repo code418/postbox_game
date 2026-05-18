@@ -3,9 +3,15 @@ class Validators {
     r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$',
   );
 
-  // Minimum 6 characters, any characters — matches Firebase Auth minimum
+  /// Minimum length for a password. Mirrors Firebase Auth's minimum — emitting
+  /// a "Password must be at least N characters" UI hint when below this also
+  /// matches what `createUserWithEmailAndPassword` would reject server-side
+  /// (`weak-password`). Used by login, register, and settings password fields.
+  static const int minPasswordChars = 6;
+
+  // Minimum N characters, any characters — matches Firebase Auth minimum
   // and the helper text shown in the registration form.
-  static final RegExp _passwordRegExp = RegExp(r'^.{6,}$');
+  static final RegExp _passwordRegExp = RegExp('^.{$minPasswordChars,}\$');
 
   /// Minimum length for a display name. MUST match the server-side check in
   /// functions/src/updateDisplayName.ts (`name.length < 2 → invalid-argument`).

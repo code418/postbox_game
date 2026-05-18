@@ -257,8 +257,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             builder: (_, setDialogState) {
               void trySubmit() {
                 final ce = currentPwCtrl.text.isEmpty ? 'Required' : null;
-                final ne = newPwCtrl.text.length < 6
-                    ? 'Password must be at least 6 characters'
+                final ne = newPwCtrl.text.length < Validators.minPasswordChars
+                    ? 'Password must be at least ${Validators.minPasswordChars} characters'
                     : null;
                 final co = confirmPwCtrl.text != newPwCtrl.text
                     ? "Passwords don't match"

@@ -282,6 +282,15 @@ void main() {
         expect(Validators.maxDisplayNameChars, equals(30));
       });
 
+      test('minPasswordChars matches Firebase Auth minimum (6)', () {
+        // Firebase Auth's createUserWithEmailAndPassword rejects shorter
+        // passwords with weak-password. The client-side check mirrors it
+        // so users see the rule at input time. Pinning catches accidental
+        // drift either tighter (would fail Firebase rejects we don't pre-
+        // empt) or looser (would lose UX guard before submission).
+        expect(Validators.minPasswordChars, equals(6));
+      });
+
       // Scunthorpe-problem regression: the comment in lib/validators.dart
       // explicitly lists names that an older block list rejected (arse, cock,
       // dick, mong, spic). Pin those legitimate names so a tightening change
