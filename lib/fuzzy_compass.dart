@@ -5,6 +5,16 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:postbox_game/theme.dart';
 
+/// Shortest signed distance between two compass headings, in degrees.
+/// Always in `[0, 180]`. Used to throttle live-rotation rebuilds when the
+/// device heading nudges by less than a small threshold.
+///
+/// Example: `compassHeadingDelta(359, 1) == 2` — not `358`.
+double compassHeadingDelta(double a, double b) {
+  final d = (a - b).abs() % 360;
+  return d > 180 ? 360 - d : d;
+}
+
 /// Presents nearby postbox directions in a deliberately imprecise way:
 /// 8-wind sectors (N, NE, E, SE, S, SW, W, NW), vague intensity labels.
 /// No exact bearings or distances — encourages exploration.

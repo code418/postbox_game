@@ -827,6 +827,34 @@ void main() {
     });
   });
 
+  group('compassHeadingDelta', () {
+    // Shared by wear_compass_page and live_route_screen for compass-rotation
+    // throttling. Crucial property: must handle the 360→0 wrap, otherwise
+    // 359°→1° would be reported as 358° and the throttle would always fire.
+    test('returns 0 for identical headings', () {
+      expect(compassHeadingDelta(45, 45), equals(0));
+      expect(compassHeadingDelta(0, 0), equals(0));
+    });
+
+    test('returns straight diff for small deltas', () {
+      expect(compassHeadingDelta(100, 110), equals(10));
+      expect(compassHeadingDelta(110, 100), equals(10));
+    });
+
+    test('wraps around the 0/360 boundary correctly', () {
+      // The whole reason this helper exists: naive (a-b).abs() would give
+      // 358° here, which is wrong for a throttle.
+      expect(compassHeadingDelta(359, 1), equals(2));
+      expect(compassHeadingDelta(1, 359), equals(2));
+      expect(compassHeadingDelta(350, 10), equals(20));
+    });
+
+    test('returns 180 at the antipode (maximum possible delta)', () {
+      expect(compassHeadingDelta(0, 180), equals(180));
+      expect(compassHeadingDelta(90, 270), equals(180));
+    });
+  });
+
   // ---------------------------------------------------------------------------
   // MonarchInfo consistency tests
   // ---------------------------------------------------------------------------

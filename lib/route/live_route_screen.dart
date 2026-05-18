@@ -187,7 +187,7 @@ class _LiveRouteScreenState extends State<LiveRouteScreen> {
         if (h == null) return;
         final prev = _deviceHeadingDegrees;
         // Throttle updates to changes >= 5° to avoid excessive rebuilds.
-        if (prev == null || _headingDelta(prev, h) >= 5) {
+        if (prev == null || compassHeadingDelta(prev, h) >= 5) {
           if (mounted) setState(() => _deviceHeadingDegrees = h);
         }
       });
@@ -216,12 +216,6 @@ class _LiveRouteScreenState extends State<LiveRouteScreen> {
     super.dispose();
   }
 
-  // ── Heading helper ────────────────────────────────────────────────────────
-
-  static double _headingDelta(double a, double b) {
-    final d = (a - b).abs() % 360;
-    return d > 180 ? 360 - d : d;
-  }
 
   // ── Position handler ──────────────────────────────────────────────────────
 
