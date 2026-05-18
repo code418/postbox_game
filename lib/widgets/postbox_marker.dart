@@ -21,9 +21,15 @@ Marker postboxMarker(
       ? Colors.grey
       : (cipher != null ? MonarchInfo.colors[cipher] : null) ?? postalRed;
 
+  // Rare and historic badges paint in the same top-right slot, so guard
+  // against accidental overlap defensively here too — the cross-platform pin
+  // test already asserts the two sets are disjoint, but if a future cipher
+  // ever drifts into both, rare wins (more visually distinctive). Claimed
+  // suppresses both because the checkmark also lives in that slot.
   final isRare = cipher != null && MonarchInfo.rareCiphers.contains(cipher);
-  final isHistoric =
-      cipher != null && MonarchInfo.historicCiphers.contains(cipher);
+  final isHistoric = cipher != null &&
+      !isRare &&
+      MonarchInfo.historicCiphers.contains(cipher);
 
   return Marker(
     point: point,
