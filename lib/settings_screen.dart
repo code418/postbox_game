@@ -140,7 +140,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               content: TextField(
                 controller: controller,
                 autofocus: true,
-                maxLength: 30,
+                maxLength: Validators.maxDisplayNameChars,
                 decoration: InputDecoration(
                   labelText: 'Name',
                   errorText: errorText,

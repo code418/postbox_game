@@ -274,6 +274,14 @@ void main() {
         expect(Validators.isValidDisplayName('a' * 30), isTrue);
       });
 
+      test('min/max constants match the server contract', () {
+        // updateDisplayName.ts rejects len < 2 and len > 30. Pin both ends
+        // so a future client-side bump can't get out of step with the
+        // server's parseSuggestedMonarch / sanitiseName branches.
+        expect(Validators.minDisplayNameChars, equals(2));
+        expect(Validators.maxDisplayNameChars, equals(30));
+      });
+
       // Scunthorpe-problem regression: the comment in lib/validators.dart
       // explicitly lists names that an older block list rejected (arse, cock,
       // dick, mong, spic). Pin those legitimate names so a tightening change
