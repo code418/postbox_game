@@ -7,7 +7,8 @@ import 'package:intl/intl.dart';
 import 'package:postbox_game/admin/admin_access.dart';
 import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/reports/report_form_widgets.dart';
-import 'package:postbox_game/reports/report_repository.dart' show plainCypher;
+import 'package:postbox_game/reports/report_repository.dart'
+    show ReportRepository, plainCypher;
 import 'package:postbox_game/theme.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -213,7 +214,7 @@ class _ReportCardState extends State<_ReportCard> {
           title: const Text('Reject report'),
           content: TextField(
             controller: noteController,
-            maxLength: 280,
+            maxLength: ReportRepository.maxNoteChars,
             decoration: const InputDecoration(labelText: 'Reason (optional, shown to the reporter)'),
           ),
           actions: [
@@ -544,8 +545,8 @@ class _AcceptDialogState extends State<_AcceptDialog> {
             const SizedBox(height: AppSpacing.md),
             CypherPicker(value: _cypher, label: 'Final cypher', onChanged: (v) => setState(() => _cypher = v)),
             const SizedBox(height: AppSpacing.sm),
-            TextField(controller: _refController, maxLength: 40, decoration: const InputDecoration(labelText: 'Reference / plate (optional)')),
-            TextField(controller: _noteController, maxLength: 280, decoration: const InputDecoration(labelText: 'Note to reporter (optional)')),
+            TextField(controller: _refController, maxLength: ReportRepository.maxReferenceChars, decoration: const InputDecoration(labelText: 'Reference / plate (optional)')),
+            TextField(controller: _noteController, maxLength: ReportRepository.maxNoteChars, decoration: const InputDecoration(labelText: 'Note to reporter (optional)')),
           ],
         ),
       ),
