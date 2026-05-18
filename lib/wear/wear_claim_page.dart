@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -88,6 +90,9 @@ class _WearClaimPageState extends State<WearClaimPage> {
       // user denying location or having location services off. Surface a
       // brief message in the dedicated error state so they know to act.
       debugPrint('Wear claim location error: $e');
+      if (e.kind == LocationErrorKind.permissionPermanentlyDenied) {
+        unawaited(Analytics.locationPermissionPermanentlyDenied());
+      }
       if (!mounted) return;
       HapticFeedback.heavyImpact();
       setState(() {
@@ -231,6 +236,9 @@ class _WearClaimPageState extends State<WearClaimPage> {
     } on LocationServiceException catch (e) {
       debugPrint('Wear claim location error: $e');
       Analytics.claimFailed(reason: 'location_${e.kind.name}');
+      if (e.kind == LocationErrorKind.permissionPermanentlyDenied) {
+        unawaited(Analytics.locationPermissionPermanentlyDenied());
+      }
       if (!mounted) return;
       HapticFeedback.heavyImpact();
       setState(() {

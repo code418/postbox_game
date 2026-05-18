@@ -129,6 +129,9 @@ class _WearCompassPageState extends State<WearCompassPage> {
       HapticFeedback.lightImpact();
     } on LocationServiceException catch (e) {
       debugPrint('Wear compass location error: $e');
+      if (e.kind == LocationErrorKind.permissionPermanentlyDenied) {
+        unawaited(Analytics.locationPermissionPermanentlyDenied());
+      }
       if (!mounted) return;
       HapticFeedback.heavyImpact();
       setState(() {
