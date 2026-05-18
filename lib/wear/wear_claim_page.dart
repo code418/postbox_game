@@ -9,7 +9,7 @@ import 'package:postbox_game/streak_service.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/wear/wear_theme.dart';
 
-enum _ClaimStage { ready, scanning, found, empty, quiz, claiming, success }
+enum _ClaimStage { ready, scanning, found, empty, error, quiz, claiming, success }
 
 /// Simplified claim flow for Wear OS.
 ///
@@ -31,6 +31,10 @@ class _WearClaimPageState extends State<WearClaimPage> {
   List<String> _quizOptions = [];
   int _pointsEarned = 0;
   int _claimedCount = 0;
+  /// Short human-readable error message shown in the [_ClaimStage.error] view.
+  /// Set whenever a scan or claim fails for a recoverable reason (location
+  /// denied, services off, network down). Null when there's no active error.
+  String? _errorMessage;
 
   final HttpsCallable _nearbyCallable =
       FirebaseFunctions.instance.httpsCallable('nearbyPostboxes');
@@ -41,7 +45,10 @@ class _WearClaimPageState extends State<WearClaimPage> {
 
   Future<void> _scan() async {
     if (_stage == _ClaimStage.scanning) return;
-    setState(() => _stage = _ClaimStage.scanning);
+    setState(() {
+      _stage = _ClaimStage.scanning;
+      _errorMessage = null;
+    });
     Analytics.scanStarted();
     try {
       final position = await getPosition(forceLocationManager: true);
@@ -65,11 +72,31 @@ class _WearClaimPageState extends State<WearClaimPage> {
       if (total > 0) {
         HapticFeedback.lightImpact();
       }
+    } on LocationServiceException catch (e) {
+      // Previously these landed in the generic catch and rendered as
+      // "None nearby" — which is misleading when the actual cause is the
+      // user denying location or having location services off. Surface a
+      // brief message in the dedicated error state so they know to act.
+      debugPrint('Wear claim location error: $e');
+      if (!mounted) return;
+      HapticFeedback.heavyImpact();
+      setState(() {
+        _stage = _ClaimStage.error;
+        _errorMessage = switch (e.kind) {
+          LocationErrorKind.servicesDisabled => 'Turn on location',
+          LocationErrorKind.permissionPermanentlyDenied =>
+            'Location denied. Enable in settings.',
+          LocationErrorKind.permissionDenied => 'Location needed to scan',
+        };
+      });
     } catch (e) {
       debugPrint('Wear claim scan error: $e');
       if (!mounted) return;
       HapticFeedback.heavyImpact();
-      setState(() => _stage = _ClaimStage.empty);
+      setState(() {
+        _stage = _ClaimStage.error;
+        _errorMessage = 'Scan failed';
+      });
     } finally {
       // Safety net: ensure we never get permanently stuck on 'scanning' if
       // an unexpected Dart Error bypasses the catch block above.
@@ -149,7 +176,10 @@ class _WearClaimPageState extends State<WearClaimPage> {
   }
 
   Future<void> _claimPostbox() async {
-    setState(() => _stage = _ClaimStage.claiming);
+    setState(() {
+      _stage = _ClaimStage.claiming;
+      _errorMessage = null;
+    });
     try {
       final position = await getPosition(forceLocationManager: true);
       final result = await _claimCallable.call(<String, dynamic>{
@@ -188,12 +218,29 @@ class _WearClaimPageState extends State<WearClaimPage> {
         _claimedCount = claimedCount;
         _stage = _ClaimStage.success;
       });
+    } on LocationServiceException catch (e) {
+      debugPrint('Wear claim location error: $e');
+      Analytics.claimFailed(reason: 'location_${e.kind.name}');
+      if (!mounted) return;
+      HapticFeedback.heavyImpact();
+      setState(() {
+        _stage = _ClaimStage.error;
+        _errorMessage = switch (e.kind) {
+          LocationErrorKind.servicesDisabled => 'Turn on location',
+          LocationErrorKind.permissionPermanentlyDenied =>
+            'Location denied. Enable in settings.',
+          LocationErrorKind.permissionDenied => 'Location needed to claim',
+        };
+      });
     } catch (e) {
       debugPrint('Wear claim error: $e');
       Analytics.claimFailed(reason: 'error');
       if (!mounted) return;
       HapticFeedback.heavyImpact();
-      setState(() => _stage = _ClaimStage.ready);
+      setState(() {
+        _stage = _ClaimStage.error;
+        _errorMessage = 'Claim failed';
+      });
     } finally {
       // Safety net: ensure we never get permanently stuck on 'claiming' if
       // an unexpected Dart Error bypasses the catch block above.
@@ -222,11 +269,38 @@ class _WearClaimPageState extends State<WearClaimPage> {
         return _buildFound(context);
       case _ClaimStage.empty:
         return _buildEmpty(context);
+      case _ClaimStage.error:
+        return _buildError(context);
       case _ClaimStage.quiz:
         return _buildQuiz(context);
       case _ClaimStage.success:
         return _buildSuccess(context);
     }
+  }
+
+  Widget _buildError(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: WearSpacing.lg),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.error_outline, size: 32, color: Colors.red),
+            const SizedBox(height: WearSpacing.md),
+            Text(
+              _errorMessage ?? 'Something went wrong',
+              style: Theme.of(context).textTheme.bodyMedium,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: WearSpacing.lg),
+            FilledButton(
+              onPressed: _scan,
+              child: const Text('Try again'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildReady(BuildContext context) {
