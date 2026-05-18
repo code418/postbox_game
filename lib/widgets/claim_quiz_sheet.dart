@@ -112,6 +112,7 @@ class ClaimQuizSheet extends StatefulWidget {
     this.streakStream,
     this.nearbyCallable,
     this.startScoringCallable,
+    this.onClaimRecorded,
   });
 
   /// The geographic position to scan around (passed in from the Claim screen
@@ -131,6 +132,15 @@ class ClaimQuizSheet extends StatefulWidget {
   /// When `true`, scales up buttons and adds extra bottom padding for
   /// one-handed reach in the route-mode bottom sheet. Default: `false`.
   final bool compact;
+
+  /// Optional callback fired as soon as the server-side claim transaction
+  /// commits, regardless of whether the user later taps "Keep exploring" or
+  /// dismisses the sheet (e.g. swipes the modal down). Parents that show a
+  /// running total (LiveRouteScreen) wire this so the totals update even on
+  /// dismiss-after-claim; the existing [onCompleted] only fires from the
+  /// explicit button path, so without this callback a dismiss would lose
+  /// the server-credited claim from the parent's local tally.
+  final ValueChanged<ClaimQuizResult>? onClaimRecorded;
 
   /// Optional streak stream supplied by the parent. When non-null the claimed
   /// screen shows a streak chip driven by this stream. Pass the parent's own
@@ -407,6 +417,14 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
         _isClaiming = false;
         _stage = _QuizStage.claimed;
       });
+      // Notify the parent immediately, so a parent that maintains a running
+      // total (LiveRouteScreen) credits the claim even if the user dismisses
+      // the sheet without tapping "Keep exploring". onCompleted only fires
+      // from the explicit button path — see [ClaimQuizSheet.onClaimRecorded].
+      widget.onClaimRecorded?.call(ClaimQuizResult(
+        claimedCount: claimedCount,
+        pointsEarned: earnedPts,
+      ));
       unawaited(_homeWidgetService.refresh());
       _successController.forward(from: 0);
       _confettiController.play();

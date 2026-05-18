@@ -390,36 +390,42 @@ class _LiveRouteScreenState extends State<LiveRouteScreen> {
           compact: true,
           nearbyCallable: widget.nearbyCallableForSheet,
           startScoringCallable: widget.startScoringCallableForSheet,
+          // Credit the route's running tally the moment the server commits
+          // the claim, NOT when the modal finally pops. The user can swipe
+          // the modal down to dismiss after seeing the success screen, and
+          // that path doesn't fire onCompleted — only this callback does.
+          // We also fire the success SnackBar from here for the same reason.
+          onClaimRecorded: _onSheetClaimRecorded,
           onCompleted: (result) {
             Navigator.of(context).pop(result);
           },
         ),
       ),
-    ).then((result) {
+    ).then((_) {
       _claimSheetOpen = false;
       // Record dismissal to suppress re-prompting for this box.
       _recentDismissals[postboxId] = DateTime.now();
-
-      if (result != null && result.claimedCount > 0) {
-        if (mounted) {
-          setState(() {
-            _pointsEarned += result.pointsEarned;
-            _claimedCount += result.claimedCount;
-          });
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                result.claimedCount > 1
-                    ? '${result.claimedCount} postboxes claimed! +${result.pointsEarned} pts'
-                    : 'Postbox claimed! +${result.pointsEarned} pts',
-              ),
-              backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-              duration: const Duration(seconds: 2),
-            ),
-          );
-        }
-      }
+      // Totals + SnackBar are handled by _onSheetClaimRecorded above.
     });
+  }
+
+  void _onSheetClaimRecorded(ClaimQuizResult result) {
+    if (!mounted || result.claimedCount <= 0) return;
+    setState(() {
+      _pointsEarned += result.pointsEarned;
+      _claimedCount += result.claimedCount;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          result.claimedCount > 1
+              ? '${result.claimedCount} postboxes claimed! +${result.pointsEarned} pts'
+              : 'Postbox claimed! +${result.pointsEarned} pts',
+        ),
+        backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+        duration: const Duration(seconds: 2),
+      ),
+    );
   }
 
   // ── Arrival ────────────────────────────────────────────────────────────────
