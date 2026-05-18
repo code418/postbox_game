@@ -110,9 +110,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
           .doc(uid)
           .update({'notificationPrefs.$key': value});
     } catch (_) {
-      // Rollback only this key on write failure.
-      if (mounted && previousValue != null) {
-        setState(() => _notifPrefs = {..._notifPrefs, key: previousValue});
+      // Rollback only this key on write failure, and surface a snackbar so
+      // the user knows their toggle didn't take (otherwise the switch
+      // silently snaps back and looks like an unresponsive tap).
+      if (mounted) {
+        if (previousValue != null) {
+          setState(() => _notifPrefs = {..._notifPrefs, key: previousValue});
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not save notification setting. Please try again.'),
+          ),
+        );
       }
     }
   }
