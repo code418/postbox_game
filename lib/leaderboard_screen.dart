@@ -400,6 +400,17 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList>
   @override
   bool get wantKeepAlive => true;
 
+  /// users/{uid} field that holds this period's running score. lifetime uses
+  /// uniquePostboxesClaimed (per Lifetime tab's primary sort key — totalPoints
+  /// is the tiebreak, applied separately in the sort comparator below).
+  /// Must match the server-side field names written by startScoring.
+  static String _scoreFieldFor(String period) => switch (period) {
+        'daily' => 'dailyPoints',
+        'weekly' => 'weeklyPoints',
+        'monthly' => 'monthlyPoints',
+        _ => 'uniquePostboxesClaimed', // lifetime
+      };
+
   final String? _currentUid = FirebaseAuth.instance.currentUser?.uid;
 
   int? _totalPostboxes;
@@ -475,12 +486,7 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList>
     }
 
     final isLifetime = widget.period == 'lifetime';
-    final scoreField = switch (widget.period) {
-      'daily' => 'dailyPoints',
-      'weekly' => 'weeklyPoints',
-      'monthly' => 'monthlyPoints',
-      _ => 'uniquePostboxesClaimed', // lifetime
-    };
+    final scoreField = _scoreFieldFor(widget.period);
 
     // Zero out stale stored totals from a prior period — e.g. a friend who
     // claimed yesterday still has dailyPoints>0 (the per-user midnight sweep
@@ -612,12 +618,7 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList>
 
         // Trigger a new fetch when the friends list changes OR when the
         // current user's own period scores change (e.g. after claiming).
-        final scoreField = switch (widget.period) {
-          'daily' => 'dailyPoints',
-          'weekly' => 'weeklyPoints',
-          'monthly' => 'monthlyPoints',
-          _ => 'uniquePostboxesClaimed',
-        };
+        final scoreField = _scoreFieldFor(widget.period);
         final myPeriodScore = (userData?[scoreField] as num?)?.toInt() ?? 0;
         final mySecondaryScore =
             (userData?['lifetimePoints'] as num?)?.toInt() ?? 0;
