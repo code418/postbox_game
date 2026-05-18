@@ -23,5 +23,7 @@ jobs:
           channel: 'stable'
 
       - run: flutter pub get
+      # Catches lint warnings + type errors that the test runner doesn't surface.
+      - run: flutter analyze
       - run: flutter test
       - run: flutter build web
