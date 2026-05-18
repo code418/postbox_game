@@ -263,6 +263,20 @@ describe("mergeLifetimeEntries", () => {
     assert.strictEqual(result[0].uid, "new");
   });
 
+  it("a new low-score user is excluded entirely when below the cap", () => {
+    // 3 existing users with 10/9/8 boxes; a newcomer with 1 box sorts last
+    // and must be dropped by the cap rather than displacing a higher-ranked
+    // entry. Mirrors the equivalent mergePeriodEntries regression.
+    const existing = Array.from({ length: 3 }, (_, i) => ({
+      uid: `u${i}`, displayName: `User${i}`,
+      uniquePostboxesClaimed: 10 - i, totalPoints: 100 - i * 10,
+    }));
+    const result = mergeLifetimeEntries(existing, "newcomer", "Newcomer", 1, 5, 3);
+    assert.strictEqual(result.length, 3);
+    assert.ok(!result.some((e) => e.uid === "newcomer"),
+      "newcomer below the cap should not appear at all");
+  });
+
   it("updates displayName when upserted", () => {
     const result = mergeLifetimeEntries([alice], "a", "Alice v2", 10, 50);
     assert.strictEqual(result[0].displayName, "Alice v2");
