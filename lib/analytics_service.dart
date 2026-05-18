@@ -192,6 +192,21 @@ class Analytics {
         'walk_seconds': walkSeconds,
       });
 
+  /// User confirmed "End route" in the live-route abandon dialog (back gesture
+  /// or AppBar close button). Distinguishes drop-offs from arrivals in the
+  /// funnel — `claimed_count` lets us tell quick rage-quits ("opened, didn't
+  /// move, abandoned") from "walked partway, gave up".
+  static Future<void> routeAbandoned({
+    required int pointsEarned,
+    required int claimedCount,
+    required int walkSeconds,
+  }) =>
+      _log('route_abandoned', {
+        'points_earned': pointsEarned,
+        'claimed_count': claimedCount,
+        'walk_seconds': walkSeconds,
+      });
+
   // ---------------------------------------------------------------------------
   // Internal
   // ---------------------------------------------------------------------------

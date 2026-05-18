@@ -460,6 +460,14 @@ class _LiveRouteScreenState extends State<LiveRouteScreen> {
 
   // ── Abandon confirmation ───────────────────────────────────────────────────
 
+  void _logAbandoned() {
+    Analytics.routeAbandoned(
+      pointsEarned: _pointsEarned,
+      claimedCount: _claimedCount,
+      walkSeconds: _stopwatch.elapsed.inSeconds,
+    );
+  }
+
   Future<bool> _confirmAbandon() async {
     final result = await showDialog<bool>(
       context: context,
@@ -557,6 +565,7 @@ class _LiveRouteScreenState extends State<LiveRouteScreen> {
         if (didPop) return;
         final abandon = await _confirmAbandon();
         if (abandon && context.mounted) {
+          _logAbandoned();
           Navigator.of(context).pop();
         }
       },
@@ -569,6 +578,7 @@ class _LiveRouteScreenState extends State<LiveRouteScreen> {
             onPressed: () async {
               final abandon = await _confirmAbandon();
               if (abandon && context.mounted) {
+                _logAbandoned();
                 Navigator.of(context).pop();
               }
             },
