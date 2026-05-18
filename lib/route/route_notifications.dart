@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 /// Manages local notifications fired when the user arrives at their route
@@ -111,15 +112,11 @@ class RouteNotifications {
     required int pointsEarned,
     required int claimedCount,
   }) async {
-    final dest = (destinationLabel != null && destinationLabel.isNotEmpty)
-        ? destinationLabel
-        : 'your destination';
-
-    // Build a human-readable body.
-    final pointsPart = '$pointsEarned points earned';
-    final body = claimedCount > 0
-        ? 'Reached $dest. $pointsPart, $claimedCount postbox${claimedCount == 1 ? '' : 'es'} claimed.'
-        : 'Reached $dest. $pointsPart.';
+    final body = buildArrivalBody(
+      destinationLabel: destinationLabel,
+      pointsEarned: pointsEarned,
+      claimedCount: claimedCount,
+    );
 
     const details = NotificationDetails(
       android: AndroidNotificationDetails(
@@ -142,5 +139,29 @@ class RouteNotifications {
       // Notification failure is non-fatal: the in-app completion screen still
       // shows regardless.
     }
+  }
+
+  /// Pure helper: builds the arrival-notification body string. Exported as
+  /// `@visibleForTesting` so widget tests can pin the formatting and the
+  /// "no claim" / "single claim" / "multi-claim" pluralisation without
+  /// touching the platform channel.
+  @visibleForTesting
+  static String buildArrivalBody({
+    required String? destinationLabel,
+    required int pointsEarned,
+    required int claimedCount,
+  }) {
+    final dest = (destinationLabel != null && destinationLabel.isNotEmpty)
+        ? destinationLabel
+        : 'your destination';
+    // When the user reaches the destination without claiming anything, the
+    // old body produced an awkward "Reached X. 0 points earned." sentence.
+    // Drop the points clause in that case so the body reads cleanly.
+    if (claimedCount <= 0) {
+      return 'Reached $dest.';
+    }
+    final plural = claimedCount == 1 ? 'postbox' : 'postboxes';
+    return 'Reached $dest. $pointsEarned points earned, '
+        '$claimedCount $plural claimed.';
   }
 }

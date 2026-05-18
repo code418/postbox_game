@@ -23,6 +23,7 @@ import 'package:postbox_game/james_controller.dart';
 import 'package:postbox_game/route/live_route_screen.dart';
 import 'package:postbox_game/route/route_compass_view.dart';
 import 'package:postbox_game/route/route_completion_screen.dart';
+import 'package:postbox_game/route/route_notifications.dart';
 import 'package:postbox_game/route/route_session.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/widgets/claim_quiz_sheet.dart';
@@ -635,6 +636,83 @@ void main() {
         ),
       );
       expect(find.text('Done'), findsOneWidget);
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // RouteNotifications.buildArrivalBody — pure helper, no platform channel
+  // --------------------------------------------------------------------------
+
+  group('RouteNotifications.buildArrivalBody', () {
+    test('uses the destination label when provided', () {
+      final body = RouteNotifications.buildArrivalBody(
+        destinationLabel: 'King\'s Cross Station',
+        pointsEarned: 12,
+        claimedCount: 2,
+      );
+      expect(body, contains('King\'s Cross Station'));
+      expect(body, isNot(contains('your destination')));
+    });
+
+    test('falls back to "your destination" on null label', () {
+      final body = RouteNotifications.buildArrivalBody(
+        destinationLabel: null,
+        pointsEarned: 0,
+        claimedCount: 0,
+      );
+      expect(body, contains('your destination'));
+    });
+
+    test('falls back to "your destination" on empty label', () {
+      final body = RouteNotifications.buildArrivalBody(
+        destinationLabel: '',
+        pointsEarned: 0,
+        claimedCount: 0,
+      );
+      expect(body, contains('your destination'));
+    });
+
+    test('singular "postbox" when claimedCount is 1', () {
+      final body = RouteNotifications.buildArrivalBody(
+        destinationLabel: 'X',
+        pointsEarned: 4,
+        claimedCount: 1,
+      );
+      expect(body, contains('1 postbox claimed'));
+      expect(body, isNot(contains('postboxes')));
+    });
+
+    test('plural "postboxes" when claimedCount > 1', () {
+      final body = RouteNotifications.buildArrivalBody(
+        destinationLabel: 'X',
+        pointsEarned: 14,
+        claimedCount: 3,
+      );
+      expect(body, contains('3 postboxes claimed'));
+    });
+
+    test('omits points sentence on zero-claim arrival', () {
+      // Previously this said "Reached X. 0 points earned." — awkward when the
+      // user walked the route and didn't manage to claim anything. The new
+      // body just says they reached it.
+      final body = RouteNotifications.buildArrivalBody(
+        destinationLabel: 'King\'s Cross',
+        pointsEarned: 0,
+        claimedCount: 0,
+      );
+      expect(body, equals('Reached King\'s Cross.'));
+      expect(body, isNot(contains('points earned')));
+      expect(body, isNot(contains('0')));
+    });
+
+    test('includes points and claim count on non-zero arrival', () {
+      final body = RouteNotifications.buildArrivalBody(
+        destinationLabel: 'King\'s Cross',
+        pointsEarned: 12,
+        claimedCount: 2,
+      );
+      expect(body, contains('12 points earned'));
+      expect(body, contains('2 postboxes claimed'));
     });
   });
 }
