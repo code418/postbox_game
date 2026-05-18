@@ -210,56 +210,63 @@ class _NearbyState extends State<Nearby> {
         ),
       );
       setState(() => currentStage = NearbyStage.initial);
+    } on LocationServiceException catch (e) {
+      debugPrint('Location error: $e');
+      if (!mounted) return;
+      final isPermission =
+          e.kind == LocationErrorKind.permissionDenied ||
+              e.kind == LocationErrorKind.permissionPermanentlyDenied;
+      JamesController.of(context)?.show(isPermission
+          ? JamesMessages.nearbyErrorPermission.resolve()
+          : JamesMessages.nearbyErrorGeneral.resolve());
+      switch (e.kind) {
+        case LocationErrorKind.permissionPermanentlyDenied:
+          unawaited(Analytics.locationPermissionPermanentlyDenied());
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('Location permission permanently denied.'),
+              backgroundColor: Colors.red.shade700,
+              action: SnackBarAction(
+                label: 'Open Settings',
+                textColor: Colors.white,
+                onPressed: Geolocator.openAppSettings,
+              ),
+            ),
+          );
+        case LocationErrorKind.servicesDisabled:
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('Location services are disabled.'),
+              backgroundColor: Colors.red.shade700,
+              action: SnackBarAction(
+                label: 'Open Settings',
+                textColor: Colors.white,
+                onPressed: Geolocator.openLocationSettings,
+              ),
+            ),
+          );
+        case LocationErrorKind.permissionDenied:
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(e.message),
+              backgroundColor: Colors.red.shade700,
+            ),
+          );
+      }
+      setState(() => currentStage = NearbyStage.initial);
     } catch (e) {
+      // PlatformException and other types must not be forwarded to the user
+      // as-is (raw 'PlatformException(...)' prefix would leak).
       debugPrint('Error: $e');
       if (!mounted) return;
-      final msg = e.toString().contains('permission')
-          ? JamesMessages.nearbyErrorPermission.resolve()
-          : JamesMessages.nearbyErrorGeneral.resolve();
-      JamesController.of(context)?.show(msg);
-      // Only surface the message for exceptions thrown with Exception('...')
-      // (location-permission errors from getPosition()). PlatformException
-      // and other types produce a 'PlatformException(...)' prefix and must
-      // not be forwarded to the user.
-      final raw = e.toString();
-      final isPermanentlyDenied = raw.contains('permanently denied');
-      final isServicesDisabled = raw.contains('services are disabled');
-      if (isPermanentlyDenied) {
-        unawaited(Analytics.locationPermissionPermanentlyDenied());
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Location permission permanently denied.'),
-            backgroundColor: Colors.red.shade700,
-            action: SnackBarAction(
-              label: 'Open Settings',
-              textColor: Colors.white,
-              onPressed: Geolocator.openAppSettings,
-            ),
-          ),
-        );
-      } else if (isServicesDisabled) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Location services are disabled.'),
-            backgroundColor: Colors.red.shade700,
-            action: SnackBarAction(
-              label: 'Open Settings',
-              textColor: Colors.white,
-              onPressed: Geolocator.openLocationSettings,
-            ),
-          ),
-        );
-      } else {
-        final userMsg = raw.startsWith('Exception: ')
-            ? raw.replaceFirst('Exception: ', '')
-            : 'Could not fetch postboxes. Please try again.';
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(userMsg),
-            backgroundColor: Colors.red.shade700,
-          ),
-        );
-      }
+      JamesController.of(context)
+          ?.show(JamesMessages.nearbyErrorGeneral.resolve());
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Could not fetch postboxes. Please try again.'),
+          backgroundColor: Colors.red.shade700,
+        ),
+      );
       setState(() => currentStage = NearbyStage.initial);
     } finally {
       // Safety net: ensure we never get permanently stuck in 'searching' state

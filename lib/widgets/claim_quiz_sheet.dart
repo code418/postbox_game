@@ -322,24 +322,31 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
       JamesController.of(context)
           ?.show(JamesMessages.claimErrorGeneral.resolve());
       _cancel();
-    } catch (e) {
-      debugPrint('Error scanning: $e');
-      final raw = e.toString();
-      if (raw.contains('permanently denied')) {
-        unawaited(Analytics.locationPermissionPermanentlyDenied());
-        _showPermissionDeniedSnackBar();
-      } else if (raw.contains('services are disabled')) {
-        _showLocationServicesDisabledSnackBar();
-      } else {
-        _showErrorSnackBar(raw.startsWith('Exception: ')
-            ? raw.replaceFirst('Exception: ', '')
-            : 'Could not scan for postboxes. Please try again.');
+    } on LocationServiceException catch (e) {
+      debugPrint('Location error scanning: $e');
+      switch (e.kind) {
+        case LocationErrorKind.permissionPermanentlyDenied:
+          unawaited(Analytics.locationPermissionPermanentlyDenied());
+          _showPermissionDeniedSnackBar();
+        case LocationErrorKind.servicesDisabled:
+          _showLocationServicesDisabledSnackBar();
+        case LocationErrorKind.permissionDenied:
+          _showErrorSnackBar(e.message);
       }
       if (!mounted) return;
-      final msg = raw.contains('permission')
+      final isPermission =
+          e.kind == LocationErrorKind.permissionDenied ||
+              e.kind == LocationErrorKind.permissionPermanentlyDenied;
+      JamesController.of(context)?.show(isPermission
           ? JamesMessages.nearbyErrorPermission.resolve()
-          : JamesMessages.claimErrorGeneral.resolve();
-      JamesController.of(context)?.show(msg);
+          : JamesMessages.claimErrorGeneral.resolve());
+      _cancel();
+    } catch (e) {
+      debugPrint('Error scanning: $e');
+      _showErrorSnackBar('Could not scan for postboxes. Please try again.');
+      if (!mounted) return;
+      JamesController.of(context)
+          ?.show(JamesMessages.claimErrorGeneral.resolve());
       _cancel();
     } finally {
       // Safety net: ensure we never get permanently stuck in 'searching' state.
@@ -428,26 +435,32 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
           ? JamesMessages.errorOffline.resolve()
           : JamesMessages.claimErrorGeneral.resolve();
       JamesController.of(context)?.show(msg);
-    } catch (e) {
-      debugPrint('Claim error: $e');
-      final raw = e.toString();
-      final isPermission = raw.contains('permission');
-      final msg = isPermission
-          ? JamesMessages.nearbyErrorPermission.resolve()
-          : JamesMessages.claimErrorGeneral.resolve();
-      if (raw.contains('permanently denied')) {
-        unawaited(Analytics.locationPermissionPermanentlyDenied());
-        _showPermissionDeniedSnackBar();
-      } else if (raw.contains('services are disabled')) {
-        _showLocationServicesDisabledSnackBar();
-      } else {
-        _showErrorSnackBar(isPermission
-            ? raw.replaceFirst('Exception: ', '')
-            : 'Could not claim postbox. Please try again.');
+    } on LocationServiceException catch (e) {
+      debugPrint('Location error claiming: $e');
+      final isPermission =
+          e.kind == LocationErrorKind.permissionDenied ||
+              e.kind == LocationErrorKind.permissionPermanentlyDenied;
+      switch (e.kind) {
+        case LocationErrorKind.permissionPermanentlyDenied:
+          unawaited(Analytics.locationPermissionPermanentlyDenied());
+          _showPermissionDeniedSnackBar();
+        case LocationErrorKind.servicesDisabled:
+          _showLocationServicesDisabledSnackBar();
+        case LocationErrorKind.permissionDenied:
+          _showErrorSnackBar(e.message);
       }
       if (!mounted) return;
       setState(() => _isClaiming = false);
-      JamesController.of(context)?.show(msg);
+      JamesController.of(context)?.show(isPermission
+          ? JamesMessages.nearbyErrorPermission.resolve()
+          : JamesMessages.claimErrorGeneral.resolve());
+    } catch (e) {
+      debugPrint('Claim error: $e');
+      _showErrorSnackBar('Could not claim postbox. Please try again.');
+      if (!mounted) return;
+      setState(() => _isClaiming = false);
+      JamesController.of(context)
+          ?.show(JamesMessages.claimErrorGeneral.resolve());
     } finally {
       if (mounted && _isClaiming) setState(() => _isClaiming = false);
     }

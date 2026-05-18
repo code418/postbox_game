@@ -3,12 +3,47 @@ import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 
+/// The category of a [LocationServiceException].
+///
+/// Callers should branch on this enum, not on the human-readable message —
+/// formerly callers ran `e.toString().contains('permanently denied')` in four
+/// files, which silently broke whenever the message text was tweaked.
+enum LocationErrorKind {
+  /// `Location services` is the OS-level toggle (e.g. "Location" off in
+  /// Settings). Recover via `Geolocator.openLocationSettings()`.
+  servicesDisabled,
+
+  /// The user dismissed the runtime permission prompt this session. Asking
+  /// again may succeed.
+  permissionDenied,
+
+  /// The user picked "Never" / "Don't ask again" — Android won't re-prompt.
+  /// Recover via `Geolocator.openAppSettings()`.
+  permissionPermanentlyDenied,
+}
+
+/// Typed exception thrown by [getPosition] so callers can dispatch on
+/// [kind] instead of pattern-matching on the human-readable message.
+///
+/// The [message] is preserved for SnackBar/log surfaces.
+class LocationServiceException implements Exception {
+  const LocationServiceException(this.kind, this.message);
+
+  final LocationErrorKind kind;
+  final String message;
+
+  @override
+  String toString() => 'LocationServiceException(${kind.name}): $message';
+}
+
 /// Returns the device's current high-accuracy position after checking and, if
 /// necessary, requesting location permission.
 ///
-/// Throws an [Exception] with a human-readable message when:
-/// - location services are disabled
-/// - the user denies permission (temporarily or permanently)
+/// Throws a [LocationServiceException] when:
+/// - location services are disabled ([LocationErrorKind.servicesDisabled])
+/// - permission is denied this session ([LocationErrorKind.permissionDenied])
+/// - permission is permanently denied
+///   ([LocationErrorKind.permissionPermanentlyDenied])
 ///
 /// Pass [forceLocationManager] to bypass Play Services fused location and
 /// use Android's core `LocationManager` instead. Needed on Wear OS (especially
@@ -20,19 +55,27 @@ Future<Position> getPosition({bool forceLocationManager = false}) async {
   if (!forceLocationManager) {
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
-      throw Exception('Location services are disabled.');
+      throw const LocationServiceException(
+        LocationErrorKind.servicesDisabled,
+        'Location services are disabled.',
+      );
     }
   }
   LocationPermission permission = await Geolocator.checkPermission();
   if (permission == LocationPermission.denied) {
     permission = await Geolocator.requestPermission();
     if (permission == LocationPermission.denied) {
-      throw Exception('Location permission denied.');
+      throw const LocationServiceException(
+        LocationErrorKind.permissionDenied,
+        'Location permission denied.',
+      );
     }
   }
   if (permission == LocationPermission.deniedForever) {
-    throw Exception(
-        'Location permission permanently denied. Enable it in Settings.');
+    throw const LocationServiceException(
+      LocationErrorKind.permissionPermanentlyDenied,
+      'Location permission permanently denied. Enable it in Settings.',
+    );
   }
   final useAndroidManager =
       forceLocationManager && !kIsWeb && Platform.isAndroid;

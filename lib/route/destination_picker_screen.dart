@@ -116,41 +116,41 @@ class _DestinationPickerScreenState extends State<DestinationPickerScreen> {
       final pos = await getPosition();
       if (!mounted) return;
       setState(() => _userPosition = LatLng(pos.latitude, pos.longitude));
-    } catch (e) {
+    } on LocationServiceException catch (e) {
       if (!mounted) return;
-      final raw = e.toString();
-      final bool isPermanentlyDenied = raw.contains('permanently denied');
-      final bool isServicesDisabled = raw.contains('services are disabled');
-
-      setState(() {
-        if (isPermanentlyDenied) {
-          _locationError =
-              'Location permission permanently denied. Enable it in Settings.';
-        } else if (isServicesDisabled) {
-          _locationError = 'Location services are disabled.';
-        } else {
-          _locationError = 'Could not determine your location. Please try again.';
-        }
-      });
-
-      if (!mounted) return;
+      setState(() => _locationError = e.message);
+      SnackBarAction? action;
+      switch (e.kind) {
+        case LocationErrorKind.permissionPermanentlyDenied:
+          action = SnackBarAction(
+            label: 'Open Settings',
+            textColor: Colors.white,
+            onPressed: Geolocator.openAppSettings,
+          );
+        case LocationErrorKind.servicesDisabled:
+          action = SnackBarAction(
+            label: 'Open Settings',
+            textColor: Colors.white,
+            onPressed: Geolocator.openLocationSettings,
+          );
+        case LocationErrorKind.permissionDenied:
+          action = null;
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(_locationError!),
           backgroundColor: Colors.red.shade700,
-          action: isPermanentlyDenied
-              ? SnackBarAction(
-                  label: 'Open Settings',
-                  textColor: Colors.white,
-                  onPressed: Geolocator.openAppSettings,
-                )
-              : isServicesDisabled
-                  ? SnackBarAction(
-                      label: 'Open Settings',
-                      textColor: Colors.white,
-                      onPressed: Geolocator.openLocationSettings,
-                    )
-                  : null,
+          action: action,
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _locationError =
+          'Could not determine your location. Please try again.');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_locationError!),
+          backgroundColor: Colors.red.shade700,
         ),
       );
     }

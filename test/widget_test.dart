@@ -12,6 +12,7 @@ import 'package:postbox_game/claim_history_screen.dart';
 import 'package:postbox_game/county_heatmap.dart';
 import 'package:postbox_game/friends_screen.dart';
 import 'package:postbox_game/fuzzy_compass.dart';
+import 'package:postbox_game/location_service.dart';
 import 'package:postbox_game/james_messages.dart';
 import 'package:postbox_game/london_date.dart';
 import 'package:postbox_game/main.dart';
@@ -528,6 +529,50 @@ void main() {
       // Same drift hazard as maxNoteChars: TextField maxLength must match
       // what parseReference will accept server-side.
       expect(ReportRepository.maxReferenceChars, equals(40));
+    });
+  });
+
+  group('LocationServiceException', () {
+    // Previously callers ran `e.toString().contains('permanently denied')`
+    // across 4 files. The kind enum is the typed dispatch target; these tests
+    // pin the contract so a future message rewording can't silently break the
+    // SnackBar/James dispatch in any caller.
+    test('exposes the kind for switch-based dispatch', () {
+      const e = LocationServiceException(
+        LocationErrorKind.permissionPermanentlyDenied,
+        'irrelevant',
+      );
+      expect(e.kind, equals(LocationErrorKind.permissionPermanentlyDenied));
+    });
+
+    test('preserves the human-readable message for SnackBar display', () {
+      const msg = 'Location services are disabled.';
+      const e = LocationServiceException(
+        LocationErrorKind.servicesDisabled,
+        msg,
+      );
+      expect(e.message, equals(msg));
+    });
+
+    test('toString includes the kind name so logs are diagnosable', () {
+      const e = LocationServiceException(
+        LocationErrorKind.permissionDenied,
+        'Location permission denied.',
+      );
+      expect(e.toString(), contains('permissionDenied'));
+      expect(e.toString(), contains('Location permission denied.'));
+    });
+
+    test('has all three kinds we dispatch on in callers', () {
+      // Callers (claim.dart, nearby.dart, claim_quiz_sheet.dart,
+      // destination_picker_screen.dart) use exhaustive switch on this enum —
+      // adding a kind here without updating callers is an analyzer error.
+      // Pin the set so renames/removals trigger a test failure too.
+      expect(LocationErrorKind.values.toSet(), equals({
+        LocationErrorKind.servicesDisabled,
+        LocationErrorKind.permissionDenied,
+        LocationErrorKind.permissionPermanentlyDenied,
+      }));
     });
   });
 

@@ -85,23 +85,29 @@ class _ClaimState extends State<Claim> {
         _scanPosition = LatLng(position.latitude, position.longitude);
         _stage = ClaimStage.quizzing;
       });
-    } catch (e) {
+    } on LocationServiceException catch (e) {
       if (!mounted) return;
-      final raw = e.toString();
-      if (raw.contains('permanently denied')) {
-        unawaited(Analytics.locationPermissionPermanentlyDenied());
-        _showPermissionDeniedSnackBar();
-      } else if (raw.contains('services are disabled')) {
-        _showLocationServicesDisabledSnackBar();
-      } else {
-        _showErrorSnackBar(raw.startsWith('Exception: ')
-            ? raw.replaceFirst('Exception: ', '')
-            : 'Could not get your location. Please try again.');
+      switch (e.kind) {
+        case LocationErrorKind.permissionPermanentlyDenied:
+          unawaited(Analytics.locationPermissionPermanentlyDenied());
+          _showPermissionDeniedSnackBar();
+        case LocationErrorKind.servicesDisabled:
+          _showLocationServicesDisabledSnackBar();
+        case LocationErrorKind.permissionDenied:
+          _showErrorSnackBar(e.message);
       }
-      final msg = raw.contains('permission')
+      final isPermission =
+          e.kind == LocationErrorKind.permissionDenied ||
+              e.kind == LocationErrorKind.permissionPermanentlyDenied;
+      JamesController.of(context)?.show(isPermission
           ? JamesMessages.nearbyErrorPermission.resolve()
-          : JamesMessages.claimErrorGeneral.resolve();
-      JamesController.of(context)?.show(msg);
+          : JamesMessages.claimErrorGeneral.resolve());
+      setState(() => _stage = ClaimStage.initial);
+    } catch (_) {
+      if (!mounted) return;
+      _showErrorSnackBar('Could not get your location. Please try again.');
+      JamesController.of(context)
+          ?.show(JamesMessages.claimErrorGeneral.resolve());
       setState(() => _stage = ClaimStage.initial);
     }
   }
