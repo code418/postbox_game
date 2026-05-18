@@ -526,7 +526,11 @@ class _HeadlineCard extends StatelessWidget {
                       color: postalRed,
                     ),
                   ),
-                  const TextSpan(text: ' unclaimed postboxes en-route'),
+                  TextSpan(
+                    text: c == 1
+                        ? ' unclaimed postbox en-route'
+                        : ' unclaimed postboxes en-route',
+                  ),
                 ],
               ),
             ),
@@ -544,7 +548,7 @@ class _HeadlineCard extends StatelessWidget {
                       color: postalGold,
                     ),
                   ),
-                  const TextSpan(text: ' points'),
+                  TextSpan(text: p == 1 ? ' point' : ' points'),
                 ],
               ),
             ),
