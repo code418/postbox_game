@@ -253,7 +253,15 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
 
   // ── Search ────────────────────────────────────────────────────────────────
 
-  Future<void> _runSearch() async {
+  /// Scans for postboxes around [position] (default = the original
+  /// `widget.scanPosition`).
+  ///
+  /// The post-claim retry paths pass the current GPS so the rescan reflects
+  /// where the user actually is now, not where they were when they first
+  /// tapped Scan — otherwise an "out of range" claim followed by an auto-
+  /// rescan would still show the now-distant postbox as "in range".
+  Future<void> _runSearch({LatLng? position}) async {
+    final scanPos = position ?? widget.scanPosition;
     if (_stage != _QuizStage.searching) {
       setState(() => _stage = _QuizStage.searching);
     }
@@ -264,8 +272,8 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
       _distanceUnit = await AppPreferences.getDistanceUnit();
 
       final result = await _nearbyCallable(<String, dynamic>{
-        'lat': widget.scanPosition.latitude,
-        'lng': widget.scanPosition.longitude,
+        'lat': scanPos.latitude,
+        'lng': scanPos.longitude,
         'meters': AppPreferences.claimRadiusMeters,
       });
 
@@ -385,15 +393,20 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
       final claimedCount =
           rawClaimed is int ? rawClaimed : (rawClaimed as num).toInt();
 
+      // Use the fresh GPS we just acquired for the post-claim rescan, so an
+      // out-of-range or already-claimed retry sees the user's current
+      // position — not the now-stale position from when they first tapped
+      // Scan. Without this, a user who walked away from the original scan
+      // point would keep seeing the same postbox listed as "in range".
+      final freshPos = LatLng(position.latitude, position.longitude);
+
       if (!found) {
         Analytics.claimFailed(reason: 'out_of_range');
         if (!mounted) return;
         setState(() => _isClaiming = false);
         JamesController.of(context)
             ?.show(JamesMessages.claimOutOfRange.resolve());
-        // Re-run the search with the same position (postbox didn't move,
-        // but the user may have drifted). The parent retains control.
-        await _runSearch();
+        await _runSearch(position: freshPos);
         return;
       }
       if (allClaimedToday || claimedCount == 0) {
@@ -403,7 +416,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
         _showErrorSnackBar('Already claimed today — come back tomorrow!');
         JamesController.of(context)
             ?.show(JamesMessages.claimErrorAlreadyClaimed.resolve());
-        await _runSearch();
+        await _runSearch(position: freshPos);
         return;
       }
       final points = claimData['points'] ?? 0;
