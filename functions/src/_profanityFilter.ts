@@ -1,4 +1,13 @@
 /**
+ * Display-name length bounds, shared by onUserCreated (sanitiseName) and
+ * updateDisplayName (HttpsError validation). MUST match
+ * lib/validators.dart's minDisplayNameChars / maxDisplayNameChars so the
+ * client form validator and the server callable accept the same range.
+ */
+export const MIN_DISPLAY_NAME_CHARS = 2;
+export const MAX_DISPLAY_NAME_CHARS = 30;
+
+/**
  * Shared profanity block-list used by onUserCreated and updateDisplayName.
  * Keep in sync with validators.dart on the Flutter side.
  * Matched case-insensitively as a substring; catches obvious cases without

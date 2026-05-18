@@ -673,6 +673,28 @@ describe("sanitiseName", () => {
   });
 });
 
+// ── Display-name length pin ──────────────────────────────────────────────────
+// Cross-platform contract: lib/validators.dart's minDisplayNameChars and
+// maxDisplayNameChars MUST match these. The Dart side has its own pinning
+// test against the literal values 2 and 30 (and so does sanitiseName above);
+// pinning the named TS constants here means the values can only be changed
+// by editing this assertion, which is a much louder signal than editing an
+// implicit literal.
+//
+// eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+const profanityModule = require("../_profanityFilter") as {
+  MIN_DISPLAY_NAME_CHARS: number;
+  MAX_DISPLAY_NAME_CHARS: number;
+};
+describe("display-name length constants (cross-platform contract)", () => {
+  it("MIN_DISPLAY_NAME_CHARS is 2", () => {
+    assert.strictEqual(profanityModule.MIN_DISPLAY_NAME_CHARS, 2);
+  });
+  it("MAX_DISPLAY_NAME_CHARS is 30", () => {
+    assert.strictEqual(profanityModule.MAX_DISPLAY_NAME_CHARS, 30);
+  });
+});
+
 describe("containsProfanity", () => {
   it("returns false for a clean name", () => assert.strictEqual(containsProfanity("Alice"), false));
   it("returns false for a clean multi-word name", () => assert.strictEqual(containsProfanity("Postbox Pete"), false));

@@ -1,11 +1,17 @@
 import "./adminInit";
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions/v1";
-import { containsProfanity } from "./_profanityFilter";
+import {
+  containsProfanity,
+  MIN_DISPLAY_NAME_CHARS,
+  MAX_DISPLAY_NAME_CHARS,
+} from "./_profanityFilter";
 
 export function sanitiseName(name: string, uid: string): string {
   const t = name.trim();
-  if (t.length < 2 || t.length > 30) return `Player_${uid.slice(0, 6)}`;
+  if (t.length < MIN_DISPLAY_NAME_CHARS || t.length > MAX_DISPLAY_NAME_CHARS) {
+    return `Player_${uid.slice(0, 6)}`;
+  }
   if (containsProfanity(t)) return `Player_${uid.slice(0, 6)}`;
   return t;
 }
