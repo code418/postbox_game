@@ -22,6 +22,7 @@ import * as fs from "fs";
 import * as admin from "firebase-admin";
 import * as geohash from "ngeohash";
 import { pointsForMonarch, KNOWN_MONARCHS } from "../_getPoints";
+import { setPrecision, getLatLng } from "../_geo";
 import {
   type Point,
   type Candidate,
@@ -128,29 +129,6 @@ function printUsage(): void {
 `);
 }
 
-// ---------- geohash precision (mirrors _lookupPostboxes.setPrecision) ----------
-
-function setPrecision(km: number): number {
-  if (km <= 0.00477) return 9;
-  if (km <= 0.0191) return 8;
-  if (km <= 0.153) return 7;
-  if (km <= 0.61) return 6;
-  if (km <= 4.89) return 5;
-  if (km <= 19.5) return 4;
-  if (km <= 156) return 3;
-  if (km <= 625) return 2;
-  return 1;
-}
-
-function getLatLng(geopoint: unknown): Point | null {
-  if (!geopoint || typeof geopoint !== "object") return null;
-  const gp = geopoint as Record<string, unknown>;
-  const lat = (gp._latitude ?? gp.latitude) as number | undefined;
-  const lng = (gp._longitude ?? gp.longitude) as number | undefined;
-  if (typeof lat !== "number" || typeof lng !== "number") return null;
-  return { lat, lng };
-}
-
 // ---------- data loaders ----------
 
 async function loadFromFirestore(centre: Point, radiusMetres: number, projectId: string): Promise<Candidate[]> {
@@ -172,7 +150,7 @@ async function loadFromFirestore(centre: Point, radiusMetres: number, projectId:
       if (seen.has(doc.id)) continue;
       seen.add(doc.id);
       const data = doc.data() as Record<string, unknown>;
-      const pos = getLatLng(data.geopoint);
+      const pos = getLatLng(data.geopoint as Parameters<typeof getLatLng>[0]);
       if (!pos) continue;
       const monarch = typeof data.monarch === "string" ? data.monarch : null;
       candidates.push({
