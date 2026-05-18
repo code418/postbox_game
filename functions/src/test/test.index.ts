@@ -2346,6 +2346,16 @@ describe("parsePhotos", () => {
   it("rejects more than 3 photos", () => {
     assert.throws(() => parsePhotos(Array.from({ length: 4 }, (_, i) => ({ storagePath: `report_photos/${uid}/${i}.jpg` })), uid));
   });
+  it("accepts exactly 3 photos (the cap boundary)", () => {
+    // Mirror of the rejection-at-4 test: 3 must succeed. Pins the cap so a
+    // future change to MAX_PHOTOS (currently private) doesn't drift silently
+    // away from ReportRepository.maxPhotos on the Flutter side.
+    const out = parsePhotos(
+      Array.from({ length: 3 }, (_, i) => ({ storagePath: `report_photos/${uid}/${i}.jpg` })),
+      uid,
+    );
+    assert.strictEqual(out.length, 3);
+  });
   it("rejects a path outside the user's prefix", () => {
     assert.throws(() => parsePhotos([{ storagePath: "report_photos/otheruser/a.jpg" }], uid));
     assert.throws(() => parsePhotos([{ storagePath: "osm_changesets/x.osc" }], uid));

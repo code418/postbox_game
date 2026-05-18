@@ -23,6 +23,7 @@ import 'package:postbox_game/user_repository.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:postbox_game/nearby.dart';
 import 'package:postbox_game/route/destination_picker_screen.dart';
+import 'package:postbox_game/reports/report_repository.dart';
 import 'package:postbox_game/validators.dart';
 
 // ---------------------------------------------------------------------------
@@ -435,6 +436,24 @@ void main() {
       // get clipped if the client ever asks for a larger radius.
       expect(AppPreferences.nearbyRadiusMeters, equals(540.0));
       expect(AppPreferences.nearbyRadiusMeters, lessThan(2000));
+    });
+  });
+
+  group('ReportRepository constants (cross-platform contract)', () {
+    test('maxPhotos is 3 — must match functions/src/reports.ts MAX_PHOTOS', () {
+      // The photo cap is enforced both client-side (when picking) and server-
+      // side (in parsePhotos). If they drift the client could upload 4 photos
+      // only for the server to reject the whole report. The TS side pins this
+      // via the "accepts exactly 3 photos" and "rejects more than 3" tests.
+      expect(ReportRepository.maxPhotos, equals(3));
+    });
+
+    test('maxPhotoBytes is 10 MB — must match storage.rules size limit', () {
+      // storage.rules has `request.resource.size < 10 * 1024 * 1024` for the
+      // report_photos path. If the client allowed larger uploads, Storage
+      // would reject them at upload time (after the user already picked the
+      // photo) — frustrating UX. The client-side cap should match the rule.
+      expect(ReportRepository.maxPhotoBytes, equals(10 * 1024 * 1024));
     });
   });
 
