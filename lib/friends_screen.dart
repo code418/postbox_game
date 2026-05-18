@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:postbox_game/analytics_service.dart';
+import 'package:postbox_game/display_name_utils.dart';
 import 'package:postbox_game/user_profile_page.dart';
 import 'package:postbox_game/theme.dart';
 
@@ -190,13 +191,6 @@ class _FriendsScreenState extends State<FriendsScreen> {
     }
   }
 
-  String _initials(String name) {
-    final t = name.trim();
-    if (t.isEmpty) return '?';
-    final parts = t.split(' ').where((p) => p.isNotEmpty).toList();
-    if (parts.length >= 2) return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
-    return t.substring(0, t.length.clamp(0, 2)).toUpperCase();
-  }
 
   /// Triggers a batched fetch of any friend uids in [uids] that aren't already
   /// resolved in [_namesByUid]. Idempotent — the in-flight fetch is awaited
@@ -439,7 +433,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
                   // user doc for this uid (deleted account, etc.).
                   final displayName =
                       (resolved != null && resolved.isNotEmpty) ? resolved : null;
-                  final initials = _initials(displayName ?? '');
+                  final initials = initialsFor(displayName ?? '');
                   return Card(
                     child: ListTile(
                       onTap: () => Navigator.of(context).push(UserProfilePage.route(friendUid)),

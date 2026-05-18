@@ -10,6 +10,7 @@ import 'package:postbox_game/app_preferences.dart';
 import 'package:postbox_game/authentication_bloc/bloc.dart';
 import 'package:postbox_game/claim_history_screen.dart';
 import 'package:postbox_game/county_heatmap.dart';
+import 'package:postbox_game/display_name_utils.dart';
 import 'package:postbox_game/friends_screen.dart';
 import 'package:postbox_game/fuzzy_compass.dart';
 import 'package:postbox_game/location_service.dart';
@@ -611,6 +612,39 @@ void main() {
       // Same drift hazard as maxNoteChars: TextField maxLength must match
       // what parseReference will accept server-side.
       expect(ReportRepository.maxReferenceChars, equals(40));
+    });
+  });
+
+  group('initialsFor', () {
+    // Shared by friends list avatars and the UserProfilePage header. Pinning
+    // the rules so a future tweak to one screen's avatar doesn't drift the
+    // other.
+    test('returns ? for an empty string', () {
+      expect(initialsFor(''), equals('?'));
+    });
+
+    test('returns ? for whitespace-only', () {
+      expect(initialsFor('   '), equals('?'));
+    });
+
+    test('first letters of first two words for multi-word names', () {
+      expect(initialsFor('John Doe'), equals('JD'));
+      expect(initialsFor('alice bob carol'), equals('AB'));
+    });
+
+    test('first two letters for a single-word name', () {
+      expect(initialsFor('Alice'), equals('AL'));
+      expect(initialsFor('postie'), equals('PO'));
+    });
+
+    test('single-letter name returns just that letter', () {
+      expect(initialsFor('Z'), equals('Z'));
+    });
+
+    test('collapses internal multiple spaces', () {
+      // "John   Doe" splits with empty parts which are filtered out, so the
+      // first two non-empty words still drive the result.
+      expect(initialsFor('John   Doe'), equals('JD'));
     });
   });
 

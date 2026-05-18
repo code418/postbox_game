@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:postbox_game/display_name_utils.dart';
 import 'package:postbox_game/london_date.dart';
 import 'package:postbox_game/streak_service.dart' show freshStreak;
 import 'package:postbox_game/theme.dart';
@@ -225,15 +226,6 @@ class _ProfileBody extends StatelessWidget {
     return 'Joined ${DateFormat('MMMM yyyy').format(data.createdAt!)}';
   }
 
-  String _initials() {
-    final name = data.displayName.trim();
-    if (name.isEmpty) return '?';
-    final parts = name.split(' ').where((p) => p.isNotEmpty).toList();
-    if (parts.length >= 2) {
-      return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
-    }
-    return name.substring(0, name.length.clamp(0, 2)).toUpperCase();
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -247,7 +239,7 @@ class _ProfileBody extends StatelessWidget {
               radius: 28,
               backgroundColor: postalRed,
               child: Text(
-                _initials(),
+                initialsFor(data.displayName),
                 style: const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.bold,
