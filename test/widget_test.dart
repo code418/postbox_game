@@ -455,6 +455,22 @@ void main() {
       // photo) — frustrating UX. The client-side cap should match the rule.
       expect(ReportRepository.maxPhotoBytes, equals(10 * 1024 * 1024));
     });
+
+    test('maxNoteChars is 280 — must match functions/src/reports.ts NOTE_MAX',
+        () {
+      // submitReport rejects notes longer than NOTE_MAX. The TextField's
+      // maxLength uses this constant so the UI can't get out of step. A
+      // drift here means users see "your note is too long" only AFTER
+      // submission instead of being stopped at the input field.
+      expect(ReportRepository.maxNoteChars, equals(280));
+    });
+
+    test('maxReferenceChars is 40 — must match functions/src/reports.ts REFERENCE_MAX',
+        () {
+      // Same drift hazard as maxNoteChars: TextField maxLength must match
+      // what parseReference will accept server-side.
+      expect(ReportRepository.maxReferenceChars, equals(40));
+    });
   });
 
   // ---------------------------------------------------------------------------

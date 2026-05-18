@@ -43,6 +43,16 @@ class ReportRepository {
   static const int maxPhotos = 3;
   static const int maxPhotoBytes = 10 * 1024 * 1024;
 
+  /// Maximum length of the free-text note field. MUST match the server-side
+  /// `NOTE_MAX` in functions/src/reports.ts — submitReport rejects longer
+  /// notes. Used as the TextField `maxLength` so the UI can't get out of
+  /// step with what the server will accept.
+  static const int maxNoteChars = 280;
+
+  /// Maximum length of the optional postbox-reference field (e.g. "SW1A 1").
+  /// MUST match the server-side `REFERENCE_MAX` in functions/src/reports.ts.
+  static const int maxReferenceChars = 40;
+
   static final ImagePicker _picker = ImagePicker();
 
   /// Picks one or more photos from [source]. For the gallery this may return

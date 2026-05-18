@@ -112,7 +112,7 @@ class _ReportCypherScreenState extends State<ReportCypherScreen> {
               const SizedBox(height: AppSpacing.md),
               TextField(
                 controller: _referenceController,
-                maxLength: 40,
+                maxLength: ReportRepository.maxReferenceChars,
                 decoration: const InputDecoration(
                   labelText: 'Correct reference / plate number (optional)',
                   border: OutlineInputBorder(),
@@ -121,7 +121,7 @@ class _ReportCypherScreenState extends State<ReportCypherScreen> {
               const SizedBox(height: AppSpacing.sm),
               TextField(
                 controller: _noteController,
-                maxLength: 280,
+                maxLength: ReportRepository.maxNoteChars,
                 maxLines: 3,
                 onChanged: (_) => setState(() {}),
                 decoration: const InputDecoration(

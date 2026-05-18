@@ -116,7 +116,7 @@ class _ReportMissingPostboxScreenState extends State<ReportMissingPostboxScreen>
               const SizedBox(height: AppSpacing.md),
               TextField(
                 onChanged: (v) => _reference = v,
-                maxLength: 40,
+                maxLength: ReportRepository.maxReferenceChars,
                 decoration: const InputDecoration(
                   labelText: 'Postbox reference / plate number (optional)',
                   border: OutlineInputBorder(),
@@ -125,7 +125,7 @@ class _ReportMissingPostboxScreenState extends State<ReportMissingPostboxScreen>
               const SizedBox(height: AppSpacing.sm),
               TextField(
                 controller: _noteController,
-                maxLength: 280,
+                maxLength: ReportRepository.maxNoteChars,
                 maxLines: 3,
                 decoration: const InputDecoration(
                   labelText: 'Anything else? (optional)',
