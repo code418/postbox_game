@@ -10,6 +10,7 @@ import 'package:postbox_game/app_preferences.dart';
 import 'package:postbox_game/authentication_bloc/bloc.dart';
 import 'package:postbox_game/claim_history_screen.dart';
 import 'package:postbox_game/county_heatmap.dart';
+import 'package:postbox_game/friends_screen.dart';
 import 'package:postbox_game/fuzzy_compass.dart';
 import 'package:postbox_game/james_messages.dart';
 import 'package:postbox_game/london_date.dart';
@@ -527,6 +528,19 @@ void main() {
       // Same drift hazard as maxNoteChars: TextField maxLength must match
       // what parseReference will accept server-side.
       expect(ReportRepository.maxReferenceChars, equals(40));
+    });
+  });
+
+  group('FriendsScreen constants (cross-platform contract)', () {
+    test('maxFriends is 200 — must match firestore.rules friends.size() cap',
+        () {
+      // firestore.rules has `request.resource.data.friends.size() <= 200` on
+      // the users doc update. The client-side check at FriendsScreen.maxFriends
+      // is a pre-flight check so the user sees a friendly error before the
+      // write is rejected by the rules engine. Drift means the client thinks
+      // the list isn't full but Firestore refuses the write with a
+      // permission-denied error.
+      expect(FriendsScreen.maxFriends, equals(200));
     });
   });
 

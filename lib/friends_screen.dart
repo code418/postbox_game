@@ -11,6 +11,11 @@ import 'package:postbox_game/theme.dart';
 class FriendsScreen extends StatefulWidget {
   const FriendsScreen({super.key});
 
+  // Must match the `request.resource.data.friends.size() <= 200` check in
+  // firestore.rules — that is the server-enforced cap; this one is the
+  // client-side pre-check so users get a friendly error before the write.
+  static const int maxFriends = 200;
+
   @override
   State<FriendsScreen> createState() => _FriendsScreenState();
 }
@@ -88,10 +93,13 @@ class _FriendsScreenState extends State<FriendsScreen> {
         }
         return;
       }
-      if (existingFriends.length >= 200) {
+      if (existingFriends.length >= FriendsScreen.maxFriends) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Friends list is full (200 maximum)')),
+            SnackBar(
+              content: Text(
+                  'Friends list is full (${FriendsScreen.maxFriends} maximum)'),
+            ),
           );
         }
         return;
@@ -112,7 +120,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
     } on FirebaseException catch (e) {
       if (!mounted) return;
       final msg = e.code == 'permission-denied'
-          ? 'Friends list is full (200 maximum)'
+          ? 'Friends list is full (${FriendsScreen.maxFriends} maximum)'
           : 'Failed to add friend. Please try again.';
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(msg)));
