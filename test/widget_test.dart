@@ -419,6 +419,25 @@ void main() {
     });
   });
 
+  group('AppPreferences constants (cross-platform contract)', () {
+    test('claimRadiusMeters is 30.0 — must match functions/src/startScoring.ts CLAIM_RADIUS_METERS', () {
+      // The claim cooldown radius is shared with the backend's startScoring
+      // callable. If the values drift, the client thinks a box is claimable
+      // while the server rejects it (or vice versa). Pin the Dart side here;
+      // the TS side's startScoring.ts has a comment pointing back at this
+      // const. Bumping either requires bumping the other.
+      expect(AppPreferences.claimRadiusMeters, equals(30.0));
+    });
+
+    test('nearbyRadiusMeters is 540.0 — well under the 2000m server clamp', () {
+      // Server clamps any incoming meters to 2000 in nearbyPostboxes.
+      // The nearby scan should stay well under that so we don't silently
+      // get clipped if the client ever asks for a larger radius.
+      expect(AppPreferences.nearbyRadiusMeters, equals(540.0));
+      expect(AppPreferences.nearbyRadiusMeters, lessThan(2000));
+    });
+  });
+
   // ---------------------------------------------------------------------------
   // FuzzyCompass unit tests
   // ---------------------------------------------------------------------------
