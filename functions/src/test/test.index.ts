@@ -1833,6 +1833,26 @@ describe("updateFcmTokens", () => {
     const result = updateFcmTokens(["a", "b", "c", "d", "e"], "f");
     assert.strictEqual(result.length, 5);
   });
+  it("returns the SAME array reference when the token is already present", () => {
+    // registerFcmToken relies on this reference-equality semantic to skip the
+    // Firestore transaction commit in the no-op case (see _notifications.ts).
+    // A reallocating implementation would silently regress write-throttling.
+    const existing = ["tok1", "tok2"];
+    const result = updateFcmTokens(existing, "tok1");
+    assert.strictEqual(result, existing, "must return the exact same array reference");
+  });
+  it("returns a new array reference when a token is appended", () => {
+    // Sanity counterpart to the above: when work actually happens, we return
+    // a fresh array so the caller writes a fresh value.
+    const existing = ["tok1", "tok2"];
+    const result = updateFcmTokens(existing, "tok3");
+    assert.notStrictEqual(result, existing, "appending must return a new array");
+  });
+  it("respects a custom max cap", () => {
+    // The default is 5 but the cap is parameterised; verify the parameter is
+    // honoured rather than ignored.
+    assert.deepStrictEqual(updateFcmTokens(["a", "b"], "c", 2), ["b", "c"]);
+  });
 });
 
 describe("diffFriends", () => {
