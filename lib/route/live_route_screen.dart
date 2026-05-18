@@ -342,7 +342,12 @@ class _LiveRouteScreenState extends State<LiveRouteScreen> {
       (_, t) => now.difference(t).inSeconds > _kClaimCooldownS,
     );
 
+    // Iterate every eligible box and pick the closest. Map iteration order is
+    // insertion-order (effectively the server's geohash iteration), so just
+    // taking the first match would prompt for whichever box happens to come
+    // first rather than the one the user is most plausibly standing next to.
     String? eligibleId;
+    double bestDist = double.infinity;
     for (final entry in rawPostboxes.entries) {
       final id = entry.key as String;
       final box = Map<String, dynamic>.from(entry.value as Map);
@@ -354,8 +359,10 @@ class _LiveRouteScreenState extends State<LiveRouteScreen> {
       if (dist > AppPreferences.claimRadiusMeters) continue;
       if (_recentDismissals.containsKey(id)) continue;
 
-      eligibleId = id;
-      break;
+      if (dist < bestDist) {
+        bestDist = dist;
+        eligibleId = id;
+      }
     }
 
     if (eligibleId == null) return;
