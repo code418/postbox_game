@@ -560,6 +560,29 @@ void main() {
       expect(AppPreferences.formatShortDistance(30.0, DistanceUnit.meters),
           equals('30 m'));
     });
+
+    // formatRouteDistance — metric-only auto-switch between m and km. Used
+    // by RoutePreviewScreen and LiveRouteScreen so the user sees "800 m"
+    // for a short route instead of "0.80 km".
+    test('formatRouteDistance shows metres under 1 km', () {
+      expect(AppPreferences.formatRouteDistance(0), equals('0 m'));
+      expect(AppPreferences.formatRouteDistance(500), equals('500 m'));
+      expect(AppPreferences.formatRouteDistance(999.4), equals('999 m'));
+    });
+
+    test('formatRouteDistance shows km at and above 1 km', () {
+      expect(AppPreferences.formatRouteDistance(1000), equals('1.00 km'));
+      expect(AppPreferences.formatRouteDistance(1234), equals('1.23 km'));
+      expect(AppPreferences.formatRouteDistance(30000), equals('30.00 km'));
+    });
+
+    test('formatRouteDistance returns "..." for infinity', () {
+      expect(AppPreferences.formatRouteDistance(double.infinity), equals('...'));
+    });
+
+    test('formatRouteDistance returns "..." for NaN', () {
+      expect(AppPreferences.formatRouteDistance(double.nan), equals('...'));
+    });
   });
 
   group('AppPreferences constants (cross-platform contract)', () {

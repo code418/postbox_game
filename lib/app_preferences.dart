@@ -54,6 +54,18 @@ class AppPreferences {
     return '${meters.toStringAsFixed(0)} m';
   }
 
+  /// Metric-only distance formatter that switches between metres and km at
+  /// the 1 km threshold, used by the route screens where the user always sees
+  /// km (independent of their global m/mi preference, because route mode is
+  /// inherently a city/town-scale walking activity).
+  ///
+  /// Examples: 800 → "800 m", 1234 → "1.23 km", double.infinity → "...".
+  static String formatRouteDistance(double meters) {
+    if (!meters.isFinite) return '...';
+    if (meters < 1000) return '${meters.round()} m';
+    return '${(meters / 1000).toStringAsFixed(2)} km';
+  }
+
   static Future<ViewMode> getViewMode(String screen) async {
     final prefs = await SharedPreferences.getInstance();
     final v = prefs.getString('$_keyViewModePrefix$screen');

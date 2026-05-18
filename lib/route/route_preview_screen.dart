@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
+import 'package:postbox_game/app_preferences.dart';
 import 'package:postbox_game/route/live_route_screen.dart';
 import 'package:postbox_game/route/route_session.dart';
 import 'package:postbox_game/theme.dart';
@@ -363,7 +364,7 @@ class _DestinationCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final distLabel = directDistanceM != null
-        ? '${(directDistanceM! / 1000).toStringAsFixed(2)} km'
+        ? AppPreferences.formatRouteDistance(directDistanceM!.toDouble())
         : '–';
 
     return Card(

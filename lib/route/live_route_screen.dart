@@ -628,13 +628,8 @@ class _DestinationCard extends StatelessWidget {
     this.destinationLabel,
   });
 
-  String get _distanceText {
-    if (distanceM == double.infinity) return '...';
-    if (distanceM < 1000) {
-      return '${distanceM.round()} m';
-    }
-    return '${(distanceM / 1000).toStringAsFixed(2)} km';
-  }
+  String get _distanceText =>
+      AppPreferences.formatRouteDistance(distanceM);
 
   @override
   Widget build(BuildContext context) {
