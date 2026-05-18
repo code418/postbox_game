@@ -74,4 +74,4 @@ Add to `firestore.indexes.json` to auto-deploy with `firebase deploy`.
 - Use `AndroidProvider.playIntegrity` (not debug) for release builds via build flavors
 
 ### Scripts
-- **OSM Import script** (`scripts/import_postboxes.ts`) — One-off Node script using Overpass API + batch Firestore writes; see CLAUDE.md for schema spec
+- **OSM Import script** (`functions/import_postboxes.js`) — Node script that ingests an Overpass JSON export into Firestore with batch writes; incremental on subsequent runs via a local manifest of node hashes. See CLAUDE.md for schema spec and flag reference.

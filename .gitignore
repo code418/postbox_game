@@ -113,6 +113,9 @@ devtools_options.yaml
 # Accidental Overpass API query downloads
 interpreter?data=*
 
+# Local state for incremental OSM import (per-machine, not for version control)
+functions/.last_import_manifest.json
+
 # Root-level dev utility scripts and one-off data files (not app code)
 /test.py
 /find_postboxes.js
