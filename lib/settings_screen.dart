@@ -294,6 +294,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             icon: Icon(showCurrent
                                 ? Icons.visibility_off_outlined
                                 : Icons.visibility_outlined),
+                            tooltip:
+                                showCurrent ? 'Hide password' : 'Show password',
                             onPressed: () =>
                                 setDialogState(() => showCurrent = !showCurrent),
                           ),
@@ -319,6 +321,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             icon: Icon(showNew
                                 ? Icons.visibility_off_outlined
                                 : Icons.visibility_outlined),
+                            tooltip: showNew ? 'Hide password' : 'Show password',
                             onPressed: () =>
                                 setDialogState(() => showNew = !showNew),
                           ),
@@ -340,6 +343,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             icon: Icon(showConfirm
                                 ? Icons.visibility_off_outlined
                                 : Icons.visibility_outlined),
+                            tooltip:
+                                showConfirm ? 'Hide password' : 'Show password',
                             onPressed: () =>
                                 setDialogState(() => showConfirm = !showConfirm),
                           ),
