@@ -829,6 +829,33 @@ void main() {
       expect(MonarchInfo.getPoints('EVIIIR'), equals(12));
     });
 
+    test('rareCiphers and historicCiphers are disjoint', () {
+      // postbox_marker.dart renders the rare-star and historic-"H" badges in
+      // the same top-right slot. They're guarded by separate `if` conditions
+      // so a cipher placed in both sets would render two stacked badges over
+      // each other. Pin that the sets share no members so the UI invariant
+      // (at most one badge per pin) holds.
+      final overlap = MonarchInfo.rareCiphers
+          .intersection(MonarchInfo.historicCiphers);
+      expect(overlap, isEmpty,
+          reason: 'Cipher(s) in both rareCiphers and historicCiphers: $overlap');
+    });
+
+    test('rareCiphers and historicCiphers are all in "all"', () {
+      // A cipher that is "rare" or "historic" but not in `all` would never
+      // render the badge — postboxMarker only ever sees ciphers that came
+      // from the server (which whitelists against KNOWN_MONARCHS, matching
+      // `all`). A typo in either set would silently disable the badge.
+      for (final c in MonarchInfo.rareCiphers) {
+        expect(MonarchInfo.all.contains(c), isTrue,
+            reason: 'rareCipher $c is not in MonarchInfo.all');
+      }
+      for (final c in MonarchInfo.historicCiphers) {
+        expect(MonarchInfo.all.contains(c), isTrue,
+            reason: 'historicCipher $c is not in MonarchInfo.all');
+      }
+    });
+
     test('"all" exactly matches the cross-platform contract', () {
       // Pin the exact set so adding or removing a monarch on the Dart side
       // breaks this test loudly. The TS side has a mirror test against
