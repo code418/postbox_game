@@ -80,6 +80,13 @@ class _DestinationPickerScreenState extends State<DestinationPickerScreen> {
   /// Timer used to debounce search-field input (500 ms).
   Timer? _debounceTimer;
 
+  /// Monotonically incrementing identifier for the most recent Nominatim
+  /// request. Each call to [_runSearch] captures this on entry, and the
+  /// `await` continuation only commits its results to state when the captured
+  /// value still matches — otherwise a slow earlier request whose HTTP round-
+  /// trip outlived a faster later one would overwrite the newer results.
+  int _searchRequestId = 0;
+
   /// True when we created the NominatimService ourselves (and so are
   /// responsible for closing its HTTP client). False when the caller
   /// injected one (e.g. tests) and owns its lifecycle.
@@ -176,19 +183,22 @@ class _DestinationPickerScreenState extends State<DestinationPickerScreen> {
 
   Future<void> _runSearch(String query) async {
     if (!mounted) return;
+    final id = ++_searchRequestId;
     setState(() {
       _isSearching = true;
       _searchError = null;
     });
     try {
       final results = await _nominatimService.search(query);
-      if (!mounted) return;
+      // Stale-response guard: a previous, slower request that resolved after
+      // this one would otherwise overwrite the newer results.
+      if (!mounted || id != _searchRequestId) return;
       setState(() {
         _searchResults = results;
         _isSearching = false;
       });
-    } catch (e) {
-      if (!mounted) return;
+    } catch (_) {
+      if (!mounted || id != _searchRequestId) return;
       setState(() {
         _searchResults = const [];
         _isSearching = false;
