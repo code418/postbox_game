@@ -168,6 +168,10 @@ export const routePostboxes = functions.https.onCall(async (request) => {
       seen.add(doc.id);
 
       const data2 = doc.data() as PostboxDoc;
+      // Match _lookupPostboxes: don't surface postboxes the OSM data says
+      // have been removed. Without this, route planning would route the user
+      // past phantom postboxes that startScoring would refuse to claim.
+      if (data2.removedFromOsm === true) continue;
       const pos = getLatLng(data2.geopoint);
       if (!pos) continue;
 

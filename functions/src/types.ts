@@ -14,6 +14,12 @@ export interface PostboxDoc {
   /** Admin uid that applied the last accepted cypher correction. */
   correctedBy?: string;
   correctedAt?: unknown;
+  /** True when import_postboxes.js --prune marked this OSM node as no longer
+   *  present in the upstream Overpass extract. Soft-marker only; cleared by any
+   *  subsequent normal write to the doc. Runtime lookups skip these so users
+   *  can't claim a postbox the OSM data says has gone. */
+  removedFromOsm?: boolean;
+  removedFromOsmAt?: unknown;
   distance?: number;
   compass?: { exact?: string };
   dailyClaim?: { date: string; by: string };

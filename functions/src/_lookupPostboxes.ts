@@ -54,6 +54,11 @@ export async function lookupPostboxes(lat: number, lng: number, meters: number):
       if (seen.has(doc.id)) continue;
       seen.add(doc.id);
       const data = doc.data() as PostboxDoc;
+      // Skip postboxes soft-pruned by import_postboxes.js --prune. These
+      // documents are kept around so a future re-import can clear the flag,
+      // but they shouldn't be presented as claimable: the OSM data already
+      // says they're gone.
+      if (data.removedFromOsm === true) continue;
       const pos = getLatLng(data.geopoint);
       if (!pos) continue;
 

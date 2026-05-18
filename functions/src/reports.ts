@@ -364,6 +364,14 @@ export const reviewReport = functions.https.onCall({ timeoutSeconds: 300 }, asyn
     const pbUpdate: Record<string, unknown> = { correctedBy: adminUid, correctedAt: now };
     pbUpdate.monarch = finalMonarch === null ? admin.firestore.FieldValue.delete() : finalMonarch;
     if (finalReference) pbUpdate.reference = finalReference;
+    // Accepting a cypher correction is implicit confirmation that the postbox
+    // still exists: if it had been soft-pruned by a stale OSM extract, clear
+    // the flag so it's claimable again. The next OSM import will reapply the
+    // flag only if the node is still missing upstream.
+    if (pb.removedFromOsm === true) {
+      pbUpdate.removedFromOsm = admin.firestore.FieldValue.delete();
+      pbUpdate.removedFromOsmAt = admin.firestore.FieldValue.delete();
+    }
     await pbRef.set(pbUpdate, { merge: true });
 
     // Always rewrite the claims' stored monarch; this also recomputes affected
