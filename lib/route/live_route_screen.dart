@@ -11,6 +11,7 @@ import 'package:postbox_game/fuzzy_compass.dart';
 import 'package:postbox_game/james_controller.dart';
 import 'package:postbox_game/james_messages.dart';
 import 'package:postbox_game/location_service.dart';
+import 'package:postbox_game/streak_service.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/widgets/claim_quiz_sheet.dart';
 
@@ -134,6 +135,12 @@ class _LiveRouteScreenState extends State<LiveRouteScreen> {
   // ── Accumulated route totals ───────────────────────────────────────────────
   int _pointsEarned = 0;
   int _claimedCount = 0;
+
+  // ── Streak ────────────────────────────────────────────────────────────────
+  // Cached so the ClaimQuizSheet's streak chip doesn't re-subscribe (and
+  // briefly show empty data) every time the modal reopens after a claim.
+  final StreakService _streakService = StreakService();
+  late final Stream<int?> _streakStream = _streakService.streakStream();
 
   // ── Session timer ─────────────────────────────────────────────────────────
   late final Stopwatch _stopwatch = Stopwatch()..start();
@@ -388,6 +395,7 @@ class _LiveRouteScreenState extends State<LiveRouteScreen> {
         builder: (_, scrollController) => ClaimQuizSheet(
           scanPosition: scanPos,
           compact: true,
+          streakStream: _streakStream,
           nearbyCallable: widget.nearbyCallableForSheet,
           startScoringCallable: widget.startScoringCallableForSheet,
           // Credit the route's running tally the moment the server commits
