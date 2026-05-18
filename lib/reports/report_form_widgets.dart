@@ -183,12 +183,19 @@ class _Thumb extends StatelessWidget {
           Positioned(
             right: 0,
             top: 0,
-            child: GestureDetector(
-              onTap: onRemove,
-              child: Container(
-                decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
-                padding: const EdgeInsets.all(2),
-                child: const Icon(Icons.close, size: 16, color: Colors.white),
+            // Tooltip provides the semantic label so screen readers announce
+            // "Remove photo" instead of just "icon button" on TalkBack /
+            // VoiceOver, and sighted users see the hint on long-press.
+            child: Tooltip(
+              message: 'Remove photo',
+              child: GestureDetector(
+                onTap: onRemove,
+                child: Container(
+                  decoration:
+                      const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
+                  padding: const EdgeInsets.all(2),
+                  child: const Icon(Icons.close, size: 16, color: Colors.white),
+                ),
               ),
             ),
           ),
