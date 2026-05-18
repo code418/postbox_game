@@ -83,7 +83,10 @@ class _WearCompassPageState extends State<WearCompassPage> {
       _stage = _CompassStage.searching;
       _errorMessage = null;
     });
-    Analytics.scanStarted();
+    // Wear compass uses nearbyRadiusMeters (540 m) like the phone's Nearby
+    // tab, not claimRadiusMeters — log the matching analytics event so
+    // dashboards group it with phone-Nearby instead of phone-Claim.
+    Analytics.nearbyStarted();
     try {
       final position = await getPosition(forceLocationManager: true);
       final result = await _callable.call(<String, dynamic>{
@@ -93,23 +96,35 @@ class _WearCompassPageState extends State<WearCompassPage> {
       });
       if (!mounted) return;
       final counts = result.data['counts'] ?? {};
+      final points = (result.data['points'] as Map?) ?? const {};
       final compassRaw = result.data['compass'] ?? {};
+      int asInt(dynamic v) => (v as num?)?.toInt() ?? 0;
+      final total = asInt(counts['total']);
+      final claimed = asInt(counts['claimedToday']);
+      final minPoints = asInt(points['min']);
+      final maxPoints = asInt(points['max']);
       setState(() {
-        // Cloud Functions serialise JS numbers as either int or double;
-        // `as int?` would throw on a double, so normalise via num.
         // Show unclaimed-only count so it agrees with the compass sectors,
         // which only render directions of postboxes still claimable today.
-        final total = (counts['total'] as num?)?.toInt() ?? 0;
-        final claimed = (counts['claimedToday'] as num?)?.toInt() ?? 0;
         _totalCount = (total - claimed).clamp(0, total);
         // Tolerate a missing/null sector value rather than crashing the scan
         // (matches the `asInt` helper used by the phone Nearby screen).
         _compassCounts = {
           for (final e in (compassRaw as Map).entries)
-            e.key as String: (e.value as num?)?.toInt() ?? 0,
+            e.key as String: asInt(e.value),
         };
         _stage = _CompassStage.results;
       });
+      if (total > 0) {
+        Analytics.nearbyComplete(
+          count: total,
+          claimedToday: claimed,
+          minPoints: minPoints,
+          maxPoints: maxPoints,
+        );
+      } else {
+        Analytics.nearbyEmpty();
+      }
       // Haptic pulse to signal scan complete.
       HapticFeedback.lightImpact();
     } on LocationServiceException catch (e) {
