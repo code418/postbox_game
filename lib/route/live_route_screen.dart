@@ -105,10 +105,6 @@ class _LiveRouteScreenState extends State<LiveRouteScreen> {
   StreamSubscription<Position>? _positionSub;
   StreamSubscription<CompassEvent>? _compassSub;
 
-  // Stored so T9 can use the position for a mini-map; suppressed lint for now.
-  // ignore: unused_field
-  Position? _currentPosition;
-
   // ── Compass ────────────────────────────────────────────────────────────────
   double? _deviceHeadingDegrees;
 
@@ -240,7 +236,6 @@ class _LiveRouteScreenState extends State<LiveRouteScreen> {
     final bearing = rawBearing < 0 ? rawBearing + 360 : rawBearing;
 
     setState(() {
-      _currentPosition = pos;
       _distanceToDestM = dist;
       _bearingToDestDeg = bearing;
     });
