@@ -55,14 +55,21 @@ class ReportRepository {
 
   static final ImagePicker _picker = ImagePicker();
 
-  /// Picks one or more photos from [source]. For the gallery this may return
-  /// several; for the camera it returns at most one. EXIF is parsed eagerly.
-  /// Photos larger than [maxPhotoBytes] are skipped.
-  static Future<List<PendingPhoto>> pickPhotos({
+  /// Result of [pickPhotos]: the accepted photos plus a count of how many of
+  /// the user's picks were too large (silently dropped) so the caller can
+  /// surface a SnackBar.
+  ///
+  /// Previously [pickPhotos] returned only [photos] and oversized files were
+  /// silently filtered out — users picked 3, only saw 2 attached, with no
+  /// explanation. Reporting the drop count lets the picker UI tell the user
+  /// to reshoot or pick a smaller photo.
+  static Future<({List<PendingPhoto> photos, int oversizedCount})> pickPhotos({
     required ImageSource source,
     int remainingSlots = maxPhotos,
   }) async {
-    if (remainingSlots <= 0) return const [];
+    if (remainingSlots <= 0) {
+      return (photos: const <PendingPhoto>[], oversizedCount: 0);
+    }
     final List<XFile> files;
     if (source == ImageSource.camera) {
       final x = await _picker.pickImage(
@@ -75,9 +82,13 @@ class ReportRepository {
       files = await _picker.pickMultiImage(requestFullMetadata: true, maxWidth: 2400);
     }
     final out = <PendingPhoto>[];
+    var oversized = 0;
     for (final f in files.take(remainingSlots)) {
       final bytes = await f.readAsBytes();
-      if (bytes.length > maxPhotoBytes) continue;
+      if (bytes.length > maxPhotoBytes) {
+        oversized++;
+        continue;
+      }
       final exif = await _readExif(bytes);
       out.add(PendingPhoto(
         bytes: bytes,
@@ -87,7 +98,7 @@ class ReportRepository {
         takenAt: exif.takenAt,
       ));
     }
-    return out;
+    return (photos: out, oversizedCount: oversized);
   }
 
   /// Submits a "missing postbox" report. Returns the new report id.

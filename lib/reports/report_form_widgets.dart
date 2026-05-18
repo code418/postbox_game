@@ -75,9 +75,24 @@ class PhotoPickerField extends StatelessWidget {
     );
     if (source == null) return;
     try {
-      final picked = await ReportRepository.pickPhotos(source: source, remainingSlots: remaining);
-      if (picked.isEmpty) return;
-      onChanged([...photos, ...picked].take(ReportRepository.maxPhotos).toList());
+      final result = await ReportRepository.pickPhotos(
+          source: source, remainingSlots: remaining);
+      if (result.photos.isNotEmpty) {
+        onChanged([...photos, ...result.photos]
+            .take(ReportRepository.maxPhotos)
+            .toList());
+      }
+      if (result.oversizedCount > 0 && context.mounted) {
+        final maxMb =
+            (ReportRepository.maxPhotoBytes / (1024 * 1024)).toStringAsFixed(0);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result.oversizedCount == 1
+                ? 'Skipped 1 photo over $maxMb MB.'
+                : 'Skipped ${result.oversizedCount} photos over $maxMb MB.'),
+          ),
+        );
+      }
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not add photo: $e')));
