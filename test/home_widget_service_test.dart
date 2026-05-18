@@ -40,6 +40,21 @@ void main() {
     test('keyLifetimePoints === "lifetimePoints"', () {
       expect(HomeWidgetService.keyLifetimePoints, equals('lifetimePoints'));
     });
+    test('androidProviderName matches the Kotlin class name', () {
+      // home_widget's updateWidget(androidName: …) targets the Kotlin
+      // AppWidgetProvider class by simple class name. If the Kotlin class
+      // is renamed but the Dart constant isn't (or vice versa), redraw
+      // requests silently no-op — the widget freezes on its last values.
+      // Mirror in PostboxWidgetProvider.kt:20.
+      expect(HomeWidgetService.androidProviderName,
+          equals('PostboxWidgetProvider'));
+    });
+    test('appGroupId is a non-empty stable identifier', () {
+      // HomeWidget.setAppGroupId scopes the SharedPreferences namespace.
+      // Empty/changing values would orphan all prior widget data.
+      expect(HomeWidgetService.appGroupId, isNotEmpty);
+      expect(HomeWidgetService.appGroupId, equals('PostboxGameWidget'));
+    });
   });
 
   group('HomeWidgetService', () {
