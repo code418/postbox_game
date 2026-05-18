@@ -94,7 +94,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
         actionLabel: 'change notification settings')) {
       return;
     }
-    final previous = _notifPrefs;
+    // Snapshot the previous value of *this key only* so a rollback after a
+    // failed write doesn't clobber a concurrent toggle of a different switch.
+    // Capturing the whole map and restoring it would undo any other key's
+    // in-flight optimistic update — and if that other write happened to
+    // succeed, the UI would end up out of sync with the server.
+    final previousValue = _notifPrefs[key];
     setState(() => _notifPrefs = {..._notifPrefs, key: value});
     try {
       // Use dot-notation update so only the toggled key is touched. A nested
@@ -105,8 +110,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
           .doc(uid)
           .update({'notificationPrefs.$key': value});
     } catch (_) {
-      // Rollback optimistic update on write failure.
-      if (mounted) setState(() => _notifPrefs = previous);
+      // Rollback only this key on write failure.
+      if (mounted && previousValue != null) {
+        setState(() => _notifPrefs = {..._notifPrefs, key: previousValue});
+      }
     }
   }
 
