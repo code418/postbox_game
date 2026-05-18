@@ -2827,6 +2827,30 @@ describe("filterToCorridor", () => {
     // Exactly one candidate (pb_on) has zero perpendicular distance.
     assert.strictEqual(result.length, 1);
   });
+
+  it("returns empty array when half-width is negative", () => {
+    // A negative half-width is nonsense (caller shouldn't pass it) but the
+    // function must degrade safely: no perpDist can be <= a negative number,
+    // so nothing should be included rather than throwing.
+    const result = filterToCorridor(makeCandidates(), start, end, -100);
+    assert.strictEqual(result.length, 0);
+  });
+
+  it("degenerate segment (start == end): includes candidates within halfWidth of start", () => {
+    // When start and end coincide, segLenSq is 0 and t falls back to 0 —
+    // every candidate gets t=0 (no rejection by the projection bounds) and
+    // perpDist becomes the great-circle distance from start. This is the
+    // explicitly-documented degenerate-segment behaviour.
+    const here = { lat: 0, lng: 0 };
+    const candidates = [
+      { id: "pb_near_start", lat: 0,     lng: 0.001, monarch: null, points: 2 }, // ~111 m east
+      { id: "pb_far_start",  lat: 0,     lng: 0.01,  monarch: null, points: 2 }, // ~1.1 km east
+    ];
+    // 200 m half-width — pb_near_start fits, pb_far_start does not.
+    const result = filterToCorridor(candidates, here, here, 200);
+    assert.strictEqual(result.length, 1);
+    assert.strictEqual(result[0].id, "pb_near_start");
+  });
 });
 
 // ── routePostboxes pure logic tests ──────────────────────────────────────────
