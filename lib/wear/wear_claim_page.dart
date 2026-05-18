@@ -59,10 +59,12 @@ class _WearClaimPageState extends State<WearClaimPage> {
       });
       if (!mounted) return;
       final counts = result.data['counts'] ?? {};
+      final points = (result.data['points'] as Map?) ?? const {};
       // Cloud Functions serialise JS numbers as either int or double; `as int?`
       // would throw on a double, so normalise via num.
-      final total = (counts['total'] as num?)?.toInt() ?? 0;
-      final claimed = (counts['claimedToday'] as num?)?.toInt() ?? 0;
+      int asInt(dynamic v) => (v as num?)?.toInt() ?? 0;
+      final total = asInt(counts['total']);
+      final claimed = asInt(counts['claimedToday']);
       _postboxes = Map<String, dynamic>.from(result.data['postboxes'] ?? {});
       setState(() {
         _count = total;
@@ -71,6 +73,14 @@ class _WearClaimPageState extends State<WearClaimPage> {
       });
       if (total > 0) {
         HapticFeedback.lightImpact();
+        Analytics.scanComplete(
+          count: total,
+          claimedToday: claimed,
+          minPoints: asInt(points['min']),
+          maxPoints: asInt(points['max']),
+        );
+      } else {
+        Analytics.scanEmpty();
       }
     } on LocationServiceException catch (e) {
       // Previously these landed in the generic catch and rendered as
