@@ -5,7 +5,7 @@ import { filterToCorridor, filterToEllipse, beamSearchOrienteering } from "../_r
 import { getPoints } from "../_getPoints";
 import { getTodayLondon } from "../_dateUtils";
 import { getWeekStart, getMonthStart, getPeriodKey, mergePeriodEntries, mergeLifetimeEntries, updateUserLeaderboards, countySlug } from "../_leaderboardUtils";
-import { setPrecision, getLatLng } from "../_lookupPostboxes";
+import { setPrecision, getLatLng, MAX_GEOHASH_PRECISION } from "../_lookupPostboxes";
 import { applyUserClaims } from "../_nearbyUtils";
 import { computeNewStreak } from "../_streakUtils";
 import { containsProfanity } from "../_profanityFilter";
@@ -519,6 +519,20 @@ describe("setPrecision", () => {
     // to the final return-1 branch. Documents that the function is
     // conservatively wide-open for unparseable input rather than throwing.
     assert.strictEqual(setPrecision(Number.NaN), 1);
+  });
+
+  it("MAX_GEOHASH_PRECISION === 9 (the canonical stored precision)", () => {
+    // Pin the export. import_postboxes.js and reports.ts both rely on this
+    // being 9 — drift here means prefix queries silently miss documents
+    // (their fixed 9-char prefix can't match stored 8-char hashes, etc.).
+    assert.strictEqual(MAX_GEOHASH_PRECISION, 9);
+  });
+
+  it("MAX_GEOHASH_PRECISION equals setPrecision's smallest-radius return", () => {
+    // setPrecision's first branch returns MAX_GEOHASH_PRECISION; if anyone
+    // bumps the constant they MUST update the branch (and the comment
+    // talking about 4.77m × 4.77m cells).
+    assert.strictEqual(setPrecision(0.001), MAX_GEOHASH_PRECISION);
   });
 });
 

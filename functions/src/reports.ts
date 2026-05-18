@@ -5,7 +5,7 @@ import * as geohash from "ngeohash";
 import { KNOWN_MONARCHS } from "./_getPoints";
 import { getTodayLondon } from "./_dateUtils";
 import { countySlug } from "./_leaderboardUtils";
-import { getLatLng } from "./_lookupPostboxes";
+import { getLatLng, MAX_GEOHASH_PRECISION } from "./_lookupPostboxes";
 import { containsProfanity } from "./_profanityFilter";
 import { rescoreAfterCypherChange } from "./_recomputeScores";
 import type { PostboxDoc, ReportPhoto } from "./types";
@@ -410,7 +410,10 @@ export const reviewReport = functions.https.onCall({ timeoutSeconds: 300 }, asyn
     const existing = await pbRef.get();
     const isNewBox = !existing.exists;
     const pbData: Record<string, unknown> = {
-      geohash: geohash.encode(lat, lng, 9),
+      // Encode at the canonical max precision so prefix-queries
+      // (_lookupPostboxes / routePostboxes) match this doc — see
+      // MAX_GEOHASH_PRECISION docs.
+      geohash: geohash.encode(lat, lng, MAX_GEOHASH_PRECISION),
       geopoint: new admin.firestore.GeoPoint(lat, lng),
       source: "user_report",
       reportId,
