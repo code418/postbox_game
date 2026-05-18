@@ -48,6 +48,10 @@ class _ReportMissingPostboxScreenState extends State<ReportMissingPostboxScreen>
   }
 
   Future<void> _fetchLocation() async {
+    // Guard against rapid double-taps on the Refresh button firing two
+    // concurrent getPosition() calls whose results race to setState (a
+    // slower failure could otherwise overwrite a faster success).
+    if (_locating) return;
     setState(() {
       _locating = true;
       _locationError = null;
