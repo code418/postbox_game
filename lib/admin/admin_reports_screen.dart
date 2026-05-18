@@ -427,7 +427,12 @@ class _PhotoThumbState extends State<_PhotoThumb> {
     final hasGps = widget.photo['exifLat'] != null && widget.photo['exifLng'] != null;
     return Padding(
       padding: const EdgeInsets.only(right: AppSpacing.sm),
-      child: GestureDetector(
+      // Tooltip provides the assistive-tech label for the photo thumbnail —
+      // without it, a screen reader on the admin screen would announce just
+      // "image" with no hint that tapping opens the full-size view.
+      child: Tooltip(
+        message: 'View photo',
+        child: GestureDetector(
         onTap: path == null ? null : () => _open(context, path),
         child: Stack(
           children: [
@@ -456,6 +461,7 @@ class _PhotoThumbState extends State<_PhotoThumb> {
               const Positioned(left: 3, bottom: 3, child: Icon(Icons.location_on, size: 14, color: Colors.white, shadows: [Shadow(blurRadius: 3)])),
           ],
         ),
+      ),
       ),
     );
   }
