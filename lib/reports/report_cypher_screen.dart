@@ -1,4 +1,8 @@
+import 'dart:async';
+
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
+import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/reports/report_form_widgets.dart';
 import 'package:postbox_game/reports/report_repository.dart';
@@ -64,10 +68,26 @@ class _ReportCypherScreenState extends State<ReportCypherScreen> {
         suggestedReference: _referenceController.text,
         photos: _photos,
       );
+      unawaited(Analytics.reportSubmitted(
+        type: 'wrong_cypher',
+        photoCount: _photos.length,
+      ));
       if (!mounted) return;
       await showReportThanksDialog(context);
       if (mounted) Navigator.of(context).pop(true);
+    } on FirebaseFunctionsException catch (e) {
+      unawaited(Analytics.reportSubmitFailed(
+        type: 'wrong_cypher',
+        reason: e.code.isNotEmpty ? e.code : 'unknown',
+      ));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not send report: ${e.message ?? e.code}')));
+      }
     } catch (e) {
+      unawaited(Analytics.reportSubmitFailed(
+        type: 'wrong_cypher',
+        reason: 'unknown',
+      ));
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not send report: $e')));
       }

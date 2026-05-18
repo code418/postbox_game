@@ -208,6 +208,35 @@ class Analytics {
       });
 
   // ---------------------------------------------------------------------------
+  // Problem reports — submission outcomes.
+  // ---------------------------------------------------------------------------
+
+  /// User successfully submitted a problem report. [type] is
+  /// "missing_postbox" or "wrong_cypher" matching the server's report type.
+  /// [photoCount] lets us see how often users attach photos vs file with
+  /// just a note.
+  static Future<void> reportSubmitted({
+    required String type,
+    required int photoCount,
+  }) =>
+      _log('report_submitted', {
+        'type': type,
+        'photo_count': photoCount,
+      });
+
+  /// Report submission failed before the server accepted it (e.g. quota
+  /// exceeded, network error, mid-upload failure). [type] same as above;
+  /// [reason] is a short error code suitable for grouping in dashboards.
+  static Future<void> reportSubmitFailed({
+    required String type,
+    required String reason,
+  }) =>
+      _log('report_submit_failed', {
+        'type': type,
+        'reason': reason,
+      });
+
+  // ---------------------------------------------------------------------------
   // Internal
   // ---------------------------------------------------------------------------
 
