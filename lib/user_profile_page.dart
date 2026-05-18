@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:postbox_game/london_date.dart';
+import 'package:postbox_game/streak_service.dart' show freshStreak;
 import 'package:postbox_game/theme.dart';
 
 class UserProfilePage extends StatefulWidget {
@@ -112,14 +113,15 @@ class _UserProfilePageState extends State<UserProfilePage> {
 
     // Staleness check: the stored `streak` is only reset server-side on the
     // user's next claim, so a profile viewed after a broken streak would
-    // otherwise show the old value until that happens.
-    final storedStreak = (userData['streak'] as num?)?.toInt() ?? 0;
-    final lastClaimDate = userData['lastClaimDate'] as String?;
-    final yesterday = yesterdayLondon();
-    final streak = (storedStreak > 0 &&
-            (lastClaimDate == today || lastClaimDate == yesterday))
-        ? storedStreak
-        : 0;
+    // otherwise show the old value until that happens. Shared with
+    // StreakService and HomeWidgetService via the freshStreak helper.
+    final streak = freshStreak(
+          storedStreak: (userData['streak'] as num?)?.toInt(),
+          lastClaimDate: userData['lastClaimDate'] as String?,
+          today: today,
+          yesterday: yesterdayLondon(),
+        ) ??
+        0;
 
     return _ProfileData(
       displayName: userData['displayName'] as String? ?? 'Unknown',
