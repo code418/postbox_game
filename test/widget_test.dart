@@ -577,6 +577,22 @@ void main() {
       expect(MonarchInfo.getPoints('EVIIIR'), equals(12));
     });
 
+    test('"all" exactly matches the cross-platform contract', () {
+      // Pin the exact set so adding or removing a monarch on the Dart side
+      // breaks this test loudly. The TS side has a mirror test against
+      // KNOWN_MONARCHS — both must match this same set to be cross-platform
+      // consistent (a new monarch added to one side without the other would
+      // mean the quiz pool / backend whitelist drift apart). Order-independent.
+      final sorted = [...MonarchInfo.all]..sort();
+      expect(
+        sorted,
+        equals(<String>[
+          'CIIIR', 'EIIR', 'EVIIIR', 'EVIIR', 'GR',
+          'GVIR', 'GVR', 'SCOTTISH_CROWN', 'VR',
+        ]),
+      );
+    });
+
     test('getPoints returns 2 for unknown cipher', () {
       expect(MonarchInfo.getPoints('UNKNOWN'), equals(2));
     });

@@ -2317,6 +2317,16 @@ describe("pointsForMonarch", () => {
       else assert.ok(getPoints(m) > 2, `${m} should score > 2`);
     }
   });
+  it("KNOWN_MONARCHS exactly matches the cross-platform contract", () => {
+    // Pin the exact set so adding or removing a monarch on the TS side
+    // breaks this test loudly. The Dart side has a mirror test against
+    // MonarchInfo.all — both must match this same set to be cross-platform
+    // consistent. Order-independent.
+    assert.deepStrictEqual(
+      [...KNOWN_MONARCHS].sort(),
+      ["CIIIR", "EIIR", "EVIIIR", "EVIIR", "GR", "GVIR", "GVR", "SCOTTISH_CROWN", "VR"],
+    );
+  });
 });
 
 describe("parsePhotos", () => {
