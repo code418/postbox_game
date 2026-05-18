@@ -32,6 +32,10 @@ class _WearCompassPageState extends State<WearCompassPage> {
   int _totalCount = 0;
   double? _heading;
   StreamSubscription<CompassEvent>? _compassSub;
+  /// Short human-readable error message shown on the [_CompassStage.error]
+  /// screen. Populated by [_scan] when a [LocationServiceException] gives us
+  /// a more specific cause than the generic "Scan failed".
+  String? _errorMessage;
 
   final HttpsCallable _callable =
       FirebaseFunctions.instance.httpsCallable('nearbyPostboxes');
@@ -75,7 +79,10 @@ class _WearCompassPageState extends State<WearCompassPage> {
 
   Future<void> _scan() async {
     if (_stage == _CompassStage.searching) return;
-    setState(() => _stage = _CompassStage.searching);
+    setState(() {
+      _stage = _CompassStage.searching;
+      _errorMessage = null;
+    });
     Analytics.scanStarted();
     try {
       final position = await getPosition(forceLocationManager: true);
@@ -105,17 +112,36 @@ class _WearCompassPageState extends State<WearCompassPage> {
       });
       // Haptic pulse to signal scan complete.
       HapticFeedback.lightImpact();
+    } on LocationServiceException catch (e) {
+      debugPrint('Wear compass location error: $e');
+      if (!mounted) return;
+      HapticFeedback.heavyImpact();
+      setState(() {
+        _stage = _CompassStage.error;
+        _errorMessage = switch (e.kind) {
+          LocationErrorKind.servicesDisabled => 'Turn on location',
+          LocationErrorKind.permissionPermanentlyDenied =>
+            'Location denied. Enable in settings.',
+          LocationErrorKind.permissionDenied => 'Location needed to scan',
+        };
+      });
     } catch (e) {
       debugPrint('Wear compass scan error: $e');
       if (!mounted) return;
       HapticFeedback.heavyImpact();
-      setState(() => _stage = _CompassStage.error);
+      setState(() {
+        _stage = _CompassStage.error;
+        _errorMessage = 'Scan failed';
+      });
     } finally {
       // Safety net: ensure we never get permanently stuck on 'searching' if
       // an unexpected Dart Error bypasses the catch block above. Without this
       // the GestureDetector's `onTap` is null and the user can't re-scan.
       if (mounted && _stage == _CompassStage.searching) {
-        setState(() => _stage = _CompassStage.error);
+        setState(() {
+          _stage = _CompassStage.error;
+          _errorMessage ??= 'Scan failed';
+        });
       }
     }
   }
@@ -174,21 +200,25 @@ class _WearCompassPageState extends State<WearCompassPage> {
 
       case _CompassStage.error:
         return Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.error_outline, size: 32, color: Colors.red),
-              const SizedBox(height: WearSpacing.md),
-              Text(
-                'Scan failed',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const SizedBox(height: WearSpacing.sm),
-              Text(
-                'Tap to retry',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ],
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: WearSpacing.lg),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.error_outline, size: 32, color: Colors.red),
+                const SizedBox(height: WearSpacing.md),
+                Text(
+                  _errorMessage ?? 'Scan failed',
+                  style: Theme.of(context).textTheme.titleMedium,
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: WearSpacing.sm),
+                Text(
+                  'Tap to retry',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
           ),
         );
     }
