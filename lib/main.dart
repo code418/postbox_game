@@ -81,12 +81,22 @@ void main() async {
 /// open the Claim tab and auto-scan, then cleared.
 bool _pendingWidgetAutoScan = false;
 
+/// Whether [uri] is the home-screen widget's claim deep link.
+///
+/// The Kotlin widget provider fires `postbox://claim?source=widget`
+/// (PostboxWidgetProvider.kt DEEP_LINK). Keeping the parsing in one place
+/// stops the two call sites below from drifting and gives a single thing
+/// to pin in tests against the Kotlin constant.
+@visibleForTesting
+bool isWidgetClaimDeepLink(Uri? uri) =>
+    uri != null &&
+    uri.host == 'claim' &&
+    uri.queryParameters['source'] == 'widget';
+
 Future<void> _checkInitialWidgetLaunch() async {
   try {
     final uri = await HomeWidget.initiallyLaunchedFromHomeWidget();
-    if (uri != null &&
-        uri.host == 'claim' &&
-        uri.queryParameters['source'] == 'widget') {
+    if (isWidgetClaimDeepLink(uri)) {
       _pendingWidgetAutoScan = true;
     }
   } catch (_) {
@@ -122,9 +132,7 @@ class _PostboxGameState extends State<PostboxGame> {
     _pendingWidgetAutoScan = false;
     try {
       _widgetClickSub = HomeWidget.widgetClicked.listen((uri) {
-        if (uri != null &&
-            uri.host == 'claim' &&
-            uri.queryParameters['source'] == 'widget') {
+        if (isWidgetClaimDeepLink(uri)) {
           setState(() => _autoScanEpoch++);
         }
       });

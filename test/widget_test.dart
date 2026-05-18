@@ -51,6 +51,46 @@ void main() {
     });
   });
 
+  group('isWidgetClaimDeepLink (Kotlin DEEP_LINK contract)', () {
+    // Mirror of PostboxWidgetProvider.kt:74
+    //   private const val DEEP_LINK = "postbox://claim?source=widget"
+    // Pin the Dart-side parser against the exact Kotlin URI so a future
+    // rename of either side fails this test before users see "the widget
+    // tap does nothing".
+    test('accepts the exact Kotlin DEEP_LINK URI', () {
+      expect(
+        isWidgetClaimDeepLink(Uri.parse('postbox://claim?source=widget')),
+        isTrue,
+      );
+    });
+    test('rejects a null URI', () {
+      expect(isWidgetClaimDeepLink(null), isFalse);
+    });
+    test('rejects a different host', () {
+      // e.g. a hypothetical "postbox://home?source=widget" — Dart would
+      // treat that as a different deep link.
+      expect(
+        isWidgetClaimDeepLink(Uri.parse('postbox://home?source=widget')),
+        isFalse,
+      );
+    });
+    test('rejects a missing source param', () {
+      // Bare postbox://claim with no source=widget shouldn't trigger the
+      // auto-scan path — defends against an unrelated future deep link
+      // that happens to share the "claim" host but a different source.
+      expect(
+        isWidgetClaimDeepLink(Uri.parse('postbox://claim')),
+        isFalse,
+      );
+    });
+    test('rejects a different source value', () {
+      expect(
+        isWidgetClaimDeepLink(Uri.parse('postbox://claim?source=push')),
+        isFalse,
+      );
+    });
+  });
+
   // ---------------------------------------------------------------------------
   // AppSpacing unit tests
   // ---------------------------------------------------------------------------
