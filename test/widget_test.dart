@@ -444,6 +444,88 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
+  // freshStreak pure helper — shared between StreakService + HomeWidgetService
+  // ---------------------------------------------------------------------------
+
+  group('freshStreak', () {
+    // The helper is the single source of truth for "is this user's streak
+    // still alive". HomeWidgetService and StreakService both call it so a
+    // future tweak (e.g. counting "today only" instead of "today or yesterday"
+    // as fresh) doesn't have to be applied in two places.
+    test('returns null when storedStreak is null', () {
+      expect(
+        freshStreak(
+          storedStreak: null,
+          lastClaimDate: '2026-05-18',
+          today: '2026-05-18',
+          yesterday: '2026-05-17',
+        ),
+        isNull,
+      );
+    });
+
+    test('returns 0 when storedStreak is 0 (no-op)', () {
+      expect(
+        freshStreak(
+          storedStreak: 0,
+          lastClaimDate: '2026-05-18',
+          today: '2026-05-18',
+          yesterday: '2026-05-17',
+        ),
+        equals(0),
+      );
+    });
+
+    test('returns stored value when last claim was today', () {
+      expect(
+        freshStreak(
+          storedStreak: 7,
+          lastClaimDate: '2026-05-18',
+          today: '2026-05-18',
+          yesterday: '2026-05-17',
+        ),
+        equals(7),
+      );
+    });
+
+    test('returns stored value when last claim was yesterday', () {
+      expect(
+        freshStreak(
+          storedStreak: 4,
+          lastClaimDate: '2026-05-17',
+          today: '2026-05-18',
+          yesterday: '2026-05-17',
+        ),
+        equals(4),
+      );
+    });
+
+    test('returns 0 when last claim was two days ago', () {
+      expect(
+        freshStreak(
+          storedStreak: 9,
+          lastClaimDate: '2026-05-16',
+          today: '2026-05-18',
+          yesterday: '2026-05-17',
+        ),
+        equals(0),
+      );
+    });
+
+    test('returns 0 when lastClaimDate is missing', () {
+      expect(
+        freshStreak(
+          storedStreak: 5,
+          lastClaimDate: null,
+          today: '2026-05-18',
+          yesterday: '2026-05-17',
+        ),
+        equals(0),
+      );
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // AppPreferences unit tests
   // ---------------------------------------------------------------------------
 

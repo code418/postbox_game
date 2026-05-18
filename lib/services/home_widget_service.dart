@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:home_widget/home_widget.dart';
 import 'package:postbox_game/london_date.dart';
+import 'package:postbox_game/streak_service.dart' show freshStreak;
 
 /// Pushes streak + today's points to the native Android home-screen widget.
 ///
@@ -89,11 +90,16 @@ class HomeWidgetService {
       final weekPoints =
           storedWeekStart == currentWeekStart ? storedWeekPoints : 0;
       // Streak is only reset on the user's next claim, so a broken streak
-      // would otherwise stay visible on the widget until then.
-      final streak = (storedStreak > 0 &&
-              (lastClaimDate == today || lastClaimDate == yesterday))
-          ? storedStreak
-          : 0;
+      // would otherwise stay visible on the widget until then. The shared
+      // freshStreak helper (same logic as StreakService) returns 0 when
+      // lastClaimDate is older than yesterday.
+      final streak = freshStreak(
+            storedStreak: storedStreak,
+            lastClaimDate: lastClaimDate,
+            today: today,
+            yesterday: yesterday,
+          ) ??
+          0;
       await _saveAll(
         signedIn: true,
         streak: streak,
