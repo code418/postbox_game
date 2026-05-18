@@ -4,21 +4,26 @@ on:
   pull_request:
 
 jobs:
-  lint-and-build:
+  lint-build-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # Match functions/package.json `"engines": {"node": "22"}` so CI
+          # uses the same runtime as production. Previously pinned to 20.
+          node-version: '22'
           cache: 'npm'
           cache-dependency-path: functions/package-lock.json
       - name: Install dependencies
         working-directory: functions
         run: npm ci
-      - name: Build TypeScript
-        working-directory: functions
-        run: npm run build
       - name: Lint
         working-directory: functions
         run: npm run lint
+      - name: Test (implicitly builds via npm run build)
+        # `npm test` runs `npm run build && nyc mocha …`, so it covers the
+        # previous "Build TypeScript" step too. Catches TS regressions AND
+        # failing unit tests before the PR merges.
+        working-directory: functions
+        run: npm test
