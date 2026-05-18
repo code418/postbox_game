@@ -60,8 +60,19 @@ class _ReportMissingPostboxScreenState extends State<ReportMissingPostboxScreen>
     try {
       final pos = await getPosition();
       if (mounted) setState(() => _position = pos);
-    } catch (e) {
-      if (mounted) setState(() => _locationError = '$e');
+    } on LocationServiceException catch (e) {
+      // Surface the typed [message] instead of the toString() (which is
+      // prefixed with the class name + kind enum — verbose and unhelpful in
+      // a UI banner).
+      if (e.kind == LocationErrorKind.permissionPermanentlyDenied) {
+        unawaited(Analytics.locationPermissionPermanentlyDenied());
+      }
+      if (mounted) setState(() => _locationError = e.message);
+    } catch (_) {
+      if (mounted) {
+        setState(() =>
+            _locationError = 'Could not determine your location. Please try again.');
+      }
     } finally {
       if (mounted) setState(() => _locating = false);
     }
