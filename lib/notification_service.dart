@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:postbox_game/maintenance_guard.dart';
 
 /// Handles FCM initialisation, permission requests, device token registration,
 /// and foreground notification display via flutter_local_notifications.
@@ -117,6 +118,9 @@ class NotificationService {
   }
 
   static Future<void> _registerToken(String token) async {
+    // Skip silently when the app is in read-only mode. The next foregrounding
+    // after maintenance clears will trigger another token-refresh registration.
+    if (MaintenanceGuard.isOn) return;
     try {
       await FirebaseFunctions.instance
           .httpsCallable('registerFcmToken')

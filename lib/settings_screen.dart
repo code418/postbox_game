@@ -10,6 +10,7 @@ import 'package:postbox_game/app_preferences.dart';
 import 'package:postbox_game/authentication_bloc/bloc.dart';
 import 'package:postbox_game/county_heatmap.dart';
 import 'package:postbox_game/intro.dart';
+import 'package:postbox_game/maintenance_guard.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/user_repository.dart';
 import 'package:postbox_game/validators.dart';
@@ -89,6 +90,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _setNotifPref(String key, bool value) async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
+    if (MaintenanceGuard.blocked(context,
+        actionLabel: 'change notification settings')) {
+      return;
+    }
     final previous = _notifPrefs;
     setState(() => _notifPrefs = {..._notifPrefs, key: value});
     try {
@@ -174,6 +179,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
 
     if (newName == null || !mounted) return;
+    if (MaintenanceGuard.blocked(context,
+        actionLabel: 'change display name')) {
+      return;
+    }
 
     setState(() => _isSaving = true);
     try {
@@ -713,6 +722,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _setMapColour(String? key) async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
+    if (MaintenanceGuard.blocked(context,
+        actionLabel: 'change the map colour')) {
+      return;
+    }
     try {
       await FirebaseFirestore.instance.collection('users').doc(uid).update({
         'mapColor': key ?? FieldValue.delete(),

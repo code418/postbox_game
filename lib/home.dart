@@ -15,6 +15,7 @@ import 'package:postbox_game/leaderboard_screen.dart';
 import 'package:postbox_game/nearby.dart';
 import 'package:postbox_game/reports/my_reports_screen.dart';
 import 'package:postbox_game/theme.dart';
+import 'package:postbox_game/widgets/maintenance_banner.dart';
 
 class Home extends StatefulWidget {
   const Home({super.key, this.initialIndex = 0, this.autoScan = false});
@@ -194,17 +195,24 @@ class _HomeState extends State<Home> {
             ),
           ],
         ),
-        body: Stack(
+        body: Column(
           children: [
-            IndexedStack(
-              index: _selectedIndex,
-              children: _pages,
-            ),
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: JamesStrip(controller: _jamesController),
+            const MaintenanceBanner(),
+            Expanded(
+              child: Stack(
+                children: [
+                  IndexedStack(
+                    index: _selectedIndex,
+                    children: _pages,
+                  ),
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: JamesStrip(controller: _jamesController),
+                  ),
+                ],
+              ),
             ),
           ],
         ),

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:firebase_remote_config/firebase_remote_config.dart';
 import 'package:flutter/foundation.dart';
 
@@ -7,18 +9,26 @@ import 'package:flutter/foundation.dart';
 /// below), wires the fetch lifecycle once at app start, and exposes one
 /// typed getter per flag so call sites never see raw keys.
 ///
-/// The first slice ships three flags:
+/// Flags currently shipped:
 /// - [killSwitchRouteMode]    — hide Route Mode without a release.
 /// - [killSwitchReporting]    — hide problem-reporting entry points.
 /// - [jamesWelcomeVariant]    — A/B copy variant for James's first-launch line.
+/// - [maintenanceMode]        — flip the app into read-only mode (banner +
+///                              every write entry-point refuses with a toast).
+/// - [maintenanceMessage]     — admin-authored banner copy shown while
+///                              [maintenanceMode] is on.
 ///
 /// Defaults match today's shipped behaviour so the app degrades to the current
 /// experience if Remote Config never resolves.
 class RemoteConfigService {
   RemoteConfigService({FirebaseRemoteConfig? remoteConfig})
-      : _rc = remoteConfig ?? FirebaseRemoteConfig.instance;
+      : _rc = remoteConfig ?? FirebaseRemoteConfig.instance {
+    _maintenanceMode = ValueNotifier<bool>(_rc.getBool(keyMaintenanceMode));
+  }
 
   final FirebaseRemoteConfig _rc;
+  late final ValueNotifier<bool> _maintenanceMode;
+  StreamSubscription<RemoteConfigUpdate>? _updateSub;
 
   /// Process-wide accessor. The first read constructs an instance backed by
   /// `FirebaseRemoteConfig.instance`; tests can substitute a fake via the
@@ -41,9 +51,16 @@ class RemoteConfigService {
   static const String keyKillSwitchRouteMode = 'kill_switch_route_mode';
   static const String keyKillSwitchReporting = 'kill_switch_reporting';
   static const String keyJamesWelcomeVariant = 'james_welcome_variant';
+  static const String keyMaintenanceMode = 'maintenance_mode';
+  static const String keyMaintenanceMessage = 'maintenance_message';
 
   static const String welcomeVariantClassic = 'classic';
   static const String welcomeVariantCheeky = 'cheeky';
+
+  /// Default banner copy when no remote string is set. James voice, no em-dash.
+  static const String defaultMaintenanceMessage =
+      "The Royal Mail van's pulled in for a service. "
+      'Have a browse around for a bit, postie...';
 
   /// Defaults are the source of truth for both registration with the plugin
   /// and for the admin debug screen. Keep types stable — the plugin coerces
@@ -52,6 +69,8 @@ class RemoteConfigService {
     keyKillSwitchRouteMode: false,
     keyKillSwitchReporting: false,
     keyJamesWelcomeVariant: welcomeVariantClassic,
+    keyMaintenanceMode: false,
+    keyMaintenanceMessage: defaultMaintenanceMessage,
   };
 
   static const Duration _fetchTimeout = Duration(seconds: 10);
@@ -69,14 +88,55 @@ class RemoteConfigService {
       ));
       await _rc.setDefaults(defaults);
       await _rc.fetchAndActivate();
+      _syncMaintenanceMode();
+      _subscribeToConfigUpdates();
     } catch (e, st) {
       debugPrint('RemoteConfigService.init failed: $e\n$st');
+    }
+  }
+
+  /// Push-channel subscription so a flag flipped on the Firebase console
+  /// reaches foregrounded clients in seconds rather than waiting out the
+  /// 1-hour minimum fetch interval. Failures are swallowed — the app still
+  /// works on cached values.
+  void _subscribeToConfigUpdates() {
+    _updateSub?.cancel();
+    try {
+      _updateSub = _rc.onConfigUpdated.listen((_) async {
+        try {
+          await _rc.activate();
+          _syncMaintenanceMode();
+        } catch (e, st) {
+          debugPrint('RemoteConfigService activate-on-update failed: $e\n$st');
+        }
+      }, onError: (Object e, StackTrace st) {
+        debugPrint('RemoteConfigService onConfigUpdated error: $e\n$st');
+      });
+    } catch (e, st) {
+      // Some test fakes / older plugin versions may not expose the stream.
+      debugPrint('RemoteConfigService onConfigUpdated unavailable: $e\n$st');
+    }
+  }
+
+  void _syncMaintenanceMode() {
+    final v = _rc.getBool(keyMaintenanceMode);
+    if (_maintenanceMode.value != v) {
+      _maintenanceMode.value = v;
     }
   }
 
   bool get killSwitchRouteMode => _rc.getBool(keyKillSwitchRouteMode);
   bool get killSwitchReporting => _rc.getBool(keyKillSwitchReporting);
   String get jamesWelcomeVariant => _rc.getString(keyJamesWelcomeVariant);
+  bool get maintenanceMode => _rc.getBool(keyMaintenanceMode);
+  String get maintenanceMessage {
+    final raw = _rc.getString(keyMaintenanceMessage).trim();
+    return raw.isEmpty ? defaultMaintenanceMessage : raw;
+  }
+
+  /// UI subscribes to this to rebuild when the maintenance flag flips
+  /// (via push, force-refresh, or a fresh fetch).
+  ValueListenable<bool> get maintenanceModeListenable => _maintenanceMode;
 
   RemoteConfigFetchStatus get lastFetchStatus => _rc.lastFetchStatus;
   DateTime get lastFetchTime => _rc.lastFetchTime;
@@ -97,6 +157,7 @@ class RemoteConfigService {
           minimumFetchInterval: _releaseMinInterval,
         ));
       }
+      _syncMaintenanceMode();
       return activated;
     } catch (e, st) {
       debugPrint('RemoteConfigService.forceRefresh failed: $e\n$st');

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/location_service.dart';
+import 'package:postbox_game/maintenance_guard.dart';
 import 'package:postbox_game/reports/report_form_widgets.dart';
 import 'package:postbox_game/reports/report_repository.dart';
 import 'package:postbox_game/theme.dart';
@@ -69,6 +70,9 @@ class _ReportMissingPostboxScreenState extends State<ReportMissingPostboxScreen>
   Future<void> _submit() async {
     final pos = _position;
     if (pos == null) return;
+    if (MaintenanceGuard.blocked(context, actionLabel: 'send a report')) {
+      return;
+    }
     setState(() => _submitting = true);
     try {
       await ReportRepository.submitMissingPostbox(

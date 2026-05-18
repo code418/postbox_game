@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:postbox_game/analytics_service.dart';
+import 'package:postbox_game/maintenance_guard.dart';
 import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/reports/report_form_widgets.dart';
 import 'package:postbox_game/reports/report_repository.dart';
@@ -57,6 +58,9 @@ class _ReportCypherScreenState extends State<ReportCypherScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Pick the correct cypher, add a note, or attach a photo first.')),
       );
+      return;
+    }
+    if (MaintenanceGuard.blocked(context, actionLabel: 'send a report')) {
       return;
     }
     setState(() => _submitting = true);

@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:postbox_game/maintenance_guard.dart';
 import 'package:postbox_game/validators.dart';
 
 class UserRepository {
@@ -74,6 +75,8 @@ class UserRepository {
   Future<void> backfillDisplayNameIfMissing() async {
     final user = _firebaseAuth.currentUser;
     if (user == null) return;
+    // Skip silently during maintenance — re-runs naturally on the next launch.
+    if (MaintenanceGuard.isOn) return;
     try {
       final doc = await _firestore.collection('users').doc(user.uid).get();
       final existing = doc.exists

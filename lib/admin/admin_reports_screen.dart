@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:postbox_game/admin/admin_access.dart';
+import 'package:postbox_game/maintenance_guard.dart';
 import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/reports/report_form_widgets.dart';
 import 'package:postbox_game/reports/report_repository.dart'
@@ -206,6 +207,9 @@ class _ReportCardState extends State<_ReportCard> {
   }
 
   Future<void> _reject() async {
+    if (MaintenanceGuard.blocked(context, actionLabel: 'review reports')) {
+      return;
+    }
     final noteController = TextEditingController();
     try {
       final ok = await showDialog<bool>(
@@ -235,6 +239,9 @@ class _ReportCardState extends State<_ReportCard> {
   }
 
   Future<void> _accept() async {
+    if (MaintenanceGuard.blocked(context, actionLabel: 'review reports')) {
+      return;
+    }
     // Default the final-cypher picker to the suggestion (if any).
     String initialCypher = notSureCypher;
     if (d.containsKey('suggestedMonarch')) {

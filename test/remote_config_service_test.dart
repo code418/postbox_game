@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:firebase_remote_config/firebase_remote_config.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:postbox_game/remote_config_service.dart';
@@ -16,8 +18,33 @@ class _FakeRemoteConfig extends Fake implements FirebaseRemoteConfig {
   bool shouldThrowOnFetch;
 
   int fetchAndActivateCalls = 0;
+  int activateCalls = 0;
   int setConfigSettingsCalls = 0;
   Duration? lastMinimumFetchInterval;
+
+  final StreamController<RemoteConfigUpdate> _updates =
+      StreamController<RemoteConfigUpdate>.broadcast();
+  @override
+  Stream<RemoteConfigUpdate> get onConfigUpdated => _updates.stream;
+
+  /// Test helper: swap the backing remote values and fire an update event so
+  /// the service re-activates and pushes the new state to its notifier.
+  void pushRemoteUpdate(Map<String, Object> newValues) {
+    _remote
+      ..clear()
+      ..addAll(newValues);
+    _updates.add(RemoteConfigUpdate(newValues.keys.toSet()));
+  }
+
+  void disposeFake() {
+    _updates.close();
+  }
+
+  @override
+  Future<bool> activate() async {
+    activateCalls++;
+    return true;
+  }
 
   RemoteConfigFetchStatus _status = RemoteConfigFetchStatus.noFetchYet;
   @override
@@ -131,6 +158,95 @@ void main() {
           RemoteConfigService.defaults,
           containsPair(RemoteConfigService.keyJamesWelcomeVariant,
               RemoteConfigService.welcomeVariantClassic));
+      expect(RemoteConfigService.defaults,
+          containsPair(RemoteConfigService.keyMaintenanceMode, false));
+      expect(
+          RemoteConfigService.defaults,
+          containsPair(RemoteConfigService.keyMaintenanceMessage,
+              RemoteConfigService.defaultMaintenanceMessage));
+    });
+  });
+
+  group('RemoteConfigService maintenance flag', () {
+    test('defaults to off with the canned English message', () async {
+      final fake = _FakeRemoteConfig();
+      final service = RemoteConfigService(remoteConfig: fake);
+      await service.init();
+
+      expect(service.maintenanceMode, isFalse);
+      expect(service.maintenanceMessage,
+          equals(RemoteConfigService.defaultMaintenanceMessage));
+      expect(service.maintenanceModeListenable.value, isFalse);
+
+      fake.disposeFake();
+    });
+
+    test('remote value flips the flag and seeds the notifier on init',
+        () async {
+      final fake = _FakeRemoteConfig(remoteValues: {
+        RemoteConfigService.keyMaintenanceMode: true,
+        RemoteConfigService.keyMaintenanceMessage: 'Back shortly, postie...',
+      });
+      final service = RemoteConfigService(remoteConfig: fake);
+      await service.init();
+
+      expect(service.maintenanceMode, isTrue);
+      expect(service.maintenanceMessage, equals('Back shortly, postie...'));
+      expect(service.maintenanceModeListenable.value, isTrue);
+
+      fake.disposeFake();
+    });
+
+    test('empty remote message falls back to the canned default', () async {
+      final fake = _FakeRemoteConfig(remoteValues: {
+        RemoteConfigService.keyMaintenanceMode: true,
+        RemoteConfigService.keyMaintenanceMessage: '   ',
+      });
+      final service = RemoteConfigService(remoteConfig: fake);
+      await service.init();
+
+      expect(service.maintenanceMessage,
+          equals(RemoteConfigService.defaultMaintenanceMessage));
+
+      fake.disposeFake();
+    });
+
+    test('onConfigUpdated push event flips the notifier without an app restart',
+        () async {
+      final fake = _FakeRemoteConfig();
+      final service = RemoteConfigService(remoteConfig: fake);
+      await service.init();
+
+      expect(service.maintenanceModeListenable.value, isFalse);
+      var notified = 0;
+      service.maintenanceModeListenable.addListener(() => notified++);
+
+      fake.pushRemoteUpdate({
+        RemoteConfigService.keyMaintenanceMode: true,
+      });
+      // Let the listener microtask run.
+      await Future<void>.delayed(Duration.zero);
+
+      expect(fake.activateCalls, greaterThanOrEqualTo(1));
+      expect(service.maintenanceModeListenable.value, isTrue);
+      expect(notified, equals(1));
+
+      fake.disposeFake();
+    });
+
+    test('forceRefresh also syncs the maintenance notifier', () async {
+      final fake = _FakeRemoteConfig();
+      final service = RemoteConfigService(remoteConfig: fake);
+      await service.init();
+
+      // Mutate the remote backing store without firing onConfigUpdated, then
+      // ask the service to forceRefresh — it must pick up the new value.
+      fake._remote[RemoteConfigService.keyMaintenanceMode] = true;
+      await service.forceRefresh();
+
+      expect(service.maintenanceModeListenable.value, isTrue);
+
+      fake.disposeFake();
     });
   });
 

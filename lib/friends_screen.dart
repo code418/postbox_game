@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/display_name_utils.dart';
+import 'package:postbox_game/maintenance_guard.dart';
 import 'package:postbox_game/user_profile_page.dart';
 import 'package:postbox_game/theme.dart';
 
@@ -60,6 +61,9 @@ class _FriendsScreenState extends State<FriendsScreen> {
 
   Future<void> _addFriendByUid(String friendUid) async {
     if (_isAdding) return;
+    if (MaintenanceGuard.blocked(context, actionLabel: 'add a friend')) {
+      return;
+    }
     setState(() => _isAdding = true);
     try {
       final uid = _currentUid;
@@ -167,6 +171,9 @@ class _FriendsScreenState extends State<FriendsScreen> {
       ),
     );
     if (confirmed != true || !mounted) return;
+    if (MaintenanceGuard.blocked(context, actionLabel: 'remove a friend')) {
+      return;
+    }
 
     setState(() => _removingUids.add(friendUid));
     try {

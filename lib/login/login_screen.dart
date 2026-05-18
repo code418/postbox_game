@@ -6,6 +6,7 @@ import 'package:postbox_game/login/bloc/bloc.dart';
 import 'package:postbox_game/login/login_form.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/user_repository.dart';
+import 'package:postbox_game/widgets/maintenance_banner.dart';
 
 class LoginScreen extends StatelessWidget {
   final UserRepository _userRepository;
@@ -18,42 +19,53 @@ class LoginScreen extends StatelessWidget {
     return Scaffold(
       body: BlocProvider<LoginBloc>(
         create: (context) => LoginBloc(userRepository: _userRepository),
-        child: SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
-            child: Column(
-              children: [
-                const SizedBox(height: AppSpacing.xxl),
-                SvgPicture.asset(
-                  'assets/postbox.svg',
-                  height: 80,
-                  colorFilter: const ColorFilter.mode(
-                    postalRed,
-                    BlendMode.srcIn,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.md),
-                Text(
-                  'The Postbox Game',
-                  style: GoogleFonts.playfairDisplay(
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.xs),
-                Text(
-                  'Sign in to start collecting',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+        child: Column(
+          children: [
+            const MaintenanceBanner(),
+            Expanded(
+              child: SafeArea(
+                child: SingleChildScrollView(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+                  child: Column(
+                    children: [
+                      const SizedBox(height: AppSpacing.xxl),
+                      SvgPicture.asset(
+                        'assets/postbox.svg',
+                        height: 80,
+                        colorFilter: const ColorFilter.mode(
+                          postalRed,
+                          BlendMode.srcIn,
+                        ),
                       ),
+                      const SizedBox(height: AppSpacing.md),
+                      Text(
+                        'The Postbox Game',
+                        style: GoogleFonts.playfairDisplay(
+                          fontSize: 28,
+                          fontWeight: FontWeight.bold,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
+                      const SizedBox(height: AppSpacing.xs),
+                      Text(
+                        'Sign in to start collecting',
+                        style:
+                            Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant,
+                                ),
+                      ),
+                      const SizedBox(height: AppSpacing.xl),
+                      LoginForm(userRepository: _userRepository),
+                      const SizedBox(height: AppSpacing.xl),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: AppSpacing.xl),
-                LoginForm(userRepository: _userRepository),
-                const SizedBox(height: AppSpacing.xl),
-              ],
+              ),
             ),
-          ),
+          ],
         ),
       ),
     );

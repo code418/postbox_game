@@ -12,6 +12,7 @@ import 'package:postbox_game/app_preferences.dart';
 import 'package:postbox_game/james_controller.dart';
 import 'package:postbox_game/james_messages.dart';
 import 'package:postbox_game/location_service.dart';
+import 'package:postbox_game/maintenance_guard.dart';
 import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/remote_config_service.dart';
 import 'package:postbox_game/reports/report_missing_postbox_screen.dart';
@@ -378,6 +379,9 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
 
   Future<void> _claimPostbox() async {
     if (_isClaiming) return;
+    if (MaintenanceGuard.blocked(context, actionLabel: 'claim')) {
+      return;
+    }
     setState(() => _isClaiming = true);
     HapticFeedback.mediumImpact();
     try {
