@@ -388,11 +388,17 @@ class _FriendsScreenState extends State<FriendsScreen> {
                 );
               }
               final data = snapshot.data!.data();
-              final list = data?['friends'] as List<dynamic>? ?? [];
+              // Defensive: filter to strings only. Firestore rules cap the
+              // array length but don't enforce element types, so a corrupted
+              // doc (e.g. from a future schema change or malicious client)
+              // could otherwise crash the ListView's `as String` cast below.
+              final list = (data?['friends'] as List<dynamic>? ?? const [])
+                  .whereType<String>()
+                  .toList();
               // Schedule a batched lookup for any uid we haven't resolved yet.
               // This runs once per friend-set change; per-row reads are gone.
               WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (mounted) _ensureNames(list.whereType<String>().toSet());
+                if (mounted) _ensureNames(list.toSet());
               });
 
               if (list.isEmpty) {
@@ -434,7 +440,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
                 padding: const EdgeInsets.only(
                     top: AppSpacing.sm, bottom: 100),
                 itemBuilder: (context, index) {
-                  final friendUid = list[index] as String;
+                  final friendUid = list[index];
                   final resolved = _namesByUid[friendUid];
                   final isLoading = resolved == null;
                   // Empty-string marker means the batch lookup returned no
