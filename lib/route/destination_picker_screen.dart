@@ -62,6 +62,12 @@ class _DestinationPickerScreenState extends State<DestinationPickerScreen> {
   /// Non-null when we failed to acquire the user's position.
   String? _locationError;
 
+  /// True while a [getPosition] call is in flight. Guards [_acquirePosition]
+  /// so a rapid double-tap on the "Try again" button can't fire two
+  /// concurrent GPS reads whose results race to setState (and risk a slower
+  /// failure overwriting a faster success).
+  bool _acquiringPosition = false;
+
   // ── Search ────────────────────────────────────────────────────────────────
 
   late final NominatimService _nominatimService;
@@ -120,6 +126,8 @@ class _DestinationPickerScreenState extends State<DestinationPickerScreen> {
   }
 
   Future<void> _acquirePosition() async {
+    if (_acquiringPosition) return;
+    _acquiringPosition = true;
     try {
       final pos = await getPosition();
       if (!mounted) return;
@@ -164,6 +172,8 @@ class _DestinationPickerScreenState extends State<DestinationPickerScreen> {
           backgroundColor: Colors.red.shade700,
         ),
       );
+    } finally {
+      _acquiringPosition = false;
     }
   }
 
