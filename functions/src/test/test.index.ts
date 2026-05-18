@@ -622,6 +622,39 @@ describe("containsProfanity", () => {
   it("returns false for an empty string", () => assert.strictEqual(containsProfanity(""), false));
   it("returns false for whitespace-only string", () => assert.strictEqual(containsProfanity("   "), false));
   it("returns true for slur 'paki'", () => assert.strictEqual(containsProfanity("paki"), true));
+
+  // ── Scunthorpe-problem regressions ─────────────────────────────────────────
+  // The comment in _profanityFilter.ts explicitly lists "arse", "cock",
+  // "dick", "mong", and "spic" as words that were REMOVED from the block
+  // list because their substring match flagged legitimate names. Pin those
+  // legitimate names so a future "tighten the filter" PR can't silently
+  // re-block real users.
+  it("allows 'Richard' (would trip an old 'dick' rule)", () =>
+    assert.strictEqual(containsProfanity("Richard"), false));
+  it("allows 'Dickson' surname", () =>
+    assert.strictEqual(containsProfanity("Dickson"), false));
+  it("allows 'Cockburn' surname (Scottish)", () =>
+    assert.strictEqual(containsProfanity("Cockburn"), false));
+  it("allows 'Hancock' surname", () =>
+    assert.strictEqual(containsProfanity("Hancock"), false));
+  it("allows 'peacock' (and Peacock surname)", () => {
+    assert.strictEqual(containsProfanity("peacock"), false);
+    assert.strictEqual(containsProfanity("Peacock"), false);
+  });
+  it("allows 'Arsenal'", () =>
+    assert.strictEqual(containsProfanity("Arsenal"), false));
+  it("allows 'parser' (would trip an old 'arse' rule)", () =>
+    assert.strictEqual(containsProfanity("parser"), false));
+  it("allows 'Mongolia' (would trip an old 'mong' rule)", () =>
+    assert.strictEqual(containsProfanity("Mongolia"), false));
+  it("allows 'among' and 'monger'", () => {
+    assert.strictEqual(containsProfanity("among"), false);
+    assert.strictEqual(containsProfanity("monger"), false);
+  });
+  it("allows 'spice' and 'suspicion' (would trip an old 'spic' rule)", () => {
+    assert.strictEqual(containsProfanity("spice"), false);
+    assert.strictEqual(containsProfanity("suspicion"), false);
+  });
 });
 
 describe("checkTravelSpeed", () => {

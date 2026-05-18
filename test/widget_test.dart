@@ -232,6 +232,23 @@ void main() {
       test('allows 30-char names', () {
         expect(Validators.isValidDisplayName('a' * 30), isTrue);
       });
+
+      // Scunthorpe-problem regression: the comment in lib/validators.dart
+      // explicitly lists names that an older block list rejected (arse, cock,
+      // dick, mong, spic). Pin those legitimate names so a tightening change
+      // can't silently break real users. Keep in sync with the equivalent
+      // backend regression in functions/src/test/test.index.ts (containsProfanity).
+      test('allows legitimate names that an old block list would have rejected',
+          () {
+        expect(Validators.isValidDisplayName('Richard'), isTrue);
+        expect(Validators.isValidDisplayName('Dickson'), isTrue);
+        expect(Validators.isValidDisplayName('Cockburn'), isTrue);
+        expect(Validators.isValidDisplayName('Hancock'), isTrue);
+        expect(Validators.isValidDisplayName('Peacock'), isTrue);
+        expect(Validators.isValidDisplayName('Arsenal'), isTrue);
+        expect(Validators.isValidDisplayName('Mongolia'), isTrue);
+        expect(Validators.isValidDisplayName('among'), isTrue);
+      });
     });
 
     group('displayNameError', () {
