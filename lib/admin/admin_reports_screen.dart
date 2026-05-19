@@ -280,8 +280,19 @@ class _ReportCardState extends State<_ReportCard> {
       } else {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Report rejected')));
       }
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed: $e')));
+    } on FirebaseFunctionsException catch (e) {
+      // Admins benefit from seeing the typed error message + code for triage,
+      // but not the raw toString (which prefixes "FirebaseFunctionsException
+      // (...)" and includes the stack location).
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Failed: ${e.message ?? e.code}')));
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Failed. Please try again.')));
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
