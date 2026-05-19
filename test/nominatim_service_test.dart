@@ -203,5 +203,39 @@ void main() {
               'Second call should be delayed by ≥1 s due to throttle (gap was '
               '${gap.inMilliseconds} ms)');
     });
+
+    test('throttle: three rapid calls each separated by ≥1 second', () async {
+      // Regression test for a race the two-call test missed: with the old
+      // throttle (update _lastCallAt only after the await), a third call
+      // entering during the second call's wait would see the same
+      // _lastCallAt as the second and queue against the same anchor —
+      // collapsing onto the same wall-clock slot as the second call rather
+      // than waiting another 1 s. Reserving the slot before the await
+      // guarantees N>2 concurrent calls fan out 1 s apart.
+      final callTimes = <DateTime>[];
+
+      final mockClient = MockClient((_) async {
+        callTimes.add(DateTime.now());
+        return http.Response('[]', 200);
+      });
+
+      final service = NominatimService(client: mockClient);
+
+      // Fire all three concurrently — no awaits between them.
+      final futures = <Future<void>>[
+        service.search('London'),
+        service.search('Manchester'),
+        service.search('Birmingham'),
+      ];
+      await Future.wait(futures);
+
+      expect(callTimes.length, 3);
+      final gap12 = callTimes[1].difference(callTimes[0]).inMilliseconds;
+      final gap23 = callTimes[2].difference(callTimes[1]).inMilliseconds;
+      expect(gap12, greaterThanOrEqualTo(900),
+          reason: 'Call 1→2 gap was $gap12 ms, expected ≥1 s');
+      expect(gap23, greaterThanOrEqualTo(900),
+          reason: 'Call 2→3 gap was $gap23 ms, expected ≥1 s');
+    });
   });
 }
