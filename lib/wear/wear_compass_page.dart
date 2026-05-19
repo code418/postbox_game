@@ -30,6 +30,10 @@ class _WearCompassPageState extends State<WearCompassPage> {
   _CompassStage _stage = _CompassStage.initial;
   Map<String, int> _compassCounts = {};
   int _totalCount = 0;
+  /// How many postboxes the user has already claimed today within the scan
+  /// radius. Used to distinguish "no postboxes nearby" from "all the postboxes
+  /// here are already in your collection" on the empty-results screen.
+  int _claimedToday = 0;
   double? _heading;
   StreamSubscription<CompassEvent>? _compassSub;
   /// Short human-readable error message shown on the [_CompassStage.error]
@@ -105,6 +109,7 @@ class _WearCompassPageState extends State<WearCompassPage> {
         // Show unclaimed-only count so it agrees with the compass sectors,
         // which only render directions of postboxes still claimable today.
         _totalCount = (total - claimed).clamp(0, total);
+        _claimedToday = claimed;
         // Tolerate a missing/null sector value rather than crashing the scan
         // (matches the `asInt` helper used by the phone Nearby screen).
         _compassCounts = {
@@ -242,23 +247,28 @@ class _WearCompassPageState extends State<WearCompassPage> {
 
   Widget _buildCompass(BuildContext context) {
     if (_totalCount == 0) {
+      // Distinguish "all claimed" from "no postboxes nearby" so a watch user
+      // who's already collected every box in this area sees the right message
+      // rather than the misleading "None to find" (which implies no postboxes
+      // are around at all).
+      final allClaimed = _claimedToday > 0;
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
-              Icons.location_off,
+              allClaimed ? Icons.lock_clock : Icons.location_off,
               size: 32,
               color: Colors.white.withValues(alpha: 0.7),
             ),
             const SizedBox(height: WearSpacing.md),
             Text(
-              'None to find',
+              allClaimed ? 'All claimed' : 'None to find',
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: WearSpacing.sm),
             Text(
-              'Tap to rescan',
+              allClaimed ? 'Resets at midnight' : 'Tap to rescan',
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ],
