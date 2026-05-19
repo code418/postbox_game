@@ -79,6 +79,7 @@ flutter:
   # To add assets to your application, add an assets section, like this:
   assets:
     - assets/postman_james.svg
+    - assets/postman_james.png
     - assets/postbox.svg
     - assets/uk_counties_simplified.geojson
 

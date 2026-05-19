@@ -2,7 +2,7 @@ import 'package:animated_text_kit/animated_text_kit.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:postbox_game/james_messages.dart';
-import 'package:postbox_game/postman_james_svg.dart';
+import 'package:postbox_game/postman_james.dart';
 import 'package:postbox_game/theme.dart';
 
 /// First-run cinematic intro: postbox on stage, Postman James, dialogue, then app overview.
@@ -181,7 +181,7 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
                   const SizedBox(width: AppSpacing.lg),
                   FractionalTranslation(
                     translation: Offset(_jamesSlide.value, 0),
-                    child: const PostmanJamesSvg(size: 100),
+                    child: const PostmanJames(size: 100),
                   ),
                 ],
               ),
@@ -212,7 +212,7 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
               children: [
                 SvgPicture.asset('assets/postbox.svg', width: 64, height: 64),
                 const SizedBox(width: AppSpacing.md),
-                const PostmanJamesSvg(size: 90, isTalking: true),
+                const PostmanJames(size: 90, isTalking: true),
               ],
             ),
             const SizedBox(height: AppSpacing.xl),
@@ -251,7 +251,7 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const PostmanJamesSvg(
+            const PostmanJames(
                 size: 160, showStarEyes: true, isTalking: true),
             const SizedBox(height: AppSpacing.lg),
             Text(

@@ -214,7 +214,7 @@ Future<void> showReportThanksDialog(BuildContext context) {
       icon: const Icon(Icons.check_circle_outline, color: postalRed, size: 40),
       title: const Text('Thanks for the report'),
       content: const Text(
-        'James will pass it on to the sorting office. If it checks out we will '
+        'Thanks for the report. If it checks out we will '
         'update the data and, where it applies, your past claims will be re-scored.',
       ),
       actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Righto'))],

@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:postbox_game/james_controller.dart';
-import 'package:postbox_game/postman_james_svg.dart';
+import 'package:postbox_game/postman_james.dart';
 
 class JamesStrip extends StatefulWidget {
   const JamesStrip({super.key, required this.controller});
@@ -172,7 +172,7 @@ class _JamesStripState extends State<JamesStrip> with SingleTickerProviderStateM
             children: [
               ListenableBuilder(
                 listenable: widget.controller,
-                builder: (_, __) => PostmanJamesSvg(
+                builder: (_, __) => PostmanJames(
                   size: 44,
                   isTalking: widget.controller.isTalking,
                 ),
