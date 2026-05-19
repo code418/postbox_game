@@ -68,15 +68,22 @@ class NominatimService {
     final trimmed = query.trim();
     if (trimmed.isEmpty) return const [];
 
-    // Enforce 1 rps client-side throttle.
+    // Enforce 1 rps client-side throttle. Reserve the next slot *before*
+    // awaiting so two concurrent search() calls fire 1 s apart, not both at
+    // the same instant. The previous version updated _lastCallAt only after
+    // the await: a second call entering during the first call's wait would
+    // see the unchanged _lastCallAt and compute its own wait against the
+    // same anchor, ending the wait at the same wall-clock moment as the
+    // first — silently violating the OSM 1 rps usage policy.
     final now = DateTime.now();
-    if (_lastCallAt != null) {
-      final elapsed = now.difference(_lastCallAt!);
-      if (elapsed < _minInterval) {
-        await Future.delayed(_minInterval - elapsed);
-      }
+    final earliestNext =
+        _lastCallAt == null ? now : _lastCallAt!.add(_minInterval);
+    final nextSlot = earliestNext.isAfter(now) ? earliestNext : now;
+    _lastCallAt = nextSlot;
+    final wait = nextSlot.difference(now);
+    if (wait > Duration.zero) {
+      await Future.delayed(wait);
     }
-    _lastCallAt = DateTime.now();
 
     final uri = Uri.parse(_baseUrl).replace(queryParameters: {
       'q': trimmed,
