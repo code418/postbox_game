@@ -93,9 +93,10 @@ class PhotoPickerField extends StatelessWidget {
           ),
         );
       }
-    } catch (e) {
+    } catch (_) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not add photo: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Could not add photo. Please try again.')));
       }
     }
   }

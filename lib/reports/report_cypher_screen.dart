@@ -87,13 +87,14 @@ class _ReportCypherScreenState extends State<ReportCypherScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not send report: ${e.message ?? e.code}')));
       }
-    } catch (e) {
+    } catch (_) {
       unawaited(Analytics.reportSubmitFailed(
         type: 'wrong_cypher',
         reason: 'unknown',
       ));
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not send report: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Could not send report. Please try again.')));
       }
     } finally {
       if (mounted) setState(() => _submitting = false);

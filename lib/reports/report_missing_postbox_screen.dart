@@ -110,13 +110,14 @@ class _ReportMissingPostboxScreenState extends State<ReportMissingPostboxScreen>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not send report: ${e.message ?? e.code}')));
       }
-    } catch (e) {
+    } catch (_) {
       unawaited(Analytics.reportSubmitFailed(
         type: 'missing_postbox',
         reason: 'unknown',
       ));
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not send report: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Could not send report. Please try again.')));
       }
     } finally {
       if (mounted) setState(() => _submitting = false);
