@@ -2,6 +2,7 @@ package com.code418.postbox_game.car
 
 import com.google.firebase.firestore.FirebaseFirestore
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Locale
 import java.util.TimeZone
 import kotlinx.coroutines.channels.awaitClose
@@ -36,6 +37,7 @@ object StatsRepository {
         val reg = db.collection("users").document(uid)
             .addSnapshotListener { snap, err ->
                 if (err != null || snap == null || !snap.exists()) return@addSnapshotListener
+                val storedStreak = (snap.get("streak") as? Number)?.toInt() ?: 0
                 trySend(
                     UserStats(
                         // The user doc stores the cumulative total under
@@ -44,7 +46,13 @@ object StatsRepository {
                         // the previous read always fell back to 0.
                         lifetimePoints = (snap.get("lifetimePoints") as? Number)?.toInt() ?: 0,
                         uniquePostboxesClaimed = (snap.get("uniquePostboxesClaimed") as? Number)?.toInt() ?: 0,
-                        streak = (snap.get("streak") as? Number)?.toInt() ?: 0,
+                        // Apply the same staleness rule as lib/streak_service.dart's
+                        // freshStreak: the server only resets `streak` on the next
+                        // claim, so a streak whose lastClaimDate is older than
+                        // yesterday (London) is stale and must read as 0 here too —
+                        // otherwise the car shows a streak the phone, widget, and
+                        // profile page all consider broken.
+                        streak = freshStreak(storedStreak, snap.getString("lastClaimDate")),
                         displayName = snap.getString("displayName"),
                     )
                 )
@@ -93,5 +101,35 @@ object StatsRepository {
         val fmt = SimpleDateFormat("yyyy-MM-dd", Locale.UK)
         fmt.timeZone = TimeZone.getTimeZone("Europe/London")
         return fmt.format(java.util.Date())
+    }
+
+    /** YYYY-MM-DD of the day before [londonDateToday] in Europe/London.
+     *  Mirrors yesterdayLondon() in lib/london_date.dart: it subtracts a
+     *  calendar day from today's London date (parsed as a UTC midnight)
+     *  rather than subtracting 24h from "now", which would be wrong in the
+     *  first hour after the spring-forward DST change. */
+    private fun londonDateYesterday(): String {
+        val utc = TimeZone.getTimeZone("UTC")
+        val parser = SimpleDateFormat("yyyy-MM-dd", Locale.UK).apply { timeZone = utc }
+        val cal = Calendar.getInstance(utc).apply {
+            time = parser.parse(londonDateToday())!!
+            add(Calendar.DAY_OF_MONTH, -1)
+        }
+        return SimpleDateFormat("yyyy-MM-dd", Locale.UK).apply { timeZone = utc }.format(cal.time)
+    }
+
+    /** Staleness-corrected streak, mirroring freshStreak() in
+     *  lib/streak_service.dart. The server writes `streak` only when a claim
+     *  happens, so a user who missed yesterday still has a non-zero stored
+     *  value; it is "fresh" only when [lastClaimDate] is today or yesterday
+     *  (London), otherwise the live streak is 0. */
+    private fun freshStreak(storedStreak: Int, lastClaimDate: String?): Int {
+        if (storedStreak == 0) return 0
+        if (lastClaimDate == null) return 0
+        return if (lastClaimDate == londonDateToday() || lastClaimDate == londonDateYesterday()) {
+            storedStreak
+        } else {
+            0
+        }
     }
 }
