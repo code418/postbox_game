@@ -41,6 +41,9 @@ class ReportRepository {
   ReportRepository._();
 
   static const int maxPhotos = 3;
+  /// Per-photo size cap. MUST match the `request.resource.size < 10 * 1024 *
+  /// 1024` bound in storage.rules — pickPhotos drops anything `>=` this so the
+  /// client never uploads a file the Storage rule will reject.
   static const int maxPhotoBytes = 10 * 1024 * 1024;
 
   /// Maximum length of the free-text note field. MUST match the server-side
@@ -85,7 +88,13 @@ class ReportRepository {
     var oversized = 0;
     for (final f in files.take(remainingSlots)) {
       final bytes = await f.readAsBytes();
-      if (bytes.length > maxPhotoBytes) {
+      // Drop at >= the cap, not >: storage.rules accepts only
+      // `request.resource.size < 10 * 1024 * 1024`, so a file of exactly
+      // maxPhotoBytes passes this filter but is then rejected by the rule at
+      // upload time — surfacing as a confusing generic "upload failed" instead
+      // of the clear oversized-photo hint. Matching the rule's strict bound
+      // here means anything this filter accepts, the rule accepts too.
+      if (bytes.length >= maxPhotoBytes) {
         oversized++;
         continue;
       }
