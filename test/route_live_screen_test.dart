@@ -741,6 +741,122 @@ void main() {
       expect(body, contains('2 postboxes claimed'));
     });
   });
+
+  // -------------------------------------------------------------------------
+  // relativeHintDirection (pure bearing maths for "Where now, postie?")
+  // -------------------------------------------------------------------------
+  group('relativeHintDirection', () {
+    test('returns "ahead" when no postboxes are visible in any sector', () {
+      expect(
+        relativeHintDirection(compassCounts: const {}, destinationBearingDeg: 0),
+        equals('ahead'),
+      );
+      expect(
+        relativeHintDirection(
+          compassCounts: const {'N': 0, 'E': 0},
+          destinationBearingDeg: 137,
+        ),
+        equals('ahead'),
+      );
+    });
+
+    test('densest sector aligned with destination bearing → "ahead"', () {
+      // Most boxes due East; heading due East.
+      expect(
+        relativeHintDirection(
+          compassCounts: const {'E': 4, 'N': 1},
+          destinationBearingDeg: 90,
+        ),
+        equals('ahead'),
+      );
+    });
+
+    test('densest sector clockwise of destination → "right"', () {
+      // Boxes due East (90°), walking due North (0°): East is on the right.
+      expect(
+        relativeHintDirection(
+          compassCounts: const {'E': 5},
+          destinationBearingDeg: 0,
+        ),
+        equals('right'),
+      );
+    });
+
+    test('densest sector anticlockwise of destination → "left"', () {
+      // Boxes due North (0°), walking due East (90°): North is on the left.
+      expect(
+        relativeHintDirection(
+          compassCounts: const {'N': 5},
+          destinationBearingDeg: 90,
+        ),
+        equals('left'),
+      );
+    });
+
+    test('densest sector opposite the destination → "behind"', () {
+      // Boxes due South (180°), walking due North (0°): South is behind.
+      expect(
+        relativeHintDirection(
+          compassCounts: const {'S': 5},
+          destinationBearingDeg: 0,
+        ),
+        equals('behind'),
+      );
+    });
+
+    test('handles wrap-around when destination bearing is near 360', () {
+      // Boxes due North (0°), heading 350°: North is 10° clockwise → "ahead".
+      expect(
+        relativeHintDirection(
+          compassCounts: const {'N': 3},
+          destinationBearingDeg: 350,
+        ),
+        equals('ahead'),
+      );
+      // Boxes due East (90°), heading 350°: 100° clockwise → "right".
+      expect(
+        relativeHintDirection(
+          compassCounts: const {'E': 3},
+          destinationBearingDeg: 350,
+        ),
+        equals('right'),
+      );
+    });
+
+    test('merges 16-wind counts into 8-wind sectors before picking', () {
+      // NNE folds into the N sector (per FuzzyCompass.to8Sectors), so two NNE
+      // boxes outweigh a single E box and the result is classified from N.
+      expect(
+        relativeHintDirection(
+          compassCounts: const {'NNE': 2, 'E': 1},
+          destinationBearingDeg: 90, // heading East → N is on the left.
+        ),
+        equals('left'),
+      );
+    });
+
+    test('boundary at exactly 45° relative is "ahead" not "right"', () {
+      // Sector NE (45°), heading N (0°): rel = 45 → abs(rel) <= 45 → "ahead".
+      expect(
+        relativeHintDirection(
+          compassCounts: const {'NE': 2},
+          destinationBearingDeg: 0,
+        ),
+        equals('ahead'),
+      );
+    });
+
+    test('boundary at exactly 135° relative is "right" not "behind"', () {
+      // Sector SE (135°), heading N (0°): rel = 135 → "right".
+      expect(
+        relativeHintDirection(
+          compassCounts: const {'SE': 2},
+          destinationBearingDeg: 0,
+        ),
+        equals('right'),
+      );
+    });
+  });
 }
 
 // ---------------------------------------------------------------------------

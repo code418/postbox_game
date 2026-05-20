@@ -46,6 +46,57 @@ const double _kArrivalRadiusM = 25.0;
 const int _kClaimCooldownS = 60;
 
 // ---------------------------------------------------------------------------
+// Hint direction (pure — extracted for unit testing)
+// ---------------------------------------------------------------------------
+
+/// Picks the hint direction to surface via James for the "Where now, postie?"
+/// button: one of `"ahead"`, `"left"`, `"right"`, or `"behind"`.
+///
+/// Given the latest fuzzy-compass [compassCounts] (16-wind, true bearings) and
+/// the absolute [destinationBearingDeg] from the user to their destination,
+/// this finds the densest 8-wind sector of unclaimed postboxes and classifies
+/// its true bearing relative to the destination heading. Returns `"ahead"`
+/// when no postboxes are visible in any sector.
+///
+/// Pure and side-effect-free so the bearing maths (including the wrap-around
+/// normalisation) can be unit-tested without the live GPS/compass streams.
+String relativeHintDirection({
+  required Map<String, int> compassCounts,
+  required double destinationBearingDeg,
+}) {
+  final sectors8 = FuzzyCompass.to8Sectors(compassCounts);
+  const order = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  String bestDir = 'N';
+  int bestCount = -1;
+  for (final dir in order) {
+    final c = sectors8[dir] ?? 0;
+    if (c > bestCount) {
+      bestCount = c;
+      bestDir = dir;
+    }
+  }
+  if (bestCount <= 0) return 'ahead'; // Nothing visible — default.
+
+  const dirBearings = {
+    'N': 0.0, 'NE': 45.0, 'E': 90.0, 'SE': 135.0,
+    'S': 180.0, 'SW': 225.0, 'W': 270.0, 'NW': 315.0,
+  };
+  final sectorBearing = dirBearings[bestDir] ?? 0.0;
+
+  // Relative angle between the best sector and the destination bearing.
+  // Positive = clockwise (right), negative = anticlockwise (left). Dart's `%`
+  // always returns a non-negative result for a positive divisor, so the
+  // product is in [0, 360); the `> 180` shift normalises it to (-180, 180].
+  double rel = (sectorBearing - destinationBearingDeg) % 360;
+  if (rel > 180) rel -= 360;
+
+  if (rel.abs() <= 45) return 'ahead';
+  if (rel > 45 && rel <= 135) return 'right';
+  if (rel < -45 && rel >= -135) return 'left';
+  return 'behind';
+}
+
+// ---------------------------------------------------------------------------
 // Typedef for the nearbyPostboxes callable (injectable for testing)
 // ---------------------------------------------------------------------------
 
@@ -503,37 +554,12 @@ class _LiveRouteScreenState extends State<LiveRouteScreen> {
 
   /// Returns one of {"ahead", "left", "right", "behind"} relative to the
   /// destination bearing, based on which 8-wind sector has the most unclaimed
-  /// postboxes in the last fuzzy compass scan.
-  String _pickHintDirection() {
-    final sectors8 = FuzzyCompass.to8Sectors(_compassCounts);
-    const order = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
-    String bestDir = 'N';
-    int bestCount = -1;
-    for (final dir in order) {
-      final c = sectors8[dir] ?? 0;
-      if (c > bestCount) {
-        bestCount = c;
-        bestDir = dir;
-      }
-    }
-    if (bestCount <= 0) return 'ahead'; // Nothing visible — default.
-
-    const dirBearings = {
-      'N': 0.0, 'NE': 45.0, 'E': 90.0, 'SE': 135.0,
-      'S': 180.0, 'SW': 225.0, 'W': 270.0, 'NW': 315.0,
-    };
-    final sectorBearing = dirBearings[bestDir] ?? 0.0;
-
-    // Relative angle between the best sector and the destination bearing.
-    // Positive = clockwise (right), negative = anticlockwise (left).
-    double rel = (sectorBearing - _bearingToDestDeg) % 360;
-    if (rel > 180) rel -= 360; // Normalise to -180..180.
-
-    if (rel.abs() <= 45) return 'ahead';
-    if (rel > 45 && rel <= 135) return 'right';
-    if (rel < -45 && rel >= -135) return 'left';
-    return 'behind';
-  }
+  /// postboxes in the last fuzzy compass scan. Delegates to the pure
+  /// [relativeHintDirection] so the bearing maths stays unit-testable.
+  String _pickHintDirection() => relativeHintDirection(
+        compassCounts: _compassCounts,
+        destinationBearingDeg: _bearingToDestDeg,
+      );
 
   void _onHintTapped() {
     final direction = _pickHintDirection();
