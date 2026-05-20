@@ -12,6 +12,19 @@ import 'package:postbox_game/maintenance_guard.dart';
 import 'package:postbox_game/services/user_properties_publisher.dart';
 import 'package:postbox_game/user_profile_page.dart';
 import 'package:postbox_game/theme.dart';
+import 'package:share_plus/share_plus.dart';
+
+/// Play Store listing for the app, built from the Android applicationId.
+const String _playStoreUrl =
+    'https://play.google.com/store/apps/details?id=com.code418.postbox_game';
+
+/// Builds the invite message shared via the OS share sheet. Includes the
+/// user's UID so the recipient can add them back as a friend.
+String buildInviteMessage(String uid) =>
+    "Join me on Postbox Game! Hunt down Britain's historic postboxes, "
+    'claim them for points and climb the leaderboards.\n\n'
+    'Add me as a friend with my UID: $uid\n\n'
+    '$_playStoreUrl';
 
 /// Friends list and add-friend by UID.
 class FriendsScreen extends StatefulWidget {
@@ -267,6 +280,13 @@ class _FriendsScreenState extends State<FriendsScreen> {
     );
   }
 
+  Future<void> _shareApp() async {
+    final uid = _currentUid ?? '';
+    await SharePlus.instance.share(
+      ShareParams(text: buildInviteMessage(uid), subject: 'Postbox Game'),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final uid = _currentUid;
@@ -304,6 +324,20 @@ class _FriendsScreenState extends State<FriendsScreen> {
                 visualDensity: VisualDensity.compact,
               ),
             ],
+          ),
+        ),
+
+        // Invite / share the app
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+              AppSpacing.md, AppSpacing.sm, AppSpacing.md, 0),
+          child: SizedBox(
+            width: double.infinity,
+            child: FilledButton.tonalIcon(
+              onPressed: _shareApp,
+              icon: const Icon(Icons.share, size: 18),
+              label: const Text('Invite friends to play'),
+            ),
           ),
         ),
 

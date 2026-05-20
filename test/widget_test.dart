@@ -728,6 +728,25 @@ void main() {
     });
   });
 
+  group('buildInviteMessage', () {
+    test('includes the user UID so a friend can add them back', () {
+      expect(buildInviteMessage('abc123'), contains('abc123'));
+    });
+
+    test('includes the Play Store link built from the package id', () {
+      expect(
+        buildInviteMessage('abc123'),
+        contains(
+          'https://play.google.com/store/apps/details?id=com.code418.postbox_game',
+        ),
+      );
+    });
+
+    test('uses no em-dash, matching the app writing voice', () {
+      expect(buildInviteMessage('abc123'), isNot(contains('—')));
+    });
+  });
+
   // ---------------------------------------------------------------------------
   // FuzzyCompass unit tests
   // ---------------------------------------------------------------------------
