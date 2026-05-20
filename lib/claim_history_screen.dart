@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:postbox_game/app_preferences.dart' show ViewMode;
 import 'package:postbox_game/monarch_info.dart';
@@ -297,6 +298,18 @@ double _zoomForSpan(List<LatLng> points) {
   return 5;
 }
 
+/// Formats a server `YYYY-MM-DD` claim date as a human-friendly "20 May 2026".
+/// Falls back to the raw string when empty or unparseable so a malformed date
+/// never blanks out the detail sheet.
+String _fmtClaimDate(String ymd) {
+  if (ymd.isEmpty) return ymd;
+  try {
+    return DateFormat('d MMM yyyy').format(DateTime.parse(ymd));
+  } catch (_) {
+    return ymd;
+  }
+}
+
 class ClaimHistoryEntry {
   const ClaimHistoryEntry({
     required this.postboxId,
@@ -385,8 +398,8 @@ class _EntryDetailSheet extends StatelessWidget {
             _DetailRow(
               icon: Icons.calendar_today_outlined,
               label: entry.firstClaimed == entry.lastClaimed
-                  ? 'Claimed on ${entry.firstClaimed}'
-                  : 'First claimed ${entry.firstClaimed} · last ${entry.lastClaimed}',
+                  ? 'Claimed on ${_fmtClaimDate(entry.firstClaimed)}'
+                  : 'First claimed ${_fmtClaimDate(entry.firstClaimed)} · last ${_fmtClaimDate(entry.lastClaimed)}',
             ),
             const SizedBox(height: AppSpacing.sm),
             _DetailRow(
