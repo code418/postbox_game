@@ -20,9 +20,23 @@
       },
       "description": "Postman James's first-launch line variant. 'classic' = the shipped copy; 'cheeky' = the A/B variant. Other values fall back to 'classic'.",
       "valueType": "STRING"
+    },
+    "maintenance_mode": {
+      "defaultValue": {
+        "value": "false"
+      },
+      "description": "When true, flips the app into read-only mode: a banner shows and every write entry-point (claim, report, friends, settings) refuses with a toast. Emergency kill switch for backend maintenance.",
+      "valueType": "BOOLEAN"
+    },
+    "maintenance_message": {
+      "defaultValue": {
+        "value": "The Royal Mail van's pulled in for a service. Have a browse around for a bit, postie..."
+      },
+      "description": "Admin-authored banner copy shown while maintenance_mode is on. Empty falls back to the in-app default. Postman James voice; no em-dashes.",
+      "valueType": "STRING"
     }
   },
   "version": {
-    "description": "Initial Remote Config template for Postbox Game: two kill switches (Route Mode, problem reporting) and one A/B copy variant (James welcome line)."
+    "description": "Remote Config template for Postbox Game: two kill switches (Route Mode, problem reporting), one A/B copy variant (James welcome line), and the maintenance-mode kill switch + banner message. Defaults mirror RemoteConfigService.defaults in lib/remote_config_service.dart."
   }
 }
