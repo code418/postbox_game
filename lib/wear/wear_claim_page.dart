@@ -209,14 +209,26 @@ class _WearClaimPageState extends State<WearClaimPage> {
       final points = result.data?['points'] ?? 0;
       final earnedPts = points is int ? points : (points as num).toInt();
 
-      if (!found || allClaimedToday || claimedCount == 0) {
-        Analytics.claimFailed(
-          reason: !found ? 'out_of_range' : 'already_claimed_today',
-        );
+      if (!found) {
+        // Out of range. Surface a clear message instead of silently dropping
+        // back to the ready screen, which left the user unsure their tap
+        // registered. The error view's "Try again" button rescans.
+        Analytics.claimFailed(reason: 'out_of_range');
         if (!mounted) return;
         HapticFeedback.heavyImpact();
-        // Return to ready state — user can rescan.
-        setState(() => _stage = _ClaimStage.ready);
+        setState(() {
+          _stage = _ClaimStage.error;
+          _errorMessage = 'Too far. Move closer.';
+        });
+        return;
+      }
+      if (allClaimedToday || claimedCount == 0) {
+        // Already claimed today — re-scan so the view reflects the current
+        // (all-claimed) state rather than silently returning to ready.
+        Analytics.claimFailed(reason: 'already_claimed_today');
+        if (!mounted) return;
+        HapticFeedback.heavyImpact();
+        await _scan();
         return;
       }
 
@@ -368,6 +380,11 @@ class _WearClaimPageState extends State<WearClaimPage> {
 
   Widget _buildFound(BuildContext context) {
     final available = _count - _claimedToday;
+    final allClaimed = available <= 0;
+    // When everything nearby is already claimed, show the total found count
+    // rather than the available count: "0 postboxes" alongside "All claimed
+    // today" reads as a contradiction (it implies nothing was found).
+    final headlineCount = allClaimed ? _count : available;
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -375,10 +392,10 @@ class _WearClaimPageState extends State<WearClaimPage> {
           const Icon(Icons.location_on, size: 28, color: postalRed),
           const SizedBox(height: WearSpacing.sm),
           Text(
-            '$available postbox${available == 1 ? '' : 'es'}',
+            '$headlineCount postbox${headlineCount == 1 ? '' : 'es'}',
             style: Theme.of(context).textTheme.titleMedium,
           ),
-          if (_claimedToday > 0 && _claimedToday == _count) ...[
+          if (allClaimed) ...[
             const SizedBox(height: WearSpacing.sm),
             Text(
               'All claimed today',
