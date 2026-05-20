@@ -53,14 +53,6 @@ class _NearbyState extends State<Nearby> {
   StreamSubscription<CompassEvent>? _compassSubscription;
   NearbyStage currentStage = NearbyStage.initial;
 
-  // Throttle heading updates: skip if the delta is <5° to avoid redundant repaints.
-  // IndexedStack keeps Nearby mounted even offstage; without this the magnetometer
-  // would fire continuously even when the tab is hidden.
-  static double _headingDelta(double a, double b) {
-    final d = (a - b).abs() % 360;
-    return d > 180 ? 360 - d : d;
-  }
-
   @override
   void initState() {
     super.initState();
@@ -74,7 +66,12 @@ class _NearbyState extends State<Nearby> {
         final heading = event.heading;
         if (heading == null) return;
         final prev = _headingNotifier.value;
-        if (prev == null || _headingDelta(prev, heading) >= 5) {
+        // Throttle heading updates: skip deltas <5° to avoid redundant repaints.
+        // IndexedStack keeps Nearby mounted even offstage; without this the
+        // magnetometer would churn rebuilds even when the tab is hidden.
+        // Uses the shared, unit-tested helper from fuzzy_compass.dart (also
+        // used by live_route_screen) rather than a private duplicate.
+        if (prev == null || compassHeadingDelta(prev, heading) >= 5) {
           _headingNotifier.value = heading;
         }
       });
