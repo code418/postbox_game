@@ -6,6 +6,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:postbox_game/analytics_service.dart';
+import 'package:postbox_game/analytics_user_properties.dart';
 import 'package:postbox_game/app_preferences.dart';
 import 'package:postbox_game/authentication_bloc/bloc.dart';
 import 'package:postbox_game/county_heatmap.dart';
@@ -746,6 +748,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       await FirebaseFirestore.instance.collection('users').doc(uid).update({
         'mapColor': key ?? FieldValue.delete(),
       });
+      Analytics.setUserProperty(AnalyticsUserProps.kMapColor, mapColorProp(key));
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

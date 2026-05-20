@@ -2,6 +2,8 @@ import 'package:firebase_remote_config/firebase_remote_config.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:postbox_game/admin/admin_access.dart';
+import 'package:postbox_game/analytics_service.dart';
+import 'package:postbox_game/analytics_user_properties.dart';
 import 'package:postbox_game/remote_config_service.dart';
 import 'package:postbox_game/theme.dart';
 
@@ -72,6 +74,9 @@ class _AdminRemoteConfigScreenState extends State<AdminRemoteConfigScreen> {
             lastFetchStatus: rc.lastFetchStatus,
             lastFetchTime: rc.lastFetchTime,
           ),
+          const SizedBox(height: AppSpacing.md),
+          _UserPropertiesCard(
+              properties: Analytics.lastSetUserProperties),
           const SizedBox(height: AppSpacing.md),
           for (final entry in entries) ...[
             _EntryCard(entry: entry),
@@ -169,6 +174,63 @@ class _EntryCard extends StatelessWidget {
         ValueSource.valueDefault => 'default',
         ValueSource.valueStatic => 'static',
       };
+}
+
+class _UserPropertiesCard extends StatelessWidget {
+  const _UserPropertiesCard({required this.properties});
+
+  /// Snapshot of `Analytics.lastSetUserProperties` taken when this card was
+  /// built. A subsequent push (e.g. after a claim) won't update the live UI
+  /// until the screen rebuilds — refresh by tapping the AppBar refresh icon
+  /// or by navigating away and back.
+  final Map<String, String?> properties;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.md),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Analytics user properties',
+                style: theme.textTheme.titleSmall),
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              'Audience values reported to Firebase Analytics for Remote Config targeting.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            for (final key in AnalyticsUserProps.all)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(key,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                              fontFeatures: const [FontFeature.tabularFigures()])),
+                    ),
+                    Text(
+                      properties[key] ?? 'unset',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: properties.containsKey(key)
+                            ? null
+                            : theme.colorScheme.onSurfaceVariant,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _SourceChip extends StatelessWidget {

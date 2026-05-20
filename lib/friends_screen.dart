@@ -6,8 +6,10 @@ import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:postbox_game/analytics_service.dart';
+import 'package:postbox_game/analytics_user_properties.dart';
 import 'package:postbox_game/display_name_utils.dart';
 import 'package:postbox_game/maintenance_guard.dart';
+import 'package:postbox_game/services/user_properties_publisher.dart';
 import 'package:postbox_game/user_profile_page.dart';
 import 'package:postbox_game/theme.dart';
 
@@ -115,6 +117,10 @@ class _FriendsScreenState extends State<FriendsScreen> {
         'friends': FieldValue.arrayUnion([friendUid]),
       });
       Analytics.friendAdded();
+      // existingFriends pre-dates the just-written arrayUnion, so the new
+      // count is +1. Push the bucket directly rather than re-reading.
+      unawaited(Analytics.setUserProperty(AnalyticsUserProps.kFriendCountBucket,
+          friendCountBucket(existingFriends.length + 1)));
       // Bust the name cache so a re-add shows fresh data.
       _namesByUid.remove(friendUid);
       _knownUids = _knownUids.where((u) => u != friendUid).toSet();
@@ -181,6 +187,9 @@ class _FriendsScreenState extends State<FriendsScreen> {
         'friends': FieldValue.arrayRemove([friendUid]),
       });
       Analytics.friendRemoved();
+      // Re-read users/{uid} via the publisher to refresh friend_count_bucket
+      // (and any other property that may have changed since auth init).
+      unawaited(publishUserPropertiesFromFirestore(uid));
       // Bust the cache so re-adding this friend fetches fresh data.
       _namesByUid.remove(friendUid);
       _knownUids = _knownUids.where((u) => u != friendUid).toSet();

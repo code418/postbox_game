@@ -1,6 +1,8 @@
 import 'package:firebase_analytics/firebase_analytics.dart';
 import 'package:flutter/foundation.dart';
 
+import 'package:postbox_game/analytics_user_properties.dart';
+
 /// Thin typed wrapper around [FirebaseAnalytics].
 ///
 /// All methods are static and fire-and-forget — errors are logged in debug
@@ -8,7 +10,23 @@ import 'package:flutter/foundation.dart';
 class Analytics {
   Analytics._();
 
-  static final FirebaseAnalytics _fa = FirebaseAnalytics.instance;
+  static FirebaseAnalytics _fa = FirebaseAnalytics.instance;
+
+  /// Test seam — let unit tests inject a hand-rolled fake before any call
+  /// runs. Mirrors `RemoteConfigService.instance =`'s pattern.
+  @visibleForTesting
+  static set instance(FirebaseAnalytics fa) => _fa = fa;
+
+  @visibleForTesting
+  static FirebaseAnalytics get instance => _fa;
+
+  /// In-memory mirror of every user property the wrapper has set during this
+  /// process. FirebaseAnalytics has no "getUserProperty" API on Android/iOS,
+  /// so the admin Remote Config debug screen reads this map to verify
+  /// on-device which audience values are being reported.
+  static final Map<String, String?> _userProperties = <String, String?>{};
+  static Map<String, String?> get lastSetUserProperties =>
+      Map<String, String?>.unmodifiable(_userProperties);
 
   // One shared observer for the app lifetime — `navigatorObservers` is read
   // on every MaterialApp build, so a getter that returned a fresh
@@ -237,6 +255,40 @@ class Analytics {
       });
 
   // ---------------------------------------------------------------------------
+  // User identity & properties (Remote Config audience targeting)
+  // ---------------------------------------------------------------------------
+
+  /// Identify the signed-in user to Analytics so Remote Config experiments
+  /// can be hashed against a stable id rather than the (rotated) installation
+  /// id. Pass null on sign-out.
+  static Future<void> setUserId(String? uid) async {
+    try {
+      await _fa.setUserId(id: uid);
+    } catch (e) {
+      debugPrint('Analytics.setUserId: $e');
+    }
+  }
+
+  /// Sets every property in [s] on the Analytics user record, mirroring each
+  /// into [lastSetUserProperties] so the admin debug card can render them.
+  static Future<void> setUserProperties(UserPropertiesSnapshot s) async {
+    for (final entry in s.toMap().entries) {
+      await setUserProperty(entry.key, entry.value);
+    }
+  }
+
+  /// Single-key updater for mutation-point pushes (after a claim, after a
+  /// friend is added, etc.). Passing `null` clears the property.
+  static Future<void> setUserProperty(String name, String? value) async {
+    _userProperties[name] = value;
+    try {
+      await _fa.setUserProperty(name: name, value: value);
+    } catch (e) {
+      debugPrint('Analytics.setUserProperty($name): $e');
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Internal
   // ---------------------------------------------------------------------------
 
@@ -247,4 +299,7 @@ class Analytics {
       debugPrint('Analytics._log($name): $e');
     }
   }
+
+  @visibleForTesting
+  static void resetUserPropertiesForTest() => _userProperties.clear();
 }

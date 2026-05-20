@@ -7,8 +7,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/app_preferences.dart';
+import 'package:postbox_game/services/user_properties_publisher.dart';
 import 'package:postbox_game/james_controller.dart';
 import 'package:postbox_game/james_messages.dart';
 import 'package:postbox_game/location_service.dart';
@@ -428,6 +430,13 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
       final earnedPts = points is int ? points : (points as num).toInt();
       Analytics.claimSuccess(
           pointsEarned: earnedPts, claimedCount: claimedCount);
+      // Refresh the bucketed user properties (lifetime points, unique boxes,
+      // streak, claimed_today) so Remote Config audiences see the new state.
+      // Fire-and-forget — analytics never blocks the UI.
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid != null) {
+        unawaited(publishUserPropertiesFromFirestore(uid));
+      }
       setState(() {
         _pointsEarned = earnedPts;
         _claimedCount = claimedCount;

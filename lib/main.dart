@@ -27,10 +27,13 @@ import 'firebase_options.dart';
 import 'secrets.dart';
 import 'analytics_service.dart';
 import 'package:postbox_game/admin/admin_access.dart';
+import 'package:postbox_game/analytics_user_properties.dart';
 import 'package:postbox_game/notification_service.dart';
 import 'package:postbox_game/remote_config_service.dart';
 import 'package:postbox_game/route/destination_picker_screen.dart';
 import 'package:postbox_game/route/route_notifications.dart';
+import 'package:postbox_game/services/user_properties_publisher.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -178,6 +181,11 @@ class _PostboxGameState extends State<PostboxGame> {
               if (state is Authenticated) {
                 unawaited(NotificationService.init());
                 unawaited(_homeWidgetService.refresh());
+                final uid = FirebaseAuth.instance.currentUser?.uid;
+                if (uid != null) {
+                  unawaited(Analytics.setUserId(uid));
+                  unawaited(publishUserPropertiesFromFirestore(uid));
+                }
               } else if (state is Unauthenticated) {
                 unawaited(NotificationService.reset());
                 unawaited(_homeWidgetService.refresh());
@@ -185,6 +193,7 @@ class _PostboxGameState extends State<PostboxGame> {
                 // uid so a non-admin signing in next on the same device
                 // doesn't briefly see the admin entry points.
                 AdminAccess.reset();
+                unawaited(Analytics.setUserId(null));
               }
             },
             builder: (BuildContext context, AuthenticationState? state) {
@@ -260,6 +269,8 @@ class _UnauthGateState extends State<_UnauthGate> {
         replay: false,
         onDone: () async {
           await IntroPreferences.setIntroSeen();
+          unawaited(Analytics.setUserProperty(
+              AnalyticsUserProps.kHasSeenIntro, 'true'));
           if (mounted) setState(() => _introSeen = true);
         },
       );

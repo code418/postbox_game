@@ -4,6 +4,7 @@ import 'package:postbox_game/admin/admin_access.dart';
 import 'package:postbox_game/admin/admin_remote_config_screen.dart';
 import 'package:postbox_game/admin/admin_reports_screen.dart';
 import 'package:postbox_game/analytics_service.dart';
+import 'package:postbox_game/analytics_user_properties.dart';
 import 'package:postbox_game/claim.dart';
 import 'package:postbox_game/claim_history_screen.dart';
 import 'package:postbox_game/friends_screen.dart';
@@ -83,6 +84,12 @@ class _HomeState extends State<Home> {
     // `admin` custom claim. Force a token refresh so a recently-granted claim
     // shows up without requiring the user to sign out and back in.
     AdminAccess.isAdmin(forceRefresh: true).then((isAdmin) {
+      // Mirror the resolved custom claim into Analytics so Remote Config
+      // audiences can target admins / non-admins. Always push, even when
+      // false, so a non-admin device doesn't silently inherit a stale
+      // "true" from a previous account.
+      Analytics.setUserProperty(
+          AnalyticsUserProps.kIsAdmin, boolProp(isAdmin));
       if (mounted && isAdmin) setState(() => _isAdmin = true);
     });
   }
