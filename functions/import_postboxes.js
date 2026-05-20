@@ -439,14 +439,28 @@ async function main() {
   // excludes both the docs we skipped (correctedBy) and the manual_* docs
   // added by accepted missing-postbox reports, so using it as the lifetime
   // leaderboard's "X of Y" denominator would silently undercount.
+  //
+  // Subtract soft-pruned (removedFromOsm) docs: lookupPostboxes/routePostboxes
+  // skip them so they can never be claimed. Counting them in the denominator
+  // would inflate the "X of Y boxes (Z%)" total and make 100% unreachable.
+  // `removedFromOsm == true` matches exactly the pruned docs (normal/manual
+  // docs delete the field, so it's absent on them) and uses the automatic
+  // single-field index — no composite index needed.
   if (opts.limit === Infinity && !opts.dryRun) {
-    const countSnap = await col.count().get();
-    const totalPostboxes = countSnap.data().count;
+    const [countSnap, removedSnap] = await Promise.all([
+      col.count().get(),
+      col.where('removedFromOsm', '==', true).count().get(),
+    ]);
+    const removed = removedSnap.data().count;
+    const totalPostboxes = countSnap.data().count - removed;
     await db.collection('meta').doc('stats').set(
       { totalPostboxes },
       { merge: true }
     );
-    console.log(`meta/stats.totalPostboxes updated to ${totalPostboxes.toLocaleString()} (collection count).`);
+    console.log(
+      `meta/stats.totalPostboxes updated to ${totalPostboxes.toLocaleString()} ` +
+      `(claimable; ${removed.toLocaleString()} removed-from-OSM excluded).`
+    );
   }
 }
 
