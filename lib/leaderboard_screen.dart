@@ -314,73 +314,19 @@ class _LeaderboardListState extends State<_LeaderboardList>
                   ? '$uniqueBoxes ${uniqueBoxes == 1 ? 'box' : 'boxes'}$pctText · $totalPoints pts'
                   : '$points pts';
 
-              return Card(
-                color: isCurrentUser
-                    ? postalRed.withValues(alpha: 0.08)
-                    : null,
-                child: ListTile(
-                  onTap: entryUid != null
-                      ? () => Navigator.of(context).push(UserProfilePage.route(entryUid))
-                      : null,
-                  leading: _rankWidget(rank),
-                  title: Text(
-                    displayName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: isCurrentUser
-                        ? const TextStyle(fontWeight: FontWeight.bold)
-                        : null,
-                  ),
-                  trailing: Text(
-                    trailingText,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          color: isCurrentUser
-                              ? (Theme.of(context).brightness == Brightness.dark
-                                  ? AppColors.brandTextDark
-                                  : AppColors.brandTextLight)
-                              : Theme.of(context).colorScheme.onSurfaceVariant,
-                          fontWeight: isCurrentUser
-                              ? FontWeight.bold
-                              : FontWeight.normal,
-                        ),
-                  ),
-                ),
+              return _LeaderboardEntryTile(
+                rank: rank,
+                displayName: displayName,
+                entryUid: entryUid,
+                isCurrentUser: isCurrentUser,
+                isLifetime: _isLifetime,
+                valueText: trailingText,
               );
             },
           ),
         );
       },
     );
-  }
-
-  Widget _rankWidget(int rank) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    final brandText =
-        dark ? AppColors.brandTextDark : AppColors.brandTextLight;
-    switch (rank) {
-      case 1:
-        return const Icon(Icons.emoji_events, color: postalGold, size: 32);
-      case 2:
-        return Icon(Icons.emoji_events,
-            color: dark ? AppColors.mutedTextDark : AppColors.mutedTextLight,
-            size: 32);
-      case 3:
-        return Icon(Icons.emoji_events,
-            color: dark ? const Color(0xFFD9A26A) : const Color(0xFF8C5A2B),
-            size: 32);
-      default:
-        return CircleAvatar(
-          radius: 16,
-          backgroundColor: brandText.withValues(alpha: dark ? 0.18 : 0.12),
-          child: Text(
-            '$rank',
-            style: TextStyle(
-                color: brandText, fontSize: 13, fontWeight: FontWeight.w600),
-          ),
-        );
-    }
   }
 }
 
@@ -737,35 +683,13 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList>
                     trailingText = '$score pts';
                   }
 
-                  return Card(
-                    color: isCurrentUser ? postalRed.withValues(alpha: 0.08) : null,
-                    child: ListTile(
-                      onTap: entryUid != null
-                          ? () => Navigator.of(context)
-                              .push(UserProfilePage.route(entryUid))
-                          : null,
-                      leading: _friendsRankWidget(rank),
-                      title: Text(
-                        displayName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: isCurrentUser
-                            ? const TextStyle(fontWeight: FontWeight.bold)
-                            : null,
-                      ),
-                      trailing: Text(
-                        trailingText,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                              color: isCurrentUser
-                                  ? postalRed
-                                  : Theme.of(context).colorScheme.onSurfaceVariant,
-                              fontWeight:
-                                  isCurrentUser ? FontWeight.bold : FontWeight.normal,
-                            ),
-                      ),
-                    ),
+                  return _LeaderboardEntryTile(
+                    rank: rank,
+                    displayName: displayName,
+                    entryUid: entryUid,
+                    isCurrentUser: isCurrentUser,
+                    isLifetime: isLifetime,
+                    valueText: trailingText,
                   );
                 },
               ),
@@ -776,32 +700,103 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList>
     );
   }
 
-  Widget _friendsRankWidget(int rank) {
+}
+
+/// Rank indicator shared by every leaderboard row: trophy icons for the top
+/// three, a numbered avatar otherwise.
+Widget _rankBadge(BuildContext context, int rank) {
+  final dark = Theme.of(context).brightness == Brightness.dark;
+  final brandText = dark ? AppColors.brandTextDark : AppColors.brandTextLight;
+  switch (rank) {
+    case 1:
+      return const Icon(Icons.emoji_events, color: postalGold, size: 32);
+    case 2:
+      return Icon(Icons.emoji_events,
+          color: dark ? AppColors.mutedTextDark : AppColors.mutedTextLight,
+          size: 32);
+    case 3:
+      return Icon(Icons.emoji_events,
+          color: dark ? const Color(0xFFD9A26A) : const Color(0xFF8C5A2B),
+          size: 32);
+    default:
+      return CircleAvatar(
+        radius: 16,
+        backgroundColor: brandText.withValues(alpha: dark ? 0.18 : 0.12),
+        child: Text(
+          '$rank',
+          style: TextStyle(
+              color: brandText, fontSize: 13, fontWeight: FontWeight.w600),
+        ),
+      );
+  }
+}
+
+/// A single leaderboard row, shared by the global and friends-only lists.
+///
+/// Lifetime entries carry a long stats string ("N boxes (x%) · M pts"). On a
+/// portrait phone that competes for width with the name, so for lifetime the
+/// stats drop to their own row (`subtitle`); period tabs keep the short
+/// "X pts" value in `trailing`.
+class _LeaderboardEntryTile extends StatelessWidget {
+  const _LeaderboardEntryTile({
+    required this.rank,
+    required this.displayName,
+    required this.entryUid,
+    required this.isCurrentUser,
+    required this.isLifetime,
+    required this.valueText,
+  });
+
+  final int rank;
+  final String displayName;
+  final String? entryUid;
+  final bool isCurrentUser;
+  final bool isLifetime;
+
+  /// Lifetime: the full stats line (shown on row 2). Period: "X pts" (trailing).
+  final String valueText;
+
+  @override
+  Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
-    final brandText =
-        dark ? AppColors.brandTextDark : AppColors.brandTextLight;
-    switch (rank) {
-      case 1:
-        return const Icon(Icons.emoji_events, color: postalGold, size: 32);
-      case 2:
-        return Icon(Icons.emoji_events,
-            color: dark ? AppColors.mutedTextDark : AppColors.mutedTextLight,
-            size: 32);
-      case 3:
-        return Icon(Icons.emoji_events,
-            color: dark ? const Color(0xFFD9A26A) : const Color(0xFF8C5A2B),
-            size: 32);
-      default:
-        return CircleAvatar(
-          radius: 16,
-          backgroundColor: brandText.withValues(alpha: dark ? 0.18 : 0.12),
-          child: Text(
-            '$rank',
-            style: TextStyle(
-                color: brandText, fontSize: 13, fontWeight: FontWeight.w600),
-          ),
+    final brandText = dark ? AppColors.brandTextDark : AppColors.brandTextLight;
+    final valueStyle = Theme.of(context).textTheme.titleSmall?.copyWith(
+          color: isCurrentUser
+              ? brandText
+              : Theme.of(context).colorScheme.onSurfaceVariant,
+          fontWeight: isCurrentUser ? FontWeight.bold : FontWeight.normal,
         );
-    }
+    final valueWidget = Text(
+      valueText,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: valueStyle,
+    );
+
+    return Card(
+      color: isCurrentUser ? postalRed.withValues(alpha: 0.08) : null,
+      child: ListTile(
+        onTap: entryUid != null
+            ? () => Navigator.of(context).push(UserProfilePage.route(entryUid!))
+            : null,
+        leading: _rankBadge(context, rank),
+        title: Text(
+          displayName,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: isCurrentUser
+              ? const TextStyle(fontWeight: FontWeight.bold)
+              : null,
+        ),
+        subtitle: isLifetime
+            ? Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: valueWidget,
+              )
+            : null,
+        trailing: isLifetime ? null : valueWidget,
+      ),
+    );
   }
 }
 
