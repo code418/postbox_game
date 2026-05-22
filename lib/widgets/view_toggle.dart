@@ -13,55 +13,44 @@ class ViewToggle extends StatelessWidget {
   final ViewMode mode;
   final ValueChanged<ViewMode> onChanged;
 
-  /// When true, each segment stretches to share the available width equally.
-  /// SegmentedButton sizes to intrinsic content by default; we coerce equal-
-  /// width segments via a per-segment `minimumSize` derived from the parent's
-  /// constraints.
+  /// When true, the toggle stretches to the full available width and the two
+  /// segments share it equally. SegmentedButton only distributes width across
+  /// its segments when handed a *tight* width constraint; under the loose
+  /// constraints it gets from a centred Column it otherwise shrinks to intrinsic
+  /// size, which on a narrow phone clips the "Map" label to "Ma".
   final bool expand;
 
   static const _segments = <ButtonSegment<ViewMode>>[
     ButtonSegment(
       value: ViewMode.list,
       icon: Icon(Icons.list),
-      label: Text('List'),
+      label: Text('List', maxLines: 1, softWrap: false),
     ),
     ButtonSegment(
       value: ViewMode.map,
       icon: Icon(Icons.map_outlined),
-      label: Text('Map'),
+      label: Text('Map', maxLines: 1, softWrap: false),
     ),
   ];
 
   @override
   Widget build(BuildContext context) {
-    if (!expand) {
-      return SegmentedButton<ViewMode>(
-        segments: _segments,
-        selected: {mode},
-        onSelectionChanged: (s) => onChanged(s.first),
-        style: SegmentedButton.styleFrom(
-          selectedBackgroundColor: postalRed,
-          selectedForegroundColor: Colors.white,
-        ),
-      );
-    }
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        // SegmentedButton renders the outer border (~1 px each side) inside
-        // its width, so subtract a tiny margin to avoid rounding the last
-        // segment a hair too wide and clipping.
-        final segWidth = (constraints.maxWidth - 2) / _segments.length;
-        return SegmentedButton<ViewMode>(
-          segments: _segments,
-          selected: {mode},
-          onSelectionChanged: (s) => onChanged(s.first),
-          style: SegmentedButton.styleFrom(
-            selectedBackgroundColor: postalRed,
-            selectedForegroundColor: Colors.white,
-            minimumSize: Size(segWidth, 40),
-          ),
-        );
-      },
+    final button = SegmentedButton<ViewMode>(
+      segments: _segments,
+      selected: {mode},
+      onSelectionChanged: (s) => onChanged(s.first),
+      // Keep each segment's own icon when selected instead of swapping in a
+      // check mark: the swap changes the segment's width and, in the equal-
+      // width layout, squeezes the "Map" label until it wraps/clips.
+      showSelectedIcon: false,
+      style: SegmentedButton.styleFrom(
+        selectedBackgroundColor: postalRed,
+        selectedForegroundColor: Colors.white,
+        minimumSize: const Size(0, 40),
+      ),
     );
+    // A tight full-width constraint makes SegmentedButton expand its segments to
+    // fill the row; without it the button stays at intrinsic width.
+    return expand ? SizedBox(width: double.infinity, child: button) : button;
   }
 }
