@@ -127,9 +127,26 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
     }
   }
 
+  // Wraps a step's content so it scrolls (and stays centred when there's room)
+  // instead of overflowing the Expanded slot. Matters in landscape, where the
+  // step area is only a few hundred logical pixels tall.
+  Widget _scrollCentre(Widget child) {
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.xl, vertical: AppSpacing.lg),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+              minHeight: constraints.maxHeight - 2 * AppSpacing.lg),
+          child: Center(child: child),
+        ),
+      ),
+    );
+  }
+
   Widget _buildStageWithPostbox() {
-    return Center(
-      child: Column(
+    return _scrollCentre(
+      Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Text(
@@ -168,8 +185,8 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
     return AnimatedBuilder(
       animation: _jamesSlide,
       builder: (context, child) {
-        return Center(
-          child: Column(
+        return _scrollCentre(
+          Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               const SizedBox(height: 40),
@@ -245,24 +262,20 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
   }
 
   Widget _buildMegaPoints() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const PostmanJames(
-                size: 160, showStarEyes: true, isTalking: true),
-            const SizedBox(height: AppSpacing.lg),
-            Text(
-              'Points, baby! Sweet, beautiful, points!',
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    color: postalGold,
-                    fontWeight: FontWeight.bold,
-                  ),
-            ),
-          ],
-        ),
+    return _scrollCentre(
+      Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const PostmanJames(size: 160, showStarEyes: true, isTalking: true),
+          const SizedBox(height: AppSpacing.lg),
+          Text(
+            'Points, baby! Sweet, beautiful, points!',
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  color: postalGold,
+                  fontWeight: FontWeight.bold,
+                ),
+          ),
+        ],
       ),
     );
   }
@@ -314,26 +327,23 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
   }
 
   Widget _buildOverviewEnd() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.thumb_up, size: 64, color: postalGold),
-            const SizedBox(height: AppSpacing.lg),
-            Text(
-              widget.replay
-                  ? 'Get out there and find some mega-rare postboxes!'
-                  : 'Sign in or create an account to start collecting mega points.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.9),
-                  fontSize: 20,
-                  height: 1.4),
-            ),
-          ],
-        ),
+    return _scrollCentre(
+      Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.thumb_up, size: 64, color: postalGold),
+          const SizedBox(height: AppSpacing.lg),
+          Text(
+            widget.replay
+                ? 'Get out there and find some mega-rare postboxes!'
+                : 'Sign in or create an account to start collecting mega points.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.9),
+                fontSize: 20,
+                height: 1.4),
+          ),
+        ],
       ),
     );
   }
