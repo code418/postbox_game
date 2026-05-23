@@ -653,7 +653,8 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
 
   // ── Map helper ─────────────────────────────────────────────────────────────
 
-  Widget _claimRadiusMap({bool scanning = false, bool success = false}) {
+  Widget _claimRadiusMap(
+      {bool scanning = false, bool success = false, double height = 180}) {
     final center = widget.scanPosition;
     if (scanning) {
       return AnimatedBuilder(
@@ -664,7 +665,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
           return Card(
             clipBehavior: Clip.antiAlias,
             child: SizedBox(
-              height: 180,
+              height: height,
               child: PostboxMap(
                 center: center,
                 zoom: 17,
@@ -698,7 +699,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
     return Card(
       clipBehavior: Clip.antiAlias,
       child: SizedBox(
-        height: 180,
+        height: height,
         child: PostboxMap(
           center: center,
           zoom: 17,
@@ -784,20 +785,53 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
   // ── Stage builders ────────────────────────────────────────────────────────
 
   Widget _buildSearching(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.fromLTRB(
-          AppSpacing.md, AppSpacing.lg, AppSpacing.md, _bottomPad),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          _claimRadiusMap(scanning: true),
-          const SizedBox(height: AppSpacing.md),
-          const CircularProgressIndicator(color: postalRed),
-          const SizedBox(height: AppSpacing.md),
-          Text(
-              'Scanning within ${AppPreferences.formatShortDistance(AppPreferences.claimRadiusMeters, _distanceUnit)}...'),
-        ],
-      ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Landscape leaves only a few hundred logical pixels of height, where
+        // the fixed 180px map + spinner overflow a non-scrolling column. Lay the
+        // map beside the spinner and let it scroll if needed; portrait keeps the
+        // original stacked column.
+        final landscape = constraints.maxWidth > constraints.maxHeight;
+        final progress = Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(color: postalRed),
+            const SizedBox(height: AppSpacing.md),
+            Text(
+              'Scanning within ${AppPreferences.formatShortDistance(AppPreferences.claimRadiusMeters, _distanceUnit)}...',
+              textAlign: TextAlign.center,
+            ),
+          ],
+        );
+
+        if (landscape) {
+          return SingleChildScrollView(
+            padding: EdgeInsets.fromLTRB(
+                AppSpacing.md, AppSpacing.lg, AppSpacing.md, _bottomPad),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(child: _claimRadiusMap(scanning: true, height: 140)),
+                const SizedBox(width: AppSpacing.lg),
+                progress,
+              ],
+            ),
+          );
+        }
+
+        return Padding(
+          padding: EdgeInsets.fromLTRB(
+              AppSpacing.md, AppSpacing.lg, AppSpacing.md, _bottomPad),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _claimRadiusMap(scanning: true),
+              const SizedBox(height: AppSpacing.md),
+              progress,
+            ],
+          ),
+        );
+      },
     );
   }
 
