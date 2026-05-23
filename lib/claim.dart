@@ -206,84 +206,126 @@ class _ClaimState extends State<Claim> {
 
   Widget _buildInitial(BuildContext context) {
     return LayoutBuilder(
-      builder: (context, constraints) => SingleChildScrollView(
-        padding: const EdgeInsets.only(
-          top: AppSpacing.xl,
-          left: AppSpacing.xl,
-          right: AppSpacing.xl,
-          bottom: 100,
-        ),
-        child: ConstrainedBox(
-          constraints: BoxConstraints(minHeight: constraints.maxHeight - 100),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              SvgPicture.asset(
-                'assets/postbox.svg',
-                height: 100,
-                colorFilter:
-                    const ColorFilter.mode(postalRed, BlendMode.srcIn),
+      builder: (context, constraints) {
+        // Landscape gives this body only a few hundred logical pixels of height,
+        // where a full-height centred column hides the scan button below the
+        // fold. Lay the illustration beside the text + button instead; portrait
+        // keeps the original centred column.
+        final landscape = constraints.maxWidth > constraints.maxHeight;
+        final illustration = SvgPicture.asset(
+          'assets/postbox.svg',
+          height: landscape ? 72 : 100,
+          colorFilter: const ColorFilter.mode(postalRed, BlendMode.srcIn),
+        );
+        final title = Text(
+          'Find a postbox to claim',
+          style: Theme.of(context)
+              .textTheme
+              .headlineSmall
+              ?.copyWith(fontWeight: FontWeight.bold),
+          textAlign: landscape ? TextAlign.start : TextAlign.center,
+        );
+        final subtitle = Text(
+          'Stand within ${AppPreferences.formatShortDistance(AppPreferences.claimRadiusMeters, _distanceUnit)} of a postbox, then tap below to check if you can claim it.',
+          style: Theme.of(context)
+              .textTheme
+              .bodyMedium
+              ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+          textAlign: landscape ? TextAlign.start : TextAlign.center,
+        );
+        // Streak badge — only shown when the user has an active streak.
+        final streakBadge = StreamBuilder<int?>(
+          stream: _streakStream,
+          builder: (context, snapshot) {
+            final streak = snapshot.data ?? 0;
+            if (streak <= 0) return const SizedBox.shrink();
+            return Container(
+              margin: const EdgeInsets.only(bottom: AppSpacing.lg),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.md, vertical: AppSpacing.xs),
+              decoration: BoxDecoration(
+                color: _warning(context).withValues(alpha: 0.10),
+                borderRadius: BorderRadius.circular(20),
+                border:
+                    Border.all(color: _warning(context).withValues(alpha: 0.40)),
               ),
-              const SizedBox(height: AppSpacing.lg),
-              Text(
-                'Find a postbox to claim',
-                style: Theme.of(context)
-                    .textTheme
-                    .headlineSmall
-                    ?.copyWith(fontWeight: FontWeight.bold),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              Text(
-                'Stand within ${AppPreferences.formatShortDistance(AppPreferences.claimRadiusMeters, _distanceUnit)} of a postbox, then tap below to check if you can claim it.',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: AppSpacing.lg),
-              // Streak badge — only shown when the user has an active streak.
-              StreamBuilder<int?>(
-                stream: _streakStream,
-                builder: (context, snapshot) {
-                  final streak = snapshot.data ?? 0;
-                  if (streak <= 0) return const SizedBox.shrink();
-                  return Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.md, vertical: AppSpacing.xs),
-                    decoration: BoxDecoration(
-                      color: _warning(context).withValues(alpha: 0.10),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                          color: _warning(context).withValues(alpha: 0.40)),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('🔥', style: TextStyle(fontSize: 16)),
+                  const SizedBox(width: 6),
+                  Text(
+                    '$streak-day streak',
+                    style: TextStyle(
+                      color: _warning(context),
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
                     ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Text('🔥', style: TextStyle(fontSize: 16)),
-                        const SizedBox(width: 6),
-                        Text(
-                          '$streak-day streak',
-                          style: TextStyle(
-                            color: _warning(context),
-                            fontWeight: FontWeight.w600,
-                            fontSize: 14,
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                },
+                  ),
+                ],
               ),
-              const SizedBox(height: AppSpacing.lg),
-              FilledButton.icon(
-                onPressed: _startScan,
-                icon: const Icon(Icons.radar),
-                label: const Text('Scan for postboxes nearby'),
-              ),
-            ],
+            );
+          },
+        );
+        final scanButton = FilledButton.icon(
+          onPressed: _startScan,
+          icon: const Icon(Icons.radar),
+          label: const Text('Scan for postboxes nearby'),
+        );
+
+        if (landscape) {
+          return SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(
+                AppSpacing.xl, AppSpacing.xl, AppSpacing.xl, 100),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                illustration,
+                const SizedBox(width: AppSpacing.xl),
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      title,
+                      const SizedBox(height: AppSpacing.sm),
+                      subtitle,
+                      const SizedBox(height: AppSpacing.lg),
+                      streakBadge,
+                      scanButton,
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+
+        return SingleChildScrollView(
+          padding: const EdgeInsets.only(
+            top: AppSpacing.xl,
+            left: AppSpacing.xl,
+            right: AppSpacing.xl,
+            bottom: 100,
           ),
-        ),
-      ),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight - 100),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                illustration,
+                const SizedBox(height: AppSpacing.lg),
+                title,
+                const SizedBox(height: AppSpacing.sm),
+                subtitle,
+                const SizedBox(height: AppSpacing.lg),
+                streakBadge,
+                scanButton,
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }

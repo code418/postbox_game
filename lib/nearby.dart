@@ -288,57 +288,103 @@ class _NearbyState extends State<Nearby> {
 
   Widget _buildInitial(BuildContext context) {
     return LayoutBuilder(
-      builder: (context, constraints) => SingleChildScrollView(
-        padding: const EdgeInsets.only(
-          top: AppSpacing.xl,
-          left: AppSpacing.xl,
-          right: AppSpacing.xl,
-          bottom: 100,
-        ),
-        child: ConstrainedBox(
-          constraints: BoxConstraints(minHeight: constraints.maxHeight - 100),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.location_searching,
-                  size: 80,
-                  color: Theme.of(context)
-                      .colorScheme
-                      .onSurface
-                      .withValues(alpha: 0.2)),
-              const SizedBox(height: AppSpacing.lg),
-              Text(
-                'Find nearby postboxes',
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              Text(
-                'Scan within ${AppPreferences.formatDistance(AppPreferences.nearbyRadiusMeters, _distanceUnit)} to see which postboxes are around you.',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: AppSpacing.xl),
-              FilledButton.icon(
-                onPressed: _startSearch,
-                icon: const Icon(Icons.search),
-                label: const Text('Find nearby postboxes'),
-              ),
-              if (!RemoteConfigService.instance.killSwitchRouteMode) ...[
-                const SizedBox(height: AppSpacing.sm),
-                OutlinedButton.icon(
-                  onPressed: () => Navigator.pushNamed(context, '/route'),
-                  icon: const Icon(Icons.directions_walk),
-                  label: const Text('Walk to a destination'),
+      builder: (context, constraints) {
+        // In landscape the body is only a few hundred logical pixels tall, so a
+        // full-height centred column pushes the primary CTA below the fold. Lay
+        // the illustration beside the text + actions instead so the scan button
+        // stays visible. Portrait keeps the original centred column.
+        final landscape = constraints.maxWidth > constraints.maxHeight;
+        final onSurface = Theme.of(context).colorScheme.onSurface;
+        final icon = Icon(Icons.location_searching,
+            size: landscape ? 64 : 80, color: onSurface.withValues(alpha: 0.2));
+        final title = Text(
+          'Find nearby postboxes',
+          style: Theme.of(context)
+              .textTheme
+              .headlineSmall
+              ?.copyWith(fontWeight: FontWeight.bold),
+          textAlign: landscape ? TextAlign.start : TextAlign.center,
+        );
+        final subtitle = Text(
+          'Scan within ${AppPreferences.formatDistance(AppPreferences.nearbyRadiusMeters, _distanceUnit)} to see which postboxes are around you.',
+          style: Theme.of(context)
+              .textTheme
+              .bodyMedium
+              ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+          textAlign: landscape ? TextAlign.start : TextAlign.center,
+        );
+        final scanButton = FilledButton.icon(
+          onPressed: _startSearch,
+          icon: const Icon(Icons.search),
+          label: const Text('Find nearby postboxes'),
+        );
+        final routeButton = RemoteConfigService.instance.killSwitchRouteMode
+            ? null
+            : OutlinedButton.icon(
+                onPressed: () => Navigator.pushNamed(context, '/route'),
+                icon: const Icon(Icons.directions_walk),
+                label: const Text('Walk to a destination'),
+              );
+
+        if (landscape) {
+          return SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(
+                AppSpacing.xl, AppSpacing.xl, AppSpacing.xl, 100),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                icon,
+                const SizedBox(width: AppSpacing.xl),
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      title,
+                      const SizedBox(height: AppSpacing.sm),
+                      subtitle,
+                      const SizedBox(height: AppSpacing.lg),
+                      scanButton,
+                      if (routeButton != null) ...[
+                        const SizedBox(height: AppSpacing.sm),
+                        routeButton,
+                      ],
+                    ],
+                  ),
                 ),
               ],
-            ],
+            ),
+          );
+        }
+
+        return SingleChildScrollView(
+          padding: const EdgeInsets.only(
+            top: AppSpacing.xl,
+            left: AppSpacing.xl,
+            right: AppSpacing.xl,
+            bottom: 100,
           ),
-        ),
-      ),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight - 100),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                icon,
+                const SizedBox(height: AppSpacing.lg),
+                title,
+                const SizedBox(height: AppSpacing.sm),
+                subtitle,
+                const SizedBox(height: AppSpacing.xl),
+                scanButton,
+                if (routeButton != null) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  routeButton,
+                ],
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
