@@ -123,3 +123,10 @@ functions/.last_import_manifest.json
 /postman_james.svg
 
 .claude/skills
+
+# Desktop is not a build target (mobile-only app; runner scaffolding removed).
+# Flutter still regenerates plugin-registrant stubs in these folders because
+# some plugins endorse desktop platforms, so ignore them to avoid churn.
+/linux/
+/macos/
+/windows/
