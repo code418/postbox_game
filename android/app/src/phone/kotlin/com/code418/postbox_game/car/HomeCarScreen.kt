@@ -3,12 +3,6 @@ package com.code418.postbox_game.car
 import androidx.car.app.CarContext
 import androidx.car.app.CarToast
 import androidx.car.app.Screen
-import androidx.car.app.model.Action
-import androidx.car.app.model.CarColor
-import androidx.car.app.model.MessageTemplate
-import androidx.car.app.model.Pane
-import androidx.car.app.model.PaneTemplate
-import androidx.car.app.model.Row
 import androidx.car.app.model.Template
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
@@ -25,7 +19,14 @@ import kotlinx.coroutines.launch
  *
  *  Shows lifetime points, unique boxes, current streak, and today's rank.
  *  Tapping "Claim nearby postbox" runs [ClaimAction] (location → cloud
- *  function); tapping "Leaderboard" pushes [LeaderboardCarScreen]. */
+ *  function); tapping "Leaderboard" pushes [LeaderboardCarScreen].
+ *
+ *  The whole flow lives on this one screen and updates via [invalidate]. To stay
+ *  within Android Auto's five-templates-per-task quota, every render must be a
+ *  *refresh*: [onGetTemplate] always returns the SAME PaneTemplate shape (built
+ *  by [buildHomeTemplate]) and only the rows' secondary text changes between
+ *  phases. Returning a different template type per phase would burn a step on
+ *  each claim and trip "This task cannot be completed while driving". */
 class HomeCarScreen(carContext: CarContext) : Screen(carContext) {
 
     private enum class Phase { Idle, Working, Done, Error, SignedOut }
@@ -74,90 +75,22 @@ class HomeCarScreen(carContext: CarContext) : Screen(carContext) {
 
     override fun onGetTemplate(): Template {
         refreshAuthPhase()
-        return when (phase) {
-            Phase.Working, Phase.SignedOut, Phase.Error -> messageTemplate()
-            Phase.Idle, Phase.Done -> paneTemplate()
-        }
-    }
-
-    private fun messageTemplate(): Template {
-        val builder = MessageTemplate.Builder(message)
-            .setTitle("Postbox Quick Claim")
-            .setHeaderAction(Action.APP_ICON)
-        when (phase) {
-            Phase.SignedOut -> builder.addAction(
-                Action.Builder()
-                    .setTitle("Open phone app")
-                    .setOnClickListener {
-                        CarToast.makeText(
-                            carContext,
-                            "Sign in on your phone first.",
-                            CarToast.LENGTH_LONG
-                        ).show()
-                    }
-                    .build()
-            )
-            Phase.Error -> builder.addAction(
-                Action.Builder()
-                    .setTitle("Try again")
-                    .setBackgroundColor(CarColor.RED)
-                    .setOnClickListener { triggerClaim() }
-                    .build()
-            )
-            else -> Unit
-        }
-        return builder.build()
-    }
-
-    private fun paneTemplate(): Template {
         val s = stats
-        val pane = Pane.Builder()
-
-        pane.addRow(
-            Row.Builder()
-                .setTitle("Total points")
-                .addText(s?.lifetimePoints?.toString() ?: "—")
-                .build()
+        // `message` already tracks the right status text for every phase (set
+        // alongside `phase` in triggerClaim/refreshAuthPhase), so it is the
+        // single status channel the refresh-safe pane needs.
+        val state = HomeUiState(
+            statusMessage = message,
+            lifetimePoints = s?.lifetimePoints,
+            uniqueBoxes = s?.uniquePostboxesClaimed,
+            streakLabel = streakLabel(s?.streak),
+            rankLabel = rankLabel(),
         )
-        pane.addRow(
-            Row.Builder()
-                .setTitle("Unique boxes")
-                .addText(s?.uniquePostboxesClaimed?.toString() ?: "—")
-                .build()
+        return buildHomeTemplate(
+            state,
+            onClaim = { triggerClaim() },
+            onLeaderboard = { screenManager.push(LeaderboardCarScreen(carContext)) },
         )
-        pane.addRow(
-            Row.Builder()
-                .setTitle("Daily streak")
-                .addText(streakLabel(s?.streak))
-                .build()
-        )
-        pane.addRow(
-            Row.Builder()
-                .setTitle("Today's rank")
-                .addText(rankLabel())
-                .build()
-        )
-
-        pane.addAction(
-            Action.Builder()
-                .setTitle("Claim nearby postbox")
-                .setBackgroundColor(CarColor.RED)
-                .setOnClickListener { triggerClaim() }
-                .build()
-        )
-        pane.addAction(
-            Action.Builder()
-                .setTitle("Leaderboard")
-                .setOnClickListener {
-                    screenManager.push(LeaderboardCarScreen(carContext))
-                }
-                .build()
-        )
-
-        return PaneTemplate.Builder(pane.build())
-            .setTitle(if (phase == Phase.Done) message else "Postbox Quick Claim")
-            .setHeaderAction(Action.APP_ICON)
-            .build()
     }
 
     private fun streakLabel(streak: Int?): String = when {

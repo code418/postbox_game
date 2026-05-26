@@ -89,6 +89,13 @@ android {
             signingConfig signingConfigs.release
         }
     }
+
+    testOptions {
+        // The car HomeCarTemplate unit test builds Car App Library model objects
+        // on the JVM; let any incidental android.* stub call return defaults
+        // rather than throwing "Method ... not mocked".
+        unitTests.returnDefaultValues = true
+    }
 }
 
 flutter {
@@ -110,9 +117,9 @@ dependencies {
     coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'
     implementation "androidx.multidex:multidex:2.0.1"
     // Android Auto "quick claim" surface. Uses the Car App Library templated
-    // UI (MessageTemplate / ActionStrip) — no Flutter runtime is loaded in the
-    // car; the car screen talks to Firebase Functions directly. Scoped to the
-    // phone flavor so the wear AAB does not link these libraries.
+    // UI (a single refresh-safe PaneTemplate) — no Flutter runtime is loaded in
+    // the car; the car screen talks to Firebase Functions directly. Scoped to
+    // the phone flavor so the wear AAB does not link these libraries.
     phoneImplementation 'androidx.car.app:app:1.4.0'
     phoneImplementation 'androidx.car.app:app-projected:1.4.0'
     phoneImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1'
