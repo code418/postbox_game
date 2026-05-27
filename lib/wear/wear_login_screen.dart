@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -39,6 +40,23 @@ class _WearLoginScreenState extends State<WearLoginScreen> {
         // User cancelled the Google Sign-In flow.
         setState(() => _isLoading = false);
       }
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        // Watch screens are tiny — keep messages to short verb phrases that
+        // tell the user whether to retry now (transient) or fix something
+        // first (permanent). Anything more nuanced (e.g. wrong-password) only
+        // applies to the phone's email/password flow, not this Google-only
+        // entry point, so the switch stays small.
+        _error = switch (e.code) {
+          'network-request-failed' => 'No internet',
+          'too-many-requests' => 'Too many tries. Wait a moment.',
+          'user-disabled' => 'Account disabled',
+          'operation-not-allowed' => 'Sign-in not enabled',
+          _ => 'Sign-in failed',
+        };
+      });
     } catch (e) {
       if (!mounted) return;
       setState(() {
