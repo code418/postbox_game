@@ -288,9 +288,22 @@ class _CountyHeatmapState extends State<CountyHeatmap> {
   }
 }
 
-class _HeatmapView extends StatelessWidget {
+class _HeatmapView extends StatefulWidget {
   final _HeatmapData data;
   const _HeatmapView({required this.data});
+
+  @override
+  State<_HeatmapView> createState() => _HeatmapViewState();
+}
+
+class _HeatmapViewState extends State<_HeatmapView> {
+  static const LatLng _ukCentre = LatLng(54.5, -3.5);
+  static const double _ukZoom = 4.6;
+
+  final MapController _mapController = MapController();
+  String? _selectedSlug;
+
+  _HeatmapData get data => widget.data;
 
   Color _colourFor(String uid, BuildContext context) {
     return mapColourFor(
@@ -300,11 +313,19 @@ class _HeatmapView extends StatelessWidget {
     );
   }
 
+  void _recenter() {
+    _mapController.move(_ukCentre, _ukZoom);
+    if (_selectedSlug != null) {
+      setState(() => _selectedSlug = null);
+    }
+  }
+
   void _showLeaderSheet(BuildContext context, _CountyShape shape) {
+    setState(() => _selectedSlug = shape.slug);
     final leader = data.leaderBySlug[shape.slug];
     showModalBottomSheet<void>(
       context: context,
-      builder: (_) => SafeArea(
+      builder: (sheetContext) => SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(AppSpacing.md),
           child: Column(
@@ -360,7 +381,7 @@ class _HeatmapView extends StatelessWidget {
                     icon: const Icon(Icons.person_outline),
                     label: const Text('View profile'),
                     onPressed: () {
-                      Navigator.of(context).pop();
+                      Navigator.of(sheetContext).pop();
                       Navigator.of(context).push(
                           UserProfilePage.route(leader.uid));
                     },
@@ -371,7 +392,15 @@ class _HeatmapView extends StatelessWidget {
           ),
         ),
       ),
-    );
+    ).whenComplete(() {
+      if (mounted) setState(() => _selectedSlug = null);
+    });
+  }
+
+  @override
+  void dispose() {
+    _mapController.dispose();
+    super.dispose();
   }
 
   @override
@@ -379,20 +408,31 @@ class _HeatmapView extends StatelessWidget {
     final polygons = <Polygon>[];
     final hitPolygons = <Polygon, _CountyShape>{};
     final onSurface = Theme.of(context).colorScheme.onSurface;
+    Polygon? selectedPoly;
     for (final shape in data.shapes) {
       final leader = data.leaderBySlug[shape.slug];
       final fill = leader == null
           ? onSurface.withValues(alpha: 0.18)
           : _colourFor(leader.uid, context).withValues(alpha: 0.55);
+      final isSelected = shape.slug == _selectedSlug;
       final poly = Polygon(
         points: shape.ring,
         color: fill,
-        borderColor: onSurface.withValues(alpha: 0.45),
-        borderStrokeWidth: 0.6,
+        borderColor: onSurface.withValues(
+            alpha: isSelected ? 0.95 : 0.45),
+        borderStrokeWidth: isSelected ? 2.2 : 0.6,
       );
-      polygons.add(poly);
       hitPolygons[poly] = shape;
+      if (isSelected) {
+        // Defer adding the selected polygon so it paints on top of its
+        // neighbours' borders and the thicker highlight stroke isn't
+        // overdrawn.
+        selectedPoly = poly;
+      } else {
+        polygons.add(poly);
+      }
     }
+    if (selectedPoly != null) polygons.add(selectedPoly);
 
     // Distinct friend uids that lead at least one county — used in legend.
     final leaderUids = <String>{
@@ -412,71 +452,62 @@ class _HeatmapView extends StatelessWidget {
         return byName != 0 ? byName : a.compareTo(b);
       });
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    final hasUnclaimed = data.leaderBySlug.length <
+        data.shapes.map((s) => s.slug).toSet().length;
+
+    return Stack(
       children: [
-        SizedBox(
-          height: 320,
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: FlutterMap(
-              options: MapOptions(
-                initialCenter: const LatLng(54.5, -3.5),
-                initialZoom: 4.6,
-                minZoom: 4.2,
-                maxZoom: 8,
-                interactionOptions: const InteractionOptions(
-                  flags: InteractiveFlag.pinchZoom |
-                      InteractiveFlag.drag |
-                      InteractiveFlag.doubleTapZoom,
-                ),
-                onTap: (tapPos, latLng) {
-                  // Hit-test in-app rather than via PolygonLayer's tap support
-                  // (which differs across flutter_map versions): walk shapes
-                  // and pick the first whose outer ring contains the point.
-                  for (final entry in hitPolygons.entries) {
-                    if (_pointInRing(latLng, entry.key.points)) {
-                      _showLeaderSheet(context, entry.value);
-                      return;
-                    }
-                  }
-                },
+        Positioned.fill(
+          child: FlutterMap(
+            mapController: _mapController,
+            options: MapOptions(
+              initialCenter: _ukCentre,
+              initialZoom: _ukZoom,
+              minZoom: 4.2,
+              maxZoom: 11,
+              interactionOptions: const InteractionOptions(
+                flags: InteractiveFlag.pinchZoom |
+                    InteractiveFlag.drag |
+                    InteractiveFlag.doubleTapZoom,
               ),
-              children: [
-                Container(
-                    color: Theme.of(context)
-                        .colorScheme
-                        .surfaceContainerHighest),
-                PolygonLayer(polygons: polygons),
-              ],
+              onTap: (tapPos, latLng) {
+                // Hit-test in-app rather than via PolygonLayer's tap support
+                // (which differs across flutter_map versions): walk shapes
+                // and pick the first whose outer ring contains the point.
+                for (final entry in hitPolygons.entries) {
+                  if (_pointInRing(latLng, entry.key.points)) {
+                    _showLeaderSheet(context, entry.value);
+                    return;
+                  }
+                }
+              },
             ),
-          ),
-        ),
-        if (orderedLeaders.isNotEmpty) ...[
-          const SizedBox(height: AppSpacing.sm),
-          Wrap(
-            spacing: AppSpacing.sm,
-            runSpacing: 4,
             children: [
-              for (final uid in orderedLeaders.take(8))
-                _LegendChip(
-                  colour: _colourFor(uid, context),
-                  label: uid == data.myUid
-                      ? 'You'
-                      : (data.displayNames[uid] ?? 'Friend'),
-                ),
-              if (data.leaderBySlug.length <
-                  data.shapes.map((s) => s.slug).toSet().length)
-                _LegendChip(
-                  colour: Theme.of(context)
-                      .colorScheme
-                      .onSurface
-                      .withValues(alpha: 0.4),
-                  label: 'No leader',
-                ),
+              Container(
+                  color:
+                      Theme.of(context).colorScheme.surfaceContainerHighest),
+              PolygonLayer(polygons: polygons),
             ],
           ),
-        ],
+        ),
+        if (orderedLeaders.isNotEmpty)
+          Positioned(
+            left: AppSpacing.sm,
+            right: 56 + AppSpacing.sm,
+            bottom: kJamesStripClearance + AppSpacing.sm,
+            child: _LegendOverlay(
+              leaders: orderedLeaders,
+              myUid: data.myUid,
+              displayNames: data.displayNames,
+              colourFor: (uid) => _colourFor(uid, context),
+              showNoLeader: hasUnclaimed,
+            ),
+          ),
+        Positioned(
+          right: AppSpacing.sm,
+          bottom: kJamesStripClearance + AppSpacing.sm,
+          child: _RecenterButton(onPressed: _recenter),
+        ),
       ],
     );
   }
@@ -494,6 +525,84 @@ class _HeatmapView extends StatelessWidget {
       if (intersect) inside = !inside;
     }
     return inside;
+  }
+}
+
+/// Floating chip cluster overlaid on the heatmap. Compact, semi-translucent,
+/// elevated above the map polygons. Horizontally scrolls when there are more
+/// chips than fit between the left edge and the recenter button.
+class _LegendOverlay extends StatelessWidget {
+  final List<String> leaders;
+  final String myUid;
+  final Map<String, String> displayNames;
+  final Color Function(String uid) colourFor;
+  final bool showNoLeader;
+
+  const _LegendOverlay({
+    required this.leaders,
+    required this.myUid,
+    required this.displayNames,
+    required this.colourFor,
+    required this.showNoLeader,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      elevation: 2,
+      borderRadius: BorderRadius.circular(12),
+      color: scheme.surface.withValues(alpha: 0.92),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.sm, vertical: 6),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (var i = 0; i < leaders.take(8).length; i++) ...[
+                if (i > 0) const SizedBox(width: AppSpacing.sm),
+                _LegendChip(
+                  colour: colourFor(leaders[i]),
+                  label: leaders[i] == myUid
+                      ? 'You'
+                      : (displayNames[leaders[i]] ?? 'Friend'),
+                ),
+              ],
+              if (showNoLeader) ...[
+                if (leaders.isNotEmpty) const SizedBox(width: AppSpacing.sm),
+                _LegendChip(
+                  colour: scheme.onSurface.withValues(alpha: 0.4),
+                  label: 'No leader',
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Small circular "reset to UK overview" affordance. Filled-tonal styling so it
+/// reads as a control without competing with the heatmap colours.
+class _RecenterButton extends StatelessWidget {
+  final VoidCallback onPressed;
+  const _RecenterButton({required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      elevation: 2,
+      shape: const CircleBorder(),
+      color: Theme.of(context).colorScheme.surfaceContainerHigh,
+      child: IconButton(
+        tooltip: 'Reset to UK',
+        icon: const Icon(Icons.center_focus_strong_outlined),
+        onPressed: onPressed,
+      ),
+    );
   }
 }
 

@@ -47,6 +47,9 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
   void _onTabChanged() {
     if (_tabController.indexIsChanging) return;
     if (!mounted) return;
+    // Rebuild so the Friends-only toggle row hides on the Map tab (where it
+    // doesn't apply) and reappears on the period tabs.
+    setState(() {});
     final period = _periods[_tabController.index];
     if (period == 'lifetime') {
       JamesController.of(context)
@@ -59,6 +62,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
 
   @override
   Widget build(BuildContext context) {
+    final isMapTab = _periods[_tabController.index] == 'counties';
     return Column(
       children: [
         Container(
@@ -72,30 +76,34 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
                 .toList(),
           ),
         ),
-        // Friends-only toggle row
-        Padding(
-          padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.md, vertical: AppSpacing.xs),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text('Friends only',
-                  style: Theme.of(context).textTheme.bodyMedium),
-              Switch(
-                value: _friendsOnly,
-                activeThumbColor: postalRed,
-                onChanged: (v) {
-                  setState(() => _friendsOnly = v);
-                  if (v) {
-                    JamesController.of(context)
-                        ?.show(JamesMessages.navFriendsLeaderboard.resolve());
-                  }
-                },
-              ),
-            ],
+        // Friends-only toggle row — hidden on the Map tab where the heatmap is
+        // inherently friend-scoped (you + your friends) and the toggle has no
+        // effect, so showing it is misleading and wastes vertical space.
+        if (!isMapTab) ...[
+          Padding(
+            padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.md, vertical: AppSpacing.xs),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('Friends only',
+                    style: Theme.of(context).textTheme.bodyMedium),
+                Switch(
+                  value: _friendsOnly,
+                  activeThumbColor: postalRed,
+                  onChanged: (v) {
+                    setState(() => _friendsOnly = v);
+                    if (v) {
+                      JamesController.of(context)
+                          ?.show(JamesMessages.navFriendsLeaderboard.resolve());
+                    }
+                  },
+                ),
+              ],
+            ),
           ),
-        ),
-        const Divider(height: 1),
+          const Divider(height: 1),
+        ],
         Expanded(
           child: TabBarView(
             controller: _tabController,
@@ -103,7 +111,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
               if (period == 'counties') {
                 // County heatmap is inherently friend-scoped (uses your
                 // friends list); the friends-only toggle does not apply.
-                return const _CountyHeatmapTab();
+                return const CountyHeatmap();
               }
               if (_friendsOnly) {
                 return _FriendsPeriodList(
@@ -804,33 +812,6 @@ String _tabLabel(String period) {
   // 'counties' renders as 'Map' so the tab reads naturally next to D/W/M/L.
   if (period == 'counties') return 'Map';
   return period[0].toUpperCase() + period.substring(1);
-}
-
-/// County leaders heatmap as a leaderboard tab. Wraps [CountyHeatmap] with the
-/// "COUNTY LEADERS" header label that previously lived on the Friends screen,
-/// inside a scrollable container so the legend wrap cannot overflow on small
-/// devices.
-class _CountyHeatmapTab extends StatelessWidget {
-  const _CountyHeatmapTab();
-
-  @override
-  Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(
-          AppSpacing.md, AppSpacing.sm, AppSpacing.md, kJamesStripClearance),
-      children: [
-        Text(
-          'COUNTY LEADERS',
-          style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-                letterSpacing: 0.8,
-              ),
-        ),
-        const SizedBox(height: AppSpacing.xs),
-        const CountyHeatmap(),
-      ],
-    );
-  }
 }
 
 /// Returns a formatted range label (e.g. "13 – 19 Apr 2026") for the weekly
