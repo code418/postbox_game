@@ -19,10 +19,10 @@ lands). Their original bodies are preserved below for diff archaeology.
 
 | Version | Theme | Status |
 |---|---|---|
-| **v1.2** | Avatars & polish | In flight |
+| **v1.2** | Intro polish | In flight |
 | **v1.3** | Platform foundations (EU region + observability) | Queued |
 | **v1.4** | Trust & safety (App Check, GDPR, anti-cheat) | Queued |
-| **v1.5** | Engagement (social loops) | Deferred |
+| **v1.5** | Engagement & avatars (social loops + Postie avatar) | Deferred |
 | **v1.6** | Collection & content | Deferred |
 | **v1.7** | Reach (iOS, localisation) | Deferred |
 | **v2.0** | Growth (Analytics + experimentation) | Deferred |
@@ -30,18 +30,22 @@ lands). Their original bodies are preserved below for diff archaeology.
 
 ---
 
-## v1.2 — Avatars & polish  (In flight)
+## v1.2 — Intro polish  (In flight)
 
-**Theme**: ship the visible UX work that's already on a branch.
-**Ship gate**: manual QA on #113 passes, deploy is clean, `flutter analyze` + tests green, intro effects wired in.
+**Theme**: the small visible UX win that's already on a branch.
+**Ship gate**: `flutter analyze` + tests green, intro effects wired into `lib/intro.dart`.
 
-- **Postie avatar creator + surface across app** — PR #113 (non-draft, full tests).
-  Run the manual checklist (Settings → Your postie cycle, friends list, both
-  leaderboard tabs, profile header). Then `firebase deploy --only firestore:rules,functions`. Merge.
 - **Tier 1 intro polish — `flutter_animate`** — PR #82 (dependency-only).
-  Merge after #113 so the assets land together, then file a tight follow-up
-  that wires the effects into `lib/intro.dart` (postbox `fadeIn` + `scale`,
-  James `slideX` with bounce, Mega Points `shimmer`).
+  Merge, then file a tight follow-up that wires the effects into
+  `lib/intro.dart` (postbox `fadeIn` + `scale`, James `slideX` with
+  bounce, Mega Points `shimmer`).
+
+> **Postie avatar (PR #113)** was bundled here originally but has been
+> moved down to **v1.5** after Trust & safety. PR #113 is non-draft and
+> ready, but will sit waiting through v1.3 and v1.4. **Risk**: long-lived
+> branch accumulates merge conflicts (especially against `leaderboard_screen.dart`, `friends_screen.dart`, `user_profile_page.dart`,
+> `startScoring.ts`, `_leaderboardUtils.ts`). Mitigation: rebase #113
+> onto `master` whenever any of those files changes.
 
 ---
 
@@ -210,10 +214,35 @@ Shadow mode first — log flags, no user-facing effect — for 2 weeks; tune thr
 
 ---
 
-## v1.5 — Engagement  (Deferred)
+## v1.5 — Engagement & avatars  (Deferred)
 
-**Theme**: build the daily-return loop and the friend-pressure loop on top of the now-stable v1.4 platform.
-**Ship gate**: DAU / WAU lift measurable in Analytics; POTD claim rate ≥ 30 % of DAU; weekly recap engaged-with by ≥ 25 % of recipients.
+**Theme**: build the daily-return loop and the friend-pressure loop on top of the now-stable v1.4 platform — and ship the visible-identity work (Postie avatars) so users have something to flex with on the new live leaderboards.
+**Ship gate**: DAU / WAU lift measurable in Analytics; POTD claim rate ≥ 30 % of DAU; weekly recap engaged-with by ≥ 25 % of recipients; avatar coverage > 50 % of WAU within two weeks of release.
+
+### Postie avatar creator + surface across app  (was #113, originally v1.2)
+
+Moved here after v1.4 Trust & safety. PR #113 is non-draft and fully tested
+(`flutter analyze` clean, 98 + 227 tests passing); blocked only on manual QA
++ deploy. Avatars surface naturally on the v1.5 engagement surfaces (live
+leaderboards, friend cards, profile headers), so bundling them is the
+right pairing.
+
+- Settings → **Your postie** lets players build a Postman James-style avatar from swappable parts (skin, head, hair, eyes, nose, facial hair, hat, glasses, background).
+- Saved config persists to `users/{uid}.avatar` and renders on friends list, both leaderboard tabs, user profile header, settings header. Falls back to initials when no avatar is set.
+- Cloud Functions (`startScoring`, `updateDisplayName`, `newDayScoreboard`) embed the avatar map into leaderboard entries so the global tab renders avatars without an N+1 user-doc read.
+- Firestore rules extended to permit a user to write only their own `avatar` map (size-capped at 20 keys).
+
+Pre-merge:
+
+1. Rebase #113 onto `master` (it has been sitting through v1.3 and v1.4 — expect conflicts in `leaderboard_screen.dart`, `friends_screen.dart`, `user_profile_page.dart`, `_leaderboardUtils.ts`, `startScoring.ts`).
+2. Run the manual checklist: Settings → Your postie → cycle parts → Save → confirm avatar shows in Friends list, both Leaderboard tabs, Profile header. Re-open creator → confirm saved state loads. Claim a postbox → confirm new leaderboard entry carries the avatar.
+3. `firebase deploy --only firestore:rules,functions`.
+4. Merge.
+
+Long-tail follow-ups (do as separate PRs after avatars land):
+
+- Avatar unlock tiles tied to v1.6 streak rewards (e.g. a "Centurion" hat at 100-day streaks).
+- Avatar appears in v2.0 BigQuery export as a cohort dimension (no PII — just style choices).
 
 ### Live leaderboard with overtake animations  (was #104)
 
