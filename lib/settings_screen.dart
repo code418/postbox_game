@@ -13,6 +13,7 @@ import 'package:postbox_game/authentication_bloc/bloc.dart';
 import 'package:postbox_game/county_heatmap.dart';
 import 'package:postbox_game/intro.dart';
 import 'package:postbox_game/maintenance_guard.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/user_repository.dart';
 import 'package:postbox_game/validators.dart';
@@ -467,11 +468,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  void _showAbout() {
+  Future<void> _showAbout() async {
+    // Read pubspec version at runtime so the dialog never drifts behind a
+    // released `1.0.0+N` bump. PackageInfo.fromPlatform() is a no-op on
+    // platforms without a native bridge — guard the call so the About dialog
+    // still opens (without a version) on web/desktop.
+    String version = '';
+    try {
+      final info = await PackageInfo.fromPlatform();
+      version = info.buildNumber.isNotEmpty
+          ? '${info.version}+${info.buildNumber}'
+          : info.version;
+    } catch (_) {
+      // Fall through with an empty version rather than blocking the dialog.
+    }
+    if (!mounted) return;
     showAboutDialog(
       context: context,
       applicationName: 'The Postbox Game',
-      applicationVersion: '1.0.0',
+      applicationVersion: version,
       applicationLegalese: 'Find postboxes. Claim them. Score mega points.',
       applicationIcon: const Icon(Icons.mail, size: 48, color: postalRed),
     );
