@@ -5,7 +5,13 @@
       "Bash(adb devices:*)",
       "Bash(./gradlew clean:*)",
       "Read(//usr/lib/jvm/**)",
-      "Bash(java -version)"
+      "Bash(java -version)",
+      "mcp__dart__dtd",
+      "mcp__dart__hot_reload",
+      "mcp__dart__hot_restart",
+      "mcp__dart__flutter_driver_command",
+      "Bash(adb shell *)",
+      "Bash(adb pull *)",
     ]
   },
   "enabledPlugins": {
