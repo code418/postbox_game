@@ -120,8 +120,8 @@ dependencies {
     // UI (a single refresh-safe PaneTemplate) — no Flutter runtime is loaded in
     // the car; the car screen talks to Firebase Functions directly. Scoped to
     // the phone flavor so the wear AAB does not link these libraries.
-    phoneImplementation 'androidx.car.app:app:1.4.0'
-    phoneImplementation 'androidx.car.app:app-projected:1.4.0'
+    phoneImplementation 'androidx.car.app:app:1.7.0'
+    phoneImplementation 'androidx.car.app:app-projected:1.7.0'
     phoneImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1'
     phoneImplementation platform('com.google.firebase:firebase-bom:33.7.0')
     phoneImplementation 'com.google.firebase:firebase-auth'
