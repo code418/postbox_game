@@ -92,6 +92,14 @@ class _PostmanJamesState extends State<PostmanJames>
                   height: widget.size,
                   fit: BoxFit.contain,
                   filterQuality: FilterQuality.high,
+                  // James is decorative in every context this widget is used:
+                  // - JamesStrip (already wraps the strip in a Semantics node
+                  //   that carries the full message);
+                  // - Intro (the dialogue text immediately below carries the
+                  //   actual content).
+                  // Without exclusion, TalkBack/VoiceOver announces "Image"
+                  // on top of the contextual text the user actually needs.
+                  excludeFromSemantics: true,
                 ),
                 if (widget.showStarEyes)
                   AnimatedBuilder(
