@@ -114,7 +114,7 @@ class PostboxGame extends StatefulWidget {
   State<PostboxGame> createState() => _PostboxGameState();
 }
 
-class _PostboxGameState extends State<PostboxGame> {
+class _PostboxGameState extends State<PostboxGame> with WidgetsBindingObserver {
   final UserRepository _userRepository = UserRepository();
   final HomeWidgetService _homeWidgetService = HomeWidgetService();
   StreamSubscription<Uri?>? _widgetClickSub;
@@ -129,6 +129,7 @@ class _PostboxGameState extends State<PostboxGame> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     // Consume the one-shot flag so a cold-start deep-link fires a single
     // auto-scan. Subsequent widget taps (while the app is in memory) are
     // handled by the widgetClicked stream below.
@@ -146,8 +147,23 @@ class _PostboxGameState extends State<PostboxGame> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _widgetClickSub?.cancel();
     super.dispose();
+  }
+
+  /// Refresh the Android home-screen widget when the app comes back to the
+  /// foreground. Without this, data goes stale across:
+  ///   - daily rollover at midnight London (today's points/streak should reset),
+  ///   - claims made on the paired Wear OS watch (no path back to the phone
+  ///     widget refresh otherwise), and
+  ///   - external rescores (e.g. an admin accepting a wrong-cypher report).
+  /// Phone-side claims still call refresh() directly for instant feedback.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_homeWidgetService.refresh());
+    }
   }
 
   /// Redirects to login when accessing protected named routes while unauthenticated.
