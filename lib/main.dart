@@ -24,6 +24,7 @@ import 'package:home_widget/home_widget.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'dart:io' show Platform;
 import 'firebase_options.dart';
+import 'oauth_client_ids.dart';
 import 'secrets.dart';
 import 'analytics_service.dart';
 import 'package:postbox_game/admin/admin_access.dart';
@@ -55,12 +56,9 @@ void main() async {
   // Android serverClientId. iOS reads the iOS-type client ID from
   // GoogleService-Info.plist when no clientId is passed, but we pass it
   // explicitly so Firebase Auth's iosClientId stays authoritative.
-  // These values are not secrets — they live in the platform config files
-  // already shipped with the app.
-  const webClientId =
-      '176793005702-7lgiqssuu8i9p5ijn031kbv0tqlptvfg.apps.googleusercontent.com';
-  const iosClientId =
-      '176793005702-rmq2h89o58g1lbe6bnqtg9rnllu8gv80.apps.googleusercontent.com';
+  // Both IDs live in lib/oauth_client_ids.dart so main_wear.dart can share
+  // them without duplicating the literals (a drift would break Sign-In on
+  // one platform). They are not secrets.
   await GoogleSignIn.instance.initialize(
     clientId: kIsWeb
         ? webClientId

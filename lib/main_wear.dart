@@ -5,6 +5,7 @@ import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:postbox_game/wear/wear_app.dart';
 import 'firebase_options.dart';
+import 'oauth_client_ids.dart';
 
 /// Wear OS entry point.
 ///
@@ -26,9 +27,9 @@ void main() async {
   // google_sign_in 7.x requires initialize() before authenticate().
   // serverClientId is the Firebase Auth web OAuth client (type 3 in
   // google-services.json) — needed on Android to issue an ID token.
+  // Sourced from lib/oauth_client_ids.dart so it can't drift from main.dart.
   await GoogleSignIn.instance.initialize(
-    serverClientId:
-        '176793005702-7lgiqssuu8i9p5ijn031kbv0tqlptvfg.apps.googleusercontent.com',
+    serverClientId: webClientId,
   );
   runApp(const WearPostboxGame());
 }
