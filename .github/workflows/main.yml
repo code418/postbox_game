@@ -22,6 +22,12 @@ jobs:
           flutter-version: '3.x'
           channel: 'stable'
 
+      - name: Create secrets.dart from example (CI placeholder)
+        run: |
+          if [ ! -f lib/secrets.dart ]; then
+            cp lib/secrets.dart.example lib/secrets.dart
+          fi
+
       - run: flutter pub get
       # Catches lint warnings + type errors that the test runner doesn't surface.
       - run: flutter analyze
