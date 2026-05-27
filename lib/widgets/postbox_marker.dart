@@ -31,18 +31,36 @@ Marker postboxMarker(
       !isRare &&
       MonarchInfo.historicCiphers.contains(cipher);
 
+  // Build a human-readable label for screen readers. Markers were previously
+  // invisible to TalkBack/VoiceOver, so a visually-impaired player using the
+  // map view of the history / heatmap screens had no way to identify
+  // individual pins. Labels reflect what the visual badges convey.
+  final cipherLabel = cipher != null ? (MonarchInfo.labels[cipher] ?? cipher) : null;
+  final parts = <String>[
+    'Postbox',
+    if (cipherLabel != null) cipherLabel,
+    if (isRare && !claimed) 'rare',
+    if (isHistoric && !claimed) 'historic',
+    if (claimed) 'claimed',
+  ];
+  final semanticsLabel = parts.join(', ');
+
   return Marker(
     point: point,
     width: size,
     height: size,
-    child: GestureDetector(
-      onTap: onTap,
-      child: _PostboxPin(
-        color: color,
-        size: size,
-        claimed: claimed,
-        showStar: isRare && !claimed,
-        showHistoric: isHistoric && !claimed,
+    child: Semantics(
+      button: onTap != null,
+      label: semanticsLabel,
+      child: GestureDetector(
+        onTap: onTap,
+        child: _PostboxPin(
+          color: color,
+          size: size,
+          claimed: claimed,
+          showStar: isRare && !claimed,
+          showHistoric: isHistoric && !claimed,
+        ),
       ),
     ),
   );
