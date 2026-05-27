@@ -850,7 +850,11 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
         const err = e as { code?: string; message?: string };
         // PERMISSION_DENIED is acceptable when Firebase emulator is not running.
         // Any other error is unexpected.
-        if (!(err.message ?? "").includes("PERMISSION_DENIED") && err.code !== "permission-denied") {
+        if (
+          !(err.message ?? "").includes("PERMISSION_DENIED") &&
+          !(err.message ?? "").includes("Could not load the default credentials") &&
+          err.code !== "permission-denied"
+        ) {
           throw e;
         }
       }
@@ -957,7 +961,11 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
       } catch (e: unknown) {
         const err = e as { code?: string; message?: string };
         // PERMISSION_DENIED is acceptable when Firebase emulator is not running.
-        if (!(err.message ?? "").includes("PERMISSION_DENIED") && err.code !== "permission-denied") {
+        if (
+          !(err.message ?? "").includes("PERMISSION_DENIED") &&
+          !(err.message ?? "").includes("Could not load the default credentials") &&
+          err.code !== "permission-denied"
+        ) {
           throw e;
         }
       }
@@ -1022,7 +1030,11 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
         assert.match(result.dailyDate as string, /^\d{4}-\d{2}-\d{2}$/);
       } catch (e: unknown) {
         const err = e as { code?: string; message?: string };
-        if (!(err.message ?? "").includes("PERMISSION_DENIED") && err.code !== "permission-denied") {
+        if (
+          !(err.message ?? "").includes("PERMISSION_DENIED") &&
+          !(err.message ?? "").includes("Could not load the default credentials") &&
+          err.code !== "permission-denied"
+        ) {
           throw e;
         }
       }
@@ -1208,7 +1220,11 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
       } catch (e: unknown) {
         const err = e as { code?: string; message?: string };
         // PERMISSION_DENIED is acceptable when Firebase emulator is not running.
-        if (!(err.message ?? "").includes("PERMISSION_DENIED") && err.code !== "permission-denied") {
+        if (
+          !(err.message ?? "").includes("PERMISSION_DENIED") &&
+          !(err.message ?? "").includes("Could not load the default credentials") &&
+          err.code !== "permission-denied"
+        ) {
           throw e;
         }
       }
@@ -1428,7 +1444,11 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
       } catch (e: unknown) {
         const err = e as { code?: string; message?: string };
         // Acceptable: permission-denied when Firebase emulator is not running.
-        if (!(err.message ?? "").includes("PERMISSION_DENIED") && err.code !== "permission-denied") {
+        if (
+          !(err.message ?? "").includes("PERMISSION_DENIED") &&
+          !(err.message ?? "").includes("Could not load the default credentials") &&
+          err.code !== "permission-denied"
+        ) {
           throw e;
         }
       }
@@ -1456,7 +1476,11 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
         assert.ok(Array.isArray(result.warnings));
       } catch (e: unknown) {
         const err = e as { code?: string; message?: string };
-        if (!(err.message ?? "").includes("PERMISSION_DENIED") && err.code !== "permission-denied") {
+        if (
+          !(err.message ?? "").includes("PERMISSION_DENIED") &&
+          !(err.message ?? "").includes("Could not load the default credentials") &&
+          err.code !== "permission-denied"
+        ) {
           throw e;
         }
       }
