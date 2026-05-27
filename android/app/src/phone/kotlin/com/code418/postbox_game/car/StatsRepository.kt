@@ -118,18 +118,35 @@ object StatsRepository {
         return SimpleDateFormat("yyyy-MM-dd", Locale.UK).apply { timeZone = utc }.format(cal.time)
     }
 
-    /** Staleness-corrected streak, mirroring freshStreak() in
-     *  lib/streak_service.dart. The server writes `streak` only when a claim
-     *  happens, so a user who missed yesterday still has a non-zero stored
-     *  value; it is "fresh" only when [lastClaimDate] is today or yesterday
-     *  (London), otherwise the live streak is 0. */
-    private fun freshStreak(storedStreak: Int, lastClaimDate: String?): Int {
-        if (storedStreak == 0) return 0
-        if (lastClaimDate == null) return 0
-        return if (lastClaimDate == londonDateToday() || lastClaimDate == londonDateYesterday()) {
-            storedStreak
-        } else {
-            0
-        }
+    /** Wall-clock variant called by the snapshot listener. Reads today/yesterday
+     *  in London time and delegates to the pure helper below so the staleness
+     *  logic itself stays unit-testable without touching the system clock. */
+    private fun freshStreak(storedStreak: Int, lastClaimDate: String?): Int =
+        freshStreak(storedStreak, lastClaimDate, londonDateToday(), londonDateYesterday())
+}
+
+/** Staleness-corrected streak, mirroring freshStreak() in
+ *  lib/streak_service.dart. The server only writes `streak` on a claim, so
+ *  a user who missed yesterday still has a non-zero stored value; treat it
+ *  as fresh only when [lastClaimDate] is [today] or [yesterday] (London).
+ *
+ *  Pure (no clock access) so a unit test can pin the staleness boundaries
+ *  without freezing the system clock. The car path duplicates Dart logic
+ *  because the car runtime never loads the Dart engine — this helper is
+ *  the cross-language regression edge for any future change to the
+ *  three-source streak-freshness rule (also in [[StreakService.freshStreak]]
+ *  on Dart and the in-line check in [[fetchDailyLeaderboard]] for periodKey). */
+internal fun freshStreak(
+    storedStreak: Int,
+    lastClaimDate: String?,
+    today: String,
+    yesterday: String,
+): Int {
+    if (storedStreak == 0) return 0
+    if (lastClaimDate == null) return 0
+    return if (lastClaimDate == today || lastClaimDate == yesterday) {
+        storedStreak
+    } else {
+        0
     }
 }
