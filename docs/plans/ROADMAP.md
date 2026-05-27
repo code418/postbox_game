@@ -415,19 +415,32 @@ Backend risk: callable region pinning (v1.3) and App Check enforcement (v1.4) bo
 
 ### Localisation infrastructure  (new)
 
-Currently English-only and a UK-centric game. Welsh and Scottish Gaelic regional variants are on-brand and a strong differentiator.
+Currently English-only and a UK-centric game. The British Isles' minority and regional languages are on-brand and a strong differentiator — leaning into them also flatters the heritage angle (Victorian boxes, monarch eras) more than a generic French / German launch would.
+
+**Candidate locales** (in rough order of cultural fit + translator availability):
+
+| BCP 47 | Language | Notes |
+|---|---|---|
+| `cy` | Welsh | Statutory bilingual signage across Wales; high translator availability. |
+| `gd` | Scottish Gaelic | ~57k speakers, strong heritage angle. Official status in Scotland. |
+| `ga` | Irish | Official in Ireland; opens up RoI postbox coverage if the game ever crosses the border. Note that NI doesn't have An Post boxes but the diaspora overlap is real. |
+| `sco` | Scots | Lowland Scots (Wikipedia-scale community; sister language to English). Cheap to localise because the vocabulary overlap is high; the personality shift on James lines alone is worth it. |
+| `kw` | Cornish | Revived language, small but active community. Cornish postboxes are iconic in their own right. |
+| `gv` | Manx | Optional stretch — IoM has Manx-bilingual signage; tiny speaker base but symbolic. |
+
+Launch tier ≈ `cy` + `gd` + `sco` (highest fit, English-adjacent translation cost is low). Second tier `ga` + `kw`. `gv` and any further additions on demand.
 
 Steps (the `flutter-setup-localization` skill summarises this):
 
 1. `flutter_localizations` + `intl` dependencies; `generate: true` in `pubspec.yaml`; `l10n.yaml` config.
 2. Extract every hardcoded user-facing string from `lib/` into ARB files. `james_messages.dart` (399 lines) is the long pole — keep its keys stable; translate the values.
-3. Add Settings → "Language" picker. Default to `Platform.localeName` with English fallback.
-4. Translate `james_messages.dart` to `cy` (Welsh) and `gd` (Scottish Gaelic) for the launch set; English variants stay authoritative.
-5. Long-run: Lokalise / Crowdin pipeline so translators don't touch the repo.
+3. Add Settings → "Language" picker. Default to `Platform.localeName` with English fallback; show the user the *autonym* (e.g. "Cymraeg", "Gàidhlig", "Gaeilge", "Scots", "Kernewek", "Gaelg") next to the English name in the picker.
+4. Translate `james_messages.dart` to the launch tier first; English variants stay authoritative as the canonical source for any new strings.
+5. Long-run: Lokalise / Crowdin pipeline so translators don't touch the repo. `sco` may need an in-house pass since few CAT tools cover it.
 
 Risk: every future PR must add ARB entries; enforce via a CI lint that fails on hardcoded user-facing strings (`flutter_lints` doesn't catch this by default — write a small `analyzer_plugin` or grep step).
 
-Backlog idea (depends on this): regionally-flavoured James — a Welsh James for `cy`, a Scottish James for `gd`, complete with the existing voice-line plan (Backlog).
+Backlog idea (depends on this): regionally-flavoured James — a Welsh James for `cy`, a Scottish James for `gd`, a "wee blether" Scots James for `sco`, an Irish James for `ga` — complete with the existing voice-line plan (Backlog).
 
 ---
 
