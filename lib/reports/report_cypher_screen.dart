@@ -85,7 +85,14 @@ class _ReportCypherScreenState extends State<ReportCypherScreen> {
         reason: e.code.isNotEmpty ? e.code : 'unknown',
       ));
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not send report: ${e.message ?? e.code}')));
+        // The Cloud Function's HttpsError messages (e.g. "You've reached the
+        // daily limit of 10 reports", "at most 3 photos are allowed") are
+        // user-facing copy — show them directly rather than prefixing with
+        // "Could not send report:", which made limit-hits read like a generic
+        // failure ("Could not send report: You've reached the daily limit…").
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content:
+                Text(e.message ?? 'Could not send report. Please try again.')));
       }
     } catch (_) {
       unawaited(Analytics.reportSubmitFailed(

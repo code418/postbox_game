@@ -108,7 +108,13 @@ class _ReportMissingPostboxScreenState extends State<ReportMissingPostboxScreen>
         reason: e.code.isNotEmpty ? e.code : 'unknown',
       ));
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not send report: ${e.message ?? e.code}')));
+        // See report_cypher_screen.dart: the server's HttpsError message is
+        // already user-facing copy (e.g. the daily-limit string), so showing
+        // it directly reads better than prefixing with "Could not send
+        // report:".
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content:
+                Text(e.message ?? 'Could not send report. Please try again.')));
       }
     } catch (_) {
       unawaited(Analytics.reportSubmitFailed(
