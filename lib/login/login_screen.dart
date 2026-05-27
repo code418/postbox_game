@@ -37,6 +37,8 @@ class LoginScreen extends StatelessWidget {
                           postalRed,
                           BlendMode.srcIn,
                         ),
+                        // Decorative — the title text below carries the meaning.
+                        excludeFromSemantics: true,
                       ),
                       const SizedBox(height: AppSpacing.md),
                       Text(

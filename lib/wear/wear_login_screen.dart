@@ -81,6 +81,8 @@ class _WearLoginScreenState extends State<WearLoginScreen> {
                 height: 36,
                 colorFilter:
                     const ColorFilter.mode(postalRed, BlendMode.srcIn),
+                // Decorative — "Postbox Game" title carries the meaning.
+                excludeFromSemantics: true,
               ),
               const SizedBox(height: WearSpacing.lg),
               Text(

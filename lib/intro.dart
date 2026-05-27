@@ -167,7 +167,13 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
             ),
             child: Column(
               children: [
-                SvgPicture.asset('assets/postbox.svg', width: 120, height: 120),
+                SvgPicture.asset(
+                  'assets/postbox.svg',
+                  width: 120,
+                  height: 120,
+                  // Decorative — dialogue text below carries the content.
+                  excludeFromSemantics: true,
+                ),
                 const SizedBox(height: AppSpacing.sm),
                 const Text(
                   'A brief introduction to postboxes...',
@@ -194,7 +200,12 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  SvgPicture.asset('assets/postbox.svg', width: 80, height: 80),
+                  SvgPicture.asset(
+                    'assets/postbox.svg',
+                    width: 80,
+                    height: 80,
+                    excludeFromSemantics: true,
+                  ),
                   const SizedBox(width: AppSpacing.lg),
                   FractionalTranslation(
                     translation: Offset(_jamesSlide.value, 0),
@@ -227,7 +238,12 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                SvgPicture.asset('assets/postbox.svg', width: 64, height: 64),
+                SvgPicture.asset(
+                  'assets/postbox.svg',
+                  width: 64,
+                  height: 64,
+                  excludeFromSemantics: true,
+                ),
                 const SizedBox(width: AppSpacing.md),
                 const PostmanJames(size: 90, isTalking: true),
               ],

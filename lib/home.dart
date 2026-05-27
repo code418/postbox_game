@@ -116,6 +116,8 @@ class _HomeState extends State<Home> {
                   Colors.white,
                   BlendMode.srcIn,
                 ),
+                // Decorative — the "Postbox Game" text is what announces.
+                excludeFromSemantics: true,
               ),
               const SizedBox(width: AppSpacing.sm),
               const Text('Postbox Game'),

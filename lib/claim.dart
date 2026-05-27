@@ -216,6 +216,8 @@ class _ClaimState extends State<Claim> {
           'assets/postbox.svg',
           height: landscape ? 72 : 100,
           colorFilter: const ColorFilter.mode(postalRed, BlendMode.srcIn),
+          // Decorative — "Find a postbox to claim" header carries the meaning.
+          excludeFromSemantics: true,
         );
         final title = Text(
           'Find a postbox to claim',
