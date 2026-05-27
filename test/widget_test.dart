@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_auth_mocks/firebase_auth_mocks.dart';
@@ -716,15 +718,22 @@ void main() {
   });
 
   group('FriendsScreen constants (cross-platform contract)', () {
-    test('maxFriends is 200 — must match firestore.rules friends.size() cap',
-        () {
-      // firestore.rules has `request.resource.data.friends.size() <= 200` on
-      // the users doc update. The client-side check at FriendsScreen.maxFriends
-      // is a pre-flight check so the user sees a friendly error before the
+    test('maxFriends matches the firestore.rules friends.size() cap', () {
+      // firestore.rules has `request.resource.data.friends.size() <= N` on the
+      // users doc update. The client-side check at FriendsScreen.maxFriends is
+      // a pre-flight so the user sees a friendly "list full" error before the
       // write is rejected by the rules engine. Drift means the client thinks
-      // the list isn't full but Firestore refuses the write with a
-      // permission-denied error.
-      expect(FriendsScreen.maxFriends, equals(200));
+      // the list isn't full but Firestore refuses with a permission-denied
+      // error — read the rules file at test time so a future bump only has to
+      // happen in one place.
+      final rules = File('firestore.rules').readAsStringSync();
+      final m = RegExp(r'friends\.size\(\)\s*<=\s*(\d+)').firstMatch(rules);
+      expect(m, isNotNull,
+          reason: 'friends.size() cap not found in firestore.rules');
+      final rulesCap = int.parse(m!.group(1)!);
+      expect(FriendsScreen.maxFriends, equals(rulesCap),
+          reason: 'FriendsScreen.maxFriends=${FriendsScreen.maxFriends} '
+              'drifted from firestore.rules cap=$rulesCap');
     });
   });
 
