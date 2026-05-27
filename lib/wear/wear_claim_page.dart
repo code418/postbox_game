@@ -125,6 +125,11 @@ class _WearClaimPageState extends State<WearClaimPage> {
   /// these counts as a correct quiz answer.
   Set<String> _validQuizCiphers = const {};
 
+  /// Set true after the first incorrect quiz answer so the quiz title can show
+  /// a "Not quite" hint. Without this the watch only fires a heavy haptic on
+  /// a wrong pick, leaving users unsure whether the tap registered.
+  bool _quizMissed = false;
+
   Set<String> _collectValidCiphers() {
     final ciphers = <String>{};
     for (final p in _postboxes.values) {
@@ -154,6 +159,7 @@ class _WearClaimPageState extends State<WearClaimPage> {
       _quizCipher = picked;
       _validQuizCiphers = valid;
       _quizOptions = _buildQuizOptions(valid);
+      _quizMissed = false;
       _stage = _ClaimStage.quiz;
     });
   }
@@ -183,9 +189,11 @@ class _WearClaimPageState extends State<WearClaimPage> {
         selectedCipher: answer,
       );
       HapticFeedback.heavyImpact();
-      // Reshuffle and let them try again.
+      // Reshuffle and show a "Not quite" hint so the wrong tap is visible —
+      // a heavy haptic alone leaves users unsure whether the tap registered.
       setState(() {
         _quizOptions = _buildQuizOptions(_validQuizCiphers);
+        _quizMissed = true;
       });
     }
   }
@@ -454,9 +462,18 @@ class _WearClaimPageState extends State<WearClaimPage> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Text(
-              'Which cipher?',
-              style: Theme.of(context).textTheme.titleMedium,
+              _quizMissed ? 'Not quite!' : 'Which cipher?',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: _quizMissed ? Colors.red : null,
+                  ),
             ),
+            if (_quizMissed) ...[
+              const SizedBox(height: WearSpacing.xs),
+              Text(
+                'Look again',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
             const SizedBox(height: WearSpacing.lg),
             for (final code in _quizOptions) ...[
               SizedBox(
