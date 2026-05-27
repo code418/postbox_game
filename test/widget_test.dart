@@ -68,6 +68,22 @@ void main() {
         isTrue,
       );
     });
+    test('the parser actually agrees with PostboxWidgetProvider.kt at rest',
+        () {
+      // Read the Kotlin DEEP_LINK literal and feed it through the live Dart
+      // parser. Catches a Kotlin-side rename — e.g. a future commit that
+      // bumps the URI to "postbox://scan?source=widget" — which the prior
+      // hard-coded test would have missed.
+      final kt = File(
+        'android/app/src/main/kotlin/com/code418/postbox_game/PostboxWidgetProvider.kt',
+      ).readAsStringSync();
+      final m = RegExp(r'DEEP_LINK\s*=\s*"([^"]+)"').firstMatch(kt);
+      expect(m, isNotNull,
+          reason: 'DEEP_LINK constant not found in PostboxWidgetProvider.kt');
+      expect(isWidgetClaimDeepLink(Uri.parse(m!.group(1)!)), isTrue,
+          reason: 'Dart parser rejects the actual Kotlin DEEP_LINK '
+              '"${m.group(1)}"; the widget tap would silently no-op');
+    });
     test('rejects a null URI', () {
       expect(isWidgetClaimDeepLink(null), isFalse);
     });
