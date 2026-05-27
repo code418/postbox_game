@@ -13,15 +13,11 @@ updates:
     directory: "/"
     schedule:
       interval: "daily"
-  - package-ecosystem: "npm" # See documentation for possible values
-    directory: "/" # Location of package manifests
+  - package-ecosystem: "npm"
+    directory: "/functions"
     schedule:
       interval: "daily"
- - package-ecosystem: "npm" # See documentation for possible values
-    directory: "/functions" # Location of package manifests
+  - package-ecosystem: "gradle"
+    directory: "/android"
     schedule:
       interval: "daily"
- - package-ecosystem: "gradle" # See documentation for possible values
-    directory: "/android" # Location of package manifests
-    schedule:
-      interval: "daily"     
