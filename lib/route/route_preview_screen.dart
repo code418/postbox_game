@@ -221,9 +221,14 @@ class _RoutePreviewScreenState extends State<RoutePreviewScreen> {
     final distM = _directDistanceM;
     if (distM == null) return '–';
     final speedMps = widget.session.speedKmh * 1000 / 3600;
-    final minutes = (distM / speedMps / 60).round();
+    final seconds = distM / speedMps;
     final label =
         widget.session.pace == RoutePace.jog ? 'jogging' : 'walking';
+    // A 30 m destination at walking pace rounds to 0 min, leaving the user with
+    // a confusing "≈ 0 min walking" label. Show "< 1 min" instead, and only
+    // switch to whole-minute rounding once we've cleared the threshold.
+    if (seconds < 60) return '< 1 min $label';
+    final minutes = (seconds / 60).round();
     return '≈ $minutes min $label';
   }
 
