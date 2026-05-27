@@ -1,4 +1,5 @@
 import 'package:postbox_game/london_date.dart';
+import 'package:postbox_game/streak_service.dart' show freshStreak;
 
 /// Property-name constants for the eight Firebase Analytics user properties
 /// the app reports. Mirror these in the Firebase Console (Analytics →
@@ -123,14 +124,28 @@ UserPropertiesSnapshot snapshotFromUserDoc(
   String? todayLondonIso,
 }) {
   final today = todayLondonIso ?? todayLondon();
+  final yesterday = yesterdayFor(today);
   final lastClaim = data['lastClaimDate'];
-  final claimedToday = lastClaim is String && lastClaim == today;
+  final lastClaimStr = lastClaim is String ? lastClaim : null;
+  final claimedToday = lastClaimStr == today;
   final friends = data['friends'];
   final friendCount = friends is List ? friends.length : 0;
+  // Stale-streak guard mirrors StreakService.freshStreak / HomeWidgetService:
+  // the server only writes `streak` on a claim, so a user who missed yesterday
+  // still has a non-zero stored value until their next claim. Without this
+  // guard the Remote Config audience for "30+ day streak" would carry over
+  // accounts that have actually broken their streak.
+  final liveStreak = freshStreak(
+        storedStreak: _asInt(data['streak']),
+        lastClaimDate: lastClaimStr,
+        today: today,
+        yesterday: yesterday,
+      ) ??
+      0;
   return UserPropertiesSnapshot(
     isAdmin: boolProp(isAdmin),
     hasSeenIntro: boolProp(hasSeenIntro),
-    claimStreakBucket: streakBucket(_asInt(data['streak'])),
+    claimStreakBucket: streakBucket(liveStreak),
     lifetimePointsBucket: lifetimePointsBucket(_asInt(data['lifetimePoints'])),
     uniquePostboxesBucket:
         uniquePostboxesBucket(_asInt(data['uniquePostboxesClaimed'])),

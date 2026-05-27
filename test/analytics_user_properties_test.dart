@@ -133,6 +133,10 @@ void main() {
           'streak': 5.0,
           'lifetimePoints': 250.0,
           'uniquePostboxesClaimed': 15.0,
+          // freshStreak treats a streak as broken (→ 0) when lastClaimDate is
+          // missing, so provide today to keep the streak "live" and pin the
+          // num-cast behaviour rather than the staleness guard.
+          'lastClaimDate': '2026-05-20',
         },
         isAdmin: false,
         hasSeenIntro: true,
@@ -141,6 +145,37 @@ void main() {
       expect(snap.claimStreakBucket, '4-7');
       expect(snap.lifetimePointsBucket, '101-1000');
       expect(snap.uniquePostboxesBucket, '11-50');
+    });
+
+    test('stale streak (lastClaimDate older than yesterday) reads as "0"', () {
+      // The server only resets `streak` on the user's next claim, so a user
+      // who missed yesterday still has a non-zero stored value. The Remote
+      // Config audience should reflect the live state, not the stale field
+      // — same guard StreakService and HomeWidgetService apply via freshStreak.
+      final snap = snapshotFromUserDoc(
+        <String, dynamic>{
+          'streak': 30,
+          'lastClaimDate': '2026-05-17', // 3 days before today below
+        },
+        isAdmin: false,
+        hasSeenIntro: true,
+        todayLondonIso: '2026-05-20',
+      );
+      expect(snap.claimStreakBucket, '0');
+    });
+
+    test('streak with yesterday lastClaimDate still counts (not yet broken)',
+        () {
+      final snap = snapshotFromUserDoc(
+        <String, dynamic>{
+          'streak': 4,
+          'lastClaimDate': '2026-05-19',
+        },
+        isAdmin: false,
+        hasSeenIntro: true,
+        todayLondonIso: '2026-05-20',
+      );
+      expect(snap.claimStreakBucket, '4-7');
     });
 
     test('toMap exposes every key in AnalyticsUserProps.all', () {

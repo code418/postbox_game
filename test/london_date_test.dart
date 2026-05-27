@@ -125,6 +125,33 @@ void main() {
     });
   });
 
+  group('yesterdayFor (pure variant)', () {
+    // The pure helper underlies yesterdayLondon and is used directly by
+    // analytics-property buckets that need to compute a "yesterday" against
+    // an injected "today" without re-reading the wall clock.
+    test('subtracts one calendar day from a mid-month date', () {
+      expect(yesterdayFor('2026-05-20'), '2026-05-19');
+    });
+    test('handles month boundary (1st rolls back to previous month\'s last day)',
+        () {
+      expect(yesterdayFor('2026-05-01'), '2026-04-30');
+      expect(yesterdayFor('2026-03-01'), '2026-02-28'); // non-leap Feb
+      expect(yesterdayFor('2024-03-01'), '2024-02-29'); // leap Feb
+    });
+    test('handles year boundary (Jan 1 rolls back to Dec 31)', () {
+      expect(yesterdayFor('2026-01-01'), '2025-12-31');
+    });
+    test('crosses the BST spring-forward day cleanly (calendar, not 24h, math)',
+        () {
+      // 2026-03-29 is BST-start (clocks jump 01:00 GMT → 02:00 BST).
+      // yesterdayFor must return 2026-03-28 — a 24h-subtract from a London
+      // wall-clock 00:30 (= UTC 23:30 on 03-28) would land on 03-27 instead.
+      // yesterdayFor operates on the calendar string so it's immune by design;
+      // this test pins that intent.
+      expect(yesterdayFor('2026-03-29'), '2026-03-28');
+    });
+  });
+
   group('weekEndLondon', () {
     test('Monday returns following Sunday', () {
       // 2026-04-13 is a Monday → 2026-04-19 is the Sunday at the end of that
