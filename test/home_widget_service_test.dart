@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:firebase_auth_mocks/firebase_auth_mocks.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -54,6 +56,40 @@ void main() {
       // Empty/changing values would orphan all prior widget data.
       expect(HomeWidgetService.appGroupId, isNotEmpty);
       expect(HomeWidgetService.appGroupId, equals('PostboxGameWidget'));
+    });
+
+    test('every Dart key literal is referenced by PostboxWidgetProvider.kt',
+        () {
+      // The previous tests pin the Dart constants but couldn't catch a rename
+      // on the Kotlin side. Read the provider file and assert every key string
+      // appears — a Kotlin-only rename (e.g. KEY_STREAK = "streakCount") would
+      // make the provider read SharedPreferences defaults silently, freezing
+      // the widget on zeros without any compile-time signal.
+      final kt = File(
+        'android/app/src/main/kotlin/com/code418/postbox_game/PostboxWidgetProvider.kt',
+      ).readAsStringSync();
+      for (final key in <String>[
+        HomeWidgetService.keySignedIn,
+        HomeWidgetService.keyStreak,
+        HomeWidgetService.keyTodayPoints,
+        HomeWidgetService.keyWeekPoints,
+        HomeWidgetService.keyBoxesFound,
+        HomeWidgetService.keyLifetimePoints,
+      ]) {
+        expect(kt, contains('"$key"'),
+            reason: 'PostboxWidgetProvider.kt is missing the "$key" key '
+                'string — Dart writes it but Kotlin won\'t read it');
+      }
+    });
+
+    test('androidProviderName matches the Kotlin class declaration', () {
+      // The previous test pinned the Dart literal; this one pins the actual
+      // Kotlin class definition. A Kotlin class rename without an updateWidget
+      // androidName change silently breaks redraws (no-op).
+      final kt = File(
+        'android/app/src/main/kotlin/com/code418/postbox_game/PostboxWidgetProvider.kt',
+      ).readAsStringSync();
+      expect(kt, contains('class ${HomeWidgetService.androidProviderName} '));
     });
   });
 
