@@ -179,6 +179,30 @@ void main() {
     });
   });
 
+  group('storage photo-size cap stays in sync', () {
+    // storage.rules accepts request.resource.size < N bytes for uploads under
+    // report_photos/{uid}/. The Dart picker drops files where bytes.length >=
+    // maxPhotoBytes, using the same N. A drift means the user picks a photo
+    // the picker accepts but the upload then fails on a storage-rule reject.
+    test('maxPhotoBytes (Dart) == storage.rules size cap', () {
+      final dartM = RegExp(r'maxPhotoBytes\s*=\s*(\d+)\s*\*\s*1024\s*\*\s*1024')
+          .firstMatch(reportRepoDart);
+      expect(dartM, isNotNull, reason: 'maxPhotoBytes pattern not found');
+      final dartMb = int.parse(dartM!.group(1)!);
+
+      final storageRules = File('storage.rules').readAsStringSync();
+      final rulesM = RegExp(r'size\s*<\s*(\d+)\s*\*\s*1024\s*\*\s*1024')
+          .firstMatch(storageRules);
+      expect(rulesM, isNotNull,
+          reason: 'storage.rules size cap not found');
+      final rulesMb = int.parse(rulesM!.group(1)!);
+
+      expect(dartMb, equals(rulesMb),
+          reason:
+              'maxPhotoBytes=${dartMb}MB drifted from storage.rules=${rulesMb}MB');
+    });
+  });
+
   group('claim radius stays in sync', () {
     // The Dart side controls the nearby-scan + claim-distance UI; the TS side
     // controls the server-authoritative geohash lookup. A drift means the
