@@ -10,6 +10,7 @@ import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/streak_service.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/wear/wear_theme.dart';
+import 'package:postbox_game/widgets/quiz_helpers.dart';
 
 enum _ClaimStage { ready, scanning, found, empty, error, quiz, claiming, success }
 
@@ -130,24 +131,8 @@ class _WearClaimPageState extends State<WearClaimPage> {
   /// a wrong pick, leaving users unsure whether the tap registered.
   bool _quizMissed = false;
 
-  Set<String> _collectValidCiphers() {
-    final ciphers = <String>{};
-    for (final p in _postboxes.values) {
-      final map = p as Map<dynamic, dynamic>;
-      if (map['claimedToday'] == true) continue;
-      final monarch = map['monarch'];
-      if (monarch != null &&
-          monarch is String &&
-          monarch.isNotEmpty &&
-          MonarchInfo.all.contains(monarch)) {
-        ciphers.add(monarch);
-      }
-    }
-    return ciphers;
-  }
-
   void _startQuiz() {
-    final valid = _collectValidCiphers();
+    final valid = collectValidQuizCiphers(_postboxes.values);
     if (valid.isEmpty) {
       _claimPostbox();
       return;
@@ -158,24 +143,11 @@ class _WearClaimPageState extends State<WearClaimPage> {
     setState(() {
       _quizCipher = picked;
       _validQuizCiphers = valid;
-      _quizOptions = _buildQuizOptions(valid);
+      // Watch screen is tiny — show only 2 options vs the phone's 4.
+      _quizOptions = buildQuizOptions(valid, maxOptions: 2);
       _quizMissed = false;
       _stage = _ClaimStage.quiz;
     });
-  }
-
-  /// Build 2 quiz options for the watch. With multiple nearby ciphers, the
-  /// options include up to 2 of them so the user can pick the one they
-  /// actually see; otherwise it's the picked cipher plus a random distractor.
-  List<String> _buildQuizOptions(Set<String> validCiphers,
-      {int maxOptions = 2}) {
-    final valid = validCiphers.toList()..shuffle();
-    final pickedValid = valid.take(maxOptions).toList();
-    final pool = List<String>.from(MonarchInfo.all)
-      ..removeWhere(pickedValid.contains)
-      ..shuffle();
-    final fillers = pool.take(maxOptions - pickedValid.length).toList();
-    return ([...pickedValid, ...fillers]..shuffle());
   }
 
   void _onQuizAnswer(String answer) {
@@ -192,7 +164,7 @@ class _WearClaimPageState extends State<WearClaimPage> {
       // Reshuffle and show a "Not quite" hint so the wrong tap is visible —
       // a heavy haptic alone leaves users unsure whether the tap registered.
       setState(() {
-        _quizOptions = _buildQuizOptions(_validQuizCiphers);
+        _quizOptions = buildQuizOptions(_validQuizCiphers, maxOptions: 2);
         _quizMissed = true;
       });
     }

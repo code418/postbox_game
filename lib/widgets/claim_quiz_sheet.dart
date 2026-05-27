@@ -22,6 +22,7 @@ import 'package:postbox_game/services/home_widget_service.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/widgets/postbox_map.dart';
 import 'package:postbox_game/widgets/postbox_marker.dart';
+import 'package:postbox_game/widgets/quiz_helpers.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Callable typedefs (injectable for testing)
@@ -512,42 +513,8 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
 
   // ── Quiz helpers ──────────────────────────────────────────────────────────
 
-  Set<String> _collectValidCiphers() {
-    final ciphers = <String>{};
-    for (final p in _postboxes.values) {
-      final map = p as Map<String, dynamic>;
-      if (map['claimedToday'] == true) continue;
-      final monarch = map['monarch'];
-      // Only ciphers in MonarchInfo.all so the option pool can always render
-      // the correct answer; unknown OSM cyphers are accepted via the direct
-      // claim path (no quiz triggered) elsewhere.
-      if (monarch != null &&
-          monarch is String &&
-          monarch.isNotEmpty &&
-          MonarchInfo.all.contains(monarch)) {
-        ciphers.add(monarch);
-      }
-    }
-    return ciphers;
-  }
-
-  /// Always include every nearby valid cipher (so the user can pick the one
-  /// they actually see), padded with distractors. With more than [maxOptions]
-  /// valid nearby ciphers only [maxOptions] of them appear — the rest are
-  /// still accepted as correct by [_onQuizAnswer], they just don't get a row.
-  List<String> _buildQuizOptions(Set<String> validCiphers,
-      {int maxOptions = 4}) {
-    final valid = validCiphers.toList()..shuffle();
-    final pickedValid = valid.take(maxOptions).toList();
-    final pool = List<String>.from(MonarchInfo.all)
-      ..removeWhere(pickedValid.contains)
-      ..shuffle();
-    final fillers = pool.take(maxOptions - pickedValid.length).toList();
-    return ([...pickedValid, ...fillers]..shuffle());
-  }
-
   void _startQuiz() {
-    final valid = _collectValidCiphers();
+    final valid = collectValidQuizCiphers(_postboxes.values);
     if (valid.isEmpty) {
       unawaited(_claimPostbox());
       return;
@@ -557,7 +524,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
     setState(() {
       _quizCipher = picked;
       _validQuizCiphers = valid;
-      _quizOptions = _buildQuizOptions(valid);
+      _quizOptions = buildQuizOptions(valid, maxOptions: 4);
       _selectedAnswer = null;
       _stage = _QuizStage.quiz;
     });

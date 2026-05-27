@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/semantics.dart' show SemanticsFlag;
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
@@ -77,8 +76,8 @@ void main() {
       expect(gestures, findsNWidgets(2));
       final tappableSemantics = tester.getSemantics(gestures.first);
       final passiveSemantics = tester.getSemantics(gestures.last);
-      expect(tappableSemantics.hasFlag(SemanticsFlag.isButton), isTrue);
-      expect(passiveSemantics.hasFlag(SemanticsFlag.isButton), isFalse);
+      expect(tappableSemantics.flagsCollection.isButton, isTrue);
+      expect(passiveSemantics.flagsCollection.isButton, isFalse);
     });
   });
 }
