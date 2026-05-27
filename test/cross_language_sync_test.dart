@@ -20,6 +20,15 @@
 //      doesn't recognise. The per-value getPoints tests on each side pin the
 //      *values* but nothing currently cross-checks the *key-set*.
 //
+//   3. Problem-report caps: max photos, max note length, max reference length
+//        - lib/reports/report_repository.dart (maxPhotos, maxNoteChars, maxReferenceChars)
+//        - functions/src/reports.ts           (MAX_PHOTOS, NOTE_MAX, REFERENCE_MAX)
+//      Each pair is annotated "MUST match" in the source, but a numeric drift
+//      between the client-side gate and the server-side validator silently
+//      leaves users hitting "submission failed" only after the upload (e.g.
+//      they pick 4 photos because client said `maxPhotos == 4`, server then
+//      rejects). Asserted equal here so the comment can't go stale.
+//
 // Plain VM tests (use dart:io) — `flutter test` runs with the package root as
 // the working directory, so the relative paths resolve.
 
@@ -58,6 +67,8 @@ void main() {
   late String monarchInfoDart;
   late String getPointsTs;
   late String importJs;
+  late String reportRepoDart;
+  late String reportsTs;
 
   setUpAll(() {
     validatorsDart = File('lib/validators.dart').readAsStringSync();
@@ -65,6 +76,9 @@ void main() {
     monarchInfoDart = File('lib/monarch_info.dart').readAsStringSync();
     getPointsTs = File('functions/src/_getPoints.ts').readAsStringSync();
     importJs = File('functions/import_postboxes.js').readAsStringSync();
+    reportRepoDart =
+        File('lib/reports/report_repository.dart').readAsStringSync();
+    reportsTs = File('functions/src/reports.ts').readAsStringSync();
   });
 
   group('profanity block-list stays in sync across languages', () {
@@ -133,6 +147,56 @@ void main() {
               'MonarchInfo.all (lib/monarch_info.dart). '
               'only-in-importer=${importerSet.difference(clientSet)} '
               'only-in-client=${clientSet.difference(importerSet)}');
+    });
+  });
+
+  group('problem-report caps stay in sync across client/server', () {
+    // The Dart side gates the picker/text-field; the TS side is the
+    // authoritative validator at submitReport. A drift produces the worst
+    // possible UX: the user picks photos / types a note that the client
+    // happily accepts, then the report fails server-side after the upload
+    // already burned their time and storage quota.
+
+    test('maxPhotos (Dart) == MAX_PHOTOS (TS)', () {
+      expect(
+        _extractIntConst(reportRepoDart, 'maxPhotos'),
+        equals(_extractIntConst(reportsTs, 'MAX_PHOTOS')),
+      );
+    });
+
+    test('maxNoteChars (Dart) == NOTE_MAX (TS)', () {
+      expect(
+        _extractIntConst(reportRepoDart, 'maxNoteChars'),
+        equals(_extractIntConst(reportsTs, 'NOTE_MAX')),
+      );
+    });
+
+    test('maxReferenceChars (Dart) == REFERENCE_MAX (TS)', () {
+      expect(
+        _extractIntConst(reportRepoDart, 'maxReferenceChars'),
+        equals(_extractIntConst(reportsTs, 'REFERENCE_MAX')),
+      );
+    });
+  });
+
+  group('claim radius stays in sync', () {
+    // The Dart side controls the nearby-scan + claim-distance UI; the TS side
+    // controls the server-authoritative geohash lookup. A drift means the
+    // user can stand inside the client's claim ring but the server refuses
+    // (or vice versa: server lets users claim outside the visualised ring).
+    //
+    // Mirrors the explicit "Must match" comment in startScoring.ts.
+    test('AppPreferences.claimRadiusMeters == CLAIM_RADIUS_METERS', () {
+      final appPrefsDart = File('lib/app_preferences.dart').readAsStringSync();
+      final startScoringTs =
+          File('functions/src/startScoring.ts').readAsStringSync();
+      // Dart side is a `double` literal — match either form (30 or 30.0).
+      final dartM = RegExp(r'claimRadiusMeters\s*=\s*(\d+(?:\.\d+)?)')
+          .firstMatch(appPrefsDart);
+      expect(dartM, isNotNull, reason: 'claimRadiusMeters not found in Dart');
+      final dart = double.parse(dartM!.group(1)!);
+      final ts = _extractIntConst(startScoringTs, 'CLAIM_RADIUS_METERS');
+      expect(dart, equals(ts.toDouble()));
     });
   });
 }
