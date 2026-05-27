@@ -1,5 +1,7 @@
 import 'package:animated_text_kit/animated_text_kit.dart';
+import 'package:confetti/confetti.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:postbox_game/james_messages.dart';
 import 'package:postbox_game/postman_james.dart';
@@ -22,7 +24,7 @@ class Intro extends StatefulWidget {
   State<Intro> createState() => _IntroState();
 }
 
-class _IntroState extends State<Intro> with TickerProviderStateMixin {
+class _IntroState extends State<Intro> {
   int _step = 0;
   static const int _totalSteps = 7;
 
@@ -34,31 +36,25 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
   /// (replay mode) or mark intro-seen twice.
   bool _completed = false;
 
-  late AnimationController _jamesWalkController;
-  late Animation<double> _jamesSlide;
+  late final ConfettiController _confettiController;
 
   @override
   void initState() {
     super.initState();
-    _jamesWalkController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1200),
-    );
-    _jamesSlide = Tween<double>(begin: -1.0, end: 0.0).animate(
-      CurvedAnimation(parent: _jamesWalkController, curve: Curves.easeOut),
-    );
+    _confettiController =
+        ConfettiController(duration: const Duration(seconds: 4));
   }
 
   @override
   void dispose() {
-    _jamesWalkController.dispose();
+    _confettiController.dispose();
     super.dispose();
   }
 
   void _advance() {
     if (_completed) return;
-    // Start the walk animation when entering step 1 (James slides in from left).
-    if (_step == 0) _jamesWalkController.forward();
+    // Fire confetti as the user enters the Mega Points step.
+    if (_step == 3) _confettiController.play();
     if (_step < _totalSteps - 1) {
       setState(() => _step++);
     } else {
@@ -167,7 +163,14 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
             ),
             child: Column(
               children: [
-                SvgPicture.asset('assets/postbox.svg', width: 120, height: 120),
+                SvgPicture.asset('assets/postbox.svg', width: 120, height: 120)
+                    .animate()
+                    .fadeIn(duration: 600.ms)
+                    .scale(
+                      begin: const Offset(0.6, 0.6),
+                      duration: 600.ms,
+                      curve: Curves.elasticOut,
+                    ),
                 const SizedBox(height: AppSpacing.sm),
                 const Text(
                   'A brief introduction to postboxes...',
@@ -182,35 +185,35 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
   }
 
   Widget _buildJamesWalksIn() {
-    return AnimatedBuilder(
-      animation: _jamesSlide,
-      builder: (context, child) {
-        return _scrollCentre(
-          Column(
+    return _scrollCentre(
+      Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const SizedBox(height: 40),
+          Row(
             mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              const SizedBox(height: 40),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  SvgPicture.asset('assets/postbox.svg', width: 80, height: 80),
-                  const SizedBox(width: AppSpacing.lg),
-                  FractionalTranslation(
-                    translation: Offset(_jamesSlide.value, 0),
-                    child: const PostmanJames(size: 100),
-                  ),
-                ],
-              ),
-              const SizedBox(height: AppSpacing.lg),
-              const Text(
-                'Look, it\'s a Postie!',
-                style: TextStyle(color: Colors.white70, fontSize: 20),
-              ),
+              SvgPicture.asset('assets/postbox.svg', width: 80, height: 80),
+              const SizedBox(width: AppSpacing.lg),
+              const PostmanJames(size: 100)
+                  .animate()
+                  .slideX(
+                    begin: -1.5,
+                    end: 0,
+                    duration: 900.ms,
+                    curve: Curves.easeOutBack,
+                  )
+                  .fadeIn(duration: 400.ms),
             ],
           ),
-        );
-      },
+          const SizedBox(height: AppSpacing.lg),
+          const Text(
+            'Look, it\'s a Postie!',
+            style: TextStyle(color: Colors.white70, fontSize: 20),
+          ).animate(delay: 900.ms).fadeIn(duration: 400.ms),
+        ],
+      ),
     );
   }
 
@@ -262,21 +265,45 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
   }
 
   Widget _buildMegaPoints() {
-    return _scrollCentre(
-      Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const PostmanJames(size: 160, showStarEyes: true, isTalking: true),
-          const SizedBox(height: AppSpacing.lg),
-          Text(
-            'Points, baby! Sweet, beautiful, points!',
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  color: postalGold,
-                  fontWeight: FontWeight.bold,
-                ),
+    return Stack(
+      alignment: Alignment.topCenter,
+      children: [
+        _scrollCentre(
+          Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const PostmanJames(size: 160, showStarEyes: true, isTalking: true),
+              const SizedBox(height: AppSpacing.lg),
+              Text(
+                'Points, baby! Sweet, beautiful, points!',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      color: postalGold,
+                      fontWeight: FontWeight.bold,
+                    ),
+              )
+                  .animate(onPlay: (c) => c.repeat())
+                  .shimmer(
+                    duration: 1200.ms,
+                    color: Colors.white.withValues(alpha: 0.85),
+                  ),
+            ],
           ),
-        ],
-      ),
+        ),
+        // Confetti is drawn on top, anchored to the top so particles spray
+        // outwards as the user lands on this step.
+        Align(
+          alignment: Alignment.topCenter,
+          child: ConfettiWidget(
+            confettiController: _confettiController,
+            blastDirectionality: BlastDirectionality.explosive,
+            colors: const [postalGold, postalRed, Colors.white],
+            numberOfParticles: 24,
+            gravity: 0.25,
+            emissionFrequency: 0.04,
+          ),
+        ),
+      ],
     );
   }
 
