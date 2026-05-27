@@ -148,46 +148,63 @@ class _JamesStripState extends State<JamesStrip> with SingleTickerProviderStateM
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    // Drive the semantics layer with the full message (and a "tap to dismiss"
+    // button hint) rather than the typing-animation partial substrings.
+    // Without this, TalkBack/VoiceOver re-announce every character as
+    // _charIndex grows ("H", "He", "Hel", …, "Hello"), which is unusable.
     return SlideTransition(
       position: _slideAnim,
-      child: GestureDetector(
+      child: Semantics(
+        container: true,
+        button: true,
         onTap: _dismiss,
-        child: Container(
-        decoration: BoxDecoration(
-          color: colorScheme.surfaceContainerHighest,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-          boxShadow: const [
-            BoxShadow(
-              color: Colors.black26,
-              blurRadius: 12,
-              offset: Offset(0, -4),
+        label: _currentMessage.isEmpty
+            ? null
+            : 'Postman James says: $_currentMessage. Double tap to dismiss.',
+        child: ExcludeSemantics(
+          child: GestureDetector(
+            onTap: _dismiss,
+            child: Container(
+              decoration: BoxDecoration(
+                color: colorScheme.surfaceContainerHighest,
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(16)),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Colors.black26,
+                    blurRadius: 12,
+                    offset: Offset(0, -4),
+                  ),
+                ],
+              ),
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+              child: SafeArea(
+                top: false,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ListenableBuilder(
+                      listenable: widget.controller,
+                      builder: (_, __) => PostmanJames(
+                        size: 44,
+                        isTalking: widget.controller.isTalking,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        _charIndex > 0
+                            ? _currentMessage.substring(0, _charIndex)
+                            : '',
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
-          ],
-        ),
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-        child: SafeArea(
-          top: false,
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              ListenableBuilder(
-                listenable: widget.controller,
-                builder: (_, __) => PostmanJames(
-                  size: 44,
-                  isTalking: widget.controller.isTalking,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  _charIndex > 0 ? _currentMessage.substring(0, _charIndex) : '',
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-              ),
-            ],
           ),
         ),
-      ),
       ),
     );
   }
