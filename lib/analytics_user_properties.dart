@@ -127,7 +127,15 @@ UserPropertiesSnapshot snapshotFromUserDoc(
   final yesterday = yesterdayFor(today);
   final lastClaim = data['lastClaimDate'];
   final lastClaimStr = lastClaim is String ? lastClaim : null;
-  final claimedToday = lastClaimStr == today;
+  // `dailyDate` is written by startScoring's lifetime transaction alongside
+  // dailyPoints; `lastClaimDate` is written in the separate streak tx. There
+  // is a brief window where the lifetime tx commits but the streak tx is still
+  // pending (or failed) — `claimedToday` should reflect "actually claimed",
+  // so prefer `dailyDate` and fall back to `lastClaimDate` only when the
+  // newer field isn't present (legacy accounts).
+  final dailyDate = data['dailyDate'];
+  final dailyDateStr = dailyDate is String ? dailyDate : null;
+  final claimedToday = dailyDateStr == today || lastClaimStr == today;
   final friends = data['friends'];
   final friendCount = friends is List ? friends.length : 0;
   // Stale-streak guard mirrors StreakService.freshStreak / HomeWidgetService:

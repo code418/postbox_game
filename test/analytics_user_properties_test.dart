@@ -127,6 +127,23 @@ void main() {
       expect(snap.claimedToday, 'false');
     });
 
+    test('dailyDate=today is trusted even when lastClaimDate lags', () {
+      // The lifetime tx and the streak tx are separate; the lifetime tx (which
+      // writes `dailyDate`) is the authoritative "did this user just claim"
+      // marker, so a stale lastClaimDate (e.g. from a brief streak-tx failure)
+      // mustn't drop the user out of the "claimed today" audience.
+      final snap = snapshotFromUserDoc(
+        <String, dynamic>{
+          'dailyDate': '2026-05-20',
+          'lastClaimDate': '2026-05-19',
+        },
+        isAdmin: false,
+        hasSeenIntro: true,
+        todayLondonIso: '2026-05-20',
+      );
+      expect(snap.claimedToday, 'true');
+    });
+
     test('numeric fields stored as num (Firestore quirk) coerce to int', () {
       final snap = snapshotFromUserDoc(
         <String, dynamic>{
