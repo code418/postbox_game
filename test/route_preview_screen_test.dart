@@ -159,6 +159,23 @@ void main() {
     });
 
     testWidgets(
+        'time estimate shows "< 1 min" for sub-minute distances',
+        (tester) async {
+      // 30 m at walking pace (4.5 km/h ≈ 1.25 m/s) is 24 s — the previous
+      // rounding produced "≈ 0 min walking", which read as either "instant"
+      // or "unknown". A 30 m destination is the smallest meaningful route the
+      // user can set (matches the claim radius), so this boundary matters.
+      final (:fn, :counter) =
+          _makeStub(result: _successPayload(directDistanceM: 30));
+      await tester.pumpWidget(
+          _buildPreview(session: _defaultSession(), callableFn: fn));
+      await _pumpAndWait(tester);
+
+      expect(find.textContaining('< 1 min walking'), findsOneWidget);
+      expect(find.textContaining('0 min walking'), findsNothing);
+    });
+
+    testWidgets(
         'changing the corridor slider re-triggers the callable',
         (tester) async {
       final (:fn, :counter) = _makeStub(result: _successPayload());
