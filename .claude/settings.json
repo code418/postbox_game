@@ -11,7 +11,7 @@
       "mcp__dart__hot_restart",
       "mcp__dart__flutter_driver_command",
       "Bash(adb shell *)",
-      "Bash(adb pull *)",
+      "Bash(adb pull *)"
     ]
   },
   "enabledPlugins": {
