@@ -22,7 +22,9 @@ lands). Their original bodies are preserved below for diff archaeology.
 | **v1.2** | Avatars & polish | In flight |
 | **v1.3** | Platform foundations (EU region + observability) | Queued |
 | **v1.4** | Trust & safety (App Check, GDPR, anti-cheat) | Queued |
-| **v1.5** | Engagement | Deferred |
+| **v1.5** | Engagement (social loops) | Deferred |
+| **v1.6** | Collection & content | Deferred |
+| **v1.7** | Reach (iOS, localisation) | Deferred |
 | **v2.0** | Growth (Analytics + experimentation) | Deferred |
 | **Backlog** | Speculative big-rocks | Speculative |
 
@@ -253,6 +255,153 @@ Progress: Firestore trigger `onClaimCreated` updates active challenges. FCM on i
 
 ---
 
+## v1.6 — Collection & content  (Deferred)
+
+**Theme**: turn the claim loop into a collection loop. Most users today see a
+points number; few have a sense of *which* cyphers they've seen or what's
+left to discover. The data is all there — the surface isn't.
+
+**Ship gate**: a player who's claimed at least three different cyphers can
+see their progress as a visible 9-tile "collection" on the home tab;
+≥ 20 % of WAU open the encyclopedia / collection screen in the first week.
+
+### Achievements & badges system  (new)
+
+Persistent rewards across claims to give long-term play a shape beyond the
+daily leaderboard. CLAUDE.md already lists "achievements/badges" as a
+suggested engagement feature; concrete proposal:
+
+Initial badges (~12):
+
+- **First steps** — first claim; first 10; first 50; first 500.
+- **Collector** — claim ≥ 1 of each of 5 / 7 / 9 cyphers.
+- **Rare bird** — claim an `EVIIIR` or `CIIIR`.
+- **Counties** — claim in 5 / 25 / 50 distinct counties (already tracked via `users/{uid}/countyStats/{slug}`).
+- **Streak keeper** — 7-day, 30-day, 100-day, 365-day streaks (`streak_service.dart` already exists).
+- **Walker** — total accumulated distance through Route Mode ≥ 10 km / 50 km / 100 km.
+
+Data:
+
+- `users/{uid}.badges[]` (array of `{id, awardedAt}`).
+- `users/{uid}/badgeProgress/{badgeId}` — server-side progress counters for badges that aren't single-event awards.
+- `badgeDefinitions/{id}` — server-readable definitions, loadable from Remote Config so new badges ship without a client release.
+
+Implementation:
+
+- New `functions/src/_badges.ts` pure helpers (`evaluateBadgesForClaim(prevStats, newClaim)` returning a list of newly-earned badge ids). Reuse the `_recomputeScores.ts` re-aggregation pattern so badges survive cypher corrections.
+- `startScoring` calls the evaluator; new badges trigger a James line via the existing FCM social-notification path and an in-app toast on next foreground.
+- New `lib/badges_screen.dart` + a compact "trophy shelf" widget on `user_profile_page.dart`.
+
+Risk: badge inflation — keep the initial set small (~12), tune via Remote Config before adding more.
+
+### Postbox encyclopedia / collection album  (new)
+
+A "passport" of the nine royal cyphers, each shown as a tile that locks until
+first claim. Tap a cypher → detail page with photos (user's own if claim
+photos ever ship), monarch portrait/lore, count claimed, rarest reference
+(`ref` field) claimed, map of personal claim locations for that cypher.
+
+Data already available — no new collections:
+
+- `monarch` per claim is already stored.
+- `royal_cypher:wikidata` is in OSM but not currently imported — extend `functions/import_postboxes.js` to capture `wikidata` and surface deep links to the Wikipedia article for each cypher (single read for an Encyclopedia page, no per-postbox call).
+- `users/{uid}/countyStats/{slug}` already powers the heatmap and can join into the encyclopedia.
+
+New surface:
+
+- `lib/encyclopedia_screen.dart` — 9-tile grid with locked silhouettes.
+- Per-cypher detail uses `MonarchInfo` for label/colour/era, joins to `claims` filtered by `monarch` for personal stats.
+- Hook the encyclopedia into the bottom-sheet on `claim.dart` when a new cypher is unlocked ("Welcome to the EVIIR club, squire").
+
+Implementation hint: reuse `_FuzzyCompassPainter` to draw a per-cypher "this is where you've found these" mini-map (without exact coords — sectors only, same privacy rule as Nearby).
+
+### Streak rewards  (new)
+
+`streak_service.dart` + `_streakUtils.ts` already track daily streaks; nothing
+rewards them today.
+
+- 7 days → +1 point bonus on the next claim (modest).
+- 30 days → unlock a James line set ("monthly regular" tier).
+- 100 days → unlock a "Centurion" badge + a hat tile in the avatar creator.
+- 365 days → unlock a "Year-rounder" badge + Postman James says your name (uses display name).
+
+Implementation: backend-only. `_streakUtils.computeNewStreak` already returns
+the new streak; pipe through a `_streakRewards.ts` pure helper that returns
+`{ bonusPoints, unlocks }` and let `startScoring` apply both. Avatar unlocks
+write to `users/{uid}.avatarUnlocks` (set), read by the avatar creator.
+
+### Pre-built heritage walking tours  (new)
+
+Extend Route Mode with **curated tours** ("Bath's Victorian boxes",
+"Marylebone Monarchs", "Edinburgh New Town round"). The Route Mode
+infrastructure (`_routePlanner.ts`, corridor / orienteering, `routePostboxes`
+callable) already handles the planning maths — this just adds saved
+itineraries.
+
+Data:
+
+- `tours/{slug}` = `{ title, region, descriptionMd, startGeopoint, paceDefault, estDurationMins, postboxIds: string[], coverImagePath?, curator }`.
+- `tourCompletions/{uid}/{slug}` — per-user "started / completed" flag with progress.
+- Tours are curated initially; later, an admin tool (mirror of `admin_reports_screen.dart`) can promote a user-submitted route.
+
+Client:
+
+- New tab in `destination_picker_screen.dart`: "Pick a tour" alongside the existing map/search picker. Selecting a tour locks the corridor settings to the tour's recommended values.
+- `live_route_screen.dart` shows tour progress ("3 / 7 boxes claimed") in a header.
+
+Rollout: ship with 3 curated tours covering a small, dense, walkable city (Bath / Cambridge / York). Soft-launch behind `feature_tours_enabled` Remote Config.
+
+### Map filters and postbox detail-on-tap  (new)
+
+The map (`lib/widgets/postbox_map.dart` / `lib/county_heatmap.dart`) currently
+shows POI icons but tapping doesn't open a meaningful detail. Add:
+
+- **Filters bar**: toggle cyphers on/off, "show only unclaimed" / "show only claimed" / "all". Persist in `app_preferences.dart`.
+- **Postbox tap → bottom sheet**: monarch + cypher reference, when *anyone* last claimed it (date only, no UID), distance + "walk here" CTA that fires Route Mode with this postbox as the destination.
+- **Personal pin colour**: a small dot overlay on POI icons for "you've claimed this one", reusing the user's `mapColor` setting.
+
+No backend changes — `nearbyPostboxes` already returns enough metadata for the bottom sheet (modulo the "last-claimed date" which is a small `claims` aggregation per box; cache in a `postboxStats/{id}` doc, refreshed by a Firestore-triggered function on claim writes to avoid scan-time cost).
+
+---
+
+## v1.7 — Reach (iOS, localisation)  (Deferred)
+
+**Theme**: open the door to users outside the current Android-phone + Wear OS + Android Auto + (eventual) XR funnel.
+
+**Ship gate**: signed iOS build available on TestFlight; at least one non-English locale ships and is selectable in Settings; no English-language strings remain in user-facing widgets per `flutter_lints` rule.
+
+### iOS support  (new)
+
+CLAUDE.md notes `firebase_options.dart` has iOS config but no `Podfile` exists. Real work:
+
+- `cd ios && pod install` (generates the Podfile).
+- Verify `Info.plist` permissions: `NSLocationWhenInUseUsageDescription`, `NSLocationAlwaysAndWhenInUseUsageDescription`, `NSCameraUsageDescription`, `NSPhotoLibraryUsageDescription` (last two already present per CLAUDE.md).
+- Wire `AppleProvider` (`DeviceCheck` / `AppAttest`) for App Check (already noted as a blocker in v1.4's App Check item).
+- App Store Connect listing: name, screenshots, age rating, privacy nutrition labels (matching what the GDPR plan in v1.4 implements).
+- Mac Catalyst evaluation — `firebase_options.dart` already has a macOS config; trivial scope or skip.
+
+Smoke-test gates: login (email + Google), nearby scan, claim quiz, report submission with photo, route mode end-to-end. Wear/Android Auto are not relevant on iOS.
+
+Backend risk: callable region pinning (v1.3) and App Check enforcement (v1.4) both touch iOS, so v1.7 ideally lands *after* both.
+
+### Localisation infrastructure  (new)
+
+Currently English-only and a UK-centric game. Welsh and Scottish Gaelic regional variants are on-brand and a strong differentiator.
+
+Steps (the `flutter-setup-localization` skill summarises this):
+
+1. `flutter_localizations` + `intl` dependencies; `generate: true` in `pubspec.yaml`; `l10n.yaml` config.
+2. Extract every hardcoded user-facing string from `lib/` into ARB files. `james_messages.dart` (399 lines) is the long pole — keep its keys stable; translate the values.
+3. Add Settings → "Language" picker. Default to `Platform.localeName` with English fallback.
+4. Translate `james_messages.dart` to `cy` (Welsh) and `gd` (Scottish Gaelic) for the launch set; English variants stay authoritative.
+5. Long-run: Lokalise / Crowdin pipeline so translators don't touch the repo.
+
+Risk: every future PR must add ARB entries; enforce via a CI lint that fails on hardcoded user-facing strings (`flutter_lints` doesn't catch this by default — write a small `analyzer_plugin` or grep step).
+
+Backlog idea (depends on this): regionally-flavoured James — a Welsh James for `cy`, a Scottish James for `gd`, complete with the existing voice-line plan (Backlog).
+
+---
+
 ## v2.0 — Growth (Analytics + experimentation)  (Deferred)
 
 **Theme**: switch from anecdote-driven to data-driven product decisions.
@@ -341,6 +490,59 @@ Email types: `friend_added`, `weekly_recap`, `challenge_invite`, `account_delete
 Provider: SendGrid free tier (~100/day) for beta; swap to Postmark / SES at scale. Credentials via `firebase functions:secrets:set` — never in repo.
 
 Compliance: unsubscribe link in every email deep-linking to settings; respect `users/{uid}/emailPrefs`; on account deletion, remove pending mail docs first. Configure SPF/DKIM/DMARC on the sending domain.
+
+### OCR cypher recognition via ML Kit  (new)
+
+Replace (or augment) the claim quiz with a camera-based OCR pass that
+reads the cypher off the postbox. Solves two problems at once:
+
+1. **Anti-cheat**: a photo of the actual cypher is presence evidence
+   beyond GPS, harder to spoof than mock-location.
+2. **UX**: the current quiz can feel arbitrary on first encounters.
+
+Implementation sketch:
+
+- `google_mlkit_text_recognition` (on-device, no API cost). Match the recognised text against `MonarchInfo.all` with fuzzy normalisation ("E II R" → `EIIR`, "G R" → `GR`, etc.).
+- If OCR returns a clear winner → auto-fill the quiz answer and let the user confirm in one tap.
+- If ambiguous → fall back to the existing quiz UI.
+- Photo is optionally retained as a thumbnail attached to the claim (overlaps with the Backlog "claim photos" item — implement that first or share storage).
+
+Risks:
+
+- Worn / vandalised cyphers → OCR fails; quiz fallback covers it.
+- Accessibility — text recognition shouldn't be required, so the quiz path stays the canonical input.
+- Battery: ML Kit on-device is cheap but not free; cap to one OCR pass per claim attempt.
+
+### Activity feed (privacy-controlled)  (new)
+
+A timeline tab in the Friends section showing "Alex claimed an EVIIR
+in BS6 this morning" with the existing display name + avatar. No exact
+coordinates — outcode only, matching the existing privacy rule.
+
+Data:
+
+- `activityFeed/{uid}/items/{ts}` — denormalised mirror written by a Firestore trigger on `claims/{id}` create, fanned out to each of the claimant's friends. TTL 30 days via a daily cleanup function (or Firestore TTL policy).
+- Per-user toggle `users/{uid}/notificationPrefs.activityFeedEnabled` (default true; opt-out hides the user from friends' feeds entirely).
+
+Client:
+
+- New tab inside `friends_screen.dart` ("Feed" alongside "List").
+- Pull-to-refresh + paginated stream listener on the user's own `activityFeed/{uid}/items` collection.
+
+Engagement risk: feeds drive comparison and can demoralise. Keep it private to friends and never show "ranks improved by X" — only "claimed Y".
+
+### Block / mute  (new)
+
+Today the friend system is bilateral (add by UID) with no way to drop a
+friend or block someone from re-adding you. Small but important once the
+activity feed or challenges land.
+
+- `users/{uid}.blocked[]` (array of UIDs).
+- Firestore rules enforce: if `target.uid` is in `request.auth.uid`'s `blocked`, they can't appear in friends queries (server-side filter in `friends_screen.dart`) and can't initiate a challenge.
+- "Block" action in the friend-card overflow menu and on `user_profile_page.dart`.
+- "Blocked users" list in Settings to unblock.
+
+No backend changes beyond rule updates and a small fan-out adjustment so the activity feed (above) honours the block.
 
 ### Churn-risk retention push via BigQuery ML  (was #97)
 
