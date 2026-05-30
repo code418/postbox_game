@@ -10,6 +10,7 @@ import 'package:postbox_game/app_preferences.dart';
 import 'package:postbox_game/fuzzy_compass.dart';
 import 'package:postbox_game/location_service.dart';
 import 'package:postbox_game/theme.dart';
+import 'package:postbox_game/wear/wear_error_messages.dart';
 import 'package:postbox_game/wear/wear_theme.dart';
 
 enum _CompassStage { initial, searching, results, error }
@@ -139,12 +140,7 @@ class _WearCompassPageState extends State<WearCompassPage> {
       HapticFeedback.heavyImpact();
       setState(() {
         _stage = _CompassStage.error;
-        _errorMessage = switch (e.kind) {
-          LocationErrorKind.servicesDisabled => 'Turn on location',
-          LocationErrorKind.permissionPermanentlyDenied =>
-            'Location denied. Enable in settings.',
-          LocationErrorKind.permissionDenied => 'Location needed to scan',
-        };
+        _errorMessage = wearLocationErrorMessage(e.kind, action: 'scan');
       });
     } catch (e) {
       debugPrint('Wear compass scan error: $e');

@@ -9,6 +9,7 @@ import 'package:postbox_game/location_service.dart';
 import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/streak_service.dart';
 import 'package:postbox_game/theme.dart';
+import 'package:postbox_game/wear/wear_error_messages.dart';
 import 'package:postbox_game/wear/wear_theme.dart';
 import 'package:postbox_game/widgets/quiz_helpers.dart';
 
@@ -113,12 +114,7 @@ class _WearClaimPageState extends State<WearClaimPage> {
       HapticFeedback.heavyImpact();
       setState(() {
         _stage = _ClaimStage.error;
-        _errorMessage = switch (e.kind) {
-          LocationErrorKind.servicesDisabled => 'Turn on location',
-          LocationErrorKind.permissionPermanentlyDenied =>
-            'Location denied. Enable in settings.',
-          LocationErrorKind.permissionDenied => 'Location needed to scan',
-        };
+        _errorMessage = wearLocationErrorMessage(e.kind, action: 'scan');
       });
     } catch (e) {
       debugPrint('Wear claim scan error: $e');
@@ -250,12 +246,7 @@ class _WearClaimPageState extends State<WearClaimPage> {
       HapticFeedback.heavyImpact();
       setState(() {
         _stage = _ClaimStage.error;
-        _errorMessage = switch (e.kind) {
-          LocationErrorKind.servicesDisabled => 'Turn on location',
-          LocationErrorKind.permissionPermanentlyDenied =>
-            'Location denied. Enable in settings.',
-          LocationErrorKind.permissionDenied => 'Location needed to claim',
-        };
+        _errorMessage = wearLocationErrorMessage(e.kind, action: 'claim');
       });
     } on FirebaseFunctionsException catch (e) {
       // Mirror the phone claim sheet: the server's travel-speed anti-spoof
