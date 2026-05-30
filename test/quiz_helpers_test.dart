@@ -116,5 +116,22 @@ void main() {
         expect(MonarchInfo.all.contains(o), isTrue);
       }
     });
+
+    test('never produces duplicate options', () {
+      // Two identical quiz buttons would let the user "identify" a cypher that
+      // appears twice, and looks broken. Guaranteed today by the Set source +
+      // disjoint filler pool; pin it so a future filler change can't regress.
+      // Cover the distractor-padded, exactly-full, and overflow cases.
+      for (final valid in <Set<String>>[
+        const {}, // all distractors
+        const {'EIIR'}, // 1 valid + distractors
+        const {'EIIR', 'VR', 'GR', 'GVR'}, // exactly fills maxOptions=4
+        const {'EIIR', 'VR', 'GR', 'GVR', 'CIIIR', 'EVIIR'}, // overflow
+      ]) {
+        final opts = buildQuizOptions(valid, maxOptions: 4);
+        expect(opts.toSet(), hasLength(opts.length),
+            reason: 'duplicate option produced for validCiphers=$valid');
+      }
+    });
   });
 }
