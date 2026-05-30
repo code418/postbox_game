@@ -14,6 +14,21 @@ import 'package:postbox_game/widgets/quiz_helpers.dart';
 
 enum _ClaimStage { ready, scanning, found, empty, error, quiz, claiming, success }
 
+/// Maps a [FirebaseFunctionsException] code from the `startScoring` callable to
+/// a short, watch-appropriate error message.
+///
+/// Extracted as a pure top-level function so this native-edge mapping — which
+/// deliberately diverges from the phone claim sheet's longer copy — is
+/// unit-testable without driving the platform-channel claim flow. Mirrors how
+/// `freshStreak` and the `quiz_helpers` are shared and pinned by tests so the
+/// Wear path can't silently drift from the phone path. `failed-precondition`
+/// is the server's travel-speed anti-spoof rejection.
+String wearClaimErrorMessage(String code) => switch (code) {
+      'failed-precondition' => 'Too fast. Slow down.',
+      'unavailable' => 'No connection.',
+      _ => 'Claim failed',
+    };
+
 /// Simplified claim flow for Wear OS.
 ///
 /// Scan → quiz (2 options) → claim → success with haptic feedback.
@@ -252,11 +267,7 @@ class _WearClaimPageState extends State<WearClaimPage> {
       HapticFeedback.heavyImpact();
       setState(() {
         _stage = _ClaimStage.error;
-        _errorMessage = switch (e.code) {
-          'failed-precondition' => 'Too fast. Slow down.',
-          'unavailable' => 'No connection.',
-          _ => 'Claim failed',
-        };
+        _errorMessage = wearClaimErrorMessage(e.code);
       });
     } catch (e) {
       debugPrint('Wear claim error: $e');
