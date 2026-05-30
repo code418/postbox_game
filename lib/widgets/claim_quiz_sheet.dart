@@ -470,16 +470,29 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
     } on FirebaseFunctionsException catch (e) {
       debugPrint('Claim error: ${e.code} ${e.message}');
       Analytics.claimFailed(reason: e.code);
-      final snackMsg = e.code == 'unavailable'
-          ? 'No internet connection. Please try again.'
-          : 'Could not claim postbox. Please try again.';
+      // The server's anti-spoof travel-speed check throws `failed-precondition`
+      // with a message written for the end user ("You're travelling too
+      // fast..."). Surface that instead of the generic "try again" so a user
+      // who's moving too quickly is told to slow down, not to retry futilely.
+      final String snackMsg;
+      final String jamesMsg;
+      switch (e.code) {
+        case 'unavailable':
+          snackMsg = 'No internet connection. Please try again.';
+          jamesMsg = JamesMessages.errorOffline.resolve();
+        case 'failed-precondition':
+          snackMsg = (e.message != null && e.message!.isNotEmpty)
+              ? e.message!
+              : "You're travelling too fast to claim. Slow down and try again.";
+          jamesMsg = JamesMessages.claimErrorTooFast.resolve();
+        default:
+          snackMsg = 'Could not claim postbox. Please try again.';
+          jamesMsg = JamesMessages.claimErrorGeneral.resolve();
+      }
       _showErrorSnackBar(snackMsg);
       if (!mounted) return;
       setState(() => _isClaiming = false);
-      final msg = (e.code == 'unavailable')
-          ? JamesMessages.errorOffline.resolve()
-          : JamesMessages.claimErrorGeneral.resolve();
-      JamesController.of(context)?.show(msg);
+      JamesController.of(context)?.show(jamesMsg);
     } on LocationServiceException catch (e) {
       debugPrint('Location error claiming: $e');
       final isPermission =

@@ -1039,6 +1039,7 @@ void main() {
         JamesMessages.claimErrorAlreadyClaimed,
         JamesMessages.claimErrorOutOfRange,
         JamesMessages.claimErrorGeneral,
+        JamesMessages.claimErrorTooFast,
         JamesMessages.quizFailed,
         JamesMessages.introStep2,
         JamesMessages.introStep3,
@@ -1069,12 +1070,25 @@ void main() {
         JamesMessages.claimErrorAlreadyClaimed,
         JamesMessages.claimErrorOutOfRange,
         JamesMessages.claimErrorGeneral,
+        JamesMessages.claimErrorTooFast,
         JamesMessages.quizFailed,
         JamesMessages.introStep2,
         JamesMessages.introStep3,
       ];
       for (final msg in messages) {
         expect(msg.resolve(), isNotEmpty, reason: '${msg.key} must resolve to non-empty string');
+      }
+    });
+
+    test('claimErrorTooFast resolves, avoids em-dash, and stays in voice', () {
+      // Surfaced when the server's travel-speed anti-spoof check rejects a
+      // claim (FirebaseFunctionsException code 'failed-precondition').
+      for (var i = 0; i < 20; i++) {
+        final line = JamesMessages.claimErrorTooFast.resolve();
+        expect(line, isNotEmpty);
+        expect(line, isNot(contains('—')), reason: 'house style bans em-dashes');
+        // James never refers to himself as "postie" (player-to-James term only).
+        expect(line.toLowerCase(), isNot(contains('postie')));
       }
     });
 

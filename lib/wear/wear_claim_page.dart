@@ -242,6 +242,22 @@ class _WearClaimPageState extends State<WearClaimPage> {
           LocationErrorKind.permissionDenied => 'Location needed to claim',
         };
       });
+    } on FirebaseFunctionsException catch (e) {
+      // Mirror the phone claim sheet: the server's travel-speed anti-spoof
+      // check throws `failed-precondition`, which should tell the user to slow
+      // down rather than render as a generic "Claim failed".
+      debugPrint('Wear claim error: ${e.code} ${e.message}');
+      Analytics.claimFailed(reason: e.code);
+      if (!mounted) return;
+      HapticFeedback.heavyImpact();
+      setState(() {
+        _stage = _ClaimStage.error;
+        _errorMessage = switch (e.code) {
+          'failed-precondition' => 'Too fast. Slow down.',
+          'unavailable' => 'No connection.',
+          _ => 'Claim failed',
+        };
+      });
     } catch (e) {
       debugPrint('Wear claim error: $e');
       Analytics.claimFailed(reason: 'error');

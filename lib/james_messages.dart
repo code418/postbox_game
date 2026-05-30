@@ -258,6 +258,14 @@ abstract final class JamesMessages {
     ],
   );
 
+  static const claimErrorTooFast = JamesMessage(
+    'jamesClaimErrorTooFast',
+    [
+      "Steady on, my old legs only go so fast. Slow down and try again.",
+      "Blimey, you're shifting a bit quick for me. Catch your breath, then claim.",
+    ],
+  );
+
   // ── Quiz ─────────────────────────────────────────────────────────────────
 
   static const quizFailed = JamesMessage(
