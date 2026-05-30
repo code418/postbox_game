@@ -378,8 +378,12 @@ async function main() {
     console.log(`  Write failures:              ${writeFailures.toLocaleString()}`);
   }
 
-  // Nodes in the previous manifest but not in this OSM input.
-  const inputIds = new Set(built.map((it) => String(it.node.id)));
+  // Presence-in-OSM is judged against the FULL export, not the (possibly
+  // --limit-truncated) `built` subset. `--limit` throttles how many nodes we
+  // write this run; it must not make every node past the limit look "gone from
+  // OSM". Using `built` here would let `--prune --limit N` soft-mark every
+  // valid postbox beyond N as removedFromOsm, hiding them from players.
+  const inputIds = new Set(postboxes.map((p) => String(p.id)));
   const missingFromOsm = Object.keys(previousNodes).filter((id) => !inputIds.has(id));
 
   if (opts.prune) {
