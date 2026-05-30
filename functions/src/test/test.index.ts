@@ -1,7 +1,7 @@
 import assert from "assert";
 import test from "firebase-functions-test";
 import * as myFunctions from "../index";
-import { filterToCorridor, filterToEllipse, beamSearchOrienteering } from "../_routePlanner";
+import { filterToCorridor, filterToEllipse, beamSearchOrienteering, metresBetween } from "../_routePlanner";
 import { getPoints } from "../_getPoints";
 import { getTodayLondon } from "../_dateUtils";
 import { getWeekStart, getMonthStart, getPeriodKey, mergePeriodEntries, mergeLifetimeEntries, updateUserLeaderboards, countySlug } from "../_leaderboardUtils";
@@ -3133,6 +3133,27 @@ describe("routePostboxes pure detour logic", () => {
     const result = beamSearchOrienteering(start, end, farAway, tight, speedMps, 60, 50);
     assert.strictEqual(result.score, 0);
     assert.strictEqual(result.visited.size, 0);
+  });
+
+  it("maximises score: with budget for only one detour, picks the higher-value box", () => {
+    // Loop route (start === end) with two boxes the same distance away in
+    // opposite directions. The budget affords a detour to exactly ONE of them.
+    // The orienteering objective must pick the 12-pt box over the 2-pt box —
+    // the core property that distinguishes this from "visit whatever fits".
+    const s = { lat: 51.5, lng: -0.1 };
+    const e = { lat: 51.5, lng: -0.1 };
+    const high = { id: "box_high", lat: 51.51, lng: -0.1, monarch: "EVIIIR", points: 12 };
+    const low = { id: "box_low", lat: 51.49, lng: -0.1, monarch: "EIIR", points: 2 };
+    const v = 4.5 * 1000 / 3600; // 1.25 m/s
+    // Round trip to one box (there and back, since start === end), one dwell,
+    // plus a little slack. Visiting both would need ~2x the travel and is
+    // infeasible, so the search can only afford one box.
+    const oneBoxBudget = (2 * metresBetween(s, high)) / v + 60 + 30;
+    const result = beamSearchOrienteering(s, e, [high, low], oneBoxBudget, v, 60, 50);
+    assert.strictEqual(result.score, 12, "should pick the 12-pt box, not the 2-pt one");
+    assert.strictEqual(result.visited.size, 1, "budget only affords one detour");
+    assert.ok(result.visited.has("box_high"), "the visited box must be the high-value one");
+    assert.ok(!result.visited.has("box_low"), "the low-value box must not be chosen");
   });
 });
 
