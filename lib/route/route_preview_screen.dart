@@ -290,16 +290,24 @@ class _RoutePreviewScreenState extends State<RoutePreviewScreen> {
               ),
             ),
 
-            // ── 4. Corridor slider ────────────────────────────────────────
-            _SliderSection(
-              label:
-                  'Corridor width: ${session.corridorMetres} m',
-              value: session.corridorMetres.toDouble(),
-              min: 50,
-              max: 500,
-              divisions: 9,
-              onChanged: _onCorridorChanged,
-            ),
+            // ── 4. Corridor slider (corridor mode only) ───────────────────
+            // Hidden once a detour budget is set: detour mode plans over a
+            // time ellipse, not a corridor, so corridorMetres has no effect on
+            // the route the server returns. Showing it then would let the user
+            // drag a control that silently flips the mode back to corridor
+            // (see [_onCorridorChanged]) while the detour slider still displays
+            // its non-zero value — a contradictory, misleading state. Dragging
+            // the detour slider back to 0 restores corridor mode and re-shows
+            // this slider with its retained width.
+            if (session.detourMinutes == 0)
+              _SliderSection(
+                label: 'Corridor width: ${session.corridorMetres} m',
+                value: session.corridorMetres.toDouble(),
+                min: 50,
+                max: 500,
+                divisions: 9,
+                onChanged: _onCorridorChanged,
+              ),
 
             // ── 5. Detour slider ──────────────────────────────────────────
             _SliderSection(

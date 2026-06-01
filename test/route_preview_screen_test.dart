@@ -197,6 +197,60 @@ void main() {
     });
 
     testWidgets(
+        'corridor slider is hidden in detour mode (detourMinutes > 0)',
+        (tester) async {
+      // Corridor width has no effect in detour mode (the server plans over a
+      // time ellipse), so the slider must not be shown — otherwise dragging it
+      // would silently flip the mode back to corridor while the detour slider
+      // still displays its non-zero value.
+      final (:fn, :counter) = _makeStub(result: _successPayload());
+      final session = RouteSession(
+        start: const LatLng(51.5074, -0.1278),
+        destination: const LatLng(51.52, -0.11),
+        destinationLabel: 'Test Destination',
+        mode: RouteMode.detour,
+        detourMinutes: 30,
+      );
+
+      await tester.pumpWidget(_buildPreview(session: session, callableFn: fn));
+      await _pumpAndWait(tester);
+
+      expect(find.textContaining('Corridor width'), findsNothing);
+      expect(find.textContaining('Extra time for detours: 30 min'),
+          findsOneWidget);
+      // Only the detour slider remains.
+      expect(find.byType(Slider), findsOneWidget);
+    });
+
+    testWidgets(
+        'dragging the detour slider above 0 hides the corridor slider',
+        (tester) async {
+      final (:fn, :counter) = _makeStub(result: _successPayload());
+      final session = _defaultSession();
+
+      await tester.pumpWidget(_buildPreview(session: session, callableFn: fn));
+      await _pumpAndWait(tester);
+
+      // Default (corridor) mode: both sliders present.
+      expect(find.textContaining('Corridor width'), findsOneWidget);
+      expect(find.byType(Slider), findsNWidgets(2));
+
+      // Drag the detour slider (the second one) right to set a non-zero budget.
+      await tester.drag(find.byType(Slider).at(1), const Offset(120, 0));
+      await tester.pump();
+
+      expect(session.detourMinutes, greaterThan(0));
+      expect(session.mode, RouteMode.detour);
+      // Corridor slider is now gone; only the detour slider remains.
+      expect(find.textContaining('Corridor width'), findsNothing);
+      expect(find.byType(Slider), findsOneWidget);
+
+      // Let the debounce + in-flight call settle to avoid pending timers.
+      await tester.pump(const Duration(milliseconds: 450));
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets(
         'slider change flips Start route to disabled before the debounce fires',
         (tester) async {
       // First call resolves immediately so the screen reaches the result
