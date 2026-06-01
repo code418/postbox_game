@@ -86,6 +86,31 @@ void main() {
       expect(results[1].displayName, contains('Palace Road'));
     });
 
+    test('skips malformed entries instead of failing the whole search',
+        () async {
+      // A response mixing valid results with malformed ones (null lat,
+      // unparseable lon, missing display_name, out-of-range coords). Only the
+      // two valid entries should survive — one bad row must not blank the rest.
+      const mixed = '''
+      [
+        {"display_name": "Valid One", "lat": "51.5", "lon": "-0.12"},
+        {"display_name": "Null lat", "lat": null, "lon": "-0.12"},
+        {"display_name": "Bad lon", "lat": "51.5", "lon": "not-a-number"},
+        {"lat": "51.5", "lon": "-0.12"},
+        {"display_name": "Out of range", "lat": "120.0", "lon": "-0.12"},
+        {"display_name": "Valid Two", "lat": "53.48", "lon": "-2.24"}
+      ]''';
+      final mockClient = MockClient((_) async => http.Response(mixed, 200));
+
+      final service = NominatimService(client: mockClient);
+      final results = await service.search('London');
+
+      expect(results, hasLength(2));
+      expect(results[0].displayName, 'Valid One');
+      expect(results[1].displayName, 'Valid Two');
+      expect(results[1].location.latitude, closeTo(53.48, 0.001));
+    });
+
     test('empty JSON array returns empty list', () async {
       final mockClient = MockClient((_) async {
         return http.Response('[]', 200);

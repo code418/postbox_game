@@ -113,15 +113,28 @@ class NominatimService {
       throw Exception('Nominatim returned unexpected JSON shape');
     }
 
-    return decoded.map((dynamic item) {
-      final map = item as Map<String, dynamic>;
-      return NominatimResult(
-        displayName: map['display_name'] as String,
-        location: LatLng(
-          double.parse(map['lat'] as String),
-          double.parse(map['lon'] as String),
-        ),
-      );
-    }).toList();
+    // Parse defensively: skip any malformed entry rather than throwing out of
+    // the whole search. Nominatim normally returns string lat/lon plus a
+    // display_name, but a single result missing a field (or carrying a
+    // null/unparseable coordinate) shouldn't blank out the other matches the
+    // user could otherwise pick. tryParse('${...}') tolerates both the usual
+    // string form and a defensive numeric one.
+    final results = <NominatimResult>[];
+    for (final item in decoded) {
+      if (item is! Map) continue;
+      final displayName = item['display_name'];
+      final lat = double.tryParse('${item['lat']}');
+      final lng = double.tryParse('${item['lon']}');
+      if (displayName is! String || displayName.isEmpty ||
+          lat == null || lng == null ||
+          lat.abs() > 90 || lng.abs() > 180) {
+        continue;
+      }
+      results.add(NominatimResult(
+        displayName: displayName,
+        location: LatLng(lat, lng),
+      ));
+    }
+    return results;
   }
 }
