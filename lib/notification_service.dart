@@ -118,8 +118,13 @@ class NotificationService {
   }
 
   static Future<void> _registerToken(String token) async {
-    // Skip silently when the app is in read-only mode. The next foregrounding
-    // after maintenance clears will trigger another token-refresh registration.
+    // Skip silently when the app is in read-only (maintenance) mode. Recovery
+    // then happens on the next FCM onTokenRefresh or the next sign-in cycle
+    // (which re-runs init) — NOT on mere foregrounding, which only refreshes
+    // the home widget (see didChangeAppLifecycleState in main.dart). A token
+    // fetched-but-not-registered during a maintenance window is therefore
+    // undeliverable until one of those fires; acceptable because social
+    // notifications are non-critical and the maintenance window is rare.
     if (MaintenanceGuard.isOn) return;
     try {
       await FirebaseFunctions.instance
