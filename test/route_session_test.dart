@@ -76,4 +76,39 @@ void main() {
       expect(s.speedKmh, equals(8.5));
     });
   });
+
+  group('paceEtaLabel', () {
+    String walk(double m) =>
+        paceEtaLabel(distanceMetres: m, speedKmh: 4.5, pace: RoutePace.walk);
+    String jog(double m) =>
+        paceEtaLabel(distanceMetres: m, speedKmh: 8.5, pace: RoutePace.jog);
+
+    test('non-finite distance → "..."', () {
+      expect(walk(double.infinity), equals('...'));
+      expect(walk(double.nan), equals('...'));
+    });
+
+    test('sub-minute distance shows "< 1 min", never "≈ 0 min"', () {
+      // 30 m (the claim radius) is ~24 s at a walk and ~13 s at a jog. The live
+      // route screen previously rounded these to "≈ 0 min", which the preview
+      // screen had already fixed — this pins both surfaces to the same rule.
+      expect(walk(30), equals('< 1 min walking'));
+      expect(jog(30), equals('< 1 min jogging'));
+      // Just under the one-minute threshold (74 m at a walk ≈ 59 s).
+      expect(walk(74), equals('< 1 min walking'));
+      expect(walk(74), isNot(contains('0 min')));
+    });
+
+    test('at/over one minute rounds to whole minutes', () {
+      // 75 m at 4.5 km/h (1.25 m/s) is exactly 60 s → 1 min.
+      expect(walk(75), equals('≈ 1 min walking'));
+      // 2700 m at a walk is 36 min.
+      expect(walk(2700), equals('≈ 36 min walking'));
+    });
+
+    test('verb follows pace', () {
+      expect(walk(5000), contains('walking'));
+      expect(jog(5000), contains('jogging'));
+    });
+  });
 }

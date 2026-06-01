@@ -58,3 +58,25 @@ class RouteSession {
   /// Walking/jogging speed in km/h based on the chosen [pace].
   double get speedKmh => pace == RoutePace.jog ? 8.5 : 4.5;
 }
+
+/// Human-readable ETA label for travelling [distanceMetres] at [speedKmh]
+/// (km/h) on foot, e.g. `"≈ 12 min walking"` / `"< 1 min jogging"`.
+///
+/// Sub-minute distances render as `"< 1 min <verb>"` rather than rounding to
+/// `"≈ 0 min <verb>"`, which reads as either "instant" or "unknown" — the
+/// smallest meaningful route is ~30 m (the claim radius), which is ~24 s at a
+/// walk. Returns `"..."` for a non-finite distance (e.g. before the first GPS
+/// fix). Shared by [RoutePreviewScreen] and [LiveRouteScreen] so the two
+/// surfaces can never drift on this boundary again.
+String paceEtaLabel({
+  required double distanceMetres,
+  required double speedKmh,
+  required RoutePace pace,
+}) {
+  if (!distanceMetres.isFinite) return '...';
+  final speedMps = speedKmh * 1000 / 3600;
+  final seconds = distanceMetres / speedMps;
+  final verb = pace == RoutePace.jog ? 'jogging' : 'walking';
+  if (seconds < 60) return '< 1 min $verb';
+  return '≈ ${(seconds / 60).round()} min $verb';
+}

@@ -219,17 +219,13 @@ class _RoutePreviewScreenState extends State<RoutePreviewScreen> {
 
   String _timeEstimate() {
     final distM = _directDistanceM;
+    // Distinct sentinel from the helper's "..." (no fetch yet vs. non-finite).
     if (distM == null) return '–';
-    final speedMps = widget.session.speedKmh * 1000 / 3600;
-    final seconds = distM / speedMps;
-    final label =
-        widget.session.pace == RoutePace.jog ? 'jogging' : 'walking';
-    // A 30 m destination at walking pace rounds to 0 min, leaving the user with
-    // a confusing "≈ 0 min walking" label. Show "< 1 min" instead, and only
-    // switch to whole-minute rounding once we've cleared the threshold.
-    if (seconds < 60) return '< 1 min $label';
-    final minutes = (seconds / 60).round();
-    return '≈ $minutes min $label';
+    return paceEtaLabel(
+      distanceMetres: distM.toDouble(),
+      speedKmh: widget.session.speedKmh,
+      pace: widget.session.pace,
+    );
   }
 
   // ── Build ───────────────────────────────────────────────────────────────────

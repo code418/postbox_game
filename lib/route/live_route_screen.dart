@@ -568,15 +568,11 @@ class _LiveRouteScreenState extends State<LiveRouteScreen> {
 
   // ── ETA helper ─────────────────────────────────────────────────────────────
 
-  String _etaLabel() {
-    if (_distanceToDestM.isInfinite || _distanceToDestM.isNaN) return '...';
-    final speedKmh = widget.session.speedKmh;
-    final distKm = _distanceToDestM / 1000.0;
-    final minutes = (distKm / speedKmh * 60).round();
-    final paceLabel =
-        widget.session.pace == RoutePace.jog ? 'jogging' : 'walking';
-    return '≈ $minutes min $paceLabel';
-  }
+  String _etaLabel() => paceEtaLabel(
+        distanceMetres: _distanceToDestM,
+        speedKmh: widget.session.speedKmh,
+        pace: widget.session.pace,
+      );
 
   // ── Bearing label ──────────────────────────────────────────────────────────
 
