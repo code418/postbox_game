@@ -61,6 +61,67 @@ int _extractIntConst(String source, String name) {
   return int.parse(m!.group(1)!);
 }
 
+/// Parses a Dart `{ 'KEY': N, ... }` int-valued map literal that follows
+/// [anchor] into a `Map<String,int>`. Reads up to the closing `};`.
+Map<String, int> _parseDartIntMap(String source, String anchor) {
+  final idx = source.indexOf(anchor);
+  expect(idx, isNonNegative, reason: 'anchor not found: $anchor');
+  final open = source.indexOf('{', idx);
+  final close = source.indexOf('};', open);
+  expect(open, isNonNegative, reason: 'no { after anchor: $anchor');
+  expect(close, greaterThan(open), reason: 'no }; after anchor: $anchor');
+  final body = source.substring(open + 1, close);
+  final re = RegExp(r'''['"]([^'"]+)['"]\s*:\s*(\d+)''');
+  final out = <String, int>{};
+  for (final m in re.allMatches(body)) {
+    out[m.group(1)!] = int.parse(m.group(2)!);
+  }
+  return out;
+}
+
+/// Parses the `getPoints` switch in _getPoints.ts into a cipher→points map plus
+/// the `default:` value. Handles fall-through `case` groups (several cases
+/// sharing one `return`). Returns `(explicitCases, defaultValue)`.
+({Map<String, int> cases, int defaultValue}) _parseTsGetPoints(String source) {
+  final fnIdx = source.indexOf('function getPoints');
+  expect(fnIdx, isNonNegative, reason: 'getPoints not found in _getPoints.ts');
+  // Bound the scan to the function body (ends at the next top-level export).
+  final endIdx = source.indexOf('KNOWN_MONARCHS', fnIdx);
+  final body =
+      source.substring(fnIdx, endIdx > fnIdx ? endIdx : source.length);
+
+  final tokenRe =
+      RegExp(r'case\s+"([^"]+)"\s*:|default\s*:|return\s+(\d+)\s*;');
+  final pending = <String>[];
+  final cases = <String, int>{};
+  var inDefault = false;
+  var defaultValue = -1;
+  for (final m in tokenRe.allMatches(body)) {
+    final caseKey = m.group(1);
+    final returnVal = m.group(2);
+    if (caseKey != null) {
+      pending.add(caseKey);
+    } else if (returnVal != null) {
+      final v = int.parse(returnVal);
+      if (inDefault) {
+        defaultValue = v;
+        inDefault = false;
+      } else {
+        for (final k in pending) {
+          cases[k] = v;
+        }
+        pending.clear();
+      }
+    } else {
+      // matched `default:`
+      inDefault = true;
+    }
+  }
+  expect(defaultValue, isNonNegative,
+      reason: 'getPoints default return not parsed');
+  return (cases: cases, defaultValue: defaultValue);
+}
+
 void main() {
   late String validatorsDart;
   late String profanityTs;
@@ -147,6 +208,45 @@ void main() {
               'MonarchInfo.all (lib/monarch_info.dart). '
               'only-in-importer=${importerSet.difference(clientSet)} '
               'only-in-client=${clientSet.difference(importerSet)}');
+    });
+  });
+
+  group('monarch point VALUES stay in sync across client/server', () {
+    // The key-set test above pins WHICH ciphers exist; this pins what each is
+    // WORTH. MonarchInfo.points (lib/monarch_info.dart) is the player-facing
+    // mapping the UI shows ("VR = 7 pts"); getPoints (functions/src/_getPoints.ts)
+    // is what startScoring actually awards. They're hand-duplicated and kept
+    // aligned only by a "must stay in sync with _getPoints.ts" comment — a
+    // one-sided rebalance (e.g. VR 7->8 on the server) would silently make the
+    // client advertise a different score than the server grants.
+    test('MonarchInfo.points[cipher] == getPoints(cipher) for every cipher',
+        () {
+      final dartPoints = _parseDartIntMap(monarchInfoDart, 'Map<String, int> points');
+      final ts = _parseTsGetPoints(getPointsTs);
+      final clientSet =
+          _extractArrayLiterals(monarchInfoDart, 'List<String> all');
+
+      // Sanity: parsing actually found the mappings.
+      expect(dartPoints.length, greaterThan(5),
+          reason: 'parsed too few Dart point values — extraction likely broke');
+      expect(ts.cases.length, greaterThan(3),
+          reason: 'parsed too few TS case values — extraction likely broke');
+
+      // Every recognised cipher must map to the same value on both sides. The
+      // TS side uses an explicit case where present, else its `default:`.
+      for (final cipher in clientSet) {
+        final dartVal = dartPoints[cipher];
+        expect(dartVal, isNotNull,
+            reason: 'MonarchInfo.points is missing a value for $cipher');
+        final tsVal = ts.cases[cipher] ?? ts.defaultValue;
+        expect(dartVal, equals(tsVal),
+            reason: 'points drift for $cipher: '
+                'Dart MonarchInfo.points=$dartVal vs TS getPoints=$tsVal');
+      }
+
+      // The unknown-cipher fallback must also agree (Dart `points[c] ?? 2`).
+      expect(ts.defaultValue, equals(2),
+          reason: 'TS getPoints default drifted from the documented 2');
     });
   });
 
