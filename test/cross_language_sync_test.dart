@@ -130,6 +130,8 @@ void main() {
   late String importJs;
   late String reportRepoDart;
   late String reportsTs;
+  late String homeWidgetDart;
+  late String widgetProviderKt;
 
   setUpAll(() {
     validatorsDart = File('lib/validators.dart').readAsStringSync();
@@ -140,6 +142,11 @@ void main() {
     reportRepoDart =
         File('lib/reports/report_repository.dart').readAsStringSync();
     reportsTs = File('functions/src/reports.ts').readAsStringSync();
+    homeWidgetDart =
+        File('lib/services/home_widget_service.dart').readAsStringSync();
+    widgetProviderKt = File(
+            'android/app/src/main/kotlin/com/code418/postbox_game/PostboxWidgetProvider.kt')
+        .readAsStringSync();
   });
 
   group('profanity block-list stays in sync across languages', () {
@@ -300,6 +307,41 @@ void main() {
       expect(dartMb, equals(rulesMb),
           reason:
               'maxPhotoBytes=${dartMb}MB drifted from storage.rules=${rulesMb}MB');
+    });
+  });
+
+  group('home-widget SharedPreferences keys stay in sync (Dart↔Kotlin)', () {
+    // HomeWidgetService (Dart) WRITES the widget's data under these string
+    // keys; PostboxWidgetProvider.kt READS them back to render the home-screen
+    // widget. The `home_widget` package bridges the two purely by string key,
+    // so a drift makes the native widget silently fall back to its defaults
+    // (0 points, signed-out) even when the user has data — and the widget has
+    // no automated UI test to catch it. Pin the key VALUES equal here.
+    test('HomeWidgetService.key* == PostboxWidgetProvider KEY_* values', () {
+      // Dart: `static const String keyFoo = 'value';`
+      final dartKeys = RegExp(r'''static const String key\w+\s*=\s*['"]([^'"]+)['"]''')
+          .allMatches(homeWidgetDart)
+          .map((m) => m.group(1)!)
+          .toSet();
+      // Kotlin: `const val KEY_FOO = "value"`
+      final ktKeys = RegExp(r'''const val KEY_\w+\s*=\s*"([^"]+)"''')
+          .allMatches(widgetProviderKt)
+          .map((m) => m.group(1)!)
+          .toSet();
+
+      // Sanity: extraction found the expected six keys on each side (guards
+      // against a future rename that makes this test vacuous).
+      expect(dartKeys.length, equals(6),
+          reason: 'expected 6 Dart widget keys, parsed $dartKeys');
+      expect(ktKeys.length, equals(6),
+          reason: 'expected 6 Kotlin widget keys, parsed $ktKeys');
+
+      expect(ktKeys, equals(dartKeys),
+          reason: 'widget key drift between '
+              'lib/services/home_widget_service.dart and '
+              'PostboxWidgetProvider.kt — '
+              'only-in-Dart=${dartKeys.difference(ktKeys)} '
+              'only-in-Kotlin=${ktKeys.difference(dartKeys)}');
     });
   });
 
