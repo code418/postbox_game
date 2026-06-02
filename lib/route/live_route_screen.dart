@@ -342,7 +342,12 @@ class _LiveRouteScreenState extends State<LiveRouteScreen> {
         'lng': pos.longitude,
         'meters': _kFuzzyCompassScanRadiusM,
       });
-      if (!mounted) return;
+      // The arrival transition (pushReplacement) keeps this State mounted for
+      // the duration of the push animation, so a scan that was already in
+      // flight when arrival fired can still resume here. Bail on _arrived as
+      // well as !mounted so we never pop a claim sheet onto a screen the user
+      // is already leaving.
+      if (!mounted || _arrived) return;
 
       final data = Map<String, dynamic>.from(result.data as Map);
       final compass = data['compass'] != null
