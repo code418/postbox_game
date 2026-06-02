@@ -275,6 +275,9 @@ export const submitReport = functions.https.onCall(async (request) => {
   // a malformed request never consumes a user's quota.
   const today = getTodayLondon();
   const quotaRef = db.collection("reportQuotas").doc(uid);
+  // Generate the report ref up front so its id is stable across transaction
+  // retries (and can be returned to the caller without an extra round-trip).
+  const reportRef = db.collection("reports").doc();
   await db.runTransaction(async (tx) => {
     const snap = await tx.get(quotaRef);
     const r = nextQuotaState(snap.data() as { date?: unknown; count?: unknown } | undefined, today, MAX_REPORTS_PER_DAY);
@@ -285,10 +288,13 @@ export const submitReport = functions.https.onCall(async (request) => {
       );
     }
     tx.set(quotaRef, r.state, { merge: false });
+    // Write the report inside the same transaction as the quota increment so
+    // the two commit atomically: a failed report write can no longer burn a
+    // user's daily quota, and a committed quota slot always has a stored report.
+    tx.set(reportRef, base);
   });
 
-  const ref = await db.collection("reports").add(base);
-  return { reportId: ref.id };
+  return { reportId: reportRef.id };
 });
 
 interface ReviewReportData {
