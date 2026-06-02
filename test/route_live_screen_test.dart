@@ -426,6 +426,78 @@ void main() {
       expect(find.byType(ClaimQuizSheet), findsOneWidget);
     });
 
+    // ── Arrival race: a scan that resolves after arrival must not open ─────
+    testWidgets(
+        'scan resolving after arrival does not open a claim sheet',
+        (tester) async {
+      final posCtrl = StreamController<Position>.broadcast();
+      addTearDown(posCtrl.close);
+
+      // A nearby callable whose response is held open by a completer, so the
+      // scan started before arrival is still in flight when arrival fires.
+      final scanGate = Completer<HttpsCallableResult<dynamic>>();
+      Future<HttpsCallableResult<dynamic>> gatedNearby(Map<String, dynamic> _) =>
+          scanGate.future;
+
+      const destLat = 51.5100;
+      const destLng = -0.1200;
+      final sess = RouteSession(
+        start: const LatLng(51.5074, -0.1278),
+        destination: const LatLng(destLat, destLng),
+        destinationLabel: 'Arrival Race',
+      );
+
+      await tester.pumpWidget(_buildScreen(
+        session: sess,
+        posCtrl: posCtrl,
+        nearbyCallable: gatedNearby,
+        nearbyCallableForSheet: _sheetNearbyStub,
+      ));
+      await tester.pump();
+
+      // 1. Far position (> 25 m from dest) → first scan starts and awaits gate.
+      posCtrl.add(_pos(51.5074, -0.1278));
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      });
+      await tester.pump();
+
+      // 2. Arrival position (< 25 m) → _arrived = true, pushReplacement to the
+      //    completion screen. The gated scan is still in flight; the old route
+      //    stays mounted for the push animation.
+      posCtrl.add(_pos(destLat + 0.0001, destLng)); // ~11 m north of dest
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      });
+      await tester.pump();
+
+      // 3. The in-flight scan now resolves with a claimable box. Without the
+      //    `_arrived` guard (commit 85910b3) this would pop a ClaimQuizSheet
+      //    onto the screen the user is already leaving.
+      scanGate.complete(_FakeResult<dynamic>({
+        'compass': {'N': 1},
+        'claimedCompass': <String, dynamic>{},
+        'postboxes': {
+          'pb_test': {
+            'distance': 15.0,
+            'claimedToday': false,
+            'monarch': 'EVIIR',
+          },
+        },
+        'counts': {'total': 1, 'claimedToday': 0},
+        'points': {'min': 9, 'max': 9},
+      }));
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      });
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // No claim sheet opened, and we're on the completion screen.
+      expect(find.byType(ClaimQuizSheet), findsNothing);
+      expect(find.byType(RouteCompletionScreen), findsOneWidget);
+    });
+
     // ── Dedupe: second scan with same eligible postbox ─────────────────────
 
     testWidgets(
