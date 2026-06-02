@@ -427,8 +427,18 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
         return;
       }
       final points = claimData['points'] ?? 0;
-      if (!mounted) return;
       final earnedPts = points is int ? points : (points as num).toInt();
+      // The server claim has committed. Notify the parent's running tally
+      // (e.g. LiveRouteScreen) BEFORE the local mounted check: if the user
+      // swiped this modal away during the claim round-trip, the sheet is
+      // unmounted but the claim is real, so the route total must still be
+      // credited. The parent guards its own mounted state; onCompleted (the
+      // explicit-button path) is unaffected.
+      widget.onClaimRecorded?.call(ClaimQuizResult(
+        claimedCount: claimedCount,
+        pointsEarned: earnedPts,
+      ));
+      if (!mounted) return;
       Analytics.claimSuccess(
           pointsEarned: earnedPts, claimedCount: claimedCount);
       // Refresh the bucketed user properties (lifetime points, unique boxes,
@@ -444,14 +454,6 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
         _isClaiming = false;
         _stage = _QuizStage.claimed;
       });
-      // Notify the parent immediately, so a parent that maintains a running
-      // total (LiveRouteScreen) credits the claim even if the user dismisses
-      // the sheet without tapping "Keep exploring". onCompleted only fires
-      // from the explicit button path — see [ClaimQuizSheet.onClaimRecorded].
-      widget.onClaimRecorded?.call(ClaimQuizResult(
-        claimedCount: claimedCount,
-        pointsEarned: earnedPts,
-      ));
       unawaited(_homeWidgetService.refresh());
       _successController.forward(from: 0);
       _confettiController.play();
