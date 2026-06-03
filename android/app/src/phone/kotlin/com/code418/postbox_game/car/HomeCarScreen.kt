@@ -12,21 +12,21 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
-/** Driver-safe stats pane with a single primary action.
+/** Driver-safe quick-claim screen — one task, one action.
  *
- *  Shows lifetime points, unique boxes, current streak, and today's rank.
  *  Tapping "Claim nearby postbox" runs [ClaimAction] (location → cloud
- *  function); tapping "Leaderboard" pushes [LeaderboardCarScreen].
+ *  function). The car surface intentionally shows no points, streak, rank, or
+ *  leaderboard: that game/social content has no place behind the wheel and
+ *  lives in the phone app only.
  *
  *  The whole flow lives on this one screen and updates via [invalidate]. To stay
  *  within Android Auto's five-templates-per-task quota, every render must be a
  *  *refresh*: [onGetTemplate] always returns the SAME PaneTemplate shape (built
- *  by [buildHomeTemplate]) and only the rows' secondary text changes between
- *  phases. Returning a different template type per phase would burn a step on
- *  each claim and trip "This task cannot be completed while driving". */
+ *  by [buildHomeTemplate]) and only the status row's secondary text changes
+ *  between phases. Returning a different template type per phase would burn a
+ *  step on each claim and trip "This task cannot be completed while driving". */
 class HomeCarScreen(carContext: CarContext) : Screen(carContext) {
 
     private enum class Phase { Idle, Working, Done, Error, SignedOut }
@@ -35,76 +35,25 @@ class HomeCarScreen(carContext: CarContext) : Screen(carContext) {
     private var message: String = "Tap to scan for nearby postboxes."
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var pending: Job? = null
-    private var statsJob: Job? = null
-    private var leaderboardJob: Job? = null
-
-    private var stats: StatsRepository.UserStats? = null
-    private var dailyEntries: List<StatsRepository.LeaderboardEntry>? = null
 
     init {
         lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onDestroy(owner: LifecycleOwner) {
                 pending?.cancel()
-                statsJob?.cancel()
-                leaderboardJob?.cancel()
                 scope.cancel()
             }
         })
-        startStatsObserver()
-        refreshLeaderboard()
-    }
-
-    private fun startStatsObserver() {
-        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
-        statsJob?.cancel()
-        statsJob = scope.launch {
-            StatsRepository.observeUserStats(uid).collectLatest {
-                stats = it
-                invalidate()
-            }
-        }
-    }
-
-    private fun refreshLeaderboard() {
-        leaderboardJob?.cancel()
-        leaderboardJob = scope.launch {
-            dailyEntries = StatsRepository.fetchDailyLeaderboard()
-            invalidate()
-        }
     }
 
     override fun onGetTemplate(): Template {
         refreshAuthPhase()
-        val s = stats
         // `message` already tracks the right status text for every phase (set
         // alongside `phase` in triggerClaim/refreshAuthPhase), so it is the
         // single status channel the refresh-safe pane needs.
-        val state = HomeUiState(
-            statusMessage = message,
-            lifetimePoints = s?.lifetimePoints,
-            uniqueBoxes = s?.uniquePostboxesClaimed,
-            streakLabel = streakLabel(s?.streak),
-            rankLabel = rankLabel(),
-        )
         return buildHomeTemplate(
-            state,
+            HomeUiState(statusMessage = message),
             onClaim = { triggerClaim() },
-            onLeaderboard = { screenManager.push(LeaderboardCarScreen(carContext)) },
         )
-    }
-
-    private fun streakLabel(streak: Int?): String = when {
-        streak == null || streak <= 0 -> "—"
-        streak == 1 -> "1 day"
-        else -> "$streak days"
-    }
-
-    private fun rankLabel(): String {
-        val list = dailyEntries ?: return "Loading…"
-        if (list.isEmpty()) return "Not ranked yet"
-        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return "—"
-        val idx = list.indexOfFirst { it.uid == uid }
-        return if (idx < 0) "Not in top ${list.size}" else "#${idx + 1} of ${list.size}"
     }
 
     private fun refreshAuthPhase() {
@@ -115,8 +64,6 @@ class HomeCarScreen(carContext: CarContext) : Screen(carContext) {
         } else if (signedIn && phase == Phase.SignedOut) {
             phase = Phase.Idle
             message = "Tap to scan for nearby postboxes."
-            startStatsObserver()
-            refreshLeaderboard()
         }
     }
 
@@ -135,7 +82,6 @@ class HomeCarScreen(carContext: CarContext) : Screen(carContext) {
                     val suffix = if (outcome.count == 1) "postbox" else "postboxes"
                     message = "Claimed ${outcome.count} $suffix (+${outcome.points} pts)"
                     CarToast.makeText(carContext, message, CarToast.LENGTH_LONG).show()
-                    refreshLeaderboard()
                 }
                 is ClaimAction.Outcome.Empty -> {
                     phase = Phase.Done

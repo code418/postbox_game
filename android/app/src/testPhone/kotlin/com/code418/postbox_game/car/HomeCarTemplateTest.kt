@@ -15,18 +15,16 @@ import org.junit.Test
  *  of rows, and unchanged row titles. The quick-claim screen re-renders in place
  *  on every phase change, so if any of those invariants broke between phases the
  *  user would crash out after a couple of claims. These tests pin the invariants
- *  to [buildHomeTemplate] across one representative state per phase. */
+ *  to [buildHomeTemplate] across one representative state per phase.
+ *
+ *  The car surface is deliberately a single status row + single Claim action —
+ *  no points/streak/rank/leaderboard — so it stays a driving-relevant POI task.
+ *  [singleClaimActionOnly] pins that minimalism. */
 class HomeCarTemplateTest {
 
     private val noop = OnClickListener {}
 
-    private fun state(status: String) = HomeUiState(
-        statusMessage = status,
-        lifetimePoints = 42,
-        uniqueBoxes = 7,
-        streakLabel = "3 days",
-        rankLabel = "#5 of 20",
-    )
+    private fun state(status: String) = HomeUiState(statusMessage = status)
 
     /** One representative state per phase [HomeCarScreen] can render. */
     private val phaseStates = listOf(
@@ -39,14 +37,14 @@ class HomeCarTemplateTest {
     )
 
     private fun build(s: HomeUiState): PaneTemplate =
-        buildHomeTemplate(s, noop, noop) as PaneTemplate
+        buildHomeTemplate(s, noop) as PaneTemplate
 
     @Test
     fun everyPhaseRendersAPaneTemplate() {
         phaseStates.forEach { s ->
             assertTrue(
                 "every phase must render a PaneTemplate so updates count as refreshes",
-                buildHomeTemplate(s, noop, noop) is PaneTemplate,
+                buildHomeTemplate(s, noop) is PaneTemplate,
             )
         }
     }
@@ -77,10 +75,26 @@ class HomeCarTemplateTest {
 
     @Test
     fun statusTextChangesBetweenPhases() {
-        // The first row carries the status; its secondary text is the only thing
-        // expected to differ between e.g. Idle and Working.
+        // The status row's secondary text is the only thing expected to differ
+        // between e.g. Idle and Working.
         val idle = build(phaseStates[0]).pane.rows.first().texts.first().toString()
         val working = build(phaseStates[1]).pane.rows.first().texts.first().toString()
         assertNotEquals(idle, working)
+    }
+
+    @Test
+    fun singleClaimActionOnly() {
+        // Exactly one action (Claim) and one row (Status): no game/social
+        // surfaces (points, streak, rank, leaderboard) on the driving screen.
+        phaseStates.forEach { s ->
+            val pane = build(s).pane
+            assertEquals("car pane must carry a single status row", 1, pane.rows.size)
+            assertEquals("car pane must carry a single Claim action", 1, pane.actions.size)
+            assertEquals(
+                "the only action must be the quick-claim",
+                "Claim nearby postbox",
+                pane.actions.first().title?.toString(),
+            )
+        }
     }
 }
