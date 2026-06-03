@@ -117,6 +117,7 @@ class ClaimQuizSheet extends StatefulWidget {
     this.nearbyCallable,
     this.startScoringCallable,
     this.onClaimRecorded,
+    this.positionProvider,
   });
 
   /// The geographic position to scan around (passed in from the Claim screen
@@ -162,6 +163,12 @@ class ClaimQuizSheet extends StatefulWidget {
   /// Inject in tests to avoid real Firebase initialisation.
   final StartScoringCallableFn? startScoringCallable;
 
+  /// Injectable provider for the live GPS fix taken at claim time. When null,
+  /// defaults to [getPosition] from location_service. Inject in tests to drive
+  /// the full claim path without the geolocator platform channel (which throws
+  /// MissingPluginException headless), matching the other seams above.
+  final Future<Position> Function()? positionProvider;
+
   @override
   State<ClaimQuizSheet> createState() => _ClaimQuizSheetState();
 }
@@ -205,6 +212,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
   // ── Services ──────────────────────────────────────────────────────────────
   late final NearbyPostboxesCallableFn _nearbyCallable;
   late final StartScoringCallableFn _claimCallable;
+  late final Future<Position> Function() _positionProvider;
   final HomeWidgetService _homeWidgetService = HomeWidgetService();
 
   @override
@@ -219,6 +227,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
         (payload) => FirebaseFunctions.instance
             .httpsCallable('startScoring')
             .call(payload);
+    _positionProvider = widget.positionProvider ?? getPosition;
 
     _successController = AnimationController(
       vsync: this,
@@ -388,7 +397,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
     setState(() => _isClaiming = true);
     HapticFeedback.mediumImpact();
     try {
-      final position = await getPosition();
+      final position = await _positionProvider();
       final result = await _claimCallable(<String, dynamic>{
         'lat': position.latitude,
         'lng': position.longitude,
