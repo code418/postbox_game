@@ -30,6 +30,13 @@ class _FakeResult<T> implements HttpsCallableResult<T> {
   final T data;
 }
 
+/// Lets a test throw a typed FirebaseFunctionsException with a chosen code +
+/// message. The real constructor is `@protected`; a subclass may call it via
+/// `super` without tripping the analyzer.
+class _FakeFunctionsException extends FirebaseFunctionsException {
+  _FakeFunctionsException({required super.code, required super.message});
+}
+
 /// Maintenance OFF so MaintenanceGuard.blocked() (called at the top of
 /// _claimPostbox) lets the claim proceed. Mirrors the stub in
 /// maintenance_guard_test.dart.
@@ -154,5 +161,48 @@ void main() {
             'so a mid-claim dismissal still credits the parent tally');
     expect(recorded!.claimedCount, 1);
     expect(recorded!.pointsEarned, 9);
+  });
+
+  testWidgets(
+      'a failed-precondition claim surfaces the server anti-spoof message',
+      (tester) async {
+    // startScoring throws `failed-precondition` for the travel-speed anti-spoof
+    // check, with a user-facing message. The sheet must show THAT message (so a
+    // legitimately fast-moving user is told to slow down) rather than the
+    // generic "Could not claim postbox" fallback. Mirrors the Wear coverage in
+    // wear_claim_page_test.dart; pins the phone behaviour added in 4d151ad.
+    const tooFast = "You're travelling too fast to claim. Slow down, postie.";
+    ClaimQuizResult? recorded;
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ClaimQuizSheet(
+          scanPosition: const LatLng(51.5, -0.12),
+          nearbyCallable: _nearbyUnknownCipher,
+          positionProvider: () async => _fakePos(),
+          startScoringCallable: (_) async => throw _FakeFunctionsException(
+            code: 'failed-precondition',
+            message: tooFast,
+          ),
+          onClaimRecorded: (r) => recorded = r,
+          onCompleted: (_) {},
+        ),
+      ),
+    ));
+
+    await _settle(tester);
+    await tester.pump(const Duration(milliseconds: 50));
+
+    await tester.tap(find.text('Claim this postbox!'));
+    await tester.pump(); // _isClaiming = true; positionProvider awaited
+    await _settle(tester); // positionProvider + the throwing claim resolve
+    await tester.pump(); // surface the SnackBar
+
+    expect(find.text(tooFast), findsOneWidget,
+        reason: 'the server anti-spoof message must be shown verbatim');
+    expect(find.text('Could not claim postbox. Please try again.'), findsNothing,
+        reason: 'the generic fallback must not mask the specific message');
+    // A rejected claim records nothing and leaves the user able to retry.
+    expect(recorded, isNull);
   });
 }
