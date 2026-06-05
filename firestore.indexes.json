@@ -22,7 +22,23 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "userid", "order": "ASCENDING" },
+        { "fieldPath": "timestamp", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "claims",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userid", "order": "ASCENDING" },
         { "fieldPath": "timestamp", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "postbox",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "county", "order": "ASCENDING" },
+        { "fieldPath": "monarch", "order": "ASCENDING" }
       ]
     }
   ],
