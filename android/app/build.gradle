@@ -67,6 +67,18 @@ android {
             versionCode flutterVersionCode.toInteger() + 10000
             versionNameSuffix "-wear"
         }
+        xr {
+            dimension "device"
+            // Jetpack XR SDK / AI-glasses devices are Android 14+; pinning
+            // to 34 keeps the eventual androidx.xr:* artefacts resolvable.
+            // Refine once the SDK's minSdk is published.
+            minSdk 34
+            // Separate versionCode band so Play accepts phone, wear and xr
+            // AABs for the same applicationId in one release.
+            // Phone = base, wear = +10000, xr = +20000.
+            versionCode flutterVersionCode.toInteger() + 20000
+            versionNameSuffix "-xr"
+        }
     }
 
     signingConfigs {
@@ -128,6 +140,19 @@ dependencies {
     phoneImplementation 'com.google.firebase:firebase-functions'
     phoneImplementation 'com.google.firebase:firebase-firestore'
     phoneImplementation 'com.google.android.gms:play-services-location:21.3.0'
+    // Android XR / AI-glasses surface — Kotlin + Compose Glimmer. Scoped to
+    // the xr flavour so the phone/wear AABs do not link these libraries.
+    // Uncomment and pin versions when the first XR activity lands; the SDK
+    // is still alpha and exact coordinates have not been published yet.
+    // xrImplementation 'androidx.xr.compose:compose:1.0.0-alpha01'
+    // xrImplementation 'androidx.xr.scenecore:scenecore:1.0.0-alpha01'
+    // xrImplementation 'androidx.xr.arcore:arcore:1.0.0-alpha01'
+    // xrImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1'
+    // xrImplementation platform('com.google.firebase:firebase-bom:33.7.0')
+    // xrImplementation 'com.google.firebase:firebase-auth'
+    // xrImplementation 'com.google.firebase:firebase-functions'
+    // xrImplementation 'com.google.firebase:firebase-firestore'
+    // xrImplementation 'com.google.android.gms:play-services-location:21.3.0'
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'androidx.test:runner:1.4.0'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.4.0'
