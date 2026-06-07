@@ -66,22 +66,33 @@ String relativeHintDirection({
 }) {
   final sectors8 = FuzzyCompass.to8Sectors(compassCounts);
   const order = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
-  String bestDir = 'N';
-  int bestCount = -1;
-  for (final dir in order) {
-    final c = sectors8[dir] ?? 0;
-    if (c > bestCount) {
-      bestCount = c;
-      bestDir = dir;
-    }
-  }
-  if (bestCount <= 0) return 'ahead'; // Nothing visible — default.
-
   const dirBearings = {
     'N': 0.0, 'NE': 45.0, 'E': 90.0, 'SE': 135.0,
     'S': 180.0, 'SW': 225.0, 'W': 270.0, 'NW': 315.0,
   };
-  final sectorBearing = dirBearings[bestDir] ?? 0.0;
+  String? bestDir;
+  int bestCount = 0;
+  double bestOffset = double.infinity;
+  for (final dir in order) {
+    final c = sectors8[dir] ?? 0;
+    if (c <= 0) continue;
+    // Angular distance from this sector to the destination heading, in
+    // [0, 180]. Used only to break ties between equally-dense sectors.
+    final offset = compassHeadingDelta(dirBearings[dir]!, destinationBearingDeg);
+    // Prefer the denser sector; on a tie prefer the one nearest the
+    // destination heading so the hint steers the user ALONG their route
+    // rather than to an arbitrary compass-order winner (which could point
+    // them away from their destination when an equally-good sector lies
+    // toward it).
+    if (c > bestCount || (c == bestCount && offset < bestOffset)) {
+      bestCount = c;
+      bestOffset = offset;
+      bestDir = dir;
+    }
+  }
+  if (bestDir == null) return 'ahead'; // Nothing visible — default.
+
+  final sectorBearing = dirBearings[bestDir]!;
 
   // Relative angle between the best sector and the destination bearing.
   // Positive = clockwise (right), negative = anticlockwise (left). Dart's `%`

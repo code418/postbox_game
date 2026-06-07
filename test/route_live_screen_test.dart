@@ -928,6 +928,48 @@ void main() {
         equals('right'),
       );
     });
+
+    test('tie between opposite sectors resolves toward the destination', () {
+      // N and S sectors hold an equal number of boxes; the destination is
+      // roughly south (170°). The hint should steer the user TOWARDS their
+      // destination ("ahead" via the S sector), not arbitrarily to whichever
+      // sector wins a fixed compass-order tie-break (which would say "behind").
+      expect(
+        relativeHintDirection(
+          compassCounts: const {'N': 2, 'S': 2},
+          destinationBearingDeg: 170,
+        ),
+        equals('ahead'),
+      );
+    });
+
+    test('tie picks the densest sector nearest the destination bearing', () {
+      // N (0°) and E (90°) tie on count; heading is 70° (close to E). The E
+      // sector is nearer the destination heading, so it wins the tie and the
+      // box is classified from E → rel 20° → "ahead". A compass-order tie-break
+      // would pick N (first in N,NE,E… order) and report "left".
+      expect(
+        relativeHintDirection(
+          compassCounts: const {'N': 2, 'E': 2},
+          destinationBearingDeg: 70,
+        ),
+        equals('ahead'),
+      );
+    });
+
+    test('a strictly denser sector still wins regardless of destination', () {
+      // S has more boxes than N even though N is nearer the heading (0°).
+      // Count dominates the tie-break, so the hint is classified from S →
+      // "behind". This guards against the destination-aware tie-break leaking
+      // into non-tied cases.
+      expect(
+        relativeHintDirection(
+          compassCounts: const {'N': 1, 'S': 3},
+          destinationBearingDeg: 0,
+        ),
+        equals('behind'),
+      );
+    });
   });
 }
 
