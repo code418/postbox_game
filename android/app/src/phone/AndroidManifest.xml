@@ -3,25 +3,8 @@
     <uses-feature android:name="android.hardware.touchscreen" android:required="true"/>
     <uses-feature android:name="android.software.leanback" android:required="false"/>
 
-    <application>
-        <!-- Android Auto: "quick claim" surface. Rendered by the Car App
-             Library; minimal UI (one action) suitable for driving. Scoped to
-             the phone flavor so the wear AAB does not carry the Car App
-             runtime or advertise Auto capability. -->
-        <meta-data
-            android:name="com.google.android.gms.car.application"
-            android:resource="@xml/automotive_app_desc" />
-        <meta-data
-            android:name="androidx.car.app.minCarApiLevel"
-            android:value="1" />
-        <service
-            android:name=".car.PostboxCarAppService"
-            android:exported="true"
-            android:foregroundServiceType="location">
-            <intent-filter>
-                <action android:name="androidx.car.app.CarAppService" />
-                <category android:name="androidx.car.app.category.POI" />
-            </intent-filter>
-        </service>
-    </application>
+    <!-- No Android Auto here. Google Play rejected the car surface twice under
+         the Auto app-quality guidelines, so the Play-bound `phone` flavour
+         ships without it; the full Auto experience lives in the off-Play `auto`
+         flavour (src/auto/). -->
 </manifest>
