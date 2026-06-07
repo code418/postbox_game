@@ -13,7 +13,7 @@ abstract final class MonarchInfo {
     'GVR': 'George V (1910–1936)',
     'EVIIIR': 'Edward VIII (1936)',
     'EVIIR': 'Edward VII (1901–1910)',
-    'VR': 'Victoria (1840–1901)',
+    'VR': 'Victoria (1837–1901)',
     'GR': 'George (generic)',
     'SCOTTISH_CROWN': 'Scottish Crown (Scotland only)',
   };
