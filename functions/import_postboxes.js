@@ -77,8 +77,11 @@ const GEOHASH_PRECISION = 9;
 const BATCH_SIZE = 400;
 
 // Royal ciphers recognised by the game (_getPoints.ts + MonarchInfo.all).
-// Postboxes with other cipher values (scottish_crown, obscured, …) are still
-// imported but without a `monarch` field — they score 2 pts (the default).
+// SCOTTISH_CROWN IS recognised: the OSM tag value "scottish_crown" upper-cases
+// to "SCOTTISH_CROWN" in buildDoc and matches below (scoring 4 pts, not 2).
+// Postboxes with genuinely unrecognised values (obscured, crown, yes, no, ER,
+// multi-value "VR;GR", …) import without a `monarch` field and score the
+// default 2 pts.
 const VALID_CIPHERS = new Set([
   'EIIR', 'CIIIR', 'GR', 'GVR', 'GVIR', 'VR', 'EVIIR', 'EVIIIR',
   'SCOTTISH_CROWN',
