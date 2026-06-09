@@ -8,8 +8,8 @@
   "functions": {
     "source": "functions",
     "predeploy": [
-      "(cd functions && npm run lint)",
-      "(cd functions && npm test)"
+      "npm_config_script_shell=/bin/bash (cd functions && npm run lint)",
+      "npm_config_script_shell=/bin/bash (cd functions && npm test)"
     ]
   },
   "firestore": {
