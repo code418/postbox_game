@@ -133,7 +133,7 @@ dependencies {
     autoImplementation 'androidx.car.app:app:1.7.0'
     autoImplementation 'androidx.car.app:app-projected:1.7.0'
     autoImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1'
-    autoImplementation platform('com.google.firebase:firebase-bom:33.7.0')
+    autoImplementation platform('com.google.firebase:firebase-bom:34.14.1')
     autoImplementation 'com.google.firebase:firebase-auth'
     autoImplementation 'com.google.firebase:firebase-functions'
     autoImplementation 'com.google.firebase:firebase-firestore'
