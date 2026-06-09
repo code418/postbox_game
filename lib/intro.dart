@@ -151,7 +151,10 @@ class _IntroState extends State<Intro> {
                   color: Colors.white,
                   fontWeight: FontWeight.bold,
                 ),
-          ),
+          )
+              .animate()
+              .fadeIn(duration: 500.ms)
+              .slideY(begin: -0.2, end: 0, duration: 500.ms, curve: Curves.easeOut),
           const SizedBox(height: AppSpacing.xxl),
           Container(
             padding: const EdgeInsets.symmetric(
@@ -181,7 +184,7 @@ class _IntroState extends State<Intro> {
                 const Text(
                   'A brief introduction to postboxes...',
                   style: TextStyle(color: Colors.white70, fontSize: 18),
-                ),
+                ).animate(delay: 300.ms).fadeIn(duration: 400.ms),
               ],
             ),
           ),
@@ -230,6 +233,7 @@ class _IntroState extends State<Intro> {
 
   Widget _buildDialogue(String text) {
     return LayoutBuilder(
+      key: ValueKey(text),
       builder: (context, constraints) => SingleChildScrollView(
         padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
         child: ConstrainedBox(
@@ -250,7 +254,10 @@ class _IntroState extends State<Intro> {
                 const SizedBox(width: AppSpacing.md),
                 const PostmanJames(size: 90, isTalking: true),
               ],
-            ),
+            )
+                .animate()
+                .fadeIn(duration: 400.ms)
+                .slideY(begin: -0.15, end: 0, duration: 400.ms, curve: Curves.easeOut),
             const SizedBox(height: AppSpacing.xl),
             Container(
               padding: const EdgeInsets.all(AppSpacing.lg),
@@ -272,7 +279,10 @@ class _IntroState extends State<Intro> {
                 totalRepeatCount: 1,
                 displayFullTextOnTap: true,
               ),
-            ),
+            )
+                .animate(delay: 200.ms)
+                .fadeIn(duration: 400.ms)
+                .slideY(begin: 0.2, end: 0, duration: 400.ms, curve: Curves.easeOut),
           ],
           ),
         ),
@@ -329,7 +339,7 @@ class _IntroState extends State<Intro> {
         padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg + 4),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
-          children: [
+          children: <Widget>[
             Text(
               'How it works',
               style: Theme.of(context)
@@ -343,7 +353,10 @@ class _IntroState extends State<Intro> {
                 'Claim them when you\'re there to score points'),
             _overviewRow(Icons.leaderboard,
                 'Climb the leaderboard and compete with friends'),
-          ],
+          ]
+              .animate(interval: 120.ms)
+              .fadeIn(duration: 400.ms)
+              .slideX(begin: 0.15, end: 0, duration: 400.ms, curve: Curves.easeOut),
         ),
       ),
     );
@@ -374,7 +387,14 @@ class _IntroState extends State<Intro> {
       Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.thumb_up, size: 64, color: postalGold),
+          Icon(Icons.thumb_up, size: 64, color: postalGold)
+              .animate()
+              .scale(
+                begin: const Offset(0.5, 0.5),
+                duration: 500.ms,
+                curve: Curves.elasticOut,
+              )
+              .fadeIn(duration: 300.ms),
           const SizedBox(height: AppSpacing.lg),
           Text(
             widget.replay
@@ -385,7 +405,10 @@ class _IntroState extends State<Intro> {
                 color: Colors.white.withValues(alpha: 0.9),
                 fontSize: 20,
                 height: 1.4),
-          ),
+          )
+              .animate(delay: 300.ms)
+              .fadeIn(duration: 400.ms)
+              .slideY(begin: 0.2, end: 0, duration: 400.ms, curve: Curves.easeOut),
         ],
       ),
     );

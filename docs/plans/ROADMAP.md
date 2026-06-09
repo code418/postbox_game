@@ -1,7 +1,7 @@
 # Postbox Game — Roadmap
 
 Working backlog, organised by app release. Current shipped version is
-`pubspec.yaml`'s `1.1.0+10`. Each release names a **theme** and a **ship gate**;
+`pubspec.yaml`'s `1.2.0+13`. Each release names a **theme** and a **ship gate**;
 items inside it can be re-ordered freely.
 
 This file replaces the bulk-created draft PRs `#94`–`#112` (closed once this
@@ -19,7 +19,7 @@ lands). Their original bodies are preserved below for diff archaeology.
 
 | Version | Theme | Status |
 |---|---|---|
-| **v1.2** | Intro polish | In flight |
+| **v1.2** | Intro polish | Done |
 | **v1.3** | Platform foundations (EU region + observability) | Queued |
 | **v1.4** | Trust & safety (App Check, GDPR, anti-cheat) | Queued |
 | **v1.5** | Engagement & avatars (social loops + Postie avatar) | Deferred |
@@ -30,15 +30,22 @@ lands). Their original bodies are preserved below for diff archaeology.
 
 ---
 
-## v1.2 — Intro polish  (In flight)
+## v1.2 — Intro polish  (Done)
 
 **Theme**: the small visible UX win that's already on a branch.
-**Ship gate**: `flutter analyze` + tests green, intro effects wired into `lib/intro.dart`.
+**Ship gate**: `flutter analyze` + tests green, intro effects wired into `lib/intro.dart`. ✅ met.
 
-- **Tier 1 intro polish — `flutter_animate`** — PR #82 (dependency-only).
-  Merge, then file a tight follow-up that wires the effects into
-  `lib/intro.dart` (postbox `fadeIn` + `scale`, James `slideX` with
-  bounce, Mega Points `shimmer`).
+- **Tier 1 intro polish — `flutter_animate`** — ✅ shipped. The `flutter_animate`
+  dependency and the three ship-gate effects (postbox `fadeIn` + elasticOut
+  `scale`, James `slideX` with `easeOutBack`, Mega Points `shimmer` + confetti)
+  landed in `7ea9820`, which **superseded PR #82** (closed, not merged — its
+  branch had drifted off master).
+- **Entrance-animation follow-up** — ✅ shipped. Extended `flutter_animate`
+  entrances to the remaining steps that previously popped in: step-0 title/
+  subtitle, the dialogue cards (steps 2–3), the staggered "How it works"
+  overview (step 5), and the outro (step 6). Added `test/intro_test.dart`
+  smoke test (steps 0→6, `pump`-paced to avoid the infinite-shimmer hang).
+  Version bumped to `1.2.0+13`.
 
 > **Postie avatar (PR #113)** was bundled here originally but has been
 > moved down to **v1.5** after Trust & safety. PR #113 is non-draft and
@@ -602,6 +609,9 @@ Roll out the BQ model with monitoring only first; review prediction quality manu
 
 - **#117** — Postbox-data problem reporting, admin review & OSM corrections.
 - **#121** — Walk-to-destination route mode with corridor + detour scoring.
+- **v1.2** — Intro polish: `flutter_animate` effects wired across every intro step
+  (`7ea9820` + entrance-animation follow-up), confetti on Mega Points, intro smoke
+  test. Shipped as `1.2.0+13`.
 
 ## Open exploration (no release commitment)
 
