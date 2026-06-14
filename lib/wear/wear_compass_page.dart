@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:postbox_game/firebase_functions_eu.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_compass/flutter_compass.dart';
@@ -43,7 +44,7 @@ class _WearCompassPageState extends State<WearCompassPage> {
   String? _errorMessage;
 
   final HttpsCallable _callable =
-      FirebaseFunctions.instance.httpsCallable('nearbyPostboxes');
+      appFunctions.httpsCallable('nearbyPostboxes');
 
   @override
   void initState() {

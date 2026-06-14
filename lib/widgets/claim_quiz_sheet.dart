@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:postbox_game/firebase_functions_eu.dart';
 import 'package:confetti/confetti.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -154,12 +155,12 @@ class ClaimQuizSheet extends StatefulWidget {
   final Stream<int?>? streakStream;
 
   /// Injectable stub for the `nearbyPostboxes` Firebase callable.
-  /// When null, defaults to [FirebaseFunctions.instance.httpsCallable].
+  /// When null, defaults to [appFunctions.httpsCallable].
   /// Inject in tests to avoid real Firebase initialisation.
   final NearbyPostboxesCallableFn? nearbyCallable;
 
   /// Injectable stub for the `startScoring` Firebase callable.
-  /// When null, defaults to [FirebaseFunctions.instance.httpsCallable].
+  /// When null, defaults to [appFunctions.httpsCallable].
   /// Inject in tests to avoid real Firebase initialisation.
   final StartScoringCallableFn? startScoringCallable;
 
@@ -220,11 +221,11 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
     super.initState();
 
     _nearbyCallable = widget.nearbyCallable ??
-        (payload) => FirebaseFunctions.instance
+        (payload) => appFunctions
             .httpsCallable('nearbyPostboxes')
             .call(payload);
     _claimCallable = widget.startScoringCallable ??
-        (payload) => FirebaseFunctions.instance
+        (payload) => appFunctions
             .httpsCallable('startScoring')
             .call(payload);
     _positionProvider = widget.positionProvider ?? getPosition;

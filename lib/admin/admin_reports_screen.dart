@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:postbox_game/firebase_functions_eu.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -272,7 +273,7 @@ class _ReportCardState extends State<_ReportCard> {
   Future<void> _call(Map<String, dynamic> payload, {bool isAccept = false}) async {
     setState(() => _busy = true);
     try {
-      final res = await FirebaseFunctions.instance.httpsCallable('reviewReport').call(payload);
+      final res = await appFunctions.httpsCallable('reviewReport').call(payload);
       if (!mounted) return;
       if (isAccept) {
         final m = Map<String, dynamic>.from(res.data as Map);

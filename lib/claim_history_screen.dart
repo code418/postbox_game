@@ -1,6 +1,6 @@
 import 'dart:math' as math;
 
-import 'package:cloud_functions/cloud_functions.dart';
+import 'package:postbox_game/firebase_functions_eu.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:latlong2/latlong.dart';
@@ -123,7 +123,7 @@ class _HistoryTabState extends State<_HistoryTab>
   }
 
   Future<List<ClaimHistoryEntry>> _fetch() async {
-    final result = await FirebaseFunctions.instance
+    final result = await appFunctions
         .httpsCallable('userClaimHistory')
         .call(<String, dynamic>{'period': widget.period});
     final data = Map<String, dynamic>.from(result.data as Map);

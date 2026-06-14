@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:postbox_game/firebase_functions_eu.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_compass/flutter_compass.dart';
 import 'package:geolocator/geolocator.dart';
@@ -219,7 +220,7 @@ class _LiveRouteScreenState extends State<LiveRouteScreen> {
 
     _nearby = widget.nearbyCallable ??
         (Map<String, dynamic> payload) =>
-            FirebaseFunctions.instance
+            appFunctions
                 .httpsCallable('nearbyPostboxes')
                 .call(payload);
 
