@@ -12,6 +12,7 @@ import { containsProfanity } from "../_profanityFilter";
 import { sanitiseName } from "../onUserCreated";
 import { checkTravelSpeed, MAX_METRES_PER_MIN } from "../_travelSpeed";
 import { aggregateClaimHistory, periodStartDate } from "../userClaimHistory";
+import { diffSnapshots, type MigrationSnapshot } from "../_migrationVerify";
 
 // ── Pure utility unit tests (no Firebase required) ────────────────────────────
 
@@ -27,6 +28,71 @@ describe("getPoints", () => {
   it("returns 12 for EVIIIR", () => assert.strictEqual(getPoints("EVIIIR"), 12));
   it("returns 2 (default) for unknown cipher", () => assert.strictEqual(getPoints("UNKNOWN"), 2));
   it("returns 2 (default) for empty string", () => assert.strictEqual(getPoints(""), 2));
+});
+
+describe("diffSnapshots (migration verification)", () => {
+  const snap = (
+    roots: Record<string, number>,
+    groups: Record<string, number> = {},
+  ): MigrationSnapshot => ({
+    project: "the-postbox-game",
+    generatedAt: "2026-06-14T00:00:00.000Z",
+    roots,
+    groups,
+  });
+
+  it("reports ok when every count matches", () => {
+    const r = diffSnapshots(
+      snap({ postbox: 100, claims: 50 }, { entries: 12 }),
+      snap({ postbox: 100, claims: 50 }, { entries: 12 }),
+    );
+    assert.strictEqual(r.ok, true);
+    assert.ok(r.rows.every((row) => row.status === "ok"));
+    assert.ok(r.rows.every((row) => row.delta === 0));
+  });
+
+  it("flags a changed count as a mismatch with the right delta", () => {
+    const r = diffSnapshots(
+      snap({ postbox: 100, claims: 50 }),
+      snap({ postbox: 100, claims: 47 }),
+    );
+    assert.strictEqual(r.ok, false);
+    const claims = r.rows.find((row) => row.name === "claims");
+    assert.strictEqual(claims?.status, "mismatch");
+    assert.strictEqual(claims?.delta, -3);
+    assert.strictEqual(
+      r.rows.find((row) => row.name === "postbox")?.status,
+      "ok",
+    );
+  });
+
+  it("flags a collection present on only one side as missing", () => {
+    const dropped = diffSnapshots(
+      snap({ postbox: 100, reportQuotas: 4 }),
+      snap({ postbox: 100 }),
+    );
+    assert.strictEqual(dropped.ok, false);
+    const rq = dropped.rows.find((row) => row.name === "reportQuotas");
+    assert.strictEqual(rq?.status, "missing");
+    assert.strictEqual(rq?.before, 4);
+    assert.strictEqual(rq?.after, null);
+
+    const added = diffSnapshots(snap({ postbox: 100 }), snap({ postbox: 100, surprise: 1 }));
+    assert.strictEqual(added.ok, false);
+    assert.strictEqual(added.rows.find((row) => row.name === "surprise")?.status, "missing");
+  });
+
+  it("diffs collection groups the same way as root collections", () => {
+    const r = diffSnapshots(
+      snap({}, { entries: 30, countyStats: 9 }),
+      snap({}, { entries: 30, countyStats: 8 }),
+    );
+    assert.strictEqual(r.ok, false);
+    const cs = r.rows.find((row) => row.name === "countyStats");
+    assert.strictEqual(cs?.scope, "group");
+    assert.strictEqual(cs?.status, "mismatch");
+    assert.strictEqual(cs?.delta, -1);
+  });
 });
 
 describe("getTodayLondon", () => {
