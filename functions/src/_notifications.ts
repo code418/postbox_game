@@ -1,7 +1,7 @@
 import "./adminInit";
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions";
-import * as functionsV1 from "firebase-functions/v1";
+import { onDocumentUpdated } from "firebase-functions/v2/firestore";
 import { FIRESTORE_TRIGGER_REGION } from "./_region";
 import { getTodayLondon } from "./_dateUtils";
 
@@ -287,24 +287,26 @@ export const registerFcmToken = functions.https.onCall(async (request) => {
 
 // ── Firestore trigger: friend added ──────────────────────────────────────
 
-export const onFriendAdded = functionsV1
-  .region(FIRESTORE_TRIGGER_REGION)
-  .firestore.document("users/{uid}")
-  .onUpdate(async (change, context) => {
-    const uid: string = context.params.uid;
-    const before: string[] =
-      (change.before.data()?.friends as string[] | undefined) ?? [];
-    const after: string[] =
-      (change.after.data()?.friends as string[] | undefined) ?? [];
+// 2nd-gen Firestore trigger in europe-west4 (eur3's Eventarc region); eur3 has
+// no Gen1 Firestore triggers. See FIRESTORE_TRIGGER_REGION in _region.ts.
+export const onFriendAdded = onDocumentUpdated(
+  { document: "users/{uid}", region: FIRESTORE_TRIGGER_REGION },
+  async (event) => {
+    const uid = event.params.uid;
+    const before =
+      (event.data?.before.data()?.friends as string[] | undefined) ?? [];
+    const after =
+      (event.data?.after.data()?.friends as string[] | undefined) ?? [];
 
     const newFriends = diffFriends(before, after);
     if (newFriends.length === 0) return;
 
     const adderDisplayName =
-      (change.after.data()?.displayName as string | undefined) ||
+      (event.data?.after.data()?.displayName as string | undefined) ||
       `Player_${uid.slice(0, 6)}`;
 
     await Promise.allSettled(
       newFriends.map((fuid) => notifyFriendOfAddition(fuid, adderDisplayName))
     );
-  });
+  },
+);
