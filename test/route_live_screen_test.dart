@@ -584,7 +584,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('End route now?'), findsOneWidget);
-      expect(find.text('Points already claimed will keep.'), findsOneWidget);
+      expect(find.text("Points you've already claimed are safe."), findsOneWidget);
 
       // Tap "Keep going" to dismiss.
       await tester.tap(find.text('Keep going'));

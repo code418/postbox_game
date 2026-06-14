@@ -550,7 +550,7 @@ class _LiveRouteScreenState extends State<LiveRouteScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('End route now?'),
-        content: const Text('Points already claimed will keep.'),
+        content: const Text("Points you've already claimed are safe."),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
