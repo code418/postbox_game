@@ -885,18 +885,17 @@ const testEnv = test();
 // ── Region pinning (EU region migration, v1.3) ──────────────────────────────
 // Every exported Cloud Function must be pinned to an EU region co-located with
 // the eur3 Firestore so UK round-trips stay in-region. Most sit in
-// europe-west2; the v1 (Gen1) Firestore trigger onFriendAdded must sit in the
-// eur3-compatible Gen1 trigger region europe-west1 instead, or its deploy
-// fails ("...is in region eur3-europe-west1 which is not supported"). Auth
-// triggers (onUserCreated) are global and stay on europe-west2. Iterating over
-// all exports means a newly added function that forgets to set its region trips
-// this guard.
+// europe-west2. onFriendAdded is the exception: eur3 has NO Gen1 Firestore
+// triggers (neither europe-west2 nor europe-west1 deploys), so it must be a
+// 2nd-gen trigger and Eventarc maps eur3 -> europe-west4. Auth triggers
+// (onUserCreated) are global and stay on europe-west2. Iterating over all
+// exports means a newly added function that forgets its region trips this guard.
 describe("region pinning", () => {
   const DEFAULT_REGION = "europe-west2";
   const REGION_OVERRIDES: Record<string, string> = {
-    onFriendAdded: "europe-west1",
+    onFriendAdded: "europe-west4",
   };
-  type WithEndpoint = { __endpoint?: { region?: string[] } };
+  type WithEndpoint = { __endpoint?: { region?: string[]; platform?: string } };
 
   for (const name of Object.keys(myFunctions)) {
     const expected = REGION_OVERRIDES[name] ?? DEFAULT_REGION;
@@ -909,6 +908,12 @@ describe("region pinning", () => {
       );
     });
   }
+
+  it("onFriendAdded is a 2nd-gen trigger (eur3 has no Gen1 Firestore triggers)", () => {
+    const endpoint = (myFunctions as Record<string, WithEndpoint>)["onFriendAdded"]
+      .__endpoint;
+    assert.strictEqual(endpoint?.platform, "gcfv2");
+  });
 });
 
 describe("Cloud Functions", function (this: Mocha.Suite) {
