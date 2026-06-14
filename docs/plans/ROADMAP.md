@@ -79,23 +79,25 @@ will *worsen* end-to-end latency. Functions and Firestore must move together.
 
 **Migration order (sequence is load-bearing)**
 
-1. **Pre-flight**: `gcloud firestore export gs://the-postbox-game-backup-eu/pre-migration-$(date +%F)` (create the backup bucket in `europe-west2` first). Tag the repo, freeze deploys.
+1. **Pre-flight**: a managed export/import bucket must be **co-located with the database**, and you change locations mid-migration, so you need **two** buckets. Create a **US** bucket for exporting out of `nam5` (`gcloud storage buckets create gs://the-postbox-game-backup-us --location=us`) and an **EU** bucket for importing into `eur3` (`gcloud storage buckets create gs://the-postbox-game-backup-eu --location=europe-west2`). Pre-migration backup → US bucket: `gcloud firestore export gs://the-postbox-game-backup-us/pre-migration-$(date +%F)`. Tag the repo, freeze deploys.
 2. **Region-pin Cloud Functions** (code change, no deploy yet):
    - v2 callables (`nearbyPostboxes`, `startScoring`, `updateDisplayName`, `registerFcmToken`, `userClaimHistory`, `submitReport`, `reviewReport`, `routePostboxes`): add `{ region: "europe-west2" }` to `onCall` options.
    - v2 scheduler (`newDayScoreboard`): add `region: "europe-west2"` alongside `schedule` + `timeZone`.
    - v1 triggers (`onFriendAdded`, `onUserCreated`): wrap with `functionsV1.region("europe-west2")`.
 3. **Firestore database move (disruptive — Path A recommended)**:
    1. Maintenance mode via the existing `maintenance_mode` Remote Config flag (per `b721caa`); client renders "we'll be right back".
-   2. Final export to `gs://…-backup-eu`.
-   3. Delete `(default)` (delete protection is already `DISABLED`).
-   4. `gcloud firestore databases create --location=eur3 --database='(default)'`.
-   5. Re-deploy `firestore.rules` and `firestore.indexes.json`; wait for indexes to finish before reopening traffic.
-   6. `gcloud firestore import` from the backup.
-   7. Verify counts on `postbox`, `claims`, `users`, `leaderboards`, `fcmTokens`.
+   2. Final export → **US** bucket: `gcloud firestore export gs://the-postbox-game-backup-us/final-$(date +%F-%H%M)`; note the printed `outputUriPrefix`.
+   3. Baseline counts on the frozen `nam5` data: `cd functions && npm run verify-migration -- snapshot --out pre-nam5.json`.
+   4. Copy the final export US→EU (eur3 can only import from an EU bucket): `gcloud storage cp -r gs://the-postbox-game-backup-us/final-… gs://the-postbox-game-backup-eu/final-…`.
+   5. Delete `(default)` (delete protection is already `DISABLED`).
+   6. `gcloud firestore databases create --location=eur3 --database='(default)'`.
+   7. Re-deploy `firestore.rules` and `firestore.indexes.json`; wait for the 5 composite indexes to finish (`gcloud firestore indexes composite list`) before reopening traffic.
+   8. `gcloud firestore import gs://the-postbox-game-backup-eu/final-…` (from the **EU** bucket).
+   9. Verify counts match: `npm run verify-migration -- snapshot --out post-eur3.json && npm run verify-migration -- compare pre-nam5.json post-eur3.json` (exit 0 = safe). Covers `postbox`, `claims`, `users`, `leaderboards`, `fcmTokens`, `reports`, `reportQuotas` + nested groups.
    - Path B (named DB in `eur3`, dual-write, switch reads, retire `(default)`) is the fallback if Path A downtime is unacceptable; **avoid** unless forced, since every `admin.firestore()` call would need to target the non-default DB.
-4. **Deploy new functions**: `firebase deploy --only functions` *creates* europe-west2 copies; us-central1 copies are not deleted automatically. Verify all 8 healthy.
-5. **Pin Flutter client** to europe-west2 via a single helper `lib/firebase_functions_eu.dart` exposing an `appFunctions` getter. Refactor the 8 callable call sites in `lib/user_repository.dart`, `lib/wear/wear_compass_page.dart`, `lib/notification_service.dart`, `lib/nearby.dart`, `lib/wear/wear_claim_page.dart`, `lib/claim_history_screen.dart`, `lib/claim.dart`. Bump the app version. Keep both regions live until us-central1 invocations drop to zero in Cloud Logging.
-6. **Storage bucket** (do last): create `the-postbox-game-eu` in `europe-west2`, regen SDK config via FlutterFire CLI, migrate any objects with `gsutil -m cp -r` (currently nothing referenced from client code).
+4. **Deploy new functions**: `firebase deploy --only functions` *creates* europe-west2 copies; **decline** the prompt to delete the orphaned us-central1 copies — keep the 8 callables live for old installs. But the 3 event-driven functions (`onUserCreated`, `onFriendAdded`, `newDayScoreboard`) fire automatically and would double-run from both regions, so delete only those old copies: `firebase functions:delete onUserCreated onFriendAdded newDayScoreboard --region us-central1`. Verify all **11** healthy in `europe-west2` and that no us-central1 `newDayScoreboard` scheduler job remains.
+5. **Pin Flutter client** to europe-west2 via a single helper `lib/firebase_functions_eu.dart` exposing an `appFunctions` getter (`instanceFor(region: 'europe-west2')`). Done in PR #159: all 11 call sites swapped (`nearby`, `claim_quiz_sheet`, `wear` ×2, `route` ×2, `reports`, `admin`, `user_repository`, `claim_history_screen`, `notification_service`), guarded by `test/firebase_functions_region_test.dart`. Bump the app version. Keep both regions live until us-central1 invocations drop to zero in Cloud Logging.
+6. **Storage bucket** (do last): create `the-postbox-game-eu` in `europe-west2`, regen SDK config via FlutterFire CLI, migrate the existing objects with `gsutil -m cp -r` (the default bucket holds `report_photos/` and `osm_changesets/`).
 7. **Decommission us-central1 functions** once Cloud Logging shows zero invocations for one release cycle: `firebase functions:delete <name> --region us-central1` for each.
 
 **Risks & mitigations**
@@ -113,7 +115,7 @@ will *worsen* end-to-end latency. Functions and Firestore must move together.
 - **Tests**: `cd functions && npm test` + `flutter test` both green.
 - **Logs**: Cloud Logging shows invocations only in `europe-west2` after the deprecation window.
 
-**Rollback**: delete the new `(default)`, re-create in `nam5`, import the pre-migration backup, re-deploy us-central1 functions from the freeze tag, revert the Flutter client `instanceFor` change, ship a hotfix.
+**Rollback**: delete the new `(default)`, re-create in `nam5`, import the pre-migration backup **from the US bucket** (`gs://the-postbox-game-backup-us/pre-migration-…`), re-deploy us-central1 functions from the freeze tag, leave the Flutter client unshipped (or revert the `instanceFor` change), ship a hotfix.
 
 ### Performance Monitoring custom traces  (was #105)
 
