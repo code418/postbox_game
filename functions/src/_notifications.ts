@@ -2,6 +2,7 @@ import "./adminInit";
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions";
 import * as functionsV1 from "firebase-functions/v1";
+import { FUNCTION_REGION } from "./_region";
 import { getTodayLondon } from "./_dateUtils";
 
 const database = admin.firestore();
@@ -286,8 +287,9 @@ export const registerFcmToken = functions.https.onCall(async (request) => {
 
 // ── Firestore trigger: friend added ──────────────────────────────────────
 
-export const onFriendAdded = functionsV1.firestore
-  .document("users/{uid}")
+export const onFriendAdded = functionsV1
+  .region(FUNCTION_REGION)
+  .firestore.document("users/{uid}")
   .onUpdate(async (change, context) => {
     const uid: string = context.params.uid;
     const before: string[] =

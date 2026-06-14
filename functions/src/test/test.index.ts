@@ -816,6 +816,27 @@ describe("checkTravelSpeed", () => {
 
 const testEnv = test();
 
+// ── Region pinning (EU region migration, v1.3) ──────────────────────────────
+// Every exported Cloud Function must be pinned to europe-west2 so UK
+// round-trips stay in-region (Functions co-located with the eur3 Firestore).
+// Iterating over all exports means a newly added function that forgets to set
+// its region will trip this guard.
+describe("region pinning", () => {
+  const EXPECTED_REGION = "europe-west2";
+  type WithEndpoint = { __endpoint?: { region?: string[] } };
+
+  for (const name of Object.keys(myFunctions)) {
+    it(`${name} is pinned to ${EXPECTED_REGION}`, () => {
+      const endpoint = (myFunctions as Record<string, WithEndpoint>)[name].__endpoint;
+      assert.ok(endpoint, `${name} has no __endpoint — is it a Cloud Function?`);
+      assert.ok(
+        Array.isArray(endpoint.region) && endpoint.region.includes(EXPECTED_REGION),
+        `${name} region is ${JSON.stringify(endpoint.region)}, expected ${EXPECTED_REGION}`,
+      );
+    });
+  }
+});
+
 describe("Cloud Functions", function (this: Mocha.Suite) {
   this.timeout(15000);
 

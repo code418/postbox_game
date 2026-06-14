@@ -1,6 +1,7 @@
 import "./adminInit";
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions/v1";
+import { FUNCTION_REGION } from "./_region";
 import {
   containsProfanity,
   MIN_DISPLAY_NAME_CHARS,
@@ -16,7 +17,10 @@ export function sanitiseName(name: string, uid: string): string {
   return t;
 }
 
-export const onUserCreated = functions.auth.user().onCreate(async (user) => {
+export const onUserCreated = functions
+  .region(FUNCTION_REGION)
+  .auth.user()
+  .onCreate(async (user) => {
   const raw =
     user.displayName ||
     (user.email
