@@ -883,21 +883,29 @@ describe("checkTravelSpeed", () => {
 const testEnv = test();
 
 // ── Region pinning (EU region migration, v1.3) ──────────────────────────────
-// Every exported Cloud Function must be pinned to europe-west2 so UK
-// round-trips stay in-region (Functions co-located with the eur3 Firestore).
-// Iterating over all exports means a newly added function that forgets to set
-// its region will trip this guard.
+// Every exported Cloud Function must be pinned to an EU region co-located with
+// the eur3 Firestore so UK round-trips stay in-region. Most sit in
+// europe-west2; the v1 (Gen1) Firestore trigger onFriendAdded must sit in the
+// eur3-compatible Gen1 trigger region europe-west1 instead, or its deploy
+// fails ("...is in region eur3-europe-west1 which is not supported"). Auth
+// triggers (onUserCreated) are global and stay on europe-west2. Iterating over
+// all exports means a newly added function that forgets to set its region trips
+// this guard.
 describe("region pinning", () => {
-  const EXPECTED_REGION = "europe-west2";
+  const DEFAULT_REGION = "europe-west2";
+  const REGION_OVERRIDES: Record<string, string> = {
+    onFriendAdded: "europe-west1",
+  };
   type WithEndpoint = { __endpoint?: { region?: string[] } };
 
   for (const name of Object.keys(myFunctions)) {
-    it(`${name} is pinned to ${EXPECTED_REGION}`, () => {
+    const expected = REGION_OVERRIDES[name] ?? DEFAULT_REGION;
+    it(`${name} is pinned to ${expected}`, () => {
       const endpoint = (myFunctions as Record<string, WithEndpoint>)[name].__endpoint;
       assert.ok(endpoint, `${name} has no __endpoint — is it a Cloud Function?`);
       assert.ok(
-        Array.isArray(endpoint.region) && endpoint.region.includes(EXPECTED_REGION),
-        `${name} region is ${JSON.stringify(endpoint.region)}, expected ${EXPECTED_REGION}`,
+        Array.isArray(endpoint.region) && endpoint.region.includes(expected),
+        `${name} region is ${JSON.stringify(endpoint.region)}, expected ${expected}`,
       );
     });
   }
