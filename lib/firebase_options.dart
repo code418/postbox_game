@@ -47,7 +47,7 @@ class DefaultFirebaseOptions {
     projectId: 'the-postbox-game',
     authDomain: 'the-postbox-game.firebaseapp.com',
     databaseURL: 'https://the-postbox-game.firebaseio.com',
-    storageBucket: 'the-postbox-game.firebasestorage.app',
+    storageBucket: 'the-postbox-game.appspot.com',
       measurementId: 'G-JZ284NSHRQ'
   );
 
@@ -57,7 +57,7 @@ class DefaultFirebaseOptions {
     messagingSenderId: '176793005702',
     projectId: 'the-postbox-game',
     databaseURL: 'https://the-postbox-game.firebaseio.com',
-    storageBucket: 'the-postbox-game.firebasestorage.app',
+    storageBucket: 'the-postbox-game.appspot.com',
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
@@ -66,7 +66,7 @@ class DefaultFirebaseOptions {
     messagingSenderId: '176793005702',
     projectId: 'the-postbox-game',
     databaseURL: 'https://the-postbox-game.firebaseio.com',
-    storageBucket: 'the-postbox-game.firebasestorage.app',
+    storageBucket: 'the-postbox-game.appspot.com',
     androidClientId: '176793005702-bm8k047sgolu4nt8iki6sj92sgm2971l.apps.googleusercontent.com',
     iosClientId: '176793005702-rmq2h89o58g1lbe6bnqtg9rnllu8gv80.apps.googleusercontent.com',
     iosBundleId: 'com.code418.postboxGame',
@@ -78,7 +78,7 @@ class DefaultFirebaseOptions {
     messagingSenderId: '176793005702',
     projectId: 'the-postbox-game',
     databaseURL: 'https://the-postbox-game.firebaseio.com',
-    storageBucket: 'the-postbox-game.firebasestorage.app',
+    storageBucket: 'the-postbox-game.appspot.com',
     androidClientId: '176793005702-bm8k047sgolu4nt8iki6sj92sgm2971l.apps.googleusercontent.com',
     iosClientId: '176793005702-rmq2h89o58g1lbe6bnqtg9rnllu8gv80.apps.googleusercontent.com',
     iosBundleId: 'com.code418.postboxGame',
@@ -91,6 +91,6 @@ class DefaultFirebaseOptions {
     projectId: 'the-postbox-game',
     authDomain: 'the-postbox-game.firebaseapp.com',
     databaseURL: 'https://the-postbox-game.firebaseio.com',
-    storageBucket: 'the-postbox-game.firebasestorage.app',
+    storageBucket: 'the-postbox-game.appspot.com',
   );
 }

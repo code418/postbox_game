@@ -1,16 +1,15 @@
 import * as admin from "firebase-admin";
 
 if (!admin.apps.length) {
-  // Pin the Storage bucket explicitly. With no argument, admin.storage().bucket()
-  // resolves the default bucket name from FIREBASE_CONFIG, which for this project
-  // is the legacy `<project>.appspot.com` — but the actual bucket (and where the
-  // Flutter client uploads report photos, per firebase_options.dart /
-  // google-services.json) is the new-style `the-postbox-game.firebasestorage.app`.
-  // The mismatch made submitReport's photo-existence check (reports.ts) and
-  // reviewReport's osmChange `.save()` target a bucket that doesn't hold the
-  // files, so every report with a photo failed with
-  // "one or more photo uploads were not found in storage".
+  // Pin the Storage bucket explicitly to the project's real GCS bucket. This
+  // project predates the `.firebasestorage.app` naming, so its only bucket is
+  // `the-postbox-game.appspot.com` (confirmed via `gcloud storage buckets list`
+  // and Firebase's SDK config). The `.firebasestorage.app` name FlutterFire
+  // wrote into firebase_options.dart does NOT resolve as a GCS bucket, so the
+  // Admin SDK (submitReport's photo-existence check, reviewReport's osmChange
+  // `.save()`) must use the `.appspot.com` name to match where the client
+  // uploads.
   admin.initializeApp({
-    storageBucket: "the-postbox-game.firebasestorage.app",
+    storageBucket: "the-postbox-game.appspot.com",
   });
 }
