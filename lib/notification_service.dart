@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:cloud_functions/cloud_functions.dart';
+import 'package:postbox_game/firebase_functions_eu.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:postbox_game/maintenance_guard.dart';
@@ -127,7 +127,7 @@ class NotificationService {
     // notifications are non-critical and the maintenance window is rare.
     if (MaintenanceGuard.isOn) return;
     try {
-      await FirebaseFunctions.instance
+      await appFunctions
           .httpsCallable('registerFcmToken')
           .call<void>({'token': token});
     } catch (_) {

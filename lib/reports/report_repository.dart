@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:cloud_functions/cloud_functions.dart';
+import 'package:postbox_game/firebase_functions_eu.dart';
 import 'package:exif/exif.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -214,7 +214,7 @@ class ReportRepository {
   }
 
   static Future<String> _call(Map<String, dynamic> data) async {
-    final result = await FirebaseFunctions.instance.httpsCallable('submitReport').call(data);
+    final result = await appFunctions.httpsCallable('submitReport').call(data);
     final map = Map<String, dynamic>.from(result.data as Map);
     return map['reportId'] as String? ?? '';
   }

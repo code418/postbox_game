@@ -1,5 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:cloud_functions/cloud_functions.dart';
+import 'package:postbox_game/firebase_functions_eu.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:postbox_game/maintenance_guard.dart';
@@ -88,7 +88,7 @@ class UserRepository {
       final name = Validators.isValidDisplayName(raw)
           ? raw
           : 'Player_${user.uid.substring(0, 6)}';
-      final callable = FirebaseFunctions.instance.httpsCallable('updateDisplayName');
+      final callable = appFunctions.httpsCallable('updateDisplayName');
       await callable.call({'name': name});
       await user.reload();
     } catch (_) {
@@ -109,7 +109,7 @@ class UserRepository {
   Future<void> updateDisplayName(String newName) async {
     final user = _firebaseAuth.currentUser;
     if (user == null) return;
-    final callable = FirebaseFunctions.instance.httpsCallable('updateDisplayName');
+    final callable = appFunctions.httpsCallable('updateDisplayName');
     await callable.call({'name': newName});
     // Reload so the in-memory Auth profile picks up the name set by the
     // Admin SDK on the server.

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:postbox_game/firebase_functions_eu.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:postbox_game/analytics_service.dart';
@@ -56,9 +57,9 @@ class _WearClaimPageState extends State<WearClaimPage> {
   String? _errorMessage;
 
   final HttpsCallable _nearbyCallable =
-      FirebaseFunctions.instance.httpsCallable('nearbyPostboxes');
+      appFunctions.httpsCallable('nearbyPostboxes');
   final HttpsCallable _claimCallable =
-      FirebaseFunctions.instance.httpsCallable('startScoring');
+      appFunctions.httpsCallable('startScoring');
   final StreakService _streakService = StreakService();
   late final Stream<int?> _streakStream = _streakService.streakStream();
 

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:postbox_game/firebase_functions_eu.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_compass/flutter_compass.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -94,7 +95,7 @@ class _NearbyState extends State<Nearby> {
   }
 
   final HttpsCallable callable =
-      FirebaseFunctions.instance.httpsCallable('nearbyPostboxes');
+      appFunctions.httpsCallable('nearbyPostboxes');
 
   Future<void> _startSearch() async {
     // Guard against concurrent calls (e.g. pull-to-refresh + Refresh button

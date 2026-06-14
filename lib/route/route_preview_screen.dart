@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:postbox_game/firebase_functions_eu.dart';
 import 'package:flutter/material.dart';
 import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/app_preferences.dart';
@@ -77,7 +78,7 @@ class _RoutePreviewScreenState extends State<RoutePreviewScreen> {
   void initState() {
     super.initState();
     _callableFn = widget.callableFn ??
-        (payload) => FirebaseFunctions.instance
+        (payload) => appFunctions
             .httpsCallable('routePostboxes')
             .call(payload);
     // Fire the initial call immediately.
