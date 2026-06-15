@@ -15,9 +15,16 @@ import 'oauth_client_ids.dart';
 /// Build: flutter run --flavor wear -t lib/main_wear.dart
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  // On Android the native FirebaseInitProvider auto-initializes the [DEFAULT]
+  // app from google-services.json before main() runs. In release/AOT builds it
+  // wins the race, so calling initializeApp() again throws [core/duplicate-app]
+  // — which, thrown here before runApp(), leaves a blank screen that Google
+  // Play flags as a crash-on-launch. Guard so initialization is idempotent.
+  if (Firebase.apps.isEmpty) {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+  }
   await FirebaseAppCheck.instance.activate(
     // Wear OS is Android-only — no web or Apple providers needed.
     providerAndroid: kDebugMode

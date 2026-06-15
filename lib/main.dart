@@ -38,9 +38,16 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  // On Android the native FirebaseInitProvider auto-initializes the [DEFAULT]
+  // app from google-services.json before main() runs. In release/AOT builds it
+  // wins the race, so calling initializeApp() again throws [core/duplicate-app]
+  // — which, thrown here before runApp(), leaves a blank screen that Google
+  // Play flags as a crash-on-launch. Guard so initialization is idempotent.
+  if (Firebase.apps.isEmpty) {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+  }
   await FirebaseAppCheck.instance.activate(
     providerWeb: ReCaptchaV3Provider(kRecaptchaSiteKey),
     // Debug provider is only safe for local development; release builds must use
