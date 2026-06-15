@@ -14,6 +14,7 @@ import 'package:postbox_game/james_messages.dart';
 import 'package:postbox_game/james_strip.dart';
 import 'package:postbox_game/leaderboard_screen.dart';
 import 'package:postbox_game/nearby.dart';
+import 'package:postbox_game/services/crashlytics_helper.dart';
 import 'package:postbox_game/reports/my_reports_screen.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/widgets/maintenance_banner.dart';
@@ -66,6 +67,19 @@ class _HomeState extends State<Home> {
     ),
   ];
 
+  // Tab names indexed by NavigationBar position, shared by the Analytics
+  // `tab_selected` event and the Crashlytics `active_tab` key.
+  static const List<String> _tabNames = [
+    'nearby',
+    'claim',
+    'scores',
+    'friends',
+    'history',
+  ];
+
+  String _tabName(int i) =>
+      (i >= 0 && i < _tabNames.length) ? _tabNames[i] : 'unknown';
+
   // Keep screens alive via IndexedStack. `autoScan` is only forwarded on
   // first build; re-entering the Claim tab later won't retrigger a scan
   // because the widget is preserved by IndexedStack.
@@ -80,6 +94,8 @@ class _HomeState extends State<Home> {
   @override
   void initState() {
     super.initState();
+    CrashlyticsHelper.setContext(
+        CrashlyticsHelper.keyActiveTab, _tabName(_selectedIndex));
     // The "Admin · Reports" menu item only appears for users holding the
     // `admin` custom claim. Force a token refresh so a recently-granted claim
     // shows up without requiring the user to sign out and back in.
@@ -229,16 +245,10 @@ class _HomeState extends State<Home> {
           selectedIndex: _selectedIndex,
           onDestinationSelected: (i) {
             setState(() => _selectedIndex = i);
-            const tabNames = [
-              'nearby',
-              'claim',
-              'scores',
-              'friends',
-              'history'
-            ];
-            final tabName =
-                i >= 0 && i < tabNames.length ? tabNames[i] : 'unknown';
+            final tabName = _tabName(i);
             Analytics.tabSelected(index: i, name: tabName);
+            CrashlyticsHelper.setContext(
+                CrashlyticsHelper.keyActiveTab, tabName);
             final msg = JamesMessages.forTabIndex(i);
             if (msg != null) _jamesController.show(msg.resolve());
           },

@@ -19,22 +19,27 @@ import 'package:flutter/foundation.dart';
 class PerfService {
   PerfService._();
 
-  static FirebasePerformance _perf = FirebasePerformance.instance;
+  static FirebasePerformance? _perf;
+
+  /// Lazily resolves the real SDK on first production use; tests inject a fake
+  /// via [instance] before any call site reads it (so the real singleton is
+  /// never touched headless).
+  static FirebasePerformance get _fp => _perf ??= FirebasePerformance.instance;
 
   @visibleForTesting
   static set instance(FirebasePerformance perf) => _perf = perf;
 
   @visibleForTesting
-  static FirebasePerformance get instance => _perf;
+  static FirebasePerformance get instance => _fp;
 
   @visibleForTesting
-  static void resetForTest() => _perf = FirebasePerformance.instance;
+  static void resetForTest() => _perf = null;
 
   /// Toggle collection. Called once from `main()` with `!kDebugMode` so debug
   /// runs stay out of the dashboard.
   static Future<void> setCollectionEnabled(bool enabled) async {
     try {
-      await _perf.setPerformanceCollectionEnabled(enabled);
+      await _fp.setPerformanceCollectionEnabled(enabled);
     } catch (e) {
       debugPrint('PerfService.setCollectionEnabled failed: $e');
     }
@@ -65,7 +70,7 @@ class PerfService {
     Map<String, String>? attributes,
   }) async {
     try {
-      final trace = _perf.newTrace(name);
+      final trace = _fp.newTrace(name);
       await trace.start();
       attributes?.forEach(trace.putAttribute);
       return TraceHandle._(trace);

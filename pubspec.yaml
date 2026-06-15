@@ -62,6 +62,10 @@ dependencies:
   # incompatible with AGP 8.x; the plugin is only needed for automatic network/
   # screen-render traces, which we don't use. See android/app/build.gradle.
   firebase_performance: ^0.11.4+2
+  # Crashlytics. The native side re-adds the com.google.firebase.crashlytics
+  # Gradle plugin (AGP-8-compatible, unlike firebase-perf) for release mapping-
+  # file upload — see android/build.gradle + android/app/build.gradle.
+  firebase_crashlytics: ^5.2.3
   # Direct dep so settings_screen can read the running build's version at
   # runtime (was previously hardcoded to '1.0.0'). Stays in lockstep with the
   # `^10.1.0` override below — both must move together if the desktop-only

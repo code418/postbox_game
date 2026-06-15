@@ -8,6 +8,7 @@ import 'package:postbox_game/app_preferences.dart' show ViewMode;
 import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/remote_config_service.dart';
 import 'package:postbox_game/reports/report_cypher_screen.dart';
+import 'package:postbox_game/services/crashlytics_helper.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/widgets/postbox_map.dart';
 import 'package:postbox_game/widgets/postbox_marker.dart';
@@ -173,6 +174,13 @@ class _HistoryTabState extends State<_HistoryTab>
   }
 
   void _showEntryDetails(BuildContext context, ClaimHistoryEntry entry) {
+    // Crash context: which claimed box (id only) and cypher the user is viewing.
+    CrashlyticsHelper.setContext(
+        CrashlyticsHelper.keyLastClaimId, entry.postboxId);
+    if (entry.monarch != null) {
+      CrashlyticsHelper.setContext(
+          CrashlyticsHelper.keyLastMonarch, entry.monarch!);
+    }
     showModalBottomSheet<void>(
       context: context,
       builder: (_) => _EntryDetailSheet(entry: entry),

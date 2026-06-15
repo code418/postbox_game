@@ -5,6 +5,7 @@ plugins {
     // Kotlin is 2.0.0, too old to read our deps' 2.2.0 metadata. See settings.gradle.
     id "org.jetbrains.kotlin.android"
     id "com.google.gms.google-services"
+    id "com.google.firebase.crashlytics"
 }
 
 def localProperties = new Properties()
@@ -151,5 +152,7 @@ tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
     }
 }
 
-// firebase-perf and crashlytics Gradle plugins removed — SDKs not used in Dart code
-// and perf-plugin:1.4.2 is incompatible with AGP 8.x
+// Crashlytics Gradle plugin is applied in the plugins block above (release
+// mapping upload). The firebase-perf Gradle plugin stays OUT: perf-plugin:1.4.2
+// is incompatible with AGP 8.x, and our custom code traces work through the
+// firebase_performance Flutter plugin without it.

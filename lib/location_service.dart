@@ -2,6 +2,7 @@ import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:postbox_game/services/crashlytics_helper.dart';
 
 /// The category of a [LocationServiceException].
 ///
@@ -65,6 +66,8 @@ Future<Position> getPosition({bool forceLocationManager = false}) async {
   if (permission == LocationPermission.denied) {
     permission = await Geolocator.requestPermission();
     if (permission == LocationPermission.denied) {
+      CrashlyticsHelper.setContext(
+          CrashlyticsHelper.keyHasLocationPermission, false);
       throw const LocationServiceException(
         LocationErrorKind.permissionDenied,
         'Location permission denied.',
@@ -72,11 +75,15 @@ Future<Position> getPosition({bool forceLocationManager = false}) async {
     }
   }
   if (permission == LocationPermission.deniedForever) {
+    CrashlyticsHelper.setContext(
+        CrashlyticsHelper.keyHasLocationPermission, false);
     throw const LocationServiceException(
       LocationErrorKind.permissionPermanentlyDenied,
       'Location permission permanently denied. Enable it in Settings.',
     );
   }
+  CrashlyticsHelper.setContext(
+      CrashlyticsHelper.keyHasLocationPermission, true);
   final useAndroidManager =
       forceLocationManager && !kIsWeb && Platform.isAndroid;
   final LocationSettings settings = useAndroidManager

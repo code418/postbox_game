@@ -19,6 +19,7 @@ import 'package:postbox_game/maintenance_guard.dart';
 import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/remote_config_service.dart';
 import 'package:postbox_game/reports/report_missing_postbox_screen.dart';
+import 'package:postbox_game/services/crashlytics_helper.dart';
 import 'package:postbox_game/services/home_widget_service.dart';
 import 'package:postbox_game/services/perf_service.dart';
 import 'package:postbox_game/theme.dart';
@@ -338,6 +339,9 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
     } on FirebaseFunctionsException catch (e) {
       debugPrint('Firebase functions error: ${e.code} ${e.message}');
       final isOffline = e.code == 'unavailable';
+      CrashlyticsHelper.recordHandled(e, e.stackTrace,
+          reason: 'nearbyPostboxes:${e.code}',
+          dedupeKey: isOffline ? 'nearbyPostboxes_unavailable' : null);
       _showErrorSnackBar(isOffline
           ? 'No internet connection. Please try again.'
           : 'Could not scan for postboxes. Please try again.');
@@ -465,6 +469,9 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
       if (!mounted) return;
       Analytics.claimSuccess(
           pointsEarned: earnedPts, claimedCount: claimedCount);
+      // Crash context: which cypher the user just claimed (code only, no PII).
+      CrashlyticsHelper.setContext(
+          CrashlyticsHelper.keyLastMonarch, _quizCipher ?? 'unknown');
       // Refresh the bucketed user properties (lifetime points, unique boxes,
       // streak, claimed_today) so Remote Config audiences see the new state.
       // Fire-and-forget — analytics never blocks the UI.
@@ -496,6 +503,14 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
     } on FirebaseFunctionsException catch (e) {
       debugPrint('Claim error: ${e.code} ${e.message}');
       Analytics.claimFailed(reason: e.code);
+      // 'failed-precondition' is the expected anti-spoof "too fast" rejection —
+      // user-driven, not a bug, so don't record it as a non-fatal.
+      if (e.code != 'failed-precondition') {
+        CrashlyticsHelper.recordHandled(e, e.stackTrace,
+            reason: 'startScoring:${e.code}',
+            dedupeKey:
+                e.code == 'unavailable' ? 'startScoring_unavailable' : null);
+      }
       // The server's anti-spoof travel-speed check throws `failed-precondition`
       // with a message written for the end user ("You're travelling too
       // fast..."). Surface that instead of the generic "try again" so a user

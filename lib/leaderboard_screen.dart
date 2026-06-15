@@ -6,6 +6,7 @@ import 'package:postbox_game/county_heatmap.dart';
 import 'package:postbox_game/james_controller.dart';
 import 'package:postbox_game/james_messages.dart';
 import 'package:postbox_game/london_date.dart';
+import 'package:postbox_game/services/crashlytics_helper.dart';
 import 'package:postbox_game/services/perf_service.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/user_profile_page.dart';
@@ -204,6 +205,11 @@ class _LeaderboardListState extends State<_LeaderboardList>
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           _finishRenderTrace(0);
+          CrashlyticsHelper.recordHandled(
+              snapshot.error ?? 'leaderboard snapshot error',
+              snapshot.stackTrace,
+              reason: 'leaderboard_snapshot:${widget.period}',
+              dedupeKey: 'leaderboard_snapshot:${widget.period}');
           return Padding(
             padding: const EdgeInsets.only(bottom: kJamesStripClearance),
             child: Center(
@@ -584,6 +590,11 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList>
       stream: _userStream,
       builder: (context, userSnap) {
         if (userSnap.hasError) {
+          CrashlyticsHelper.recordHandled(
+              userSnap.error ?? 'friends user snapshot error',
+              userSnap.stackTrace,
+              reason: 'leaderboard_friends_user:${widget.period}',
+              dedupeKey: 'leaderboard_friends_user:${widget.period}');
           return Padding(
             padding: const EdgeInsets.only(bottom: kJamesStripClearance),
             child: Center(
@@ -642,6 +653,10 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList>
             }
             if (snap.hasError) {
               _finishRenderTrace(0);
+              CrashlyticsHelper.recordHandled(
+                  snap.error ?? 'friends scores error', snap.stackTrace,
+                  reason: 'leaderboard_friends_scores:${widget.period}',
+                  dedupeKey: 'leaderboard_friends_scores:${widget.period}');
               return Padding(
                 padding: const EdgeInsets.only(bottom: kJamesStripClearance),
                 child: Center(

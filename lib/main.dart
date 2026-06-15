@@ -20,6 +20,7 @@ import 'package:postbox_game/splash.dart';
 import 'package:postbox_game/user_repository.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:home_widget/home_widget.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'dart:io' show Platform;
@@ -31,6 +32,7 @@ import 'package:postbox_game/admin/admin_access.dart';
 import 'package:postbox_game/analytics_user_properties.dart';
 import 'package:postbox_game/notification_service.dart';
 import 'package:postbox_game/remote_config_service.dart';
+import 'package:postbox_game/services/crashlytics_helper.dart';
 import 'package:postbox_game/services/perf_service.dart';
 import 'package:postbox_game/route/destination_picker_screen.dart';
 import 'package:postbox_game/route/route_notifications.dart';
@@ -49,15 +51,30 @@ void main() async {
       options: DefaultFirebaseOptions.currentPlatform,
     );
   }
-  await FirebaseAppCheck.instance.activate(
-    providerWeb: ReCaptchaV3Provider(kRecaptchaSiteKey),
-    // Debug provider is only safe for local development; release builds must use
-    // Play Integrity to actually enforce App Check.
-    providerAndroid: kDebugMode
-        ? const AndroidDebugProvider()
-        : const AndroidPlayIntegrityProvider(),
-    providerApple: const AppleAppAttestProvider(),
-  );
+  // Route uncaught framework + platform errors to Crashlytics as fatals, and
+  // disable collection in debug so local runs don't pollute the dashboard.
+  FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
+  WidgetsBinding.instance.platformDispatcher.onError = (error, stack) {
+    FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+    return true;
+  };
+  unawaited(CrashlyticsHelper.setCollectionEnabled(!kDebugMode));
+  try {
+    await FirebaseAppCheck.instance.activate(
+      providerWeb: ReCaptchaV3Provider(kRecaptchaSiteKey),
+      // Debug provider is only safe for local development; release builds must use
+      // Play Integrity to actually enforce App Check.
+      providerAndroid: kDebugMode
+          ? const AndroidDebugProvider()
+          : const AndroidPlayIntegrityProvider(),
+      providerApple: const AppleAppAttestProvider(),
+    );
+  } catch (e, st) {
+    // An App Check provider/token failure shouldn't block launch — record it as
+    // a non-fatal (deduped: provider outages would otherwise spam every start).
+    unawaited(CrashlyticsHelper.recordHandled(e, st,
+        reason: 'app_check_activate', dedupeKey: 'app_check_activate'));
+  }
   // google_sign_in 7.x needs explicit client IDs to issue an ID token usable
   // by Firebase signInWithCredential. The Web client ID (Firebase Auth's
   // OAuth client of type 3 from google-services.json) doubles as the
@@ -85,6 +102,17 @@ void main() async {
   // inside init().
   unawaited(RemoteConfigService.instance.init());
   runApp(const PostboxGame());
+}
+
+/// Coarse auth-provider label for the Crashlytics `auth_state` key. Never PII —
+/// just which sign-in method is active (`google` / `email` / `anon`).
+String _authStateLabel(User? user) {
+  if (user == null) return 'signed_out';
+  if (user.isAnonymous) return 'anon';
+  final providers = user.providerData.map((p) => p.providerId).toSet();
+  if (providers.contains('google.com')) return 'google';
+  if (providers.contains('password')) return 'email';
+  return 'unknown';
 }
 
 /// True when the process was launched from the home-screen widget deep link
@@ -205,7 +233,10 @@ class _PostboxGameState extends State<PostboxGame> with WidgetsBindingObserver {
               if (state is Authenticated) {
                 unawaited(NotificationService.init());
                 unawaited(_homeWidgetService.refresh());
-                final uid = FirebaseAuth.instance.currentUser?.uid;
+                final user = FirebaseAuth.instance.currentUser;
+                unawaited(CrashlyticsHelper.setContext(
+                    CrashlyticsHelper.keyAuthState, _authStateLabel(user)));
+                final uid = user?.uid;
                 if (uid != null) {
                   unawaited(Analytics.setUserId(uid));
                   unawaited(publishUserPropertiesFromFirestore(uid));
@@ -218,6 +249,8 @@ class _PostboxGameState extends State<PostboxGame> with WidgetsBindingObserver {
                 // doesn't briefly see the admin entry points.
                 AdminAccess.reset();
                 unawaited(Analytics.setUserId(null));
+                unawaited(CrashlyticsHelper.setContext(
+                    CrashlyticsHelper.keyAuthState, 'signed_out'));
               }
             },
             builder: (BuildContext context, AuthenticationState? state) {

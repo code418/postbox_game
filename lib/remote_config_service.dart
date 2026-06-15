@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:firebase_remote_config/firebase_remote_config.dart';
 import 'package:flutter/foundation.dart';
 
+import 'package:postbox_game/services/crashlytics_helper.dart';
+
 /// Read-only wrapper around Firebase Remote Config.
 ///
 /// Owns the defaults map (single source of truth alongside the typed getters
@@ -119,6 +121,10 @@ class RemoteConfigService {
   }
 
   void _syncMaintenanceMode() {
+    // Crash context: when Remote Config last resolved (helps spot clients stuck
+    // on stale config). Runs after every fetch/activate that calls this.
+    CrashlyticsHelper.setContext(CrashlyticsHelper.keyRemoteConfigFetchTs,
+        _rc.lastFetchTime.toIso8601String());
     final v = _rc.getBool(keyMaintenanceMode);
     if (_maintenanceMode.value != v) {
       _maintenanceMode.value = v;

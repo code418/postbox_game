@@ -3,6 +3,7 @@ import 'package:postbox_game/firebase_functions_eu.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:postbox_game/maintenance_guard.dart';
+import 'package:postbox_game/services/crashlytics_helper.dart';
 import 'package:postbox_game/validators.dart';
 
 class UserRepository {
@@ -28,6 +29,10 @@ class UserRepository {
           e.code == GoogleSignInExceptionCode.interrupted) {
         return null;
       }
+      // A genuine (non-cancellation) Google sign-in failure — record it before
+      // it propagates to the login UI's generic error message.
+      CrashlyticsHelper.recordHandled(e, StackTrace.current,
+          reason: 'google_sign_in:${e.code}');
       rethrow;
     }
     final GoogleSignInAuthentication googleAuth = googleUser.authentication;

@@ -16,6 +16,7 @@ import 'package:postbox_game/location_service.dart';
 import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/remote_config_service.dart';
 import 'package:postbox_game/reports/report_missing_postbox_screen.dart';
+import 'package:postbox_game/services/crashlytics_helper.dart';
 import 'package:postbox_game/services/perf_service.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/widgets/postbox_map.dart';
@@ -76,9 +77,16 @@ class _NearbyState extends State<Nearby> {
         if (prev == null || compassHeadingDelta(prev, heading) >= 5) {
           _headingNotifier.value = heading;
         }
+      }, onError: (Object e, StackTrace st) {
+        CrashlyticsHelper.recordHandled(e, st,
+            reason: 'flutter_compass_stream',
+            dedupeKey: 'flutter_compass_stream');
       });
-    } catch (_) {
+    } catch (e, st) {
       _compassSubscription = null;
+      CrashlyticsHelper.recordHandled(e, st,
+          reason: 'flutter_compass_listen',
+          dedupeKey: 'flutter_compass_listen');
     }
     AppPreferences.getDistanceUnit().then((unit) {
       if (mounted) setState(() => _distanceUnit = unit);
@@ -197,6 +205,10 @@ class _NearbyState extends State<Nearby> {
       if (mounted) JamesController.of(context)?.show(msg);
     } on FirebaseFunctionsException catch (e) {
       debugPrint('Firebase functions error: ${e.code} ${e.message}');
+      CrashlyticsHelper.recordHandled(e, e.stackTrace,
+          reason: 'nearbyPostboxes:${e.code}',
+          dedupeKey:
+              e.code == 'unavailable' ? 'nearbyPostboxes_unavailable' : null);
       if (!mounted) return;
       final isOffline = e.code == 'unavailable';
       JamesController.of(context)?.show(
