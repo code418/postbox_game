@@ -1,6 +1,8 @@
 plugins {
     id "com.android.application"
     id "dev.flutter.flutter-gradle-plugin"
+    // Explicit KGP retained (NOT Flutter Built-in Kotlin): Flutter 3.44's built-in
+    // Kotlin is 2.0.0, too old to read our deps' 2.2.0 metadata. See settings.gradle.
     id "org.jetbrains.kotlin.android"
     id "com.google.gms.google-services"
 }
@@ -114,7 +116,7 @@ flutter {
 
 // home_widget 0.9.1 declares 'androidx.glance:glance-appwidget:1.+', which now
 // resolves to 1.3.0-alpha01 — that alpha requires compileSdk 37 + AGP 9.1.0
-// (we're on 36 + 8.9.1). Pin to the latest 1.1.x stable so the build keeps
+// (we're on 36 + 8.11.1). Pin to the latest 1.1.x stable so the build keeps
 // working until home_widget tightens its constraint or we move to AGP 9.
 configurations.all {
     resolutionStrategy {
