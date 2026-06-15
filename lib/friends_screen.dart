@@ -9,6 +9,7 @@ import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/analytics_user_properties.dart';
 import 'package:postbox_game/display_name_utils.dart';
 import 'package:postbox_game/maintenance_guard.dart';
+import 'package:postbox_game/services/perf_service.dart';
 import 'package:postbox_game/services/user_properties_publisher.dart';
 import 'package:postbox_game/user_profile_page.dart';
 import 'package:postbox_game/theme.dart';
@@ -244,16 +245,22 @@ class _FriendsScreenState extends State<FriendsScreen> {
       for (var i = 0; i < uids.length; i += batchSize)
         uids.sublist(i, (i + batchSize).clamp(0, uids.length)),
     ];
-    final results = await Future.wait(batches.map((batch) async {
-      try {
-        return await _firestore
-            .collection('users')
-            .where(FieldPath.documentId, whereIn: batch)
-            .get();
-      } catch (_) {
-        return null;
-      }
-    }));
+    final results = await PerfService.traceAsync(
+      PerfTraces.friendsLoad,
+      (trace) async {
+        trace.setMetric(PerfTraces.metricCount, uids.length);
+        return Future.wait(batches.map((batch) async {
+          try {
+            return await _firestore
+                .collection('users')
+                .where(FieldPath.documentId, whereIn: batch)
+                .get();
+          } catch (_) {
+            return null;
+          }
+        }));
+      },
+    );
     if (!mounted) return;
     setState(() {
       for (final snap in results) {

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:animated_text_kit/animated_text_kit.dart';
 import 'package:confetti/confetti.dart';
 import 'package:flutter/material.dart';
@@ -5,6 +7,8 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:postbox_game/james_messages.dart';
 import 'package:postbox_game/postman_james.dart';
+import 'package:postbox_game/remote_config_service.dart';
+import 'package:postbox_game/services/perf_service.dart';
 import 'package:postbox_game/theme.dart';
 
 /// First-run cinematic intro: postbox on stage, Postman James, dialogue, then app overview.
@@ -38,11 +42,24 @@ class _IntroState extends State<Intro> {
 
   late final ConfettiController _confettiController;
 
+  // First-run onboarding trace (skipped on Settings replay). Started in
+  // initState, stopped when the user reaches the terminal "Get started" step.
+  // `variant` records which welcome-copy A/B variant they saw.
+  Future<TraceHandle>? _onboardingTrace;
+
   @override
   void initState() {
     super.initState();
     _confettiController =
         ConfettiController(duration: const Duration(seconds: 4));
+    if (!widget.replay) {
+      _onboardingTrace = PerfService.start(
+        PerfTraces.introOnboarding,
+        attributes: {
+          PerfTraces.attrVariant: RemoteConfigService.instance.jamesWelcomeVariant,
+        },
+      );
+    }
   }
 
   @override
@@ -59,6 +76,10 @@ class _IntroState extends State<Intro> {
       setState(() => _step++);
     } else {
       _completed = true;
+      final trace = _onboardingTrace;
+      if (trace != null) {
+        unawaited(trace.then((h) => h.stop()));
+      }
       if (widget.replay) {
         Navigator.of(context).pop();
       } else {

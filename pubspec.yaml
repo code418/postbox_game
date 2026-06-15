@@ -57,6 +57,11 @@ dependencies:
   share_plus: ^13.1.0
   http: ^1.2.0
   firebase_remote_config: ^6.4.0
+  # Custom code traces only (PerfService.traceAsync). We deliberately do NOT add
+  # the com.google.firebase.firebase-perf Gradle plugin — perf-plugin:1.4.2 is
+  # incompatible with AGP 8.x; the plugin is only needed for automatic network/
+  # screen-render traces, which we don't use. See android/app/build.gradle.
+  firebase_performance: ^0.11.4+2
   # Direct dep so settings_screen can read the running build's version at
   # runtime (was previously hardcoded to '1.0.0'). Stays in lockstep with the
   # `^10.1.0` override below — both must move together if the desktop-only

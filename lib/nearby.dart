@@ -16,6 +16,7 @@ import 'package:postbox_game/location_service.dart';
 import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/remote_config_service.dart';
 import 'package:postbox_game/reports/report_missing_postbox_screen.dart';
+import 'package:postbox_game/services/perf_service.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/widgets/postbox_map.dart';
 import 'package:postbox_game/widgets/postbox_marker.dart';
@@ -107,11 +108,27 @@ class _NearbyState extends State<Nearby> {
       _distanceUnit = await AppPreferences.getDistanceUnit();
       final position = await getPosition();
       if (mounted) setState(() => _scanPosition = position);
-      final result = await callable.call(<String, dynamic>{
-        'lat': position.latitude,
-        'lng': position.longitude,
-        'meters': AppPreferences.nearbyRadiusMeters,
-      });
+      final result = await PerfService.traceAsync(
+        PerfTraces.callableNearbyPostboxes,
+        (trace) async {
+          final r = await callable.call(<String, dynamic>{
+            'lat': position.latitude,
+            'lng': position.longitude,
+            'meters': AppPreferences.nearbyRadiusMeters,
+          });
+          final total = ((Map<String, dynamic>.from(r.data as Map)['counts']
+                  as Map?)?['total'] as num?)
+              ?.toInt();
+          if (total != null) {
+            trace.setMetric(PerfTraces.metricResultsCount, total);
+          }
+          return r;
+        },
+        attributes: {
+          PerfTraces.attrRadius:
+              AppPreferences.nearbyRadiusMeters.round().toString(),
+        },
+      );
       if (!mounted) return;
       final data = Map<String, dynamic>.from(result.data as Map);
       final counts = Map<String, dynamic>.from(data['counts'] as Map);

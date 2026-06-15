@@ -20,6 +20,7 @@ import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/remote_config_service.dart';
 import 'package:postbox_game/reports/report_missing_postbox_screen.dart';
 import 'package:postbox_game/services/home_widget_service.dart';
+import 'package:postbox_game/services/perf_service.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/widgets/postbox_map.dart';
 import 'package:postbox_game/widgets/postbox_marker.dart';
@@ -399,10 +400,23 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
     HapticFeedback.mediumImpact();
     try {
       final position = await _positionProvider();
-      final result = await _claimCallable(<String, dynamic>{
-        'lat': position.latitude,
-        'lng': position.longitude,
-      });
+      final result = await PerfService.traceAsync(
+        PerfTraces.callableStartScoring,
+        (trace) async {
+          try {
+            final r = await _claimCallable(<String, dynamic>{
+              'lat': position.latitude,
+              'lng': position.longitude,
+            });
+            trace.putAttribute(PerfTraces.attrOutcome, 'ok');
+            return r;
+          } catch (_) {
+            trace.putAttribute(PerfTraces.attrOutcome, 'error');
+            rethrow;
+          }
+        },
+        attributes: {PerfTraces.attrMonarch: _quizCipher ?? 'unknown'},
+      );
       final claimData = Map<String, dynamic>.from(result.data as Map);
       final found = claimData['found'] == true;
       final allClaimedToday = claimData['allClaimedToday'] == true;

@@ -31,6 +31,7 @@ import 'package:postbox_game/admin/admin_access.dart';
 import 'package:postbox_game/analytics_user_properties.dart';
 import 'package:postbox_game/notification_service.dart';
 import 'package:postbox_game/remote_config_service.dart';
+import 'package:postbox_game/services/perf_service.dart';
 import 'package:postbox_game/route/destination_picker_screen.dart';
 import 'package:postbox_game/route/route_notifications.dart';
 import 'package:postbox_game/services/user_properties_publisher.dart';
@@ -74,6 +75,8 @@ void main() async {
             : null,
     serverClientId: kIsWeb ? null : webClientId,
   );
+  // Keep debug runs out of the Performance dashboard; production collects.
+  unawaited(PerfService.setCollectionEnabled(!kDebugMode));
   await HomeWidgetService.init();
   await _checkInitialWidgetLaunch();
   await RouteNotifications.initialise();

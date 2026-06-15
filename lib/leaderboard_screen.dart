@@ -6,6 +6,7 @@ import 'package:postbox_game/county_heatmap.dart';
 import 'package:postbox_game/james_controller.dart';
 import 'package:postbox_game/james_messages.dart';
 import 'package:postbox_game/london_date.dart';
+import 'package:postbox_game/services/perf_service.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/user_profile_page.dart';
 
@@ -146,6 +147,11 @@ class _LeaderboardListState extends State<_LeaderboardList>
   final String? _currentUid = FirebaseAuth.instance.currentUser?.uid;
   int? _totalPostboxes;
 
+  // Time-to-initial-display trace: started in initState, stopped on the frame
+  // that first paints real (or empty) data — captures stream latency + build.
+  Future<TraceHandle>? _renderTrace;
+  bool _renderTraceDone = false;
+
   @override
   bool get wantKeepAlive => true;
 
@@ -154,11 +160,27 @@ class _LeaderboardListState extends State<_LeaderboardList>
   @override
   void initState() {
     super.initState();
+    _renderTrace = PerfService.start(PerfTraces.leaderboardRender,
+        attributes: {PerfTraces.attrPeriod: widget.period});
     _stream = FirebaseFirestore.instance
         .collection('leaderboards')
         .doc(widget.period)
         .snapshots();
     if (_isLifetime) _loadTotalPostboxes();
+  }
+
+  /// One-shot: records the row count and stops the render trace after the next
+  /// frame paints. Safe to call from build(); no-ops after the first call.
+  void _finishRenderTrace(int rowCount) {
+    if (_renderTraceDone) return;
+    _renderTraceDone = true;
+    final pending = _renderTrace;
+    if (pending == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final handle = await pending;
+      handle.setMetric(PerfTraces.metricRowCount, rowCount);
+      await handle.stop();
+    });
   }
 
   Future<void> _loadTotalPostboxes() async {
@@ -181,6 +203,7 @@ class _LeaderboardListState extends State<_LeaderboardList>
       stream: _stream,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
+          _finishRenderTrace(0);
           return Padding(
             padding: const EdgeInsets.only(bottom: kJamesStripClearance),
             child: Center(
@@ -215,6 +238,7 @@ class _LeaderboardListState extends State<_LeaderboardList>
         final entries = keyMatches
             ? (data?['entries'] as List<dynamic>? ?? [])
             : const <dynamic>[];
+        _finishRenderTrace(entries.length);
         if (entries.isEmpty) {
           return Padding(
             padding: const EdgeInsets.only(bottom: kJamesStripClearance),
@@ -369,6 +393,11 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList>
 
   int? _totalPostboxes;
 
+  // Time-to-initial-display trace (see the global list above): started in
+  // initState, stopped on the first frame that paints data.
+  Future<TraceHandle>? _renderTrace;
+  bool _renderTraceDone = false;
+
   // Stream cached here so that setState (e.g. pull-to-refresh) doesn't
   // recreate the stream and cause StreamBuilder to flash a loading indicator.
   Stream<DocumentSnapshot<Map<String, dynamic>>>? _userStream;
@@ -386,6 +415,8 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList>
   @override
   void initState() {
     super.initState();
+    _renderTrace = PerfService.start(PerfTraces.leaderboardRender,
+        attributes: {PerfTraces.attrPeriod: widget.period});
     if (_currentUid != null) {
       _userStream = FirebaseFirestore.instance
           .collection('users')
@@ -393,6 +424,18 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList>
           .snapshots();
     }
     if (widget.period == 'lifetime') _loadTotalPostboxes();
+  }
+
+  void _finishRenderTrace(int rowCount) {
+    if (_renderTraceDone) return;
+    _renderTraceDone = true;
+    final pending = _renderTrace;
+    if (pending == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final handle = await pending;
+      handle.setMetric(PerfTraces.metricRowCount, rowCount);
+      await handle.stop();
+    });
   }
 
   Future<void> _loadTotalPostboxes() async {
@@ -530,6 +573,7 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList>
   Widget build(BuildContext context) {
     super.build(context);
     if (_currentUid == null || _userStream == null) {
+      _finishRenderTrace(0);
       return const Padding(
         padding: EdgeInsets.only(bottom: kJamesStripClearance),
         child: Center(child: CircularProgressIndicator(color: postalRed)),
@@ -597,6 +641,7 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList>
               );
             }
             if (snap.hasError) {
+              _finishRenderTrace(0);
               return Padding(
                 padding: const EdgeInsets.only(bottom: kJamesStripClearance),
                 child: Center(
@@ -616,6 +661,7 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList>
             }
 
             final entries = snap.data!;
+            _finishRenderTrace(entries.length);
 
             if (entries.isEmpty) {
               return Padding(
