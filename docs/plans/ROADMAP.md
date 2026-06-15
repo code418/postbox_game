@@ -59,7 +59,15 @@ lands). Their original bodies are preserved below for diff archaeology.
 ## v1.3 — Platform foundations  (Queued)
 
 **Theme**: reduce UK latency and stand up the observability needed to spot regressions, so v1.4's harder changes ship safely.
-**Ship gate**: UK round-trip on `nearbyPostboxes` < 150 ms p50; Crashlytics dashboard shows the new custom keys; Remote Config drives at least `claim_radius_meters` end-to-end; Performance traces visible for the 6 trace names below.
+**Ship gate**: UK round-trip on `nearbyPostboxes` < 150 ms p50; Crashlytics dashboard shows the new custom keys; Performance traces visible for the 6 trace names below.
+
+> **Status**: the region migration is deployed (`eur3`), and the two observability
+> items below (Performance traces; Crashlytics custom keys + non-fatals) are
+> implemented and building green, pending live-dashboard verification. The Android
+> Gradle 8.14 / AGP 8.11.1 bump shipped alongside; Flutter Built-in Kotlin is not
+> yet viable here (its bundled Kotlin 2.0.0 can't read our deps' 2.2.0 metadata),
+> so the "app applies KGP" deprecation warning remains by design. The Remote Config
+> game-balance item moved to **v1.4**.
 
 ### Migrate Firebase services us-central1 → europe-west2  (was #112-adjacent / new plan)
 
@@ -148,24 +156,27 @@ exceptions in key flows to non-fatals.
 - Privacy: never log emails, display names, or exact coordinates as custom keys.
 - Rate-limit noisy non-fatals (drop after first per session for expected network flakes).
 
-### Remote Config for game balance and copy  (was #107)
-
-Centralise tunable values so balance, reminder copy, and James cadence change
-without a client release. Both client and Cloud Functions read Remote Config.
-
-- Initial params: `claim_radius_meters` (30), `points_by_monarch` (JSON), `james_idle_min/max_seconds`, `daily_reminder_hour_local`, `nearby_radius_meters`, `quiz_required_streak`.
-- Client: `lib/services/remote_config_service.dart` with typed getters; fetch-and-activate on app start (min 1 h prod, 0 debug).
-- Backend: `_config.ts` admin fetch with 5 min in-memory cache; `_getPoints.ts` honours override with hard-coded fallback; `startScoring` uses `claim_radius_meters`.
-- Already partially wired: `b721caa` (`maintenance_mode`/`message` template), `1caca74` (Analytics user properties for audience targeting).
-- Rollout: ship client first with defaults equal to current code, then backend, then tune via console.
-- Risk: stale client cache hides a bad value — force refetch on login. Cost drift if `points_by_monarch` mis-set — sanity-check function rejecting values outside `[1, 50]`.
-
 ---
 
 ## v1.4 — Trust & safety  (Queued)
 
 **Theme**: harden the platform now that we can see what's happening (v1.3 observability).
-**Ship gate**: App Check denial rate < 1 % in monitor mode; account-deletion flow tested end-to-end in staging; impossible-travel detector in shadow mode logging flags but not blocking.
+**Ship gate**: App Check denial rate < 1 % in monitor mode; account-deletion flow tested end-to-end in staging; impossible-travel detector in shadow mode logging flags but not blocking; Remote Config drives `claim_radius_meters` and `points_by_monarch` end-to-end (client + Cloud Functions) with the safety bounds enforced.
+
+### Remote Config for game balance and copy  (was #107, moved from v1.3)
+
+The Remote Config *infrastructure* (typed `RemoteConfigService`, fetch lifecycle,
+push updates, kill switches, `maintenance_mode`) already shipped in v1.3. What
+remains is the game-balance tuning layer: centralise tunable values so balance,
+reminder copy, and James cadence change without a client release. Both client
+and Cloud Functions read Remote Config.
+
+- Initial params: `claim_radius_meters` (30), `points_by_monarch` (JSON), `james_idle_min/max_seconds`, `daily_reminder_hour_local`, `nearby_radius_meters`, `quiz_required_streak`.
+- Client: extend `lib/remote_config_service.dart` with typed getters for the params above (fetch-and-activate is already wired at app start, min 1 h prod / 0 debug); add a force-refetch on login.
+- Backend: new `_config.ts` admin fetch with 5 min in-memory cache; `_getPoints.ts` honours a `points_by_monarch` override with the hard-coded fallback; `startScoring` reads `claim_radius_meters`.
+- Already shipped (v1.3 and earlier): the `RemoteConfigService` wrapper + admin debug screen, `b721caa` (`maintenance_mode`/`message` template), `1caca74` (Analytics user properties for audience targeting).
+- Rollout: ship client first with defaults equal to current code, then backend, then tune via console.
+- Risk: stale client cache hides a bad value — force refetch on login. Cost drift if `points_by_monarch` mis-set — sanity-check rejecting values outside `[1, 50]`.
 
 ### App Check enforcement audit and hardening  (was #96)
 
@@ -470,7 +481,7 @@ BigQuery: enable linked dataset in console. Add `views/` directory with SQL for 
 
 ### A/B testing onboarding and UX experiments  (was #94)
 
-Firebase A/B Testing on top of Remote Config conditions (depends on the v1.3 Remote Config work and the v2.0 Analytics work landing first).
+Firebase A/B Testing on top of Remote Config conditions (depends on the v1.4 Remote Config work and the v2.0 Analytics work landing first).
 
 Candidate experiments: onboarding length (current James intro vs 2-screen condensed; metric `sign_up_complete`), compass granularity (8 vs 4 sectors; metric `claim_success`), empty-state CTA copy (metric `nearby_retry`).
 
