@@ -11,6 +11,7 @@ import 'package:postbox_game/app_preferences.dart';
 import 'package:postbox_game/fuzzy_compass.dart';
 import 'package:postbox_game/james_controller.dart';
 import 'package:postbox_game/james_messages.dart';
+import 'package:postbox_game/james_strip.dart';
 import 'package:postbox_game/location_service.dart';
 import 'package:postbox_game/streak_service.dart';
 import 'package:postbox_game/theme.dart';
@@ -207,6 +208,16 @@ class _LiveRouteScreenState extends State<LiveRouteScreen> {
   // ── Arrived? ──────────────────────────────────────────────────────────────
   bool _arrived = false;
 
+  // ── James advisor ───────────────────────────────────────────────────────
+  /// Route screens are pushed ABOVE the Home shell, so they are not
+  /// descendants of the Home `JamesControllerScope` — `JamesController.of()`
+  /// returns null here. The screen therefore owns its own controller and
+  /// renders its own [JamesStrip] (see [build]); messages are shown by calling
+  /// [_james] directly rather than via `JamesController.of(context)?.show()`,
+  /// which would silently no-op (the cause of the dead "Where now, postie?"
+  /// button). Disposed in [dispose].
+  final JamesController _james = JamesController();
+
   // ── James one-shot flags ──────────────────────────────────────────────────
   /// Set to true after the first postbox-nearby James message fires this session.
   bool _nearbyJamesFired = false;
@@ -231,7 +242,7 @@ class _LiveRouteScreenState extends State<LiveRouteScreen> {
     // Fire the route-start James message once the widget is in the tree.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-        JamesController.of(context)?.show(JamesMessages.routeStart.resolve());
+        _james.show(JamesMessages.routeStart.resolve());
       }
     });
 
@@ -272,6 +283,7 @@ class _LiveRouteScreenState extends State<LiveRouteScreen> {
     _positionSub?.cancel();
     _compassSub?.cancel();
     _stopwatch.stop();
+    _james.dispose();
     super.dispose();
   }
 
@@ -444,7 +456,7 @@ class _LiveRouteScreenState extends State<LiveRouteScreen> {
     // Fire postbox-nearby James message once per route session.
     if (!_nearbyJamesFired) {
       _nearbyJamesFired = true;
-      JamesController.of(context)?.show(JamesMessages.routePostboxNearby.resolve());
+      _james.show(JamesMessages.routePostboxNearby.resolve());
     }
 
     showModalBottomSheet<ClaimQuizResult>(
@@ -580,7 +592,7 @@ class _LiveRouteScreenState extends State<LiveRouteScreen> {
 
   void _onHintTapped() {
     final direction = _pickHintDirection();
-    JamesController.of(context)?.show(JamesMessages.routeHint(direction));
+    _james.show(JamesMessages.routeHint(direction));
   }
 
   // ── ETA helper ─────────────────────────────────────────────────────────────
@@ -633,45 +645,58 @@ class _LiveRouteScreenState extends State<LiveRouteScreen> {
             },
           ),
         ),
-        body: SafeArea(
-          child: ListView(
-            padding: const EdgeInsets.only(bottom: kJamesStripClearance),
-            children: [
-              // ── a. Destination card ─────────────────────────────────────
-              _DestinationCard(
-                distanceM: _distanceToDestM,
-                bearingLabel: _bearingLabel(_bearingToDestDeg),
-                etaLabel: _etaLabel(),
-                destinationLabel: widget.session.destinationLabel,
-              ),
+        body: Stack(
+          children: [
+            SafeArea(
+              child: ListView(
+                padding: const EdgeInsets.only(bottom: kJamesStripClearance),
+                children: [
+                  // ── a. Destination card ─────────────────────────────────
+                  _DestinationCard(
+                    distanceM: _distanceToDestM,
+                    bearingLabel: _bearingLabel(_bearingToDestDeg),
+                    etaLabel: _etaLabel(),
+                    destinationLabel: widget.session.destinationLabel,
+                  ),
 
-              // ── b. Route compass view ───────────────────────────────────
-              RouteCompassView(
-                compassCounts: _compassCounts,
-                claimedCompassCounts: _claimedCompassCounts,
-                deviceHeadingDegrees: _deviceHeadingDegrees,
-                destinationBearingDegrees: _bearingToDestDeg,
-              ),
+                  // ── b. Route compass view ───────────────────────────────
+                  RouteCompassView(
+                    compassCounts: _compassCounts,
+                    claimedCompassCounts: _claimedCompassCounts,
+                    deviceHeadingDegrees: _deviceHeadingDegrees,
+                    destinationBearingDegrees: _bearingToDestDeg,
+                  ),
 
-              // ── c. Hint button ──────────────────────────────────────────
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.md,
-                  vertical: AppSpacing.sm,
-                ),
-                child: FilledButton.tonal(
-                  onPressed: _onHintTapped,
-                  child: const Text('Where now, postie?'),
-                ),
-              ),
+                  // ── c. Hint button ──────────────────────────────────────
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.md,
+                      vertical: AppSpacing.sm,
+                    ),
+                    child: FilledButton.tonal(
+                      onPressed: _onHintTapped,
+                      child: const Text('Where now, postie?'),
+                    ),
+                  ),
 
-              // ── d. Status row ───────────────────────────────────────────
-              _StatusRow(
-                pointsEarned: _pointsEarned,
-                claimedCount: _claimedCount,
+                  // ── d. Status row ───────────────────────────────────────
+                  _StatusRow(
+                    pointsEarned: _pointsEarned,
+                    claimedCount: _claimedCount,
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+            // James advisor strip — pinned to the bottom over the content so
+            // the screen's own controller can surface route hints/messages
+            // (route screens bypass the Home shell; see [_james]).
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: JamesStrip(controller: _james),
+            ),
+          ],
         ),
       ),
     );

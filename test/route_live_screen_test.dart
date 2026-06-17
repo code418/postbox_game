@@ -20,6 +20,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:postbox_game/fuzzy_compass.dart';
 import 'package:postbox_game/james_controller.dart';
+import 'package:postbox_game/james_strip.dart';
 import 'package:postbox_game/route/live_route_screen.dart';
 import 'package:postbox_game/route/route_compass_view.dart';
 import 'package:postbox_game/route/route_completion_screen.dart';
@@ -300,48 +301,50 @@ void main() {
       expect(find.byType(RouteCompassView), findsOneWidget);
     });
 
-    // ── Hint button wires to JamesController ──────────────────────────────
+    // ── Hint button drives James ──────────────────────────────────────────
+    // Route screens are PUSHED above the Home shell, so they are NOT
+    // descendants of the Home JamesControllerScope — JamesController.of()
+    // returns null there. The screen must therefore own its own controller +
+    // JamesStrip, or the "Where now, postie?" button silently does nothing
+    // (the original bug). These tests use the production-like config:
+    // _buildScreen wraps the screen with NO external scope.
 
-    testWidgets('tapping hint button calls JamesController.show()',
+    testWidgets('renders its own JamesStrip (route screens bypass the Home shell)',
         (tester) async {
       final posCtrl = StreamController<Position>.broadcast();
       addTearDown(posCtrl.close);
 
-      // Build a JamesController and wrap the screen in a scope.
-      // Drain the idle timer at the end so fake_async sees no pending timers.
-      final jamesController = JamesController();
-      String? lastMessage;
-      jamesController.addListener(() {
-        lastMessage = jamesController.pendingMessage;
-      });
-
-      await tester.pumpWidget(
-        JamesControllerScope(
-          controller: jamesController,
-          child: MaterialApp(
-            theme: AppTheme.light,
-            home: LiveRouteScreen(
-              session: _session(),
-              positionStreamOverride: posCtrl.stream,
-              nearbyCallable: _nearbyCompassOnly,
-              compassStreamOverride: const Stream<CompassEvent>.empty(),
-            ),
-          ),
-        ),
-      );
+      await tester.pumpWidget(_buildScreen(session: _session(), posCtrl: posCtrl));
       await tester.pump();
+
+      expect(find.byType(JamesStrip), findsOneWidget);
+
+      await drainJamesTimer(tester);
+    });
+
+    testWidgets('tapping "Where now, postie?" shows a James hint message',
+        (tester) async {
+      final posCtrl = StreamController<Position>.broadcast();
+      addTearDown(posCtrl.close);
+
+      // No external JamesControllerScope — exactly the production config where
+      // the screen is a pushed route. Before the fix, JamesController.of()
+      // returned null here and the button silently did nothing.
+      await tester.pumpWidget(_buildScreen(session: _session(), posCtrl: posCtrl));
+      await tester.pump(); // routeStart fires via the post-frame callback
+
+      final strip = tester.widget<JamesStrip>(find.byType(JamesStrip));
+      final seqBefore = strip.controller.messageSeq;
 
       await tester.tap(find.text('Where now, postie?'));
       await tester.pump();
 
-      // A James hint message should have been set (it's a conversational phrase
-      // from JamesMessages.routeHint — no requirement to contain the literal
-      // direction word).
-      expect(lastMessage, isNotNull);
-      expect(lastMessage, isNotEmpty);
+      // The tap must drive the screen's OWN controller — proving the button
+      // now actually does something.
+      expect(strip.controller.messageSeq, greaterThan(seqBefore));
+      expect(strip.controller.pendingMessage, isNotNull);
+      expect(strip.controller.pendingMessage, isNotEmpty);
 
-      // Advance fake time past the idle timer (max 5 min) to drain it.
-      jamesController.dispose(); // cancels the timer
       await drainJamesTimer(tester);
     });
 
