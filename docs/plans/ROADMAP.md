@@ -20,7 +20,7 @@ lands). Their original bodies are preserved below for diff archaeology.
 | Version | Theme | Status |
 |---|---|---|
 | **v1.2** | Intro polish | Done |
-| **v1.3** | Platform foundations (EU region + observability) | Queued |
+| **v1.3** | Platform foundations (EU region + observability) | Done |
 | **v1.4** | Trust & safety (App Check, GDPR, anti-cheat) | Queued |
 | **v1.5** | Engagement & avatars (social loops + Postie avatar) | Deferred |
 | **v1.6** | Collection & content | Deferred |
@@ -56,18 +56,19 @@ lands). Their original bodies are preserved below for diff archaeology.
 
 ---
 
-## v1.3 — Platform foundations  (Queued)
+## v1.3 — Platform foundations  (Done)
 
 **Theme**: reduce UK latency and stand up the observability needed to spot regressions, so v1.4's harder changes ship safely.
 **Ship gate**: UK round-trip on `nearbyPostboxes` < 150 ms p50; Crashlytics dashboard shows the new custom keys; Performance traces visible for the 6 trace names below.
 
-> **Status**: the region migration is deployed (`eur3`), and the two observability
-> items below (Performance traces; Crashlytics custom keys + non-fatals) are
-> implemented and building green, pending live-dashboard verification. The Android
-> Gradle 8.14 / AGP 8.11.1 bump shipped alongside; Flutter Built-in Kotlin is not
-> yet viable here (its bundled Kotlin 2.0.0 can't read our deps' 2.2.0 metadata),
-> so the "app applies KGP" deprecation warning remains by design. The Remote Config
-> game-balance item moved to **v1.4**.
+> **Status**: shipped — merged to `master` as `1.3.2+16`. The region migration is
+> deployed (`eur3`); the two observability items below (Performance traces;
+> Crashlytics custom keys + non-fatals) are implemented and building green (live-
+> dashboard confirmation pending a production release). The Android Gradle 8.14 /
+> AGP 8.11.1 bump shipped alongside; Flutter Built-in Kotlin is not yet viable here
+> (its bundled Kotlin 2.0.0 can't read our deps' 2.2.0 metadata), so the "app
+> applies KGP" deprecation warning remains by design. The Remote Config game-balance
+> item moved to **v1.4**.
 
 ### Migrate Firebase services us-central1 → europe-west2  (was #112-adjacent / new plan)
 
@@ -625,6 +626,12 @@ Roll out the BQ model with monitoring only first; review prediction quality manu
 - **v1.2** — Intro polish: `flutter_animate` effects wired across every intro step
   (`7ea9820` + entrance-animation follow-up), confetti on Mega Points, intro smoke
   test. Shipped as `1.2.0+13`.
+- **v1.3** — Platform foundations: EU region migration (Cloud Functions →
+  `europe-west2`, Firestore → `eur3`) deployed; Firebase Performance custom traces
+  across 6 flows; Crashlytics custom keys + non-fatal logging; Android Gradle 8.14
+  / AGP 8.11.1 bump (Built-in Kotlin not yet viable). Shipped as `1.3.2+16`. The
+  Remote Config game-balance work was split out to v1.4; operational migration
+  follow-ups in `docs/plans/v1.3-region-migration-followups.md`.
 
 ## Open exploration (no release commitment)
 
