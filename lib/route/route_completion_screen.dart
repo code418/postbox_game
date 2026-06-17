@@ -2,6 +2,7 @@ import 'package:confetti/confetti.dart';
 import 'package:flutter/material.dart';
 import 'package:postbox_game/james_controller.dart';
 import 'package:postbox_game/james_messages.dart';
+import 'package:postbox_game/james_strip.dart';
 import 'package:postbox_game/theme.dart';
 
 import 'route_session.dart';
@@ -34,6 +35,12 @@ class _RouteCompletionScreenState extends State<RouteCompletionScreen> {
   late final ConfettiController _confetti;
   bool _jamesShown = false;
 
+  /// This screen is a pushed route (above the Home shell), so
+  /// `JamesController.of()` is null here — it owns its own controller and
+  /// renders its own [JamesStrip] (see [build]) so the arrival congratulation
+  /// actually appears. Disposed in [dispose].
+  final JamesController _james = JamesController();
+
   @override
   void initState() {
     super.initState();
@@ -44,6 +51,7 @@ class _RouteCompletionScreenState extends State<RouteCompletionScreen> {
   @override
   void dispose() {
     _confetti.dispose();
+    _james.dispose();
     super.dispose();
   }
 
@@ -55,7 +63,7 @@ class _RouteCompletionScreenState extends State<RouteCompletionScreen> {
       _jamesShown = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
-          JamesController.of(context)?.show(JamesMessages.routeArrival.resolve());
+          _james.show(JamesMessages.routeArrival.resolve());
         }
       });
     }
@@ -219,6 +227,16 @@ class _RouteCompletionScreenState extends State<RouteCompletionScreen> {
               gravity: 0.3,
               colors: const [postalRed, postalGold, Colors.white, royalNavy],
             ),
+          ),
+
+          // ── James congratulation strip ────────────────────────────────────
+          // Pinned to the bottom; the screen owns [_james] because it is a
+          // pushed route outside the Home shell's JamesControllerScope.
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: JamesStrip(controller: _james),
           ),
         ],
       ),

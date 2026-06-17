@@ -13,6 +13,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:postbox_game/james_strip.dart';
 import 'package:postbox_game/route/route_completion_screen.dart';
 import 'package:postbox_game/route/route_session.dart';
 import 'package:postbox_game/theme.dart';
@@ -130,6 +131,27 @@ void main() {
       await tester.pump();
 
       expect(find.textContaining('Jogging'), findsOneWidget);
+    });
+
+    // ── James congratulation ──────────────────────────────────────────────
+    // The completion screen is a PUSHED route (above the Home shell), so
+    // JamesController.of() is null here — it must own its own controller +
+    // JamesStrip, or the arrival congratulation never appears.
+    testWidgets('renders its own JamesStrip and fires the arrival message',
+        (tester) async {
+      await tester.pumpWidget(_buildApp(
+        session: _makeSession(),
+        pointsEarned: 9,
+        claimedCount: 1,
+        walkSeconds: 300,
+      ));
+      // One pump for the post-frame callback that fires the arrival message.
+      await tester.pump();
+
+      expect(find.byType(JamesStrip), findsOneWidget);
+      final strip = tester.widget<JamesStrip>(find.byType(JamesStrip));
+      expect(strip.controller.pendingMessage, isNotNull);
+      expect(strip.controller.pendingMessage, isNotEmpty);
     });
 
     testWidgets('"Done" button pops to first route', (tester) async {
