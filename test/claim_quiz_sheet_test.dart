@@ -80,6 +80,35 @@ Future<HttpsCallableResult<dynamic>> _nearbyUnknownCipher(
   });
 }
 
+Position _posAt(double lat, double lng) => Position(
+      latitude: lat,
+      longitude: lng,
+      timestamp: DateTime.now(),
+      accuracy: 5,
+      altitude: 0,
+      altitudeAccuracy: 0,
+      heading: 0,
+      headingAccuracy: 0,
+      speed: 0,
+      speedAccuracy: 0,
+    );
+
+/// A `nearbyPostboxes` stub that always reports zero postboxes (→ empty stage)
+/// and records every call's payload so a test can assert a rescan re-invoked it
+/// with the moved-to coordinates.
+NearbyPostboxesCallableFn _countingEmptyNearby(List<Map<String, dynamic>> calls) {
+  return (payload) async {
+    calls.add(payload);
+    return _FakeResult<dynamic>(<String, dynamic>{
+      'counts': {'total': 0, 'claimedToday': 0},
+      'points': {'min': 0, 'max': 0},
+      'postboxes': <String, dynamic>{},
+      'compass': <String, dynamic>{},
+      'claimedCompass': <String, dynamic>{},
+    });
+  };
+}
+
 Future<void> _settle(WidgetTester tester) =>
     tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)))
         .then((_) => tester.pump());
@@ -204,5 +233,53 @@ void main() {
         reason: 'the generic fallback must not mask the specific message');
     // A rejected claim records nothing and leaves the user able to retry.
     expect(recorded, isNull);
+  });
+
+  testWidgets(
+      'empty state offers Rescan only after the user moves past the threshold, '
+      'and rescans in place at the moved-to position', (tester) async {
+    final calls = <Map<String, dynamic>>[];
+    final moves = StreamController<Position>.broadcast();
+    addTearDown(moves.close);
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ClaimQuizSheet(
+          scanPosition: const LatLng(51.5, -0.12),
+          nearbyCallable: _countingEmptyNearby(calls),
+          positionStreamProvider: () => moves.stream,
+          onCompleted: (_) {},
+        ),
+      ),
+    ));
+
+    // initState's post-frame _runSearch resolves → empty stage.
+    await _settle(tester);
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(find.textContaining('No postboxes found within'), findsOneWidget);
+    expect(find.text('Rescan from here'), findsNothing,
+        reason: 'no movement yet, so the rescan option must be hidden');
+    expect(calls, hasLength(1), reason: 'one scan from initState');
+
+    // A sub-threshold move (~5.5 m north) must NOT reveal the button.
+    moves.add(_posAt(51.50005, -0.12));
+    await _settle(tester);
+    expect(find.text('Rescan from here'), findsNothing,
+        reason: 'a move under the 10 m threshold should not offer rescan');
+
+    // A move past the 10 m threshold (~22 m north) reveals the button.
+    moves.add(_posAt(51.5002, -0.12));
+    await _settle(tester);
+    expect(find.text('Rescan from here'), findsOneWidget);
+
+    // Tapping it re-runs the scan at the moved-to position (in place).
+    await tester.tap(find.text('Rescan from here'));
+    await _settle(tester);
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(calls, hasLength(2), reason: 'rescan must re-invoke nearbyPostboxes');
+    expect((calls.last['lat'] as num).toDouble(), closeTo(51.5002, 1e-6),
+        reason: 'rescan must scan the moved-to position, not the original point');
   });
 }

@@ -75,6 +75,12 @@ class ClaimQuizResult {
 
 enum _QuizStage { searching, results, empty, quiz, quizFailed, claimed }
 
+/// How far (metres) the user must move from the scan point before the empty
+/// state offers a "Rescan from here" button. Far enough that a rescan can
+/// plausibly bring new postboxes into the claim radius, while ignoring GPS
+/// jitter.
+const double _emptyRescanMoveThresholdM = 10.0;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Theme helpers (file-private)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -121,6 +127,7 @@ class ClaimQuizSheet extends StatefulWidget {
     this.startScoringCallable,
     this.onClaimRecorded,
     this.positionProvider,
+    this.positionStreamProvider,
   });
 
   /// The geographic position to scan around (passed in from the Claim screen
@@ -172,6 +179,13 @@ class ClaimQuizSheet extends StatefulWidget {
   /// MissingPluginException headless), matching the other seams above.
   final Future<Position> Function()? positionProvider;
 
+  /// Injectable provider for the live GPS stream used by the empty state to
+  /// detect when the user has walked far enough that a rescan could surface new
+  /// postboxes. When null, defaults to [positionStream] from location_service.
+  /// Inject in tests to drive movement without the geolocator platform channel,
+  /// matching the other seams above.
+  final Stream<Position> Function()? positionStreamProvider;
+
   @override
   State<ClaimQuizSheet> createState() => _ClaimQuizSheetState();
 }
@@ -205,6 +219,19 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
   // ── State machine ─────────────────────────────────────────────────────────
   _QuizStage _stage = _QuizStage.searching;
 
+  // ── Scan centre / empty-state movement watch ───────────────────────────────
+  // The position the current scan is centred on. Initialised to
+  // widget.scanPosition and updated by each _runSearch so the radius map and
+  // the movement check track the spot we actually scanned (not the now-stale
+  // position from when the sheet was first opened).
+  late LatLng _scanCenter;
+  StreamSubscription<Position>? _moveSub;
+  // True once the user has walked ≥ _emptyRescanMoveThresholdM from _scanCenter
+  // while on the empty state; gates the "Rescan from here" button.
+  bool _movedSinceScan = false;
+  // The most recent fix from the movement watch, used as the rescan target.
+  LatLng? _latestFix;
+
   // ── Animations ────────────────────────────────────────────────────────────
   late AnimationController _successController;
   late Animation<double> _successScale;
@@ -216,12 +243,16 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
   late final NearbyPostboxesCallableFn _nearbyCallable;
   late final StartScoringCallableFn _claimCallable;
   late final Future<Position> Function() _positionProvider;
+  late final Stream<Position> Function() _positionStreamProvider;
   final HomeWidgetService _homeWidgetService = HomeWidgetService();
 
   @override
   void initState() {
     super.initState();
 
+    _scanCenter = widget.scanPosition;
+    _positionStreamProvider =
+        widget.positionStreamProvider ?? (() => positionStream());
     _nearbyCallable = widget.nearbyCallable ??
         (payload) => appFunctions
             .httpsCallable('nearbyPostboxes')
@@ -261,10 +292,50 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
 
   @override
   void dispose() {
+    unawaited(_moveSub?.cancel());
     _successController.dispose();
     _pulseController.dispose();
     _confettiController.dispose();
     super.dispose();
+  }
+
+  // ── Empty-state movement watch ──────────────────────────────────────────────
+
+  /// Watches the user's position while on the empty state. Once they have moved
+  /// at least [_emptyRescanMoveThresholdM] from [_scanCenter], reveals the
+  /// "Rescan from here" button (a rescan from the same spot would just repeat
+  /// the empty result, so we only offer it once a rescan could find something).
+  ///
+  /// Skipped in compact/route mode, where the route screen already tracks
+  /// movement and the empty sheet is transient.
+  void _startMoveWatch() {
+    if (widget.compact) return;
+    _stopMoveWatch();
+    _moveSub = _positionStreamProvider().listen(
+      (pos) {
+        if (!mounted || _stage != _QuizStage.empty) return;
+        final movedM = Geolocator.distanceBetween(
+          _scanCenter.latitude,
+          _scanCenter.longitude,
+          pos.latitude,
+          pos.longitude,
+        );
+        if (movedM >= _emptyRescanMoveThresholdM) {
+          setState(() {
+            _latestFix = LatLng(pos.latitude, pos.longitude);
+            _movedSinceScan = true;
+          });
+        }
+      },
+      // Passive enhancement: permission is already held (the scan succeeded),
+      // so a stream error just means we leave the button hidden — no SnackBar.
+      onError: (_) => _stopMoveWatch(),
+    );
+  }
+
+  void _stopMoveWatch() {
+    unawaited(_moveSub?.cancel());
+    _moveSub = null;
   }
 
   // ── Search ────────────────────────────────────────────────────────────────
@@ -278,6 +349,12 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
   /// rescan would still show the now-distant postbox as "in range".
   Future<void> _runSearch({LatLng? position}) async {
     final scanPos = position ?? widget.scanPosition;
+    // A new scan supersedes any prior empty-state movement watch and recentres
+    // the radius map / movement check on the spot we're about to scan.
+    _stopMoveWatch();
+    _scanCenter = scanPos;
+    _movedSinceScan = false;
+    _latestFix = null;
     if (_stage != _QuizStage.searching) {
       setState(() => _stage = _QuizStage.searching);
     }
@@ -331,6 +408,9 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
         }
       } else {
         Analytics.scanEmpty();
+        // Start watching for movement so we can offer an in-place rescan once
+        // the user has walked far enough that a new scan could find something.
+        _startMoveWatch();
         if (mounted) {
           JamesController.of(context)
               ?.show(JamesMessages.claimScanEmpty.resolve());
@@ -676,7 +756,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
 
   Widget _claimRadiusMap(
       {bool scanning = false, bool success = false, double height = 180}) {
-    final center = widget.scanPosition;
+    final center = _scanCenter;
     if (scanning) {
       return AnimatedBuilder(
         animation: _pulseAnim,
@@ -895,6 +975,18 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
                     color: Theme.of(context).colorScheme.onSurfaceVariant),
                 textAlign: TextAlign.center,
               ),
+              if (_movedSinceScan) ...[
+                const SizedBox(height: AppSpacing.xl),
+                FilledButton.icon(
+                  onPressed: () =>
+                      unawaited(_runSearch(position: _latestFix ?? _scanCenter)),
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Rescan from here'),
+                  style: FilledButton.styleFrom(
+                    minimumSize: Size(double.infinity, _buttonHeight),
+                  ),
+                ),
+              ],
               if (!RemoteConfigService.instance.killSwitchReporting) ...[
                 const SizedBox(height: AppSpacing.xl),
                 OutlinedButton.icon(
