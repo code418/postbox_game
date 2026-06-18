@@ -80,3 +80,33 @@ String paceEtaLabel({
   if (seconds < 60) return '< 1 min $verb';
   return '≈ ${(seconds / 60).round()} min $verb';
 }
+
+/// Full preview time estimate: the direct walking/jogging ETA, plus the detour
+/// budget when one is set in detour mode.
+///
+/// In detour mode the route's actual time can be up to [detourMinutes] longer
+/// than the straight-line ETA, so showing only the direct figure understates
+/// the walk (e.g. a 30-min detour budget previously still read "≈ 12 min
+/// walking"). Corridor mode adds no time budget (it widens the search band, not
+/// the time), so it shows only the direct ETA. Returns `"–"` before the first
+/// [directDistanceMetres] is known — distinct from [paceEtaLabel]'s `"..."`
+/// sentinel for a non-finite distance. Shared/pure so the maths stays
+/// unit-testable without pumping [RoutePreviewScreen].
+String routeTimeEstimate({
+  required double? directDistanceMetres,
+  required double speedKmh,
+  required RoutePace pace,
+  required RouteMode mode,
+  required int detourMinutes,
+}) {
+  if (directDistanceMetres == null) return '–';
+  final base = paceEtaLabel(
+    distanceMetres: directDistanceMetres,
+    speedKmh: speedKmh,
+    pace: pace,
+  );
+  if (mode == RouteMode.detour && detourMinutes > 0) {
+    return '$base + up to $detourMinutes min detours';
+  }
+  return base;
+}

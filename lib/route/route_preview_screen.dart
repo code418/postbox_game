@@ -218,16 +218,13 @@ class _RoutePreviewScreenState extends State<RoutePreviewScreen> {
 
   // ── Time estimate ────────────────────────────────────────────────────────
 
-  String _timeEstimate() {
-    final distM = _directDistanceM;
-    // Distinct sentinel from the helper's "..." (no fetch yet vs. non-finite).
-    if (distM == null) return '–';
-    return paceEtaLabel(
-      distanceMetres: distM.toDouble(),
-      speedKmh: widget.session.speedKmh,
-      pace: widget.session.pace,
-    );
-  }
+  String _timeEstimate() => routeTimeEstimate(
+        directDistanceMetres: _directDistanceM?.toDouble(),
+        speedKmh: widget.session.speedKmh,
+        pace: widget.session.pace,
+        mode: widget.session.mode,
+        detourMinutes: widget.session.detourMinutes,
+      );
 
   // ── Build ───────────────────────────────────────────────────────────────────
 

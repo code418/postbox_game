@@ -111,4 +111,45 @@ void main() {
       expect(jog(5000), contains('jogging'));
     });
   });
+
+  group('routeTimeEstimate', () {
+    String est({
+      double? distM = 2700, // 36 min at a walk
+      RouteMode mode = RouteMode.corridor,
+      int detour = 0,
+    }) =>
+        routeTimeEstimate(
+          directDistanceMetres: distM,
+          speedKmh: 4.5,
+          pace: RoutePace.walk,
+          mode: mode,
+          detourMinutes: detour,
+        );
+
+    test('null distance → "–" (no result yet, distinct from "...")', () {
+      expect(est(distM: null), equals('–'));
+    });
+
+    test('corridor mode shows only the direct ETA', () {
+      expect(est(mode: RouteMode.corridor), equals('≈ 36 min walking'));
+    });
+
+    test('detour mode appends the detour budget so the time is not understated',
+        () {
+      expect(
+        est(mode: RouteMode.detour, detour: 30),
+        equals('≈ 36 min walking + up to 30 min detours'),
+      );
+    });
+
+    test('detour mode with a zero budget shows only the direct ETA', () {
+      expect(est(mode: RouteMode.detour, detour: 0), equals('≈ 36 min walking'));
+    });
+
+    test('corridor mode ignores any stale detourMinutes', () {
+      // detourMinutes>0 should set mode to detour in the UI, but guard anyway.
+      expect(est(mode: RouteMode.corridor, detour: 30),
+          equals('≈ 36 min walking'));
+    });
+  });
 }
