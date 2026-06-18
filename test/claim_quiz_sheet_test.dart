@@ -20,6 +20,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:postbox_game/james_strip.dart';
 import 'package:postbox_game/remote_config_service.dart';
 import 'package:postbox_game/widgets/claim_quiz_sheet.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -281,5 +282,86 @@ void main() {
     expect(calls, hasLength(2), reason: 'rescan must re-invoke nearbyPostboxes');
     expect((calls.last['lat'] as num).toDouble(), closeTo(51.5002, 1e-6),
         reason: 'rescan must scan the moved-to position, not the original point');
+  });
+
+  // ── Route-mode (compact) James ────────────────────────────────────────────
+  // In route mode the sheet is a modal over LiveRouteScreen, occluding that
+  // screen's own JamesStrip, and there is no Home JamesControllerScope above
+  // it. So in compact mode the sheet must own its own controller + render its
+  // own strip; otherwise its James lines silently no-op. The normal Claim tab
+  // (compact:false) keeps using the Home strip and must render no strip here.
+
+  testWidgets('compact route-mode sheet renders its own JamesStrip',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ClaimQuizSheet(
+          scanPosition: const LatLng(51.5, -0.12),
+          compact: true,
+          nearbyCallable: _nearbyUnknownCipher,
+          positionProvider: () async => _fakePos(),
+          startScoringCallable: (_) async =>
+              _FakeResult<dynamic>(<String, dynamic>{}),
+          onCompleted: (_) {},
+        ),
+      ),
+    ));
+    await _settle(tester);
+
+    expect(find.byType(JamesStrip), findsOneWidget);
+  });
+
+  testWidgets('non-compact sheet renders no JamesStrip (Claim tab uses Home strip)',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ClaimQuizSheet(
+          scanPosition: const LatLng(51.5, -0.12),
+          nearbyCallable: _nearbyUnknownCipher,
+          positionProvider: () async => _fakePos(),
+          startScoringCallable: (_) async =>
+              _FakeResult<dynamic>(<String, dynamic>{}),
+          onCompleted: (_) {},
+        ),
+      ),
+    ));
+    await _settle(tester);
+
+    expect(find.byType(JamesStrip), findsNothing);
+  });
+
+  testWidgets('compact route-mode claim success drives the sheet\'s own James',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ClaimQuizSheet(
+          scanPosition: const LatLng(51.5, -0.12),
+          compact: true,
+          nearbyCallable: _nearbyUnknownCipher,
+          positionProvider: () async => _fakePos(),
+          startScoringCallable: (_) async => _FakeResult<dynamic>(
+            <String, dynamic>{
+              'found': true,
+              'claimed': 1,
+              'points': 9,
+              'allClaimedToday': false,
+            },
+          ),
+          onCompleted: (_) {},
+        ),
+      ),
+    ));
+    await _settle(tester);
+    await tester.pump(const Duration(milliseconds: 50));
+
+    // No quiz (unknown cipher) → tapping claim goes straight to _claimPostbox.
+    await tester.tap(find.text('Claim this postbox!'));
+    await _settle(tester);
+
+    // The success James line must reach the sheet's OWN controller (in route
+    // mode JamesController.of(context) is null, so this proves the rewiring).
+    final strip = tester.widget<JamesStrip>(find.byType(JamesStrip));
+    expect(strip.controller.pendingMessage, isNotNull);
+    expect(strip.controller.pendingMessage, isNotEmpty);
   });
 }

@@ -14,6 +14,7 @@ import 'package:postbox_game/app_preferences.dart';
 import 'package:postbox_game/services/user_properties_publisher.dart';
 import 'package:postbox_game/james_controller.dart';
 import 'package:postbox_game/james_messages.dart';
+import 'package:postbox_game/james_strip.dart';
 import 'package:postbox_game/location_service.dart';
 import 'package:postbox_game/maintenance_guard.dart';
 import 'package:postbox_game/monarch_info.dart';
@@ -246,11 +247,23 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
   late final Stream<Position> Function() _positionStreamProvider;
   final HomeWidgetService _homeWidgetService = HomeWidgetService();
 
+  /// In compact (route-modal) mode the sheet is shown over LiveRouteScreen,
+  /// occluding that screen's JamesStrip, with no Home JamesControllerScope
+  /// above it. So it owns its own controller and renders its own strip (see
+  /// [build]). Null in the inline Claim-tab mode, which uses the Home strip.
+  JamesController? _ownJames;
+
+  /// The James controller to drive: the sheet's own (compact/route mode) or
+  /// the Home shell's inherited one (inline Claim-tab mode, where _ownJames is
+  /// null and the JamesControllerScope is an ancestor).
+  JamesController? get _james => _ownJames ?? JamesController.of(context);
+
   @override
   void initState() {
     super.initState();
 
     _scanCenter = widget.scanPosition;
+    _ownJames = widget.compact ? JamesController() : null;
     _positionStreamProvider =
         widget.positionStreamProvider ?? (() => positionStream());
     _nearbyCallable = widget.nearbyCallable ??
@@ -296,6 +309,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
     _successController.dispose();
     _pulseController.dispose();
     _confettiController.dispose();
+    _ownJames?.dispose();
     super.dispose();
   }
 
@@ -403,7 +417,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
           maxPoints: _maxPoints,
         );
         if (mounted && _claimedToday == _count) {
-          JamesController.of(context)
+          _james
               ?.show(JamesMessages.claimErrorAlreadyClaimed.resolve());
         }
       } else {
@@ -412,7 +426,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
         // the user has walked far enough that a new scan could find something.
         _startMoveWatch();
         if (mounted) {
-          JamesController.of(context)
+          _james
               ?.show(JamesMessages.claimScanEmpty.resolve());
         }
       }
@@ -426,7 +440,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
           ? 'No internet connection. Please try again.'
           : 'Could not scan for postboxes. Please try again.');
       if (!mounted) return;
-      JamesController.of(context)?.show(
+      _james?.show(
         isOffline
             ? JamesMessages.errorOffline.resolve()
             : JamesMessages.claimErrorGeneral.resolve(),
@@ -436,7 +450,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
       _showErrorSnackBar(
           'GPS signal timed out. Move to an open area and try again.');
       if (!mounted) return;
-      JamesController.of(context)
+      _james
           ?.show(JamesMessages.claimErrorGeneral.resolve());
       _cancel();
     } on LocationServiceException catch (e) {
@@ -454,7 +468,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
       final isPermission =
           e.kind == LocationErrorKind.permissionDenied ||
               e.kind == LocationErrorKind.permissionPermanentlyDenied;
-      JamesController.of(context)?.show(isPermission
+      _james?.show(isPermission
           ? JamesMessages.nearbyErrorPermission.resolve()
           : JamesMessages.claimErrorGeneral.resolve());
       _cancel();
@@ -462,7 +476,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
       debugPrint('Error scanning: $e');
       _showErrorSnackBar('Could not scan for postboxes. Please try again.');
       if (!mounted) return;
-      JamesController.of(context)
+      _james
           ?.show(JamesMessages.claimErrorGeneral.resolve());
       _cancel();
     } finally {
@@ -519,7 +533,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
         Analytics.claimFailed(reason: 'out_of_range');
         if (!mounted) return;
         setState(() => _isClaiming = false);
-        JamesController.of(context)
+        _james
             ?.show(JamesMessages.claimOutOfRange.resolve());
         await _runSearch(position: freshPos);
         return;
@@ -529,7 +543,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
         if (!mounted) return;
         setState(() => _isClaiming = false);
         _showErrorSnackBar('Already claimed today — come back tomorrow!');
-        JamesController.of(context)
+        _james
             ?.show(JamesMessages.claimErrorAlreadyClaimed.resolve());
         await _runSearch(position: freshPos);
         return;
@@ -578,7 +592,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
               ? JamesMessages.claimSuccessRare.resolve()
               : JamesMessages.claimSuccessStandard.resolve();
         }
-        JamesController.of(context)?.show(msg);
+        _james?.show(msg);
       }
     } on FirebaseFunctionsException catch (e) {
       debugPrint('Claim error: ${e.code} ${e.message}');
@@ -613,7 +627,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
       _showErrorSnackBar(snackMsg);
       if (!mounted) return;
       setState(() => _isClaiming = false);
-      JamesController.of(context)?.show(jamesMsg);
+      _james?.show(jamesMsg);
     } on LocationServiceException catch (e) {
       debugPrint('Location error claiming: $e');
       final isPermission =
@@ -630,7 +644,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
       }
       if (!mounted) return;
       setState(() => _isClaiming = false);
-      JamesController.of(context)?.show(isPermission
+      _james?.show(isPermission
           ? JamesMessages.nearbyErrorPermission.resolve()
           : JamesMessages.claimErrorGeneral.resolve());
     } catch (e) {
@@ -638,7 +652,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
       _showErrorSnackBar('Could not claim postbox. Please try again.');
       if (!mounted) return;
       setState(() => _isClaiming = false);
-      JamesController.of(context)
+      _james
           ?.show(JamesMessages.claimErrorGeneral.resolve());
     } finally {
       if (mounted && _isClaiming) setState(() => _isClaiming = false);
@@ -678,7 +692,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
       HapticFeedback.heavyImpact();
       setState(() => _stage = _QuizStage.quizFailed);
       if (mounted) {
-        JamesController.of(context)?.show(JamesMessages.quizFailed.resolve());
+        _james?.show(JamesMessages.quizFailed.resolve());
       }
     }
   }
@@ -867,20 +881,31 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
 
   @override
   Widget build(BuildContext context) {
-    switch (_stage) {
-      case _QuizStage.searching:
-        return _buildSearching(context);
-      case _QuizStage.results:
-        return _buildResults(context);
-      case _QuizStage.empty:
-        return _buildEmpty(context);
-      case _QuizStage.quiz:
-        return _buildQuiz(context);
-      case _QuizStage.quizFailed:
-        return _buildQuizFailed(context);
-      case _QuizStage.claimed:
-        return _buildClaimed(context);
-    }
+    final content = switch (_stage) {
+      _QuizStage.searching => _buildSearching(context),
+      _QuizStage.results => _buildResults(context),
+      _QuizStage.empty => _buildEmpty(context),
+      _QuizStage.quiz => _buildQuiz(context),
+      _QuizStage.quizFailed => _buildQuizFailed(context),
+      _QuizStage.claimed => _buildClaimed(context),
+    };
+    final james = _ownJames;
+    if (james == null) return content;
+    // Route-mode (compact) modal occludes the LiveRouteScreen's own James
+    // strip, so render James inside the sheet — pinned to the bottom in the
+    // reserved compact band (_bottomPad). Idle, it's slid off-screen and
+    // consumes no visible space.
+    return Stack(
+      children: [
+        content,
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: JamesStrip(controller: james),
+        ),
+      ],
+    );
   }
 
   // ── Stage builders ────────────────────────────────────────────────────────
