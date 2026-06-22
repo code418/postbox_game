@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Wear OS 4/5 (API 31+): the system SplashScreen API renders the branded
+     launch. Pin its background to black so the app icon shows on black, matching
+     the legacy windowBackground splash in ../drawable/launch_background.xml.
+     The launcher icon (@mipmap/ic_launcher) is shown automatically. -->
+<resources>
+    <style name="LaunchTheme" parent="@android:style/Theme.Black.NoTitleBar">
+        <item name="android:windowBackground">@drawable/launch_background</item>
+        <item name="android:windowSplashScreenBackground">@android:color/black</item>
+    </style>
+</resources>
