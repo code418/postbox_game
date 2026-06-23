@@ -894,6 +894,7 @@ describe("region pinning", () => {
   const DEFAULT_REGION = "europe-west2";
   const REGION_OVERRIDES: Record<string, string> = {
     onFriendAdded: "europe-west4",
+    onClaimCreated: "europe-west4",
   };
   type WithEndpoint = { __endpoint?: { region?: string[]; platform?: string } };
 
@@ -911,6 +912,12 @@ describe("region pinning", () => {
 
   it("onFriendAdded is a 2nd-gen trigger (eur3 has no Gen1 Firestore triggers)", () => {
     const endpoint = (myFunctions as Record<string, WithEndpoint>)["onFriendAdded"]
+      .__endpoint;
+    assert.strictEqual(endpoint?.platform, "gcfv2");
+  });
+
+  it("onClaimCreated is a 2nd-gen trigger (eur3 has no Gen1 Firestore triggers)", () => {
+    const endpoint = (myFunctions as Record<string, WithEndpoint>)["onClaimCreated"]
       .__endpoint;
     assert.strictEqual(endpoint?.platform, "gcfv2");
   });
@@ -1086,6 +1093,18 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
     it("should throw invalid-argument when lat/lng are missing", async function (this: Mocha.Context) {
       this.timeout(5000);
       const req = { data: {}, auth: { uid: "test-uid" } };
+      try {
+        await wrappedStartScoring(req);
+        assert.fail("Expected invalid-argument error");
+      } catch (e: unknown) {
+        const err = e as { code?: string };
+        assert.strictEqual(err.code, "invalid-argument");
+      }
+    });
+
+    it("should throw invalid-argument when clientTsMs is not finite", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      const req = { data: { lat: 51.45, lng: -0.95, clientTsMs: "nope" }, auth: { uid: "test-uid" } };
       try {
         await wrappedStartScoring(req);
         assert.fail("Expected invalid-argument error");
@@ -2917,6 +2936,41 @@ describe("submitReport / reviewReport (onCall) — auth & validation", function 
   });
 });
 
+describe("reviewFlag (onCall) — auth & validation", function (this: Mocha.Suite) {
+  this.timeout(10000);
+  const wrappedReviewFlag = testEnv.wrap(myFunctions.reviewFlag) as (data: unknown) => Promise<unknown>;
+
+  it("throws permission-denied for a non-admin caller", async () => {
+    try {
+      await wrappedReviewFlag({ data: { flagId: "f1" }, auth: { uid: "u1" } });
+      assert.fail("expected permission-denied");
+    } catch (e) {
+      assert.strictEqual((e as { code?: string }).code, "permission-denied");
+    }
+  });
+
+  it("throws permission-denied with auth but admin claim false", async () => {
+    try {
+      await wrappedReviewFlag({ data: { flagId: "f1" }, auth: { uid: "u1", token: { admin: false } } });
+      assert.fail("expected permission-denied");
+    } catch (e) {
+      assert.strictEqual((e as { code?: string }).code, "permission-denied");
+    }
+  });
+
+  it("throws invalid-argument for a missing flagId (admin caller)", async () => {
+    try {
+      await wrappedReviewFlag({ data: {}, auth: { uid: "admin1", token: { admin: true } } });
+      assert.fail("expected invalid-argument");
+    } catch (e) {
+      // invalid-argument is reached only for admins; non-emulator runs may also
+      // surface permission-denied on the subsequent Firestore read, but the
+      // arg check runs first so invalid-argument is expected here.
+      assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+    }
+  });
+});
+
 // ── filterToCorridor ──────────────────────────────────────────────────────────
 //
 // Fixture: start = (0, 0), end = (0, 0.01)  (roughly ~1.1 km due-east at equator)
@@ -3311,5 +3365,104 @@ describe("finaliseRoute", () => {
     // totalSeconds == timeUsed + closingSeconds (NOT cumSeconds — that's just
     // an inner annotation; the authoritative running total is timeUsed).
     assert.strictEqual(r.totalSeconds, state.timeUsed + r.closingSeconds);
+  });
+});
+
+// ── Abuse-detection signals (pure, shadow mode) ───────────────────────────────
+import {
+  coordKey,
+  impossibleTravelSignal,
+  outOfWindowSignal,
+  coordClusterSignal,
+  summariseFlags,
+  applyTrustDecay,
+  SHADOW_TRAVEL_FLAG_M_PER_MIN,
+  OUT_OF_WINDOW_MS,
+  CLUSTER_MIN_REPEATS,
+  DEFAULT_TRUST_SCORE,
+} from "../_abuseSignals";
+
+describe("abuse signals: coordKey", () => {
+  it("rounds to 6 dp and joins lat,lng", () => {
+    assert.strictEqual(coordKey(51.4532109, -0.9543201), "51.453211,-0.954320");
+  });
+  it("two positions that agree to 6 dp produce the same key", () => {
+    assert.strictEqual(coordKey(51.4532104, -0.9543204), coordKey(51.4532101, -0.9543198));
+  });
+  it("positions differing at 6 dp produce different keys", () => {
+    assert.notStrictEqual(coordKey(51.453210, -0.954320), coordKey(51.453219, -0.954320));
+  });
+});
+
+describe("abuse signals: impossibleTravelSignal", () => {
+  it("flags a speed at or above the shadow threshold", () => {
+    const r = impossibleTravelSignal(SHADOW_TRAVEL_FLAG_M_PER_MIN);
+    assert.strictEqual(r.flagged, true);
+    assert.strictEqual(r.value, SHADOW_TRAVEL_FLAG_M_PER_MIN);
+  });
+  it("does not flag a speed below the threshold", () => {
+    assert.strictEqual(impossibleTravelSignal(SHADOW_TRAVEL_FLAG_M_PER_MIN - 1).flagged, false);
+  });
+  it("does not flag when no travel speed is available (first claim)", () => {
+    assert.strictEqual(impossibleTravelSignal(undefined).flagged, false);
+  });
+});
+
+describe("abuse signals: outOfWindowSignal", () => {
+  const server = 1_000_000_000_000;
+  it("flags when client clock is off by more than the window", () => {
+    const r = outOfWindowSignal(server, server - (OUT_OF_WINDOW_MS + 1));
+    assert.strictEqual(r.flagged, true);
+    assert.strictEqual(r.value, OUT_OF_WINDOW_MS + 1);
+  });
+  it("does not flag when within the window", () => {
+    assert.strictEqual(outOfWindowSignal(server, server + OUT_OF_WINDOW_MS).flagged, false);
+  });
+  it("does not flag when client timestamp is absent", () => {
+    assert.strictEqual(outOfWindowSignal(server, undefined).flagged, false);
+  });
+});
+
+describe("abuse signals: coordClusterSignal", () => {
+  it("flags once repeats reach the minimum", () => {
+    assert.strictEqual(coordClusterSignal(CLUSTER_MIN_REPEATS).flagged, true);
+  });
+  it("does not flag below the minimum", () => {
+    assert.strictEqual(coordClusterSignal(CLUSTER_MIN_REPEATS - 1).flagged, false);
+  });
+});
+
+describe("abuse signals: summariseFlags", () => {
+  it("collects only the fired reasons", () => {
+    const r = summariseFlags([
+      { reason: "impossible_travel", flagged: true },
+      { reason: "out_of_window", flagged: false },
+      { reason: "coord_cluster", flagged: true },
+    ]);
+    assert.deepStrictEqual(r.reasons, ["impossible_travel", "coord_cluster"]);
+  });
+  it("escalates severity with the number of co-occurring signals", () => {
+    const sig = (n: number) =>
+      summariseFlags(
+        ["a", "b", "c"].slice(0, n).map((reason) => ({ reason, flagged: true })),
+      ).severity;
+    assert.strictEqual(sig(1), "low");
+    assert.strictEqual(sig(2), "med");
+    assert.strictEqual(sig(3), "high");
+  });
+});
+
+describe("abuse signals: applyTrustDecay", () => {
+  it("decrements more for higher severity", () => {
+    assert.ok(
+      applyTrustDecay(DEFAULT_TRUST_SCORE, "high") <
+        applyTrustDecay(DEFAULT_TRUST_SCORE, "low"),
+    );
+  });
+  it("never drops below zero", () => {
+    assert.strictEqual(applyTrustDecay(0, "high"), 0);
+  });
+  it("never rises above the default ceiling", () => {
+    assert.ok(applyTrustDecay(DEFAULT_TRUST_SCORE, "low") <= DEFAULT_TRUST_SCORE);
   });
 });

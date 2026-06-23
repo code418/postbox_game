@@ -505,6 +505,9 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
             final r = await _claimCallable(<String, dynamic>{
               'lat': position.latitude,
               'lng': position.longitude,
+              // Client wall-clock for the shadow-mode out-of-window anomaly
+              // signal (server compares it against its own claim timestamp).
+              'clientTsMs': DateTime.now().millisecondsSinceEpoch,
             });
             trace.putAttribute(PerfTraces.attrOutcome, 'ok');
             return r;

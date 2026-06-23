@@ -8,6 +8,7 @@ import { updateUserLeaderboards, mergeLifetimeEntries, LifetimeLeaderboardEntry,
 import { computeNewStreak } from "./_streakUtils";
 import { notifyFriendsFirstClaim, notifyFriendOvertake } from "./_notifications";
 import { checkTravelSpeed } from "./_travelSpeed";
+import { coordKey } from "./_abuseSignals";
 
 const database = admin.firestore();
 
@@ -18,6 +19,9 @@ const CLAIM_RADIUS_METERS = 30;
 interface StartScoringCallData {
   lat?: number;
   lng?: number;
+  /** Client wall-clock at claim time (ms since epoch). Optional — legacy/web
+   *  clients omit it. Stored for the shadow-mode out-of-window anomaly signal. */
+  clientTsMs?: number;
 }
 
 export const startScoring = functions.https.onCall(async (request) => {
@@ -26,7 +30,7 @@ export const startScoring = functions.https.onCall(async (request) => {
     throw new functions.https.HttpsError("unauthenticated", "Must be signed in to claim a postbox");
   }
 
-  const { lat, lng } = (request.data as StartScoringCallData) ?? {};
+  const { lat, lng, clientTsMs } = (request.data as StartScoringCallData) ?? {};
   if (lat === undefined || lat === null || lng === undefined || lng === null) {
     throw new functions.https.HttpsError("invalid-argument", "lat and lng are required");
   }
@@ -36,13 +40,17 @@ export const startScoring = functions.https.onCall(async (request) => {
   if (!Number.isFinite(lng) || lng < -180 || lng > 180) {
     throw new functions.https.HttpsError("invalid-argument", "lng must be a finite number between -180 and 180");
   }
+  if (clientTsMs !== undefined && (typeof clientTsMs !== "number" || !Number.isFinite(clientTsMs))) {
+    throw new functions.https.HttpsError("invalid-argument", "clientTsMs must be a finite number when provided");
+  }
 
   // Anti-spoof: reject claims whose implied travel speed from the user's
   // previous claim exceeds a liberal physical limit. Fail-open when the
   // previous claim's location can't be resolved (e.g. legacy claims where
   // neither userLat/userLng nor the referenced postbox geopoint are
-  // available).
-  await enforceTravelSpeedLimit(userid, lat, lng);
+  // available). Returns the computed speed (m/min) so it can be persisted on
+  // the new claim for the shadow-mode anomaly detector; undefined when skipped.
+  const travelSpeed = await enforceTravelSpeedLimit(userid, lat, lng);
 
   // Hoist date computation so all return paths include dailyDate for consistency.
   const todayLondon = getTodayLondon();
@@ -108,8 +116,16 @@ export const startScoring = functions.https.onCall(async (request) => {
           // check uses the user's own position, not the postbox coordinates.
           userLat: lat,
           userLng: lng,
+          // Rounded coordinate key for the shadow-mode clustering signal — lets
+          // the onClaimCreated trigger count same-spot claims with an equality
+          // query instead of scanning raw doubles.
+          coordKey6: coordKey(lat, lng),
         };
         if (postbox.monarch !== undefined) claimData.monarch = postbox.monarch;
+        // Shadow-mode anomaly inputs (optional — omitted when unavailable so we
+        // never write `undefined` to Firestore).
+        if (clientTsMs !== undefined) claimData.clientTsMs = clientTsMs;
+        if (travelSpeed !== undefined) claimData.travelSpeed = travelSpeed;
         tx.set(claimRef, claimData);
         // Keep dailyClaim on the postbox doc for display purposes (shows
         // "someone found this today" in future UI); does not gate claiming.
@@ -411,17 +427,21 @@ export const startScoring = functions.https.onCall(async (request) => {
  *  the implied travel speed exceeds MAX_METRES_PER_MIN. Location resolution
  *  order: (1) userLat/userLng stored on the claim doc (written going
  *  forward); (2) geopoint of the referenced postbox (legacy fallback). If
- *  neither yields a coordinate pair, the check is skipped. */
-async function enforceTravelSpeedLimit(userid: string, currentLat: number, currentLng: number): Promise<void> {
+ *  neither yields a coordinate pair, the check is skipped.
+ *
+ *  Returns the implied speed (m/min) for the caller to persist on the new claim
+ *  (shadow-mode anomaly detector), or `undefined` when the check was skipped
+ *  (no previous claim / no resolvable location). Throws on hard-limit breach. */
+async function enforceTravelSpeedLimit(userid: string, currentLat: number, currentLng: number): Promise<number | undefined> {
   const lastSnap = await database.collection("claims")
     .where("userid", "==", userid)
     .orderBy("timestamp", "desc")
     .limit(1)
     .get();
-  if (lastSnap.empty) return;
+  if (lastSnap.empty) return undefined;
   const last = lastSnap.docs[0].data();
   const tsMs = (last.timestamp as admin.firestore.Timestamp | undefined)?.toMillis?.();
-  if (!tsMs) return;
+  if (!tsMs) return undefined;
 
   let lastLat = typeof last.userLat === "number" ? (last.userLat as number) : undefined;
   let lastLng = typeof last.userLng === "number" ? (last.userLng as number) : undefined;
@@ -431,11 +451,11 @@ async function enforceTravelSpeedLimit(userid: string, currentLat: number, curre
     const postboxKey = typeof postboxPath === "string"
       ? postboxPath.replace(/^\/postbox\//, "")
       : undefined;
-    if (!postboxKey) return;
+    if (!postboxKey) return undefined;
     const postboxSnap = await database.collection("postbox").doc(postboxKey).get();
-    if (!postboxSnap.exists) return;
+    if (!postboxSnap.exists) return undefined;
     const geo = getLatLng((postboxSnap.data() ?? {}).geopoint);
-    if (!geo) return;
+    if (!geo) return undefined;
     lastLat = geo.lat;
     lastLng = geo.lng;
   }
@@ -455,4 +475,5 @@ async function enforceTravelSpeedLimit(userid: string, currentLat: number, curre
       "You're travelling too fast — slow down before your next postbox claim."
     );
   }
+  return check.speedMPerMin;
 }

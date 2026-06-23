@@ -9,6 +9,7 @@ import { registerFcmToken, onFriendAdded } from "./_notifications";
 import { userClaimHistory } from "./userClaimHistory";
 import { submitReport, reviewReport } from "./reports";
 import { routePostboxes } from "./routePostboxes";
+import { onClaimCreated, reviewFlag } from "./abuse";
 
 export {
   nearbyPostboxes,
@@ -22,4 +23,6 @@ export {
   submitReport,
   reviewReport,
   routePostboxes,
+  onClaimCreated,
+  reviewFlag,
 };

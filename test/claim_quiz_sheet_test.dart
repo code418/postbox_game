@@ -364,4 +364,40 @@ void main() {
     expect(strip.controller.pendingMessage, isNotNull);
     expect(strip.controller.pendingMessage, isNotEmpty);
   });
+
+  testWidgets('claim sends clientTsMs to startScoring for the anomaly detector',
+      (tester) async {
+    Map<String, dynamic>? claimPayload;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ClaimQuizSheet(
+          scanPosition: const LatLng(51.5, -0.12),
+          compact: true,
+          nearbyCallable: _nearbyUnknownCipher,
+          positionProvider: () async => _fakePos(),
+          startScoringCallable: (payload) async {
+            claimPayload = payload;
+            return _FakeResult<dynamic>(<String, dynamic>{
+              'found': true,
+              'claimed': 1,
+              'points': 9,
+              'allClaimedToday': false,
+            });
+          },
+          onCompleted: (_) {},
+        ),
+      ),
+    ));
+    await _settle(tester);
+    await tester.pump(const Duration(milliseconds: 50));
+
+    // Unknown cipher → no quiz → claim goes straight to the callable.
+    await tester.tap(find.text('Claim this postbox!'));
+    await _settle(tester);
+
+    expect(claimPayload, isNotNull);
+    expect(claimPayload!['clientTsMs'], isA<int>(),
+        reason: 'the claim must carry a client timestamp for the '
+            'shadow-mode out-of-window anomaly signal');
+  });
 }

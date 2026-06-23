@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:postbox_game/admin/admin_abuse_screen.dart';
 import 'package:postbox_game/admin/admin_access.dart';
 import 'package:postbox_game/admin/admin_remote_config_screen.dart';
 import 'package:postbox_game/admin/admin_reports_screen.dart';
@@ -165,6 +166,12 @@ class _HomeState extends State<Home> {
                       MaterialPageRoute(
                           builder: (_) => const AdminReportsScreen()),
                     );
+                  case 'adminAbuse':
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const AdminAbuseScreen()),
+                    );
                   case 'adminRemoteConfig':
                     Navigator.push(
                       context,
@@ -188,6 +195,15 @@ class _HomeState extends State<Home> {
                     child: ListTile(
                       leading: Icon(Icons.admin_panel_settings_outlined),
                       title: Text('Admin · Reports'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                if (_isAdmin)
+                  const PopupMenuItem(
+                    value: 'adminAbuse',
+                    child: ListTile(
+                      leading: Icon(Icons.gpp_maybe_outlined),
+                      title: Text('Admin · Abuse'),
                       contentPadding: EdgeInsets.zero,
                     ),
                   ),

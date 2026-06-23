@@ -118,5 +118,23 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // ── moderationFlags collection ───────────────────────────────────────────
+    // Shadow-mode abuse-detection flags, written exclusively by the
+    // onClaimCreated Cloud Function (Admin SDK) and updated by reviewFlag.
+    // Readable only by users with the `admin` custom claim (the in-app abuse
+    // review interface). No client writes.
+    match /moderationFlags/{flagId} {
+      allow read: if request.auth != null && request.auth.token.admin == true;
+      allow write: if false;
+    }
+
+    // ── trustScores collection ───────────────────────────────────────────────
+    // Per-user server-only trust score decayed by the abuse detector. Never
+    // client-readable (kept out of the world-readable users/{uid} doc so it
+    // can't leak) and never client-writable — Cloud Functions (Admin SDK) only.
+    match /trustScores/{uid} {
+      allow read, write: if false;
+    }
+
   }
 }

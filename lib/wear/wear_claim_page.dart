@@ -192,6 +192,8 @@ class _WearClaimPageState extends State<WearClaimPage> {
       final result = await _claimCallable.call(<String, dynamic>{
         'lat': position.latitude,
         'lng': position.longitude,
+        // Client wall-clock for the shadow-mode out-of-window anomaly signal.
+        'clientTsMs': DateTime.now().millisecondsSinceEpoch,
       });
       final found = result.data?['found'] == true;
       final allClaimedToday = result.data?['allClaimedToday'] == true;

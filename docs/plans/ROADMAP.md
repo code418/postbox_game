@@ -21,10 +21,10 @@ lands). Their original bodies are preserved below for diff archaeology.
 |---|---|---|
 | **v1.2** | Intro polish | Done |
 | **v1.3** | Platform foundations (EU region + observability) | Done |
-| **v1.4** | Trust & safety (App Check, GDPR, anti-cheat) | Queued |
+| **v1.4** | Trust & safety (GDPR, anti-cheat) | In flight |
 | **v1.5** | Engagement & avatars (social loops + Postie avatar) | Deferred |
 | **v1.6** | Collection & content | Deferred |
-| **v1.7** | Reach (iOS, localisation) | Deferred |
+| **v1.7** | Reach (iOS, localisation, App Check) | Deferred |
 | **v2.0** | Growth (Analytics + experimentation) | Deferred |
 | **Backlog** | Speculative big-rocks | Speculative |
 
@@ -162,7 +162,10 @@ exceptions in key flows to non-fatals.
 ## v1.4 — Trust & safety  (Queued)
 
 **Theme**: harden the platform now that we can see what's happening (v1.3 observability).
-**Ship gate**: App Check denial rate < 1 % in monitor mode; account-deletion flow tested end-to-end in staging; impossible-travel detector in shadow mode logging flags but not blocking; Remote Config drives `claim_radius_meters` and `points_by_monarch` end-to-end (client + Cloud Functions) with the safety bounds enforced.
+**Ship gate**: account-deletion flow tested end-to-end in staging; impossible-travel detector in shadow mode logging flags but not blocking; Remote Config drives `claim_radius_meters` and `points_by_monarch` end-to-end (client + Cloud Functions) with the safety bounds enforced.
+
+> **App Check enforcement moved to v1.7** (it's gated on iOS `AppleProvider`
+> wiring, which lands in v1.7's iOS work). See the App Check item under v1.7.
 
 ### Remote Config for game balance and copy  (was #107, moved from v1.3)
 
@@ -178,18 +181,6 @@ and Cloud Functions read Remote Config.
 - Already shipped (v1.3 and earlier): the `RemoteConfigService` wrapper + admin debug screen, `b721caa` (`maintenance_mode`/`message` template), `1caca74` (Analytics user properties for audience targeting).
 - Rollout: ship client first with defaults equal to current code, then backend, then tune via console.
 - Risk: stale client cache hides a bad value — force refetch on login. Cost drift if `points_by_monarch` mis-set — sanity-check rejecting values outside `[1, 50]`.
-
-### App Check enforcement audit and hardening  (was #96)
-
-App Check is configured client-side for Android release (`AndroidPlayIntegrityProvider`). Audit and **enforce** server-side.
-
-1. `AndroidDebugProvider` for dev — token committed to developer machines, not the repo.
-2. iOS: activate `AppleProvider` (`DeviceCheck` / `AppAttest`) once iOS builds are wired up.
-3. Firebase Console: enforce on Cloud Functions, Firestore, Storage, RTDB.
-4. Functions code: every callable rejects with `failed-precondition` if `context.app` absent (defence-in-depth on top of platform enforcement). Wrap in `functions/src/_appCheck.ts`.
-5. Cloud Monitoring alert on App Check denial rate spikes.
-
-Roll out in **monitor** mode for 7 days, then **enforce** if denial rate < 1 %. Keep a break-glass env var to temporarily disable explicit `context.app` checks during provider outages.
 
 ### GDPR "Delete User Data" Firebase Extension  (was #99)
 
@@ -418,7 +409,7 @@ No backend changes — `nearbyPostboxes` already returns enough metadata for the
 
 **Theme**: open the door to users outside the current Android-phone + Wear OS + Android Auto + (eventual) XR funnel.
 
-**Ship gate**: signed iOS build available on TestFlight; at least one non-English locale ships and is selectable in Settings; no English-language strings remain in user-facing widgets per `flutter_lints` rule.
+**Ship gate**: signed iOS build available on TestFlight; at least one non-English locale ships and is selectable in Settings; no English-language strings remain in user-facing widgets per `flutter_lints` rule; App Check enforced server-side with denial rate < 1 % in monitor mode.
 
 ### iOS support  (new)
 
@@ -426,13 +417,25 @@ CLAUDE.md notes `firebase_options.dart` has iOS config but no `Podfile` exists. 
 
 - `cd ios && pod install` (generates the Podfile).
 - Verify `Info.plist` permissions: `NSLocationWhenInUseUsageDescription`, `NSLocationAlwaysAndWhenInUseUsageDescription`, `NSCameraUsageDescription`, `NSPhotoLibraryUsageDescription` (last two already present per CLAUDE.md).
-- Wire `AppleProvider` (`DeviceCheck` / `AppAttest`) for App Check (already noted as a blocker in v1.4's App Check item).
+- Wire `AppleProvider` (`DeviceCheck` / `AppAttest`) for App Check (see the App Check enforcement item below — the two land together in v1.7).
 - App Store Connect listing: name, screenshots, age rating, privacy nutrition labels (matching what the GDPR plan in v1.4 implements).
 - Mac Catalyst evaluation — `firebase_options.dart` already has a macOS config; trivial scope or skip.
 
 Smoke-test gates: login (email + Google), nearby scan, claim quiz, report submission with photo, route mode end-to-end. Wear/Android Auto are not relevant on iOS.
 
-Backend risk: callable region pinning (v1.3) and App Check enforcement (v1.4) both touch iOS, so v1.7 ideally lands *after* both.
+Backend risk: callable region pinning (v1.3, done) and App Check enforcement (a sibling v1.7 item below) both touch iOS — wire `AppleProvider` as part of the App Check work.
+
+### App Check enforcement audit and hardening  (was #96, moved from v1.4)
+
+App Check is configured client-side for Android release (`AndroidPlayIntegrityProvider`). Audit and **enforce** server-side. Moved here from v1.4 because iOS `AppleProvider` wiring is part of v1.7's iOS work, so the two are best done together.
+
+1. `AndroidDebugProvider` for dev — token committed to developer machines, not the repo.
+2. iOS: activate `AppleProvider` (`DeviceCheck` / `AppAttest`) once iOS builds are wired up (the iOS support item above).
+3. Firebase Console: enforce on Cloud Functions, Firestore, Storage, RTDB.
+4. Functions code: every callable rejects with `failed-precondition` if `context.app` absent (defence-in-depth on top of platform enforcement). Wrap in `functions/src/_appCheck.ts`.
+5. Cloud Monitoring alert on App Check denial rate spikes.
+
+Roll out in **monitor** mode for 7 days, then **enforce** if denial rate < 1 %. Keep a break-glass env var to temporarily disable explicit `context.app` checks during provider outages.
 
 ### Localisation infrastructure  (new)
 
