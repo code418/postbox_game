@@ -22,7 +22,12 @@ export interface PostboxDoc {
   removedFromOsmAt?: unknown;
   distance?: number;
   compass?: { exact?: string };
-  dailyClaim?: { date: string; by: string };
+  // Only the last-claimed London date. The claimant uid is intentionally NOT
+  // stored here — postbox docs are world-readable and carry the exact geopoint,
+  // so a uid would leak claimer location PII (see dailyClaimPatch in
+  // startScoring.ts). Legacy docs may still carry a `by` field until the
+  // scripts/strip_dailyclaim_by cleanup runs; nothing reads it.
+  dailyClaim?: { date: string };
   claimedToday?: boolean;  // attached at query time by lookupPostboxes
   [key: string]: unknown;
 }

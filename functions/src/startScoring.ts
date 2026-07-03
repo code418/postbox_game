@@ -16,6 +16,21 @@ const database = admin.firestore();
  *  Must match AppPreferences.claimRadiusMeters in lib/app_preferences.dart. */
 const CLAIM_RADIUS_METERS = 30;
 
+/** The patch merged onto a `postbox` doc when it's claimed: only the London
+ *  date it was last claimed (a "someone found this today" display hint).
+ *
+ *  The claimant's uid is DELIBERATELY not stored. `postbox/{id}` is
+ *  world-readable to any authenticated user (firestore.rules) and carries the
+ *  exact `geopoint`, and `users/{uid}.displayName` is world-readable too — so a
+ *  uid here would let a scraper reconstruct "displayName X was at <exact
+ *  location> on <date>" for every claimer. `dailyClaim.by` is never read
+ *  anywhere (the server reads only `dailyClaim.date` in _lookupPostboxes), so
+ *  dropping it removes location PII with zero functional impact. Exported so a
+ *  unit test can pin that no uid is ever reintroduced here. */
+export function dailyClaimPatch(date: string): { dailyClaim: { date: string } } {
+  return { dailyClaim: { date } };
+}
+
 interface StartScoringCallData {
   lat?: number;
   lng?: number;
@@ -129,7 +144,8 @@ export const startScoring = functions.https.onCall(async (request) => {
         tx.set(claimRef, claimData);
         // Keep dailyClaim on the postbox doc for display purposes (shows
         // "someone found this today" in future UI); does not gate claiming.
-        tx.set(postboxRef, { dailyClaim: { date: todayLondon, by: userid } }, { merge: true });
+        // The claimant's uid is deliberately NOT written — see dailyClaimPatch.
+        tx.set(postboxRef, dailyClaimPatch(todayLondon), { merge: true });
         return { key, pts };
       });
     })
