@@ -221,3 +221,51 @@ Future<void> showReportThanksDialog(BuildContext context) {
     ),
   );
 }
+
+/// What the user chose in [showPhotoUploadFailedDialog].
+enum PhotoUploadFailureChoice { retry, submitWithout, cancel }
+
+/// Shown when the photo(s) failed to upload but the rest of the report is
+/// ready. Photos are optional, so we offer to send the report without them
+/// rather than losing everything. Returns [PhotoUploadFailureChoice.cancel]
+/// if dismissed (barrier tap / back).
+///
+/// [allowSubmitWithout] hides the "Send without photo" action for a report
+/// that would be empty without the photo (a wrong-cypher report needs at least
+/// one of cypher/note/photo).
+Future<PhotoUploadFailureChoice> showPhotoUploadFailedDialog(
+  BuildContext context, {
+  required int photoCount,
+  bool allowSubmitWithout = true,
+}) async {
+  final photoWord = photoCount == 1 ? 'photo' : 'photos';
+  final choice = await showDialog<PhotoUploadFailureChoice>(
+    context: context,
+    builder: (_) => AlertDialog(
+      icon: const Icon(Icons.cloud_off_outlined, color: postalRed, size: 40),
+      title: const Text('Couldn\'t upload your photo'),
+      content: Text(
+        allowSubmitWithout
+            ? 'We couldn\'t upload your $photoWord. You can send the report '
+                'without $photoWord for now, or try the upload again.'
+            : 'We couldn\'t upload your $photoWord. Please try again.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, PhotoUploadFailureChoice.cancel),
+          child: const Text('Cancel'),
+        ),
+        if (allowSubmitWithout)
+          TextButton(
+            onPressed: () => Navigator.pop(context, PhotoUploadFailureChoice.submitWithout),
+            child: const Text('Send without photo'),
+          ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, PhotoUploadFailureChoice.retry),
+          child: const Text('Try again'),
+        ),
+      ],
+    ),
+  );
+  return choice ?? PhotoUploadFailureChoice.cancel;
+}

@@ -63,6 +63,14 @@ class _ReportCypherScreenState extends State<ReportCypherScreen> {
     if (MaintenanceGuard.blocked(context, actionLabel: 'send a report')) {
       return;
     }
+    await _attemptSubmit(_photos);
+  }
+
+  /// Runs one submit attempt with the given [photos]. A photo-upload failure
+  /// (photos are optional) offers retry / send-without-photo instead of losing
+  /// the whole report; the callable/other failures keep their existing
+  /// snackbars.
+  Future<void> _attemptSubmit(List<PendingPhoto> photos) async {
     setState(() => _submitting = true);
     try {
       await ReportRepository.submitWrongCypher(
@@ -70,15 +78,16 @@ class _ReportCypherScreenState extends State<ReportCypherScreen> {
         note: _noteController.text,
         suggestedMonarch: _cypher == notSureCypher ? null : _cypher,
         suggestedReference: _referenceController.text,
-        photos: _photos,
+        photos: photos,
       );
       unawaited(Analytics.reportSubmitted(
         type: 'wrong_cypher',
-        photoCount: _photos.length,
+        photoCount: photos.length,
       ));
       if (!mounted) return;
       await showReportThanksDialog(context);
       if (mounted) Navigator.of(context).pop(true);
+      return;
     } on FirebaseFunctionsException catch (e) {
       unawaited(Analytics.reportSubmitFailed(
         type: 'wrong_cypher',
@@ -94,6 +103,14 @@ class _ReportCypherScreenState extends State<ReportCypherScreen> {
             content:
                 Text(e.message ?? 'Could not send report. Please try again.')));
       }
+      return;
+    } on ReportPhotoUploadException {
+      unawaited(Analytics.reportSubmitFailed(
+        type: 'wrong_cypher',
+        reason: 'photo_upload',
+      ));
+      // Fall through past the finally (which clears the overlay) to offer the
+      // retry / send-without-photo choice below.
     } catch (_) {
       unawaited(Analytics.reportSubmitFailed(
         type: 'wrong_cypher',
@@ -103,8 +120,27 @@ class _ReportCypherScreenState extends State<ReportCypherScreen> {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
             content: Text('Could not send report. Please try again.')));
       }
+      return;
     } finally {
       if (mounted) setState(() => _submitting = false);
+    }
+
+    // Only reached on ReportPhotoUploadException. A wrong-cypher report needs
+    // at least one of cypher/note/photo, so only offer "send without photo"
+    // when there's still a cypher or note left without it.
+    if (!mounted) return;
+    final canSubmitWithout =
+        _cypher != notSureCypher || _noteController.text.trim().isNotEmpty;
+    final choice = await showPhotoUploadFailedDialog(context,
+        photoCount: photos.length, allowSubmitWithout: canSubmitWithout);
+    if (!mounted) return;
+    switch (choice) {
+      case PhotoUploadFailureChoice.retry:
+        await _attemptSubmit(photos);
+      case PhotoUploadFailureChoice.submitWithout:
+        await _attemptSubmit(const []);
+      case PhotoUploadFailureChoice.cancel:
+        break;
     }
   }
 

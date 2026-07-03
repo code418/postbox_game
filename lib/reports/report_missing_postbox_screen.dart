@@ -79,11 +79,20 @@ class _ReportMissingPostboxScreenState extends State<ReportMissingPostboxScreen>
   }
 
   Future<void> _submit() async {
-    final pos = _position;
-    if (pos == null) return;
+    if (_position == null) return;
     if (MaintenanceGuard.blocked(context, actionLabel: 'send a report')) {
       return;
     }
+    await _attemptSubmit(_photos);
+  }
+
+  /// Runs one submit attempt with the given [photos]. A photo-upload failure
+  /// (photos are optional) offers retry / send-without-photo instead of losing
+  /// the whole report; the callable/other failures keep their existing
+  /// snackbars.
+  Future<void> _attemptSubmit(List<PendingPhoto> photos) async {
+    final pos = _position;
+    if (pos == null) return;
     setState(() => _submitting = true);
     try {
       await ReportRepository.submitMissingPostbox(
@@ -93,15 +102,16 @@ class _ReportMissingPostboxScreenState extends State<ReportMissingPostboxScreen>
         note: _noteController.text,
         suggestedMonarch: _cypher == notSureCypher ? null : _cypher,
         suggestedReference: _reference,
-        photos: _photos,
+        photos: photos,
       );
       unawaited(Analytics.reportSubmitted(
         type: 'missing_postbox',
-        photoCount: _photos.length,
+        photoCount: photos.length,
       ));
       if (!mounted) return;
       await showReportThanksDialog(context);
       if (mounted) Navigator.of(context).pop(true);
+      return;
     } on FirebaseFunctionsException catch (e) {
       unawaited(Analytics.reportSubmitFailed(
         type: 'missing_postbox',
@@ -116,6 +126,14 @@ class _ReportMissingPostboxScreenState extends State<ReportMissingPostboxScreen>
             content:
                 Text(e.message ?? 'Could not send report. Please try again.')));
       }
+      return;
+    } on ReportPhotoUploadException {
+      unawaited(Analytics.reportSubmitFailed(
+        type: 'missing_postbox',
+        reason: 'photo_upload',
+      ));
+      // Fall through past the finally (which clears the overlay) to offer the
+      // retry / send-without-photo choice below.
     } catch (_) {
       unawaited(Analytics.reportSubmitFailed(
         type: 'missing_postbox',
@@ -125,8 +143,23 @@ class _ReportMissingPostboxScreenState extends State<ReportMissingPostboxScreen>
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
             content: Text('Could not send report. Please try again.')));
       }
+      return;
     } finally {
       if (mounted) setState(() => _submitting = false);
+    }
+
+    // Only reached on ReportPhotoUploadException. A missing-postbox report is
+    // always valid without a photo (it has the location), so allow it.
+    if (!mounted) return;
+    final choice = await showPhotoUploadFailedDialog(context, photoCount: photos.length);
+    if (!mounted) return;
+    switch (choice) {
+      case PhotoUploadFailureChoice.retry:
+        await _attemptSubmit(photos);
+      case PhotoUploadFailureChoice.submitWithout:
+        await _attemptSubmit(const []);
+      case PhotoUploadFailureChoice.cancel:
+        break;
     }
   }
 

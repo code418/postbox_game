@@ -35,6 +35,20 @@ class PendingPhoto {
 /// (a plain box), as distinct from `null` which means "I'm not sure".
 const String plainCypher = '__PLAIN__';
 
+/// Thrown by [ReportRepository] when a photo fails to upload to Cloud Storage
+/// (as opposed to a failure calling the `submitReport` function, which surfaces
+/// as a [FirebaseFunctionsException]). Photos are optional, so callers catch
+/// this to offer "send the report without the photo" rather than failing the
+/// whole submission. [cause] is the underlying error (e.g. a Storage
+/// FirebaseException).
+class ReportPhotoUploadException implements Exception {
+  ReportPhotoUploadException(this.cause);
+  final Object cause;
+
+  @override
+  String toString() => 'ReportPhotoUploadException: $cause';
+}
+
 /// Picks photos, reads their EXIF, uploads them to Cloud Storage, and calls the
 /// `submitReport` Cloud Function. Static helpers keep this stateless.
 class ReportRepository {
@@ -193,7 +207,10 @@ class ReportRepository {
       // don't leak orphan files into the user's report_photos/ folder when
       // the report is never submitted.
       unawaited(_deleteUploaded(result));
-      rethrow;
+      // Wrap so callers can tell a photo-upload failure (photos are optional —
+      // offer "send without photo") apart from a submitReport call failure
+      // (a FirebaseFunctionsException from _callAndCleanup).
+      throw ReportPhotoUploadException(e);
     }
     return result;
   }
