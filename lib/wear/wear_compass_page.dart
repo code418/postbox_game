@@ -32,19 +32,20 @@ class _WearCompassPageState extends State<WearCompassPage> {
   _CompassStage _stage = _CompassStage.initial;
   Map<String, int> _compassCounts = {};
   int _totalCount = 0;
+
   /// How many postboxes the user has already claimed today within the scan
   /// radius. Used to distinguish "no postboxes nearby" from "all the postboxes
   /// here are already in your collection" on the empty-results screen.
   int _claimedToday = 0;
   double? _heading;
   StreamSubscription<CompassEvent>? _compassSub;
+
   /// Short human-readable error message shown on the [_CompassStage.error]
   /// screen. Populated by [_scan] when a [LocationServiceException] gives us
   /// a more specific cause than the generic "Scan failed".
   String? _errorMessage;
 
-  final HttpsCallable _callable =
-      appFunctions.httpsCallable('nearbyPostboxes');
+  final HttpsCallable _callable = appFunctions.httpsCallable('nearbyPostboxes');
 
   @override
   void initState() {
@@ -69,8 +70,7 @@ class _WearCompassPageState extends State<WearCompassPage> {
         if (h == null) return;
         // Throttle updates — skip if heading delta < 5 degrees. Use modular
         // distance so 359°→1° (delta = 2°) doesn't trip the naive abs-diff (358°).
-        if (lastHeading != null &&
-            compassHeadingDelta(h, lastHeading!) < 5) {
+        if (lastHeading != null && compassHeadingDelta(h, lastHeading!) < 5) {
           return;
         }
         lastHeading = h;
@@ -285,22 +285,30 @@ class _WearCompassPageState extends State<WearCompassPage> {
         return Stack(
           alignment: Alignment.center,
           children: [
-            // Full-screen compass
-            Transform.rotate(
-              angle: -rotation,
-              child: CustomPaint(
-                size: Size(size, size),
-                // Pass rotation so the painter counter-rotates the 'N' label;
-                // otherwise it spins with the canvas and is unreadable whenever
-                // the watch is not pointing north.
-                painter: FuzzyCompassPainter(
-                  sectors: sectorValues,
-                  rotation: rotation,
-                  // Without this the painter falls back to its near-black
-                  // default, making the background sector ring (and the
-                  // counter-rotated 'N' label backdrop) invisible against the
-                  // watch's black canvas. Use the theme's onSurface (white).
-                  onSurface: Theme.of(context).colorScheme.onSurface,
+            // Full-screen compass. The Semantics wrapper gives TalkBack the
+            // rough directions — the graphic is otherwise invisible to it, and
+            // (unlike the phone) there are no chips here, only the centre "to
+            // find" count. Same vague 8-wind label as the phone compass, so the
+            // fuzzy-location privacy contract holds on the watch too.
+            Semantics(
+              image: true,
+              label: FuzzyCompass.semanticLabel(_compassCounts),
+              child: Transform.rotate(
+                angle: -rotation,
+                child: CustomPaint(
+                  size: Size(size, size),
+                  // Pass rotation so the painter counter-rotates the 'N' label;
+                  // otherwise it spins with the canvas and is unreadable whenever
+                  // the watch is not pointing north.
+                  painter: FuzzyCompassPainter(
+                    sectors: sectorValues,
+                    rotation: rotation,
+                    // Without this the painter falls back to its near-black
+                    // default, making the background sector ring (and the
+                    // counter-rotated 'N' label backdrop) invisible against the
+                    // watch's black canvas. Use the theme's onSurface (white).
+                    onSurface: Theme.of(context).colorScheme.onSurface,
+                  ),
                 ),
               ),
             ),
