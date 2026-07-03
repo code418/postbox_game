@@ -899,6 +899,36 @@ void main() {
     });
   });
 
+  group('FuzzyCompass.semanticLabel', () {
+    test('summarises unclaimed directions with vague words + rough bearings', () {
+      // 2 → "a few", 4 → "several" (per vagueLabel).
+      final label = FuzzyCompass.semanticLabel({'NE': 2, 'S': 4});
+      expect(label,
+          contains('To find: a few to the north-east, several to the south'));
+      expect(label, isNot(contains('Already claimed')));
+    });
+
+    test('announces claimed directions (only place a screen reader hears them)',
+        () {
+      final label = FuzzyCompass.semanticLabel({}, {'W': 2});
+      expect(label, contains('All found today.'));
+      expect(label, contains('Already claimed: a few to the west'));
+    });
+
+    test('empty in every direction reads as no postboxes', () {
+      expect(
+        FuzzyCompass.semanticLabel({}, {}),
+        equals('Rough postbox compass. No postboxes in this area.'),
+      );
+    });
+
+    test('never leaks exact counts (fuzzy-location privacy contract)', () {
+      final label = FuzzyCompass.semanticLabel({'N': 42}, {'S': 17});
+      expect(label, isNot(contains('42')));
+      expect(label, isNot(contains('17')));
+    });
+  });
+
   group('compassHeadingDelta', () {
     // Shared by wear_compass_page and live_route_screen for compass-rotation
     // throttling. Crucial property: must handle the 360→0 wrap, otherwise

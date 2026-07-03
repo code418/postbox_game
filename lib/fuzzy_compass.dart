@@ -64,6 +64,51 @@ class FuzzyCompass extends StatelessWidget {
     return 'Several';
   }
 
+  /// Screen-reader summary of the compass. The visual [CustomPaint] is
+  /// otherwise unlabelled (invisible to assistive tech), and the on-screen
+  /// chips list only the unclaimed "to find" directions — so this is also the
+  /// only place a screen-reader user hears the *claimed* directions. Uses the
+  /// same 8-wind sectors + vague intensity words as the visual (never exact
+  /// bearings or counts), so the fuzzy-location privacy contract holds for
+  /// assistive tech too. Pure + static for unit testing.
+  static String semanticLabel(
+    Map<String, int> compassCounts, [
+    Map<String, int> claimedCompassCounts = const {},
+  ]) {
+    const order = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+    const names = {
+      'N': 'north',
+      'NE': 'north-east',
+      'E': 'east',
+      'SE': 'south-east',
+      'S': 'south',
+      'SW': 'south-west',
+      'W': 'west',
+      'NW': 'north-west',
+    };
+    String phrase(Map<String, int> counts) {
+      final sectors = to8Sectors(counts);
+      final parts = <String>[];
+      for (final d in order) {
+        final c = sectors[d] ?? 0;
+        if (c > 0) {
+          parts.add('${vagueLabel(c).toLowerCase()} to the ${names[d]}');
+        }
+      }
+      return parts.join(', ');
+    }
+
+    final toFind = phrase(compassCounts);
+    final claimed = phrase(claimedCompassCounts);
+    if (toFind.isEmpty && claimed.isEmpty) {
+      return 'Rough postbox compass. No postboxes in this area.';
+    }
+    final buf = StringBuffer('Rough postbox compass. ');
+    buf.write(toFind.isNotEmpty ? 'To find: $toFind.' : 'All found today.');
+    if (claimed.isNotEmpty) buf.write(' Already claimed: $claimed.');
+    return buf.toString();
+  }
+
   @override
   Widget build(BuildContext context) {
     final sectors = to8Sectors(compassCounts);
@@ -91,26 +136,29 @@ class FuzzyCompass extends StatelessWidget {
             ),
             Text(
               'No exact locations shown',
-              style: Theme.of(context)
-                  .textTheme
-                  .bodySmall
-                  ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant),
             ),
             const SizedBox(height: AppSpacing.md),
-            SizedBox(
-              width: 200,
-              height: 200,
-              child: Transform.rotate(
-                angle: -rotation,
-                child: CustomPaint(
-                  painter: FuzzyCompassPainter(
-                    sectors: order.map((d) => sectors[d] ?? 0).toList(),
-                    claimedSectors: order.map((d) => claimedSectors[d] ?? 0).toList(),
-                    // Painter needs the rotation so it can counter-rotate the
-                    // N label — otherwise the text renders sideways whenever
-                    // the device heading is non-zero.
-                    rotation: rotation,
-                    onSurface: Theme.of(context).colorScheme.onSurface,
+            Semantics(
+              image: true,
+              label: semanticLabel(compassCounts, claimedCompassCounts),
+              child: SizedBox(
+                width: 200,
+                height: 200,
+                child: Transform.rotate(
+                  angle: -rotation,
+                  child: CustomPaint(
+                    painter: FuzzyCompassPainter(
+                      sectors: order.map((d) => sectors[d] ?? 0).toList(),
+                      claimedSectors:
+                          order.map((d) => claimedSectors[d] ?? 0).toList(),
+                      // Painter needs the rotation so it can counter-rotate the
+                      // N label — otherwise the text renders sideways whenever
+                      // the device heading is non-zero.
+                      rotation: rotation,
+                      onSurface: Theme.of(context).colorScheme.onSurface,
+                    ),
                   ),
                 ),
               ),
@@ -158,11 +206,11 @@ class FuzzyCompass extends StatelessWidget {
             ] else ...[
               const SizedBox(height: AppSpacing.sm),
               Text(
-                hasAnyClaimed ? 'All found today!' : 'No postboxes in this area',
-                style: Theme.of(context)
-                    .textTheme
-                    .bodySmall
-                    ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+                hasAnyClaimed
+                    ? 'All found today!'
+                    : 'No postboxes in this area',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant),
               ),
             ],
           ],
@@ -218,8 +266,8 @@ class FuzzyCompassPainter extends CustomPainter {
       // is always visible even when a direction has no postboxes.
       final bgPath = Path()
         ..moveTo(center.dx, center.dy)
-        ..arcTo(Rect.fromCircle(center: center, radius: radius),
-            startAngle, sweepAngle, false)
+        ..arcTo(Rect.fromCircle(center: center, radius: radius), startAngle,
+            sweepAngle, false)
         ..close();
       canvas.drawPath(
         bgPath,
@@ -234,13 +282,14 @@ class FuzzyCompassPainter extends CustomPainter {
         final r = radius * extent;
         final claimedPath = Path()
           ..moveTo(center.dx, center.dy)
-          ..arcTo(Rect.fromCircle(center: center, radius: r),
-              startAngle, sweepAngle, false)
+          ..arcTo(Rect.fromCircle(center: center, radius: r), startAngle,
+              sweepAngle, false)
           ..close();
         canvas.drawPath(
           claimedPath,
           Paint()
-            ..color = onSurface.withValues(alpha: 0.25 + 0.35 * (claimed / maxCount))
+            ..color =
+                onSurface.withValues(alpha: 0.25 + 0.35 * (claimed / maxCount))
             ..style = PaintingStyle.fill,
         );
         canvas.drawPath(
@@ -255,20 +304,20 @@ class FuzzyCompassPainter extends CustomPainter {
       // Draw unclaimed postboxes on top (red).
       if (count > 0) {
         // Red fill grows OUTWARD from center — more postboxes → larger sector.
-        final extent =
-            (0.3 + 0.7 * (count / maxCount)).clamp(0.0, 1.0);
+        final extent = (0.3 + 0.7 * (count / maxCount)).clamp(0.0, 1.0);
         final r = radius * extent;
 
         final fillPath = Path()
           ..moveTo(center.dx, center.dy)
-          ..arcTo(Rect.fromCircle(center: center, radius: r),
-              startAngle, sweepAngle, false)
+          ..arcTo(Rect.fromCircle(center: center, radius: r), startAngle,
+              sweepAngle, false)
           ..close();
 
         canvas.drawPath(
           fillPath,
           Paint()
-            ..color = postalRed.withValues(alpha: 0.25 + 0.5 * (count / maxCount))
+            ..color =
+                postalRed.withValues(alpha: 0.25 + 0.5 * (count / maxCount))
             ..style = PaintingStyle.fill,
         );
         canvas.drawPath(
@@ -286,8 +335,7 @@ class FuzzyCompassPainter extends CustomPainter {
     // within the 200×200 canvas; placing it outside would clip the circle.
     final nX = center.dx;
     final nY = center.dy - radius + 3;
-    canvas.drawCircle(
-        Offset(nX, nY), 9, Paint()..color = postalRed);
+    canvas.drawCircle(Offset(nX, nY), 9, Paint()..color = postalRed);
 
     // Counter-rotate the 'N' label so it stays upright relative to the
     // screen. The parent Transform.rotate spins the whole canvas by
@@ -302,7 +350,8 @@ class FuzzyCompassPainter extends CustomPainter {
       fontSize: 10,
       fontWeight: FontWeight.bold,
     ))
-      ..pushStyle(ui.TextStyle(color: Colors.white, fontWeight: FontWeight.bold))
+      ..pushStyle(
+          ui.TextStyle(color: Colors.white, fontWeight: FontWeight.bold))
       ..addText('N');
     final para = builder.build()
       ..layout(const ui.ParagraphConstraints(width: 18));
