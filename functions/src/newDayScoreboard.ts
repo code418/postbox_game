@@ -9,6 +9,7 @@ import {
   getPeriodKey,
   LeaderboardEntry,
 } from "./_leaderboardUtils";
+import { DELETED_UID } from "./_accountDeletion";
 
 const db = admin.firestore();
 
@@ -56,6 +57,9 @@ export async function rebuildPeriodLeaderboard(
   for (const doc of claimsSnap.docs) {
     const d = doc.data();
     const uid = d.userid as string;
+    // Skip claims anonymised by account deletion — aggregating them would
+    // resurrect a single "deleted" mega-entry on the rebuilt board.
+    if (uid === DELETED_UID) continue;
     const pts = (d.points as number | undefined) ?? 0;
     userPoints.set(uid, (userPoints.get(uid) ?? 0) + pts);
   }

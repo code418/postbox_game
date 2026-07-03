@@ -136,5 +136,13 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // ── deletions collection ─────────────────────────────────────────────────
+    // Per-London-day account-deletion audit counter, written by the
+    // onUserDeleted Cloud Function (Admin SDK). Server-only; clients have no
+    // business reading or writing it.
+    match /deletions/{docId} {
+      allow read, write: if false;
+    }
+
   }
 }

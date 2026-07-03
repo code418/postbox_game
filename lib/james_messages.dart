@@ -374,7 +374,8 @@ abstract final class JamesMessages {
       "You got there in the end. Nicely done.",
       "Destination reached. I am quietly impressed.",
       "All the way there. Top effort.",
-      "Job done. Time for a sit-down, I'd say.",
+      "Finally!",
+      "Job done. Time for a sit-down and a cup of tea, I'd say.",
     ],
   );
 

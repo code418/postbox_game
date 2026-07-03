@@ -2026,6 +2026,21 @@ describe("rebuildPeriodLeaderboard (unit, mock Firestore)", () => {
     assert.strictEqual(entries[0].displayName, "Player_abc123");
   });
 
+  it("skips anonymised (deleted) claims so no 'deleted' entry resurrects", async () => {
+    const { db, getWrittenLb } = makeMockDb(
+      [
+        { userid: "deleted", dailyDate: "2026-04-13", points: 50 }, // anonymised
+        { userid: "u1", dailyDate: "2026-04-13", points: 5 },
+      ],
+      { u1: { displayName: "Alice" } }
+    );
+    await rebuildPeriodLeaderboard("daily", "2026-04-13", "2026-04-13", db);
+    const entries = getWrittenLb()!.entries as Array<{ uid: string }>;
+    assert.strictEqual(entries.length, 1);
+    assert.strictEqual(entries[0].uid, "u1");
+    assert.ok(!entries.some((e) => e.uid === "deleted"));
+  });
+
   it("excludes claims outside the date range", async () => {
     const { db, getWrittenLb } = makeMockDb(
       [
@@ -3464,5 +3479,213 @@ describe("abuse signals: applyTrustDecay", () => {
   });
   it("never rises above the default ceiling", () => {
     assert.ok(applyTrustDecay(DEFAULT_TRUST_SCORE, "low") <= DEFAULT_TRUST_SCORE);
+  });
+});
+
+// ── Account deletion (GDPR) helpers (unit, mock Firestore) ─────────────────────
+import {
+  DELETED_UID,
+  anonymiseClaimsForUser,
+  anonymiseReportsForUser,
+  removeUserFromFriends,
+  removeUserFromLeaderboards,
+} from "../_accountDeletion";
+
+describe("account deletion: anonymiseClaimsForUser (mock Firestore)", () => {
+  type Doc = { id: string; userid?: string; points?: number };
+  function makeDb(claims: Doc[]) {
+    const writes: Array<{ id: string; update: Record<string, unknown> }> = [];
+    const db = {
+      collection: (name: string) => {
+        if (name !== "claims") throw new Error(`unexpected collection ${name}`);
+        let filter: unknown;
+        const q = {
+          where(field: string, op: string, val: unknown) {
+            if (field !== "userid" || op !== "==") throw new Error(`unexpected where ${field} ${op}`);
+            filter = val;
+            return q;
+          },
+          async get() {
+            return {
+              docs: claims
+                .filter((c) => c.userid === filter)
+                .map((c) => ({ ref: { id: c.id }, data: () => c as Record<string, unknown> })),
+            };
+          },
+        };
+        return q;
+      },
+      batch() {
+        const bw: Array<{ id: string; update: Record<string, unknown> }> = [];
+        return {
+          set(ref: { id: string }, update: Record<string, unknown>) { bw.push({ id: ref.id, update }); },
+          async commit() { writes.push(...bw); },
+        };
+      },
+    };
+    return { db: db as unknown as import("firebase-admin").firestore.Firestore, writes };
+  }
+
+  it("rewrites userid to the deleted sentinel and strips location PII", async () => {
+    const { db, writes } = makeDb([
+      { id: "c1", userid: "u1", points: 9 },
+      { id: "c2", userid: "u1", points: 4 },
+      { id: "c3", userid: "u2", points: 7 }, // different user — untouched
+    ]);
+    const n = await anonymiseClaimsForUser(db, "u1");
+    assert.strictEqual(n, 2);
+    assert.strictEqual(writes.length, 2);
+    assert.ok(!writes.some((w) => w.id === "c3"));
+    for (const w of writes) {
+      assert.strictEqual(w.update.userid, DELETED_UID);
+      // points is preserved (not part of the update).
+      assert.strictEqual("points" in w.update, false);
+      // Location fields are FieldValue.delete() sentinels (objects, not values).
+      for (const f of ["userLat", "userLng", "coordKey6", "clientTsMs", "travelSpeed"]) {
+        assert.ok(f in w.update, `${f} should be in the update`);
+        assert.notStrictEqual(typeof w.update[f], "number");
+        assert.notStrictEqual(typeof w.update[f], "string");
+      }
+    }
+  });
+});
+
+describe("account deletion: anonymiseReportsForUser (mock Firestore)", () => {
+  function makeDb(reports: Array<{ id: string; reporterUid?: string }>) {
+    const writes: Array<{ id: string; update: Record<string, unknown> }> = [];
+    const db = {
+      collection: (name: string) => {
+        if (name !== "reports") throw new Error(`unexpected collection ${name}`);
+        let filter: unknown;
+        const q = {
+          where(field: string, op: string, val: unknown) {
+            if (field !== "reporterUid" || op !== "==") throw new Error(`unexpected where ${field} ${op}`);
+            filter = val;
+            return q;
+          },
+          async get() {
+            return {
+              docs: reports
+                .filter((r) => r.reporterUid === filter)
+                .map((r) => ({ ref: { id: r.id }, data: () => r as Record<string, unknown> })),
+            };
+          },
+        };
+        return q;
+      },
+      batch() {
+        const bw: Array<{ id: string; update: Record<string, unknown> }> = [];
+        return {
+          set(ref: { id: string }, update: Record<string, unknown>) { bw.push({ id: ref.id, update }); },
+          async commit() { writes.push(...bw); },
+        };
+      },
+    };
+    return { db: db as unknown as import("firebase-admin").firestore.Firestore, writes };
+  }
+
+  it("rewrites reporterUid to the deleted sentinel for the user's reports only", async () => {
+    const { db, writes } = makeDb([
+      { id: "r1", reporterUid: "u1" },
+      { id: "r2", reporterUid: "u2" },
+    ]);
+    const n = await anonymiseReportsForUser(db, "u1");
+    assert.strictEqual(n, 1);
+    assert.strictEqual(writes.length, 1);
+    assert.strictEqual(writes[0].id, "r1");
+    assert.strictEqual(writes[0].update.reporterUid, DELETED_UID);
+  });
+});
+
+describe("account deletion: removeUserFromFriends (mock Firestore)", () => {
+  function makeDb(users: Array<{ id: string; friends: string[] }>) {
+    const writes: Array<{ id: string; update: Record<string, unknown> }> = [];
+    const db = {
+      collection: (name: string) => {
+        if (name !== "users") throw new Error(`unexpected collection ${name}`);
+        let val: unknown;
+        const q = {
+          where(field: string, op: string, v: unknown) {
+            if (field !== "friends" || op !== "array-contains") throw new Error(`unexpected where ${field} ${op}`);
+            val = v;
+            return q;
+          },
+          async get() {
+            return {
+              docs: users
+                .filter((u) => u.friends.includes(val as string))
+                .map((u) => ({ ref: { id: u.id }, data: () => u as Record<string, unknown> })),
+            };
+          },
+        };
+        return q;
+      },
+      batch() {
+        const bw: Array<{ id: string; update: Record<string, unknown> }> = [];
+        return {
+          set(ref: { id: string }, update: Record<string, unknown>) { bw.push({ id: ref.id, update }); },
+          async commit() { writes.push(...bw); },
+        };
+      },
+    };
+    return { db: db as unknown as import("firebase-admin").firestore.Firestore, writes };
+  }
+
+  it("removes the uid from each friend list containing it, and only those", async () => {
+    const { db, writes } = makeDb([
+      { id: "a", friends: ["u1", "x"] },
+      { id: "b", friends: ["y"] },
+      { id: "c", friends: ["u1"] },
+    ]);
+    const n = await removeUserFromFriends(db, "u1");
+    assert.strictEqual(n, 2);
+    assert.deepStrictEqual(writes.map((w) => w.id).sort(), ["a", "c"]);
+    // friends is set to an arrayRemove() sentinel (object, not an array).
+    assert.ok(!Array.isArray(writes[0].update.friends));
+  });
+});
+
+describe("account deletion: removeUserFromLeaderboards (mock Firestore)", () => {
+  function makeDb(initial: Record<string, { entries: Array<{ uid: string }> }>) {
+    const store = new Map(Object.entries(initial));
+    const db = {
+      collection: (name: string) => {
+        if (name !== "leaderboards") throw new Error(`unexpected collection ${name}`);
+        return {
+          doc: (id: string) => ({
+            _id: id,
+            collection: (sub: string) => ({ doc: (slug: string) => ({ _id: `${id}/${sub}/${slug}` }) }),
+          }),
+        };
+      },
+      runTransaction: async (fn: (tx: unknown) => Promise<void>) => {
+        const pending: Array<[string, Record<string, unknown>]> = [];
+        await fn({
+          get: async (r: { _id: string }) => ({ data: () => store.get(r._id) }),
+          set: (r: { _id: string }, data: Record<string, unknown>) => pending.push([r._id, data]),
+        });
+        for (const [id, data] of pending) {
+          store.set(id, { ...(store.get(id) ?? { entries: [] }), ...data } as { entries: Array<{ uid: string }> });
+        }
+      },
+    };
+    return { db: db as unknown as import("firebase-admin").firestore.Firestore, store };
+  }
+
+  it("filters the uid out of every period and county board, keeping others", async () => {
+    const { db, store } = makeDb({
+      daily: { entries: [{ uid: "u1" }, { uid: "u2" }] },
+      weekly: { entries: [{ uid: "u2" }] },
+      monthly: { entries: [{ uid: "u1" }] },
+      lifetime: { entries: [{ uid: "u1" }, { uid: "u3" }] },
+      "lifetime_by_county/counties/avon": { entries: [{ uid: "u1" }, { uid: "u2" }] },
+    });
+    await removeUserFromLeaderboards(db, "u1", ["avon"]);
+    const ids = (k: string) => (store.get(k)?.entries ?? []).map((e) => e.uid);
+    assert.deepStrictEqual(ids("daily"), ["u2"]);
+    assert.deepStrictEqual(ids("weekly"), ["u2"]);
+    assert.deepStrictEqual(ids("monthly"), []);
+    assert.deepStrictEqual(ids("lifetime"), ["u3"]);
+    assert.deepStrictEqual(ids("lifetime_by_county/counties/avon"), ["u2"]);
   });
 });

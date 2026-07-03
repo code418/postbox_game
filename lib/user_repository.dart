@@ -146,6 +146,48 @@ class UserRepository {
     await user.updatePassword(newPassword);
   }
 
+  /// Permanently deletes the signed-in user's Firebase Auth account. Firebase
+  /// requires a recent login for [User.delete], so this re-authenticates first:
+  /// password users supply [currentPassword]; Google users re-run the Google
+  /// sign-in to obtain a fresh credential.
+  ///
+  /// The `onUserDeleted` Cloud Function then erases / anonymises the user's
+  /// Firestore + Storage data. Throws [FirebaseAuthException] on wrong password,
+  /// `requires-recent-login`, or no current user.
+  Future<void> deleteAccount({String? currentPassword}) async {
+    final user = _firebaseAuth.currentUser;
+    if (user == null) {
+      throw FirebaseAuthException(code: 'no-current-user');
+    }
+    final providers = user.providerData.map((p) => p.providerId).toSet();
+
+    if (providers.contains('password')) {
+      if (user.email == null || currentPassword == null || currentPassword.isEmpty) {
+        // The UI prompts for the password before calling; treat a missing one
+        // as a wrong-password so the same error message is shown.
+        throw FirebaseAuthException(code: 'wrong-password');
+      }
+      final credential = EmailAuthProvider.credential(
+        email: user.email!,
+        password: currentPassword,
+      );
+      await user.reauthenticateWithCredential(credential);
+    } else if (providers.contains('google.com')) {
+      final googleUser = await _googleSignIn.authenticate();
+      final googleAuth = googleUser.authentication;
+      final credential = GoogleAuthProvider.credential(idToken: googleAuth.idToken);
+      await user.reauthenticateWithCredential(credential);
+    }
+
+    await user.delete();
+
+    // Best-effort: clear any lingering Google session so the next sign-in
+    // shows the account chooser rather than silently re-using the deleted one.
+    try {
+      await _googleSignIn.signOut();
+    } catch (_) {}
+  }
+
   Future<void> signOut() async {
     await Future.wait([
       _firebaseAuth.signOut(),

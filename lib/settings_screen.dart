@@ -468,6 +468,128 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _deleteAccount() async {
+    if (MaintenanceGuard.blocked(context, actionLabel: 'delete your account')) {
+      return;
+    }
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    final isPasswordUser =
+        user.providerData.any((p) => p.providerId == 'password');
+
+    // 1. Strong, irreversible-action confirmation.
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        icon: Icon(Icons.warning_amber_rounded,
+            color: Colors.red.shade700, size: 36),
+        title: const Text('Delete account?'),
+        content: const Text(
+          'This permanently deletes your account and removes your data. Your '
+          'past claims are anonymised and your scores are removed from the '
+          'leaderboards. This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    // 2. Re-auth for password users (Firebase requires a recent login). Google
+    //    users re-auth inside deleteAccount via the Google sign-in flow.
+    String? password;
+    if (isPasswordUser) {
+      password = await _promptPassword();
+      if (password == null || !mounted) return; // cancelled
+    }
+
+    // 3. Delete + return to the auth gate.
+    setState(() => _isSaving = true);
+    try {
+      await _userRepository.deleteAccount(currentPassword: password);
+      if (!mounted) return;
+      context.read<AuthenticationBloc>().add(LoggedOut());
+      Navigator.of(context).popUntil((route) => route.isFirst);
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+      final msg = switch (e.code) {
+        'wrong-password' || 'invalid-credential' => 'Password is incorrect.',
+        'requires-recent-login' =>
+          'Please sign out and back in, then try again.',
+        'network-request-failed' => 'No internet connection.',
+        'too-many-requests' => 'Too many attempts. Please wait and try again.',
+        _ => 'Could not delete your account. Please try again.',
+      };
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(msg), backgroundColor: Colors.red.shade700),
+      );
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('Could not delete your account. Please try again.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  /// Prompts for the current password (password-provider re-auth). Returns the
+  /// entered value, or null if the user cancelled.
+  Future<String?> _promptPassword() async {
+    final ctrl = TextEditingController();
+    bool show = false;
+    try {
+      return await showDialog<String>(
+        context: context,
+        builder: (ctx) => StatefulBuilder(
+          builder: (ctx, setDialogState) => AlertDialog(
+            title: const Text('Confirm your password'),
+            content: TextField(
+              controller: ctrl,
+              obscureText: !show,
+              autofocus: true,
+              decoration: InputDecoration(
+                labelText: 'Password',
+                prefixIcon: const Icon(Icons.lock_outline),
+                suffixIcon: IconButton(
+                  icon: Icon(show
+                      ? Icons.visibility_off_outlined
+                      : Icons.visibility_outlined),
+                  tooltip: show ? 'Hide password' : 'Show password',
+                  onPressed: () => setDialogState(() => show = !show),
+                ),
+              ),
+              onSubmitted: (_) => Navigator.pop(ctx, ctrl.text),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, ctrl.text),
+                child: const Text('Continue'),
+              ),
+            ],
+          ),
+        ),
+      );
+    } finally {
+      ctrl.dispose();
+    }
+  }
+
   Future<void> _showAbout() async {
     // Read pubspec version at runtime so the dialog never drifts behind a
     // released `1.0.0+N` bump. PackageInfo.fromPlatform() is a no-op on
@@ -584,6 +706,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
             title: const Text('Sign out'),
             subtitle: const Text('Sign out of your account'),
             onTap: _signOut,
+          ),
+          ListTile(
+            leading: Icon(Icons.delete_forever, color: Colors.red.shade700),
+            title: Text('Delete account',
+                style: TextStyle(color: Colors.red.shade700)),
+            subtitle: const Text('Permanently delete your account and data'),
+            onTap: _isSaving ? null : _deleteAccount,
           ),
           const Divider(height: 24),
           _sectionHeader('App'),

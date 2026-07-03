@@ -234,6 +234,34 @@ void main() {
         completes,
       );
     });
+
+    test('deleteAccount throws when no user is signed in', () async {
+      expect(
+        () => repo.deleteAccount(currentPassword: 'whatever'),
+        throwsA(isA<FirebaseAuthException>()),
+      );
+    });
+
+    test('deleteAccount throws wrong-password for a password user with no password', () async {
+      // createUserWithEmailAndPassword gives the mock user a 'password' provider,
+      // so deleteAccount takes the re-auth branch and requires a password.
+      await repo.signUp(email: 'carol@example.com', password: 'password123');
+      await expectLater(
+        repo.deleteAccount(currentPassword: null),
+        throwsA(isA<FirebaseAuthException>()
+            .having((e) => e.code, 'code', 'wrong-password')),
+      );
+    });
+
+    test('deleteAccount completes for a signed-in email user with a password', () async {
+      await repo.signUp(email: 'dave@example.com', password: 'password123');
+      // The mock's reauthenticateWithCredential + delete both succeed, so this
+      // verifies the password-provider re-auth → delete call chain.
+      await expectLater(
+        repo.deleteAccount(currentPassword: 'password123'),
+        completes,
+      );
+    });
   });
 
   // ---------------------------------------------------------------------------
