@@ -35,6 +35,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     'friendFirstScore': true,
     'friendOvertakes': true,
     'addedAsFriend': true,
+    'streakReminder': true,
   };
   bool _notifPrefsLoaded = false;
   final _userRepository = UserRepository();
@@ -80,6 +81,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             'friendFirstScore': raw['friendFirstScore'] as bool? ?? true,
             'friendOvertakes': raw['friendOvertakes'] as bool? ?? true,
             'addedAsFriend': raw['addedAsFriend'] as bool? ?? true,
+            'streakReminder': raw['streakReminder'] as bool? ?? true,
           };
         }
         _notifPrefsLoaded = true;
@@ -770,6 +772,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   const Text('When someone adds you to their friends list'),
               value: _notifPrefs['addedAsFriend']!,
               onChanged: (v) => _setNotifPref('addedAsFriend', v),
+            ),
+            SwitchListTile(
+              secondary: const Icon(Icons.local_fire_department_outlined),
+              title: const Text('Streak reminder'),
+              subtitle: const Text(
+                  'An evening nudge to claim before you lose your daily streak'),
+              value: _notifPrefs['streakReminder']!,
+              onChanged: (v) => _setNotifPref('streakReminder', v),
             ),
           ],
           const Divider(height: 24),

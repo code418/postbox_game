@@ -6,6 +6,7 @@ import { onUserCreated } from "./onUserCreated";
 import { onUserDeleted } from "./onUserDeleted";
 import { updateDisplayName } from "./updateDisplayName";
 import { newDayScoreboard } from "./newDayScoreboard";
+import { streakReminder } from "./streakReminder";
 import { registerFcmToken, onFriendAdded } from "./_notifications";
 import { userClaimHistory } from "./userClaimHistory";
 import { submitReport, reviewReport } from "./reports";
@@ -19,6 +20,7 @@ export {
   onUserDeleted,
   updateDisplayName,
   newDayScoreboard,
+  streakReminder,
   registerFcmToken,
   onFriendAdded,
   userClaimHistory,

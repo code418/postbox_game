@@ -37,7 +37,7 @@ export function diffFriends(before: string[], after: string[]): string[] {
  * on the user document so they are not exposed to other authenticated users
  * through the world-readable `users/{uid}` Firestore rules.
  */
-async function sendToUser(uid: string, title: string, body: string): Promise<void> {
+export async function sendToUser(uid: string, title: string, body: string): Promise<void> {
   const doc = await database.collection("fcmTokens").doc(uid).get();
   const tokens: string[] = (doc.data()?.tokens as string[] | undefined) ?? [];
   if (tokens.length === 0) return;

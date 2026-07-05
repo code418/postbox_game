@@ -3,7 +3,16 @@ import test from "firebase-functions-test";
 import * as myFunctions from "../index";
 import { filterToCorridor, filterToEllipse, beamSearchOrienteering, metresBetween } from "../_routePlanner";
 import { getPoints } from "../_getPoints";
-import { getTodayLondon } from "../_dateUtils";
+import { getTodayLondon, previousDay, getLondonHourMinute } from "../_dateUtils";
+import {
+  decideFire,
+  slotForLondonTime,
+  shouldNotifyStreakReminder,
+  streakReminderBody,
+  findStreakReminderRecipients,
+  sendStreakReminders,
+  STREAK_REMINDER_SLOTS,
+} from "../streakReminder";
 import { getWeekStart, getMonthStart, getPeriodKey, mergePeriodEntries, mergeLifetimeEntries, updateUserLeaderboards, countySlug } from "../_leaderboardUtils";
 import { setPrecision, getLatLng, MAX_GEOHASH_PRECISION } from "../_lookupPostboxes";
 import { applyUserClaims } from "../_nearbyUtils";
@@ -3704,5 +3713,210 @@ describe("account deletion: removeUserFromLeaderboards (mock Firestore)", () => 
     assert.deepStrictEqual(ids("monthly"), []);
     assert.deepStrictEqual(ids("lifetime"), ["u3"]);
     assert.deepStrictEqual(ids("lifetime_by_county/counties/avon"), ["u2"]);
+  });
+});
+
+// ── Streak reminder (scheduled notification) ──────────────────────────────────
+
+describe("previousDay", () => {
+  it("subtracts one day", () => {
+    assert.strictEqual(previousDay("2026-07-05"), "2026-07-04");
+  });
+  it("crosses a month boundary", () => {
+    assert.strictEqual(previousDay("2026-07-01"), "2026-06-30");
+  });
+  it("crosses a year boundary", () => {
+    assert.strictEqual(previousDay("2026-01-01"), "2025-12-31");
+  });
+  it("handles a leap day", () => {
+    assert.strictEqual(previousDay("2024-03-01"), "2024-02-29");
+  });
+});
+
+describe("getLondonHourMinute", () => {
+  it("returns in-range hour and minute", () => {
+    const { hour, minute } = getLondonHourMinute();
+    assert.ok(Number.isInteger(hour) && hour >= 0 && hour <= 23, `hour ${hour}`);
+    assert.ok(Number.isInteger(minute) && minute >= 0 && minute <= 59, `minute ${minute}`);
+  });
+});
+
+describe("slotForLondonTime", () => {
+  it("maps 17:00 to slot 0 and 20:45 to the last slot", () => {
+    assert.strictEqual(slotForLondonTime(17, 0), 0);
+    assert.strictEqual(slotForLondonTime(20, 45), STREAK_REMINDER_SLOTS - 1);
+  });
+  it("maps quarter-hours within an hour", () => {
+    assert.strictEqual(slotForLondonTime(17, 14), 0);
+    assert.strictEqual(slotForLondonTime(17, 15), 1);
+    assert.strictEqual(slotForLondonTime(18, 30), 6);
+  });
+  it("clamps below the window to 0 and above to the last slot", () => {
+    assert.strictEqual(slotForLondonTime(9, 0), 0);
+    assert.strictEqual(slotForLondonTime(23, 59), STREAK_REMINDER_SLOTS - 1);
+  });
+});
+
+describe("shouldNotifyStreakReminder", () => {
+  it("is enabled when no prefs exist", () => {
+    assert.strictEqual(shouldNotifyStreakReminder({}), true);
+    assert.strictEqual(shouldNotifyStreakReminder(undefined), true);
+  });
+  it("is enabled when the key is absent from prefs", () => {
+    assert.strictEqual(
+      shouldNotifyStreakReminder({ notificationPrefs: { friendOvertakes: false } }),
+      true
+    );
+  });
+  it("is disabled only when explicitly false", () => {
+    assert.strictEqual(
+      shouldNotifyStreakReminder({ notificationPrefs: { streakReminder: false } }),
+      false
+    );
+    assert.strictEqual(
+      shouldNotifyStreakReminder({ notificationPrefs: { streakReminder: true } }),
+      true
+    );
+  });
+});
+
+describe("streakReminderBody", () => {
+  it("includes the streak length when known", () => {
+    assert.ok(streakReminderBody(12).includes("12-day streak"));
+  });
+  it("omits the number for a missing or zero streak", () => {
+    assert.ok(!/\d/.test(streakReminderBody(undefined)));
+    assert.ok(!/\d/.test(streakReminderBody(0)));
+  });
+});
+
+describe("decideFire", () => {
+  const TODAY = "2026-07-05";
+
+  it("rolls a random target slot on the first run of a new day", () => {
+    // rng 0.5 * 16 = 8 → floor → slot 8
+    const { fire, newState } = decideFire(undefined, TODAY, 0, 16, () => 0.5);
+    assert.strictEqual(newState.day, TODAY);
+    assert.strictEqual(newState.targetSlot, 8);
+    assert.strictEqual(fire, false, "slot 0 is before target 8");
+  });
+
+  it("re-rolls and drops a stale sentDay when the stored state is from a previous day", () => {
+    const prev = { day: "2026-07-04", targetSlot: 2, sentDay: "2026-07-04" };
+    // rng 0.5 * 16 = 8 → target slot 8; current slot 0 is before it, so no fire
+    // and we can observe the re-rolled target. The stale sentDay is dropped so
+    // the persisted state never carries an undefined field into Firestore.
+    const { fire, newState } = decideFire(prev, TODAY, 0, 16, () => 0.5);
+    assert.strictEqual(fire, false);
+    assert.strictEqual(newState.day, TODAY);
+    assert.strictEqual(newState.targetSlot, 8);
+    assert.strictEqual(newState.sentDay, undefined, "stale sentDay dropped");
+    assert.ok(!("sentDay" in newState), "sentDay key omitted entirely, not set to undefined");
+  });
+
+  it("does not fire before the target slot", () => {
+    const state = { day: TODAY, targetSlot: 10 };
+    const { fire, newState } = decideFire(state, TODAY, 9, 16, () => 0);
+    assert.strictEqual(fire, false);
+    assert.strictEqual(newState.sentDay, undefined);
+  });
+
+  it("fires when the current slot reaches the target and stamps sentDay", () => {
+    const state = { day: TODAY, targetSlot: 10 };
+    const { fire, newState } = decideFire(state, TODAY, 10, 16, () => 0);
+    assert.strictEqual(fire, true);
+    assert.strictEqual(newState.sentDay, TODAY);
+  });
+
+  it("fires when the current slot has passed the target (robust to skipped runs)", () => {
+    const state = { day: TODAY, targetSlot: 5 };
+    const { fire } = decideFire(state, TODAY, 12, 16, () => 0);
+    assert.strictEqual(fire, true);
+  });
+
+  it("never fires twice on the same day", () => {
+    const state = { day: TODAY, targetSlot: 5, sentDay: TODAY };
+    const { fire, newState } = decideFire(state, TODAY, 15, 16, () => 0);
+    assert.strictEqual(fire, false);
+    assert.strictEqual(newState.sentDay, TODAY);
+  });
+});
+
+describe("findStreakReminderRecipients (unit, mock Firestore)", () => {
+  type UserDoc = { lastClaimDate?: string; streak?: number; notificationPrefs?: Record<string, boolean> };
+
+  function makeMockDb(users: Record<string, UserDoc>) {
+    const db = {
+      collection: (name: string) => {
+        if (name !== "users") throw new Error(`Unexpected collection: ${name}`);
+        let preds: Array<{ field: string; op: string; val: unknown }> = [];
+        const q = {
+          where(f: string, o: string, v: unknown) {
+            preds = [...preds, { field: f, op: o, val: v }];
+            return q;
+          },
+          async get() {
+            return {
+              docs: Object.entries(users)
+                .filter(([, d]) =>
+                  preds.every(({ field, op, val }) => {
+                    const v = (d as Record<string, unknown>)[field];
+                    return op === "==" ? v === val : false;
+                  })
+                )
+                .map(([id, d]) => ({ id, data: () => d as Record<string, unknown> })),
+            };
+          },
+        };
+        return q;
+      },
+    };
+    return db as unknown as import("firebase-admin").firestore.Firestore;
+  }
+
+  it("returns only users whose lastClaimDate equals yesterday", async () => {
+    const db = makeMockDb({
+      u1: { lastClaimDate: "2026-07-04", streak: 3 },
+      u2: { lastClaimDate: "2026-07-05", streak: 9 }, // claimed today — excluded
+      u3: { lastClaimDate: "2026-07-04", streak: 1 },
+      u4: { streak: 0 }, // never claimed — excluded
+    });
+    const recipients = await findStreakReminderRecipients("2026-07-04", db);
+    const uids = recipients.map((r) => r.uid).sort();
+    assert.deepStrictEqual(uids, ["u1", "u3"]);
+    assert.strictEqual(recipients.find((r) => r.uid === "u1")!.streak, 3);
+  });
+});
+
+describe("sendStreakReminders", () => {
+  function recipient(uid: string, streak: number, prefs?: Record<string, boolean>) {
+    return { uid, streak, fdata: { streak, notificationPrefs: prefs } as Record<string, unknown> };
+  }
+
+  it("sends to eligible recipients and skips opted-out ones", async () => {
+    const sent: string[] = [];
+    const count = await sendStreakReminders(
+      [
+        recipient("u1", 5),
+        recipient("u2", 2, { streakReminder: false }),
+        recipient("u3", 8, { streakReminder: true }),
+      ],
+      async (uid) => { sent.push(uid); }
+    );
+    assert.strictEqual(count, 2);
+    assert.deepStrictEqual(sent.sort(), ["u1", "u3"]);
+  });
+
+  it("continues past a failing send (allSettled)", async () => {
+    const sent: string[] = [];
+    const count = await sendStreakReminders(
+      [recipient("u1", 5), recipient("u2", 3)],
+      async (uid) => {
+        if (uid === "u1") throw new Error("push failed");
+        sent.push(uid);
+      }
+    );
+    assert.strictEqual(count, 2, "both are eligible even if one send throws");
+    assert.deepStrictEqual(sent, ["u2"]);
   });
 });
