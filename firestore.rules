@@ -144,5 +144,13 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // ── notificationState collection ─────────────────────────────────────────
+    // Server-only dispatch bookkeeping for scheduled notifications (e.g. the
+    // once-per-day streak reminder's random target slot / sent marker). Written
+    // exclusively by Cloud Functions (Admin SDK); clients never touch it.
+    match /notificationState/{docId} {
+      allow read, write: if false;
+    }
+
   }
 }
