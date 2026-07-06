@@ -3491,6 +3491,23 @@ describe("abuse signals: applyTrustDecay", () => {
   });
 });
 
+// ── dailyClaimPatch: the postbox claim patch must never carry claimant PII ─────
+import { dailyClaimPatch } from "../startScoring";
+
+describe("dailyClaimPatch (postbox claim patch)", () => {
+  it("writes only the London date", () => {
+    assert.deepStrictEqual(dailyClaimPatch("2026-07-03"), {
+      dailyClaim: { date: "2026-07-03" },
+    });
+  });
+  it("never includes a `by` uid (location-PII regression guard)", () => {
+    // postbox docs are world-readable + carry the exact geopoint, so a claimant
+    // uid here would leak "who was at this location on this date". Pin that it
+    // is never reintroduced.
+    assert.strictEqual("by" in dailyClaimPatch("2026-07-03").dailyClaim, false);
+  });
+});
+
 // ── Account deletion (GDPR) helpers (unit, mock Firestore) ─────────────────────
 import {
   DELETED_UID,
