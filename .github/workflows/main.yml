@@ -4,6 +4,9 @@ on:
   pull_request:
     branches:
       - master
+  # Allow running the (pricier) macOS iOS build on demand from the Actions tab
+  # without opening a PR.
+  workflow_dispatch:
 
 jobs:
   build:
@@ -33,3 +36,57 @@ jobs:
       - run: flutter analyze
       - run: flutter test
       - run: flutter build web
+
+  # Compiles the iOS app on a macOS runner. Proves the whole iOS toolchain is
+  # healthy — CocoaPods resolves the Firebase 12.x pods against the iOS 15
+  # deployment target, and Dart compiles/links to a native Runner.app — WITHOUT
+  # needing a paid Apple Developer account or signing certificates. This is the
+  # only way to build for iOS without a Mac of your own.
+  build-ios:
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.x'
+          channel: 'stable'
+
+      - name: Create secrets.dart from example (CI placeholder)
+        run: |
+          if [ ! -f lib/secrets.dart ]; then
+            cp lib/secrets.dart.example lib/secrets.dart
+          fi
+
+      - run: flutter pub get
+
+      # Runs `pod install` then compiles & links an unsigned release Runner.app.
+      # --no-codesign skips the parts that would require certificates/profiles.
+      - run: flutter build ios --release --no-codesign
+
+      # ----------------------------------------------------------------------
+      # NEXT STEP — ship to a physical device / TestFlight (needs a paid Apple
+      # Developer account, $99/yr). Replace the step above with a signed archive
+      # and upload. Sketch of the extra steps:
+      #
+      #   - name: Import signing certificate
+      #     uses: apple-actions/import-codesign-certs@v3
+      #     with:
+      #       p12-file-base64: ${{ secrets.IOS_DIST_CERT_P12 }}
+      #       p12-password:    ${{ secrets.IOS_DIST_CERT_PASSWORD }}
+      #   - name: Install provisioning profile
+      #     uses: apple-actions/download-provisioning-profiles@v3
+      #     with:
+      #       bundle-id: com.code418.postboxGame
+      #       issuer-id: ${{ secrets.ASC_ISSUER_ID }}
+      #       api-key-id: ${{ secrets.ASC_KEY_ID }}
+      #       api-private-key: ${{ secrets.ASC_KEY_P8 }}
+      #   - run: flutter build ipa --release --export-options-plist=ios/ExportOptions.plist
+      #   - name: Upload to TestFlight
+      #     run: |
+      #       xcrun altool --upload-app -f build/ios/ipa/*.ipa -t ios \
+      #         --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
+      #
+      # Add the secrets under: repo Settings -> Secrets and variables -> Actions.
+      # ----------------------------------------------------------------------
