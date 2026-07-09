@@ -159,15 +159,34 @@ exceptions in key flows to non-fatals.
 
 ---
 
-## v1.4 — Trust & safety  (Queued)
+## v1.4 — Trust & safety  (In flight)
 
 **Theme**: harden the platform now that we can see what's happening (v1.3 observability).
 **Ship gate**: account-deletion flow tested end-to-end in staging; impossible-travel detector in shadow mode logging flags but not blocking; Remote Config drives `claim_radius_meters` and `points_by_monarch` end-to-end (client + Cloud Functions) with the safety bounds enforced.
+
+> **Status** (branch `feat/v1.4-trust-safety`, `1.4.0+17`): all three workstreams
+> implemented; `flutter analyze` + Dart tests + functions lint/tests green. Remaining
+> before ship: the manual staging pass for account deletion and the Remote Config
+> console setup (publish `claim_radius_meters` + `points_by_monarch` to the client AND
+> server templates with values equal to the code defaults). Two roadmap divergences,
+> both deliberate: (1) GDPR uses a **self-contained `onUserDeleted` function, not the
+> Delete-User-Data extension** (the extension can only delete, not anonymise claims,
+> which would break leaderboard integrity); (2) abuse **enforcement/voiding stays
+> deferred (Phase 2)** — the ship gate requires shadow mode, so `SHADOW_MODE` remains
+> `true`. Remote Config was scoped to the ship-gate pair only (no `quiz_required_streak`,
+> other constants left hard-coded).
 
 > **App Check enforcement moved to v1.7** (it's gated on iOS `AppleProvider`
 > wiring, which lands in v1.7's iOS work). See the App Check item under v1.7.
 
 ### Remote Config for game balance and copy  (was #107, moved from v1.3)
+
+> ✅ Implemented (ship-gate pair only). Client: `RemoteConfigService.claimRadiusMeters`
+> + `pointsForCipher`/`pointsByMonarch` (bounds-checked, defaults = constants), force-refetch
+> on login. Backend: `functions/src/_config.ts` (`getServerTemplate` + 5-min cache, never
+> throws) wired into `startScoring` + `_recomputeScores`. Fallback constants stay canonical
+> (guarded by `test/cross_language_sync_test.dart`). Other tunables + `quiz_required_streak`
+> intentionally out of scope.
 
 The Remote Config *infrastructure* (typed `RemoteConfigService`, fetch lifecycle,
 push updates, kill switches, `maintenance_mode`) already shipped in v1.3. What
@@ -183,6 +202,14 @@ and Cloud Functions read Remote Config.
 - Risk: stale client cache hides a bad value — force refetch on login. Cost drift if `points_by_monarch` mis-set — sanity-check rejecting values outside `[1, 50]`.
 
 ### GDPR "Delete User Data" Firebase Extension  (was #99)
+
+> ✅ Implemented as a **self-contained `onUserDeleted` v1 Auth trigger** (europe-west2)
+> + `functions/src/_accountDeletion.ts`, NOT the extension (the extension can't anonymise
+> claims). Anonymises claims/reports (strips PII incl. the new `deviceIdHash`), hard-deletes
+> user docs + `report_photos/` (and future-proof `claims-photos/` via
+> `storagePrefixesForUser`), audit counter at `deletions/{day}`. Flutter re-auth + `User.delete()`
+> in `lib/user_repository.dart`, Settings "Delete account" UI. Helpers unit-tested; full-flow
+> e2e is the staging pass below.
 
 Install the official extension. Configure paths:
 
@@ -200,6 +227,14 @@ In-app:
 Test in staging first: create a user with claims, photos, friends; delete; assert no residuals.
 
 ### Abuse detection (impossible-travel and claim anomalies)  (was #112)
+
+> ✅ Implemented in **shadow mode** (`SHADOW_MODE = true`, stays that way per the ship gate).
+> All four signals now fire: impossible-travel, out-of-window, coord-cluster, and the new
+> **repeated-device** signal (`repeatedDeviceSignal` + `evaluateClaimSignals` in
+> `_abuseSignals.ts`, wired in `onClaimCreated`; client sends a stable per-install
+> `deviceIdHash` via `lib/services/device_id_service.dart`; composite index added). Flags →
+> `moderationFlags`, trust decay → `trustScores`, admin review UI `admin_abuse_screen.dart`.
+> Enforcement / claim-voiding remains the deferred **Phase 2** below.
 
 `startScoring` already has a travel-speed anti-spoof check. Extend to:
 

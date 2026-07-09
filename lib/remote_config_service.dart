@@ -1,8 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:firebase_remote_config/firebase_remote_config.dart';
 import 'package:flutter/foundation.dart';
 
+import 'package:postbox_game/app_preferences.dart';
+import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/services/crashlytics_helper.dart';
 
 /// Read-only wrapper around Firebase Remote Config.
@@ -55,9 +58,27 @@ class RemoteConfigService {
   static const String keyJamesWelcomeVariant = 'james_welcome_variant';
   static const String keyMaintenanceMode = 'maintenance_mode';
   static const String keyMaintenanceMessage = 'maintenance_message';
+  static const String keyClaimRadiusMeters = 'claim_radius_meters';
+  static const String keyPointsByMonarch = 'points_by_monarch';
 
   static const String welcomeVariantClassic = 'classic';
   static const String welcomeVariantCheeky = 'cheeky';
+
+  /// Safety band for a Remote-Config-supplied claim radius (metres). Values
+  /// outside this band are treated as misconfiguration and ignored (fall back
+  /// to [AppPreferences.claimRadiusMeters]). Mirrors _config.ts on the server.
+  static const double minClaimRadiusMeters = 10.0;
+  static const double maxClaimRadiusMeters = 100.0;
+
+  /// Safety band for a Remote-Config-supplied per-monarch point value.
+  static const int minMonarchPoints = 1;
+  static const int maxMonarchPoints = 50;
+
+  /// Default `points_by_monarch` JSON. MUST equal [MonarchInfo.points] — pinned
+  /// by test/cross_language_sync_test.dart. Remote Config only overrides on top.
+  static const String defaultPointsByMonarchJson =
+      '{"EIIR":2,"CIIIR":9,"GR":4,"GVR":4,"GVIR":4,"VR":7,"EVIIR":9,'
+      '"EVIIIR":12,"SCOTTISH_CROWN":4}';
 
   /// Default banner copy when no remote string is set. James voice, no em-dash.
   static const String defaultMaintenanceMessage =
@@ -73,6 +94,8 @@ class RemoteConfigService {
     keyJamesWelcomeVariant: welcomeVariantClassic,
     keyMaintenanceMode: false,
     keyMaintenanceMessage: defaultMaintenanceMessage,
+    keyClaimRadiusMeters: AppPreferences.claimRadiusMeters,
+    keyPointsByMonarch: defaultPointsByMonarchJson,
   };
 
   static const Duration _fetchTimeout = Duration(seconds: 10);
@@ -138,6 +161,63 @@ class RemoteConfigService {
   String get maintenanceMessage {
     final raw = _rc.getString(keyMaintenanceMessage).trim();
     return raw.isEmpty ? defaultMaintenanceMessage : raw;
+  }
+
+  /// Claim radius (metres), Remote-Config-driven with a safety band. An unset,
+  /// non-finite, or out-of-band remote value falls back to the hard-coded
+  /// [AppPreferences.claimRadiusMeters].
+  double get claimRadiusMeters {
+    final raw = _rc.getDouble(keyClaimRadiusMeters);
+    if (!raw.isFinite ||
+        raw < minClaimRadiusMeters ||
+        raw > maxClaimRadiusMeters) {
+      return AppPreferences.claimRadiusMeters;
+    }
+    return raw;
+  }
+
+  /// Points for [cipher]: the Remote-Config override if valid + present, else
+  /// the hard-coded [MonarchInfo.getPoints] fallback.
+  int pointsForCipher(String cipher) {
+    final override = _parsePointsOverride(_rc.getString(keyPointsByMonarch));
+    final v = override?[cipher];
+    return v ?? MonarchInfo.getPoints(cipher);
+  }
+
+  /// The full per-monarch point map: [MonarchInfo.points] with any valid
+  /// Remote-Config overrides layered on top.
+  Map<String, int> get pointsByMonarch {
+    final override = _parsePointsOverride(_rc.getString(keyPointsByMonarch));
+    if (override == null) return Map<String, int>.from(MonarchInfo.points);
+    return <String, int>{...MonarchInfo.points, ...override};
+  }
+
+  /// Parse+validate the `points_by_monarch` JSON. Returns a map of recognised
+  /// monarch -> points (integers in [[minMonarchPoints], [maxMonarchPoints]]);
+  /// unknown keys are dropped. Returns null (=> use hard-coded points wholesale)
+  /// if the string is absent, not a JSON object, or ANY value is a non-integer
+  /// / out of range. Mirrors parsePointsOverride in functions/src/_config.ts.
+  Map<String, int>? _parsePointsOverride(String raw) {
+    if (raw.trim().isEmpty) return null;
+    Object? decoded;
+    try {
+      decoded = jsonDecode(raw);
+    } catch (_) {
+      return null;
+    }
+    if (decoded is! Map) return null;
+    final out = <String, int>{};
+    for (final entry in decoded.entries) {
+      final key = entry.key;
+      if (key is! String || !MonarchInfo.points.containsKey(key)) {
+        continue; // drop unknown keys
+      }
+      final value = entry.value;
+      if (value is! int) return null; // wholesale reject non-integers
+      if (value < minMonarchPoints || value > maxMonarchPoints) return null;
+      out[key] = value;
+    }
+    return out;
   }
 
   /// UI subscribes to this to rebuild when the maintenance flag flips

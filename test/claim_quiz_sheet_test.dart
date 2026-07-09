@@ -46,6 +46,11 @@ class _StubRemoteConfig extends Fake implements FirebaseRemoteConfig {
   bool getBool(String key) => false;
   @override
   String getString(String key) => '';
+  // No remote overrides set: 0.0 is out of the claim-radius safety band, so
+  // RemoteConfigService.claimRadiusMeters falls back to its hard-coded default
+  // (30 m) — the pre-Remote-Config behaviour.
+  @override
+  double getDouble(String key) => 0.0;
 }
 
 Position _fakePos() => Position(

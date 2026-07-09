@@ -9,6 +9,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/analytics_user_properties.dart';
 import 'package:postbox_game/app_preferences.dart';
+import 'package:postbox_game/remote_config_service.dart';
 import 'package:postbox_game/authentication_bloc/bloc.dart';
 import 'package:postbox_game/county_heatmap.dart';
 import 'package:postbox_game/intro.dart';
@@ -834,7 +835,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   postalRed.withValues(alpha: 0.6),
                   'Claim range',
                   AppPreferences.formatShortDistance(
-                      AppPreferences.claimRadiusMeters, _distanceUnit),
+                      RemoteConfigService.instance.claimRadiusMeters, _distanceUnit),
                 ),
               ],
             ),
@@ -854,7 +855,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 CircleMarker(
                   point: center,
-                  radius: AppPreferences.claimRadiusMeters,
+                  radius: RemoteConfigService.instance.claimRadiusMeters,
                   useRadiusInMeter: true,
                   color: postalRed.withValues(alpha: 0.25),
                   borderColor: postalRed.withValues(alpha: 0.9),

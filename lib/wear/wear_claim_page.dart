@@ -5,7 +5,8 @@ import 'package:postbox_game/firebase_functions_eu.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:postbox_game/analytics_service.dart';
-import 'package:postbox_game/app_preferences.dart';
+import 'package:postbox_game/remote_config_service.dart';
+import 'package:postbox_game/services/device_id_service.dart';
 import 'package:postbox_game/location_service.dart';
 import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/streak_service.dart';
@@ -75,7 +76,7 @@ class _WearClaimPageState extends State<WearClaimPage> {
       final result = await _nearbyCallable.call(<String, dynamic>{
         'lat': position.latitude,
         'lng': position.longitude,
-        'meters': AppPreferences.claimRadiusMeters,
+        'meters': RemoteConfigService.instance.claimRadiusMeters,
       });
       if (!mounted) return;
       final counts = result.data['counts'] ?? {};
@@ -189,11 +190,15 @@ class _WearClaimPageState extends State<WearClaimPage> {
     });
     try {
       final position = await getPosition(forceLocationManager: true);
+      final deviceIdHash = await DeviceIdService.get();
       final result = await _claimCallable.call(<String, dynamic>{
         'lat': position.latitude,
         'lng': position.longitude,
         // Client wall-clock for the shadow-mode out-of-window anomaly signal.
         'clientTsMs': DateTime.now().millisecondsSinceEpoch,
+        // Stable per-install id for the shadow-mode repeated-device signal
+        // (omitted when unavailable so the server never sees a null).
+        if (deviceIdHash != null) 'deviceIdHash': deviceIdHash,
       });
       final found = result.data?['found'] == true;
       final allClaimedToday = result.data?['allClaimedToday'] == true;
@@ -351,7 +356,7 @@ class _WearClaimPageState extends State<WearClaimPage> {
           ),
           const SizedBox(height: WearSpacing.sm),
           Text(
-            'Within ${AppPreferences.claimRadiusMeters}m',
+            'Within ${RemoteConfigService.instance.claimRadiusMeters}m',
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ],

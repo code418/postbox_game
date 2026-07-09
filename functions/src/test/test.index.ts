@@ -3,6 +3,28 @@ import test from "firebase-functions-test";
 import * as myFunctions from "../index";
 import { filterToCorridor, filterToEllipse, beamSearchOrienteering, metresBetween } from "../_routePlanner";
 import { getPoints } from "../_getPoints";
+import {
+  sanitiseClaimRadius,
+  parsePointsOverride,
+  resolvePointsForMonarch,
+  getGameConfig,
+  getClaimRadiusMeters,
+  getPointsForMonarch,
+  setConfigLoaderForTest,
+  DEFAULT_CLAIM_RADIUS_METERS,
+  type GameConfig,
+} from "../_config";
+
+// Keep every test offline: the real _config loader reads the Remote Config
+// server template over the network. Install a deterministic fallback loader for
+// the whole run so startScoring / _recomputeScores paths resolve to the
+// hard-coded points+radius without a network call; the _config caching tests
+// override it per-test and restore this in afterEach.
+const fallbackGameConfig = async (): Promise<GameConfig> => ({
+  claimRadiusMeters: DEFAULT_CLAIM_RADIUS_METERS,
+  pointsOverride: null,
+});
+before(() => setConfigLoaderForTest(fallbackGameConfig));
 import { getTodayLondon, previousDay, getLondonHourMinute } from "../_dateUtils";
 import {
   decideFire,
@@ -37,6 +59,88 @@ describe("getPoints", () => {
   it("returns 12 for EVIIIR", () => assert.strictEqual(getPoints("EVIIIR"), 12));
   it("returns 2 (default) for unknown cipher", () => assert.strictEqual(getPoints("UNKNOWN"), 2));
   it("returns 2 (default) for empty string", () => assert.strictEqual(getPoints(""), 2));
+});
+
+describe("_config: sanitiseClaimRadius", () => {
+  it("accepts an in-band value", () => assert.strictEqual(sanitiseClaimRadius(45), 45));
+  it("accepts the lower bound 10", () => assert.strictEqual(sanitiseClaimRadius(10), 10));
+  it("accepts the upper bound 100", () => assert.strictEqual(sanitiseClaimRadius(100), 100));
+  it("falls back below the lower bound", () =>
+    assert.strictEqual(sanitiseClaimRadius(5), DEFAULT_CLAIM_RADIUS_METERS));
+  it("falls back above the upper bound", () =>
+    assert.strictEqual(sanitiseClaimRadius(500), DEFAULT_CLAIM_RADIUS_METERS));
+  it("falls back for non-numbers", () =>
+    assert.strictEqual(sanitiseClaimRadius("30"), DEFAULT_CLAIM_RADIUS_METERS));
+  it("falls back for NaN", () =>
+    assert.strictEqual(sanitiseClaimRadius(NaN), DEFAULT_CLAIM_RADIUS_METERS));
+});
+
+describe("_config: parsePointsOverride", () => {
+  it("parses a valid partial override", () =>
+    assert.deepStrictEqual(parsePointsOverride('{"VR":8}'), { VR: 8 }));
+  it("drops unknown monarch keys", () =>
+    assert.deepStrictEqual(parsePointsOverride('{"VR":8,"BOGUS":3}'), { VR: 8 }));
+  it("rejects wholesale when a value is out of range", () =>
+    assert.strictEqual(parsePointsOverride('{"VR":999}'), null));
+  it("rejects wholesale when a value is below 1", () =>
+    assert.strictEqual(parsePointsOverride('{"VR":0}'), null));
+  it("rejects wholesale for non-integer values", () =>
+    assert.strictEqual(parsePointsOverride('{"VR":7.5}'), null));
+  it("returns null for invalid JSON", () =>
+    assert.strictEqual(parsePointsOverride("not json"), null));
+  it("returns null for an empty string", () =>
+    assert.strictEqual(parsePointsOverride(""), null));
+  it("returns null for a JSON array", () =>
+    assert.strictEqual(parsePointsOverride("[1,2,3]"), null));
+  it("returns an empty map for an empty object", () =>
+    assert.deepStrictEqual(parsePointsOverride("{}"), {}));
+});
+
+describe("_config: resolvePointsForMonarch", () => {
+  const cfg = (pointsOverride: Record<string, number> | null): GameConfig => ({
+    claimRadiusMeters: 30,
+    pointsOverride,
+  });
+  it("uses the override when present for the monarch", () =>
+    assert.strictEqual(resolvePointsForMonarch(cfg({ VR: 8 }), "VR"), 8));
+  it("falls back to hard-coded when the monarch is not overridden", () =>
+    assert.strictEqual(resolvePointsForMonarch(cfg({ EIIR: 3 }), "VR"), 7));
+  it("falls back to hard-coded when there is no override map", () =>
+    assert.strictEqual(resolvePointsForMonarch(cfg(null), "VR"), 7));
+  it("returns the default 2 for an unknown monarch with no override", () =>
+    assert.strictEqual(resolvePointsForMonarch(cfg(null), "ZZZ"), 2));
+  it("returns 2 for a null monarch", () =>
+    assert.strictEqual(resolvePointsForMonarch(cfg(null), null), 2));
+});
+
+describe("_config: getGameConfig caching", () => {
+  afterEach(() => setConfigLoaderForTest(fallbackGameConfig));
+
+  it("caches within the TTL and refetches after it", async () => {
+    let calls = 0;
+    setConfigLoaderForTest(async () => {
+      calls++;
+      return { claimRadiusMeters: 40 + calls, pointsOverride: null };
+    });
+    const t0 = 1_000_000;
+    const a = await getGameConfig(t0);
+    const b = await getGameConfig(t0 + 60_000); // within the 5-min TTL
+    assert.strictEqual(calls, 1);
+    assert.strictEqual(a.claimRadiusMeters, b.claimRadiusMeters);
+    const c = await getGameConfig(t0 + 5 * 60 * 1000 + 1); // past the TTL
+    assert.strictEqual(calls, 2);
+    assert.strictEqual(c.claimRadiusMeters, 42);
+  });
+
+  it("getClaimRadiusMeters / getPointsForMonarch read the cached config", async () => {
+    setConfigLoaderForTest(async () => ({
+      claimRadiusMeters: 55,
+      pointsOverride: { VR: 8 },
+    }));
+    assert.strictEqual(await getClaimRadiusMeters(), 55);
+    assert.strictEqual(await getPointsForMonarch("VR"), 8);
+    assert.strictEqual(await getPointsForMonarch("EIIR"), 2);
+  });
 });
 
 describe("diffSnapshots (migration verification)", () => {
@@ -3398,11 +3502,14 @@ import {
   impossibleTravelSignal,
   outOfWindowSignal,
   coordClusterSignal,
+  repeatedDeviceSignal,
+  evaluateClaimSignals,
   summariseFlags,
   applyTrustDecay,
   SHADOW_TRAVEL_FLAG_M_PER_MIN,
   OUT_OF_WINDOW_MS,
   CLUSTER_MIN_REPEATS,
+  REPEATED_DEVICE_MIN_ACCOUNTS,
   DEFAULT_TRUST_SCORE,
 } from "../_abuseSignals";
 
@@ -3453,6 +3560,61 @@ describe("abuse signals: coordClusterSignal", () => {
   });
   it("does not flag below the minimum", () => {
     assert.strictEqual(coordClusterSignal(CLUSTER_MIN_REPEATS - 1).flagged, false);
+  });
+});
+
+describe("abuse signals: repeatedDeviceSignal", () => {
+  it("flags once distinct accounts reach the minimum", () => {
+    assert.strictEqual(repeatedDeviceSignal(REPEATED_DEVICE_MIN_ACCOUNTS).flagged, true);
+  });
+  it("does not flag below the minimum", () => {
+    assert.strictEqual(repeatedDeviceSignal(REPEATED_DEVICE_MIN_ACCOUNTS - 1).flagged, false);
+  });
+  it("reports the distinct-account count as the value", () => {
+    assert.strictEqual(repeatedDeviceSignal(5).value, 5);
+  });
+});
+
+describe("abuse signals: evaluateClaimSignals", () => {
+  const base = { serverTsMs: 1_000_000_000_000, coordRepeatCount: 0, distinctDeviceAccounts: 0 };
+
+  it("flags nothing for a clean claim", () => {
+    const r = evaluateClaimSignals(base);
+    assert.deepStrictEqual(r.reasons, []);
+    assert.strictEqual(r.severity, "low");
+  });
+
+  it("flags repeated_device once distinct accounts reach the minimum", () => {
+    const r = evaluateClaimSignals({ ...base, distinctDeviceAccounts: REPEATED_DEVICE_MIN_ACCOUNTS });
+    assert.deepStrictEqual(r.reasons, ["repeated_device"]);
+    assert.strictEqual(r.severity, "low");
+    assert.strictEqual(r.signals.deviceAccountCount, REPEATED_DEVICE_MIN_ACCOUNTS);
+  });
+
+  it("escalates severity as signals co-occur (device + travel = med)", () => {
+    const r = evaluateClaimSignals({
+      ...base,
+      travelSpeedMPerMin: SHADOW_TRAVEL_FLAG_M_PER_MIN,
+      distinctDeviceAccounts: REPEATED_DEVICE_MIN_ACCOUNTS,
+    });
+    assert.strictEqual(r.reasons.length, 2);
+    assert.ok(r.reasons.includes("repeated_device"));
+    assert.ok(r.reasons.includes("impossible_travel"));
+    assert.strictEqual(r.severity, "med");
+  });
+
+  it("reports all four signals with high severity when everything fires", () => {
+    const r = evaluateClaimSignals({
+      travelSpeedMPerMin: SHADOW_TRAVEL_FLAG_M_PER_MIN,
+      serverTsMs: base.serverTsMs,
+      clientTsMs: base.serverTsMs - (OUT_OF_WINDOW_MS + 1),
+      coordRepeatCount: CLUSTER_MIN_REPEATS,
+      distinctDeviceAccounts: REPEATED_DEVICE_MIN_ACCOUNTS,
+    });
+    assert.strictEqual(r.reasons.length, 4);
+    assert.strictEqual(r.severity, "high");
+    assert.strictEqual(r.signals.coordRepeatCount, CLUSTER_MIN_REPEATS);
+    assert.strictEqual(r.signals.deviceAccountCount, REPEATED_DEVICE_MIN_ACCOUNTS);
   });
 });
 
@@ -3515,7 +3677,72 @@ import {
   anonymiseReportsForUser,
   removeUserFromFriends,
   removeUserFromLeaderboards,
+  deleteUserDocs,
 } from "../_accountDeletion";
+import { storagePrefixesForUser } from "../onUserDeleted";
+
+describe("account deletion: storagePrefixesForUser", () => {
+  it("covers report photos and (future-proof) claim photos for the uid", () => {
+    assert.deepStrictEqual(storagePrefixesForUser("u1"), [
+      "report_photos/u1/",
+      "claims-photos/u1/",
+    ]);
+  });
+});
+
+describe("account deletion: deleteUserDocs (mock Firestore)", () => {
+  it("deletes the profile, per-uid docs, countyStats, and the user's flags", async () => {
+    const deleted: string[] = [];
+    const makeCollDoc = (path: string) => ({
+      // A DocumentReference stand-in; deleteUserDocs only reads .id via batch.
+      id: path,
+      _path: path,
+    });
+    const countyDocs = [makeCollDoc("users/u1/countyStats/avon")];
+    const flagDocs = [makeCollDoc("moderationFlags/f1"), makeCollDoc("moderationFlags/f2")];
+
+    const userRef = {
+      _path: "users/u1",
+      collection: (name: string) => {
+        if (name !== "countyStats") throw new Error(`unexpected subcollection ${name}`);
+        return { async get() { return { docs: countyDocs.map((d) => ({ ref: d })) }; } };
+      },
+    };
+    const db = {
+      collection: (name: string) => {
+        if (name === "users") return { doc: () => userRef };
+        if (name === "moderationFlags") {
+          return {
+            where(field: string, op: string, val: unknown) {
+              assert.strictEqual(field, "uid");
+              assert.strictEqual(op, "==");
+              assert.strictEqual(val, "u1");
+              return { async get() { return { docs: flagDocs.map((d) => ({ ref: d })) }; } };
+            },
+          };
+        }
+        // fcmTokens / reportQuotas / trustScores
+        return { doc: () => makeCollDoc(`${name}/u1`) };
+      },
+      batch() {
+        return {
+          delete(ref: { _path: string }) { deleted.push(ref._path); },
+          async commit() {},
+        };
+      },
+    };
+
+    await deleteUserDocs(db as unknown as import("firebase-admin").firestore.Firestore, "u1");
+
+    assert.ok(deleted.includes("users/u1"), "profile doc deleted");
+    assert.ok(deleted.includes("users/u1/countyStats/avon"), "countyStats deleted");
+    assert.ok(deleted.includes("moderationFlags/f1") && deleted.includes("moderationFlags/f2"),
+      "user's moderation flags deleted");
+    assert.ok(deleted.includes("fcmTokens/u1"), "fcm token deleted");
+    assert.ok(deleted.includes("reportQuotas/u1"), "report quota deleted");
+    assert.ok(deleted.includes("trustScores/u1"), "trust score deleted");
+  });
+});
 
 describe("account deletion: anonymiseClaimsForUser (mock Firestore)", () => {
   type Doc = { id: string; userid?: string; points?: number };
@@ -3567,7 +3794,7 @@ describe("account deletion: anonymiseClaimsForUser (mock Firestore)", () => {
       // points is preserved (not part of the update).
       assert.strictEqual("points" in w.update, false);
       // Location fields are FieldValue.delete() sentinels (objects, not values).
-      for (const f of ["userLat", "userLng", "coordKey6", "clientTsMs", "travelSpeed"]) {
+      for (const f of ["userLat", "userLng", "coordKey6", "clientTsMs", "travelSpeed", "deviceIdHash"]) {
         assert.ok(f in w.update, `${f} should be in the update`);
         assert.notStrictEqual(typeof w.update[f], "number");
         assert.notStrictEqual(typeof w.update[f], "string");

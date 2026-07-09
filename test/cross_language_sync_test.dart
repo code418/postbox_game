@@ -32,9 +32,13 @@
 // Plain VM tests (use dart:io) — `flutter test` runs with the package root as
 // the working directory, so the relative paths resolve.
 
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:postbox_game/app_preferences.dart';
+import 'package:postbox_game/monarch_info.dart';
+import 'package:postbox_game/remote_config_service.dart';
 
 /// Extracts the string literals from the first `[ ... ]` array literal that
 /// follows [anchor] in [source]. Handles both single- and double-quoted entries
@@ -363,6 +367,46 @@ void main() {
       final dart = double.parse(dartM!.group(1)!);
       final ts = _extractIntConst(startScoringTs, 'CLAIM_RADIUS_METERS');
       expect(dart, equals(ts.toDouble()));
+    });
+  });
+
+  group('Remote Config game-balance defaults stay in sync', () {
+    // v1.4: claim_radius_meters + points_by_monarch are Remote-Config-driven,
+    // but the hard-coded constants remain the canonical fallback. The RC
+    // *defaults* must therefore equal those constants (ship first with defaults
+    // == current code), and the server safety bounds (_config.ts) must match
+    // the client's (RemoteConfigService) so a value the client accepts isn't
+    // rejected server-side (or vice versa).
+
+    test('RC points_by_monarch default JSON == MonarchInfo.points', () {
+      final decoded =
+          (jsonDecode(RemoteConfigService.defaultPointsByMonarchJson)
+                  as Map<String, dynamic>)
+              .map((k, v) => MapEntry(k, v as int));
+      expect(decoded, equals(MonarchInfo.points));
+    });
+
+    test('RC claim_radius_meters default == AppPreferences.claimRadiusMeters',
+        () {
+      expect(
+        RemoteConfigService.defaults[RemoteConfigService.keyClaimRadiusMeters],
+        equals(AppPreferences.claimRadiusMeters),
+      );
+    });
+
+    test('server _config.ts fallback + safety bounds match the Dart client',
+        () {
+      final configTs = File('functions/src/_config.ts').readAsStringSync();
+      expect(_extractIntConst(configTs, 'DEFAULT_CLAIM_RADIUS_METERS'),
+          equals(AppPreferences.claimRadiusMeters.toInt()));
+      expect(_extractIntConst(configTs, 'MIN_CLAIM_RADIUS_METERS'),
+          equals(RemoteConfigService.minClaimRadiusMeters.toInt()));
+      expect(_extractIntConst(configTs, 'MAX_CLAIM_RADIUS_METERS'),
+          equals(RemoteConfigService.maxClaimRadiusMeters.toInt()));
+      expect(_extractIntConst(configTs, 'MIN_MONARCH_POINTS'),
+          equals(RemoteConfigService.minMonarchPoints));
+      expect(_extractIntConst(configTs, 'MAX_MONARCH_POINTS'),
+          equals(RemoteConfigService.maxMonarchPoints));
     });
   });
 }

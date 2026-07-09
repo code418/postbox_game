@@ -12,7 +12,7 @@ const WRITE_BATCH_SIZE = 400;
 /** Firestore field names on a claim that carry location/timing PII and must be
  *  removed when a claim is anonymised. `points`/`monarch`/`dailyDate`/etc. are
  *  kept so the global claim/postbox-history record stays intact. */
-const CLAIM_PII_FIELDS = ["userLat", "userLng", "coordKey6", "clientTsMs", "travelSpeed"] as const;
+const CLAIM_PII_FIELDS = ["userLat", "userLng", "coordKey6", "clientTsMs", "travelSpeed", "deviceIdHash"] as const;
 
 /** Anonymise every claim by [uid]: rewrite `userid` to the deleted sentinel and
  *  strip location PII. Returns the number of claims rewritten. Batched (400). */

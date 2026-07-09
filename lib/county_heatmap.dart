@@ -68,8 +68,30 @@ Color mapColourFor({
 ///
 /// The map intentionally has no tile layer — the heatmap is the content, a
 /// base map would distract and incur OSM tile traffic for no benefit.
+/// Picks the leading leaderboard entry for a county. Friends-only: the top
+/// entry whose uid is in [candidates] (entries are server-sorted, so the first
+/// match is the highest-ranked friend). Global: the top entry regardless.
+/// Returns null when no eligible entry exists.
+@visibleForTesting
+Map<String, dynamic>? pickCountyLeaderEntry(
+    List<dynamic> entries, Set<String> candidates, bool friendsOnly) {
+  for (final e in entries) {
+    if (e is! Map) continue;
+    final entryUid = e['uid'] as String?;
+    if (entryUid == null) continue;
+    if (friendsOnly && !candidates.contains(entryUid)) continue;
+    return Map<String, dynamic>.from(e);
+  }
+  return null;
+}
+
 class CountyHeatmap extends StatefulWidget {
-  const CountyHeatmap({super.key});
+  const CountyHeatmap({super.key, this.friendsOnly = true});
+
+  /// When true (default), each county is coloured by the leader among {me + my
+  /// friends}; when false, by the global leader. Mirrors the "Friends only"
+  /// toggle on the other leaderboard tabs.
+  final bool friendsOnly;
 
   @override
   State<CountyHeatmap> createState() => _CountyHeatmapState();
@@ -82,6 +104,15 @@ class _CountyHeatmapState extends State<CountyHeatmap> {
   void initState() {
     super.initState();
     _future = _load();
+  }
+
+  @override
+  void didUpdateWidget(CountyHeatmap oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // The toggle flips friendsOnly; reload so the county leaders recompute.
+    if (oldWidget.friendsOnly != widget.friendsOnly) {
+      setState(() => _future = _load());
+    }
   }
 
   Future<_HeatmapData> _load() async {
@@ -217,21 +248,16 @@ class _CountyHeatmapState extends State<CountyHeatmap> {
       final lb = lbBySlug[slug];
       if (lb == null) continue;
       final entries = (lb['entries'] as List<dynamic>?) ?? const [];
-      for (final e in entries) {
-        if (e is! Map) continue;
-        final entryUid = e['uid'] as String?;
-        if (entryUid == null || !candidates.contains(entryUid)) continue;
-        leaderBySlug[slug] = _CountyLeader(
-          uid: entryUid,
-          displayName: (e['displayName'] as String?) ??
-              names[entryUid] ??
-              'Unknown',
-          uniqueBoxes:
-              (e['uniquePostboxesClaimed'] as num?)?.toInt() ?? 0,
-          totalPoints: (e['totalPoints'] as num?)?.toInt() ?? 0,
-        );
-        break;
-      }
+      final e = pickCountyLeaderEntry(entries, candidates, widget.friendsOnly);
+      if (e == null) continue;
+      final entryUid = e['uid'] as String;
+      leaderBySlug[slug] = _CountyLeader(
+        uid: entryUid,
+        displayName:
+            (e['displayName'] as String?) ?? names[entryUid] ?? 'Unknown',
+        uniqueBoxes: (e['uniquePostboxesClaimed'] as num?)?.toInt() ?? 0,
+        totalPoints: (e['totalPoints'] as num?)?.toInt() ?? 0,
+      );
     }
 
     return _HeatmapData(
@@ -241,6 +267,7 @@ class _CountyHeatmapState extends State<CountyHeatmap> {
       leaderBySlug: leaderBySlug,
       displayNames: names,
       chosenColours: chosenColours,
+      friendsOnly: widget.friendsOnly,
     );
   }
 
@@ -339,10 +366,11 @@ class _HeatmapViewState extends State<_HeatmapView> {
               const SizedBox(height: AppSpacing.sm),
               if (leader == null)
                 Text(
-                  // The candidate set is (you + your friends), so a missing
-                  // leader means neither you nor any friend has claimed here
-                  // yet. Wording works whether or not the user has friends.
-                  'No claims here yet — go grab the lead!',
+                  // Friends-only: a missing leader means neither you nor any
+                  // friend has claimed here. Global: nobody has at all.
+                  data.friendsOnly
+                      ? 'No claims here from you or your friends yet. Go grab the lead!'
+                      : 'No claims here yet. Be the first!',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color:
                             Theme.of(context).colorScheme.onSurfaceVariant,
@@ -645,6 +673,7 @@ class _HeatmapData {
   final Map<String, _CountyLeader> leaderBySlug;
   final Map<String, String> displayNames;
   final Map<String, String> chosenColours;
+  final bool friendsOnly;
 
   const _HeatmapData({
     required this.myUid,
@@ -653,6 +682,7 @@ class _HeatmapData {
     required this.leaderBySlug,
     required this.displayNames,
     required this.chosenColours,
+    required this.friendsOnly,
   });
 }
 

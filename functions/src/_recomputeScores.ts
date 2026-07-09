@@ -1,6 +1,6 @@
 import "./adminInit";
 import * as admin from "firebase-admin";
-import { pointsForMonarch } from "./_getPoints";
+import { getPointsForMonarch } from "./_config";
 import { getTodayLondon } from "./_dateUtils";
 import {
   updateUserLeaderboards,
@@ -50,7 +50,7 @@ export async function repointClaimsForPostbox(
   postboxKey: string,
   newMonarch: string | null
 ): Promise<RepointResult> {
-  const newPts = pointsForMonarch(newMonarch);
+  const newPts = await getPointsForMonarch(newMonarch);
   const snap = await db
     .collection("claims")
     .where("postboxes", "==", `/postbox/${postboxKey}`)

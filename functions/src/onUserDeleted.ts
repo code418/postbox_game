@@ -49,7 +49,7 @@ export const onUserDeleted = functions
       ["anonymiseReports", anonymiseReportsForUser(db, uid)],
       ["removeFromLeaderboards", removeUserFromLeaderboards(db, uid, countySlugs)],
       ["removeFromFriends", removeUserFromFriends(db, uid)],
-      ["deleteReportPhotos", deleteReportPhotos(uid)],
+      ["deleteUserStorage", deleteUserStorage(uid)],
     ];
     const results = await Promise.allSettled(phases.map(([, p]) => p));
     results.forEach((r, i) => {
@@ -79,7 +79,18 @@ export const onUserDeleted = functions
     }
   });
 
-/** Recursively delete the user's uploaded report photos from Storage. */
-async function deleteReportPhotos(uid: string): Promise<void> {
-  await admin.storage().bucket().deleteFiles({ prefix: `report_photos/${uid}/` });
+/** Storage prefixes holding a user's uploaded media, deleted on erasure.
+ *  `claims-photos/` is future-proofing for the planned v1.5 claim-photos feature
+ *  — a harmless no-op until that path is ever written. Pure + exported so a unit
+ *  test pins that erasure covers every per-user media prefix. */
+export function storagePrefixesForUser(uid: string): string[] {
+  return [`report_photos/${uid}/`, `claims-photos/${uid}/`];
+}
+
+/** Recursively delete the user's uploaded media from Storage. */
+async function deleteUserStorage(uid: string): Promise<void> {
+  const bucket = admin.storage().bucket();
+  await Promise.all(
+    storagePrefixesForUser(uid).map((prefix) => bucket.deleteFiles({ prefix })),
+  );
 }

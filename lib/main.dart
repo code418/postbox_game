@@ -233,6 +233,10 @@ class _PostboxGameState extends State<PostboxGame> with WidgetsBindingObserver {
               if (state is Authenticated) {
                 unawaited(NotificationService.init());
                 unawaited(_homeWidgetService.refresh());
+                // Force a fresh Remote Config fetch on login (bypassing the
+                // 1-hour throttle) so a stale client cache can't hide a
+                // corrected game-balance value (claim radius / monarch points).
+                unawaited(RemoteConfigService.instance.forceRefresh());
                 final user = FirebaseAuth.instance.currentUser;
                 unawaited(CrashlyticsHelper.setContext(
                     CrashlyticsHelper.keyAuthState, _authStateLabel(user)));

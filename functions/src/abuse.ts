@@ -4,19 +4,20 @@ import * as functions from "firebase-functions";
 import { onDocumentCreated } from "firebase-functions/v2/firestore";
 import { FIRESTORE_TRIGGER_REGION } from "./_region";
 import {
-  impossibleTravelSignal,
-  outOfWindowSignal,
-  coordClusterSignal,
-  summariseFlags,
+  evaluateClaimSignals,
   applyTrustDecay,
   DEFAULT_TRUST_SCORE,
-  type NamedSignal,
 } from "./_abuseSignals";
 
 // SHADOW MODE: the detector only records flags + decays an internal trust score.
 // It NEVER blocks, voids, or otherwise affects a claim. Enforcement (step-up
 // verification, voiding) is a deferred follow-up gated behind this flag.
 const SHADOW_MODE = true;
+
+/** Cap on the recent same-device claims read to count distinct accounts. A
+ *  heuristic bound for the shadow-mode repeated-device signal — enough to
+ *  surface multi-accounting without an unbounded scan. */
+const REPEATED_DEVICE_SCAN_LIMIT = 100;
 
 const database = admin.firestore();
 
@@ -48,6 +49,7 @@ export const onClaimCreated = onDocumentCreated(
       const clientTsMs = typeof claim.clientTsMs === "number" ? (claim.clientTsMs as number) : undefined;
       const travelSpeed = typeof claim.travelSpeed === "number" ? (claim.travelSpeed as number) : undefined;
       const coordKey6 = typeof claim.coordKey6 === "string" ? (claim.coordKey6 as string) : undefined;
+      const deviceIdHash = typeof claim.deviceIdHash === "string" ? (claim.deviceIdHash as string) : undefined;
 
       // Coordinate clustering: how many of this user's claims sit at the same
       // rounded coordinate (this one included). Two equality filters are served
@@ -63,22 +65,41 @@ export const onClaimCreated = onDocumentCreated(
         repeatCount = agg.data().count;
       }
 
-      const travel = impossibleTravelSignal(travelSpeed);
-      const window = outOfWindowSignal(serverTsMs, clientTsMs);
-      const cluster = coordClusterSignal(repeatCount);
+      // Repeated-device: distinct accounts that have claimed from this claim's
+      // device hash in the last 24h. Bounded read (equality + timestamp range —
+      // needs the composite index claims(deviceIdHash, timestamp)).
+      let distinctDeviceAccounts = 0;
+      if (deviceIdHash) {
+        const cutoff = admin.firestore.Timestamp.fromMillis(Date.now() - 24 * 60 * 60 * 1000);
+        const recent = await database
+          .collection("claims")
+          .where("deviceIdHash", "==", deviceIdHash)
+          .where("timestamp", ">=", cutoff)
+          .orderBy("timestamp", "desc")
+          .limit(REPEATED_DEVICE_SCAN_LIMIT)
+          .get();
+        const uids = new Set<string>();
+        for (const d of recent.docs) {
+          const u = d.data().userid;
+          if (typeof u === "string") uids.add(u);
+        }
+        distinctDeviceAccounts = uids.size;
+      }
 
-      const named: NamedSignal[] = [
-        { reason: "impossible_travel", flagged: travel.flagged },
-        { reason: "out_of_window", flagged: window.flagged },
-        { reason: "coord_cluster", flagged: cluster.flagged },
-      ];
-      const { reasons, severity } = summariseFlags(named);
+      const { reasons, severity, signals } = evaluateClaimSignals({
+        travelSpeedMPerMin: travelSpeed,
+        serverTsMs,
+        clientTsMs,
+        coordRepeatCount: repeatCount,
+        distinctDeviceAccounts,
+      });
       if (reasons.length === 0) return; // nothing anomalous
 
       // Internal visibility via Cloud Logging — values only, never exact coords.
       console.warn(
         `[abuse:shadow] uid=${uid} claim=${claimId} reasons=${reasons.join(",")} severity=${severity} ` +
-          `speedMPerMin=${travel.value.toFixed(1)} clockSkewMs=${window.value} coordRepeat=${cluster.value}`,
+          `speedMPerMin=${signals.travelSpeedMPerMin.toFixed(1)} clockSkewMs=${signals.clockSkewMs} ` +
+          `coordRepeat=${signals.coordRepeatCount} deviceAccounts=${signals.deviceAccountCount}`,
       );
 
       // Surface the claim coordinate on the (admin-only) flag doc so the review
@@ -93,11 +114,7 @@ export const onClaimCreated = onDocumentCreated(
         reasons,
         severity,
         shadow: SHADOW_MODE,
-        signals: {
-          travelSpeedMPerMin: travel.value,
-          clockSkewMs: window.value,
-          coordRepeatCount: cluster.value,
-        },
+        signals,
         ...(flagLat !== undefined ? { lat: flagLat } : {}),
         ...(flagLng !== undefined ? { lng: flagLng } : {}),
         createdAt: admin.firestore.FieldValue.serverTimestamp(),

@@ -780,8 +780,8 @@ class _NearbyState extends State<Nearby> {
           allClaimed
               ? '$code · claimed today'
               : claimed > 0
-                  ? '$code · ${MonarchInfo.getPoints(code)} pts · $available of $count available'
-                  : '$code · ${MonarchInfo.getPoints(code)} pts each',
+                  ? '$code · ${RemoteConfigService.instance.pointsForCipher(code)} pts · $available of $count available'
+                  : '$code · ${RemoteConfigService.instance.pointsForCipher(code)} pts each',
           style: allClaimed
               ? TextStyle(
                   color: Theme.of(context)

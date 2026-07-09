@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:firebase_remote_config/firebase_remote_config.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:postbox_game/app_preferences.dart';
+import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/remote_config_service.dart';
 
 /// In-process fake of FirebaseRemoteConfig with just the surface
@@ -164,6 +166,97 @@ void main() {
           RemoteConfigService.defaults,
           containsPair(RemoteConfigService.keyMaintenanceMessage,
               RemoteConfigService.defaultMaintenanceMessage));
+    });
+  });
+
+  group('RemoteConfigService game balance', () {
+    test('defaults map includes claim radius and points-by-monarch', () {
+      expect(
+          RemoteConfigService.defaults,
+          containsPair(RemoteConfigService.keyClaimRadiusMeters,
+              AppPreferences.claimRadiusMeters));
+      expect(
+          RemoteConfigService.defaults,
+          containsPair(RemoteConfigService.keyPointsByMonarch,
+              RemoteConfigService.defaultPointsByMonarchJson));
+    });
+
+    test('claimRadiusMeters serves the default after init', () async {
+      final fake = _FakeRemoteConfig();
+      final service = RemoteConfigService(remoteConfig: fake);
+      await service.init();
+      expect(service.claimRadiusMeters,
+          equals(AppPreferences.claimRadiusMeters));
+    });
+
+    test('claimRadiusMeters applies an in-band remote override', () async {
+      final fake = _FakeRemoteConfig(remoteValues: {
+        RemoteConfigService.keyClaimRadiusMeters: 45.0,
+      });
+      final service = RemoteConfigService(remoteConfig: fake);
+      await service.init();
+      expect(service.claimRadiusMeters, equals(45.0));
+    });
+
+    test('claimRadiusMeters falls back when the remote value is out of band',
+        () async {
+      final fake = _FakeRemoteConfig(remoteValues: {
+        RemoteConfigService.keyClaimRadiusMeters: 5000.0,
+      });
+      final service = RemoteConfigService(remoteConfig: fake);
+      await service.init();
+      expect(service.claimRadiusMeters,
+          equals(AppPreferences.claimRadiusMeters));
+    });
+
+    test('pointsForCipher serves MonarchInfo values by default', () async {
+      final fake = _FakeRemoteConfig();
+      final service = RemoteConfigService(remoteConfig: fake);
+      await service.init();
+      expect(service.pointsForCipher('VR'), equals(MonarchInfo.getPoints('VR')));
+      expect(service.pointsForCipher('EIIR'), equals(2));
+    });
+
+    test('pointsForCipher applies a valid remote override', () async {
+      final fake = _FakeRemoteConfig(remoteValues: {
+        RemoteConfigService.keyPointsByMonarch: '{"VR":8}',
+      });
+      final service = RemoteConfigService(remoteConfig: fake);
+      await service.init();
+      expect(service.pointsForCipher('VR'), equals(8));
+      // Non-overridden cyphers fall back per-key.
+      expect(service.pointsForCipher('EVIIIR'), equals(12));
+    });
+
+    test('pointsForCipher rejects an out-of-range override wholesale',
+        () async {
+      final fake = _FakeRemoteConfig(remoteValues: {
+        RemoteConfigService.keyPointsByMonarch: '{"VR":999}',
+      });
+      final service = RemoteConfigService(remoteConfig: fake);
+      await service.init();
+      expect(service.pointsForCipher('VR'), equals(MonarchInfo.getPoints('VR')));
+    });
+
+    test('pointsForCipher falls back on invalid JSON', () async {
+      final fake = _FakeRemoteConfig(remoteValues: {
+        RemoteConfigService.keyPointsByMonarch: 'not json',
+      });
+      final service = RemoteConfigService(remoteConfig: fake);
+      await service.init();
+      expect(service.pointsForCipher('VR'), equals(MonarchInfo.getPoints('VR')));
+    });
+
+    test('pointsByMonarch merges overrides over the defaults', () async {
+      final fake = _FakeRemoteConfig(remoteValues: {
+        RemoteConfigService.keyPointsByMonarch: '{"VR":8}',
+      });
+      final service = RemoteConfigService(remoteConfig: fake);
+      await service.init();
+      final map = service.pointsByMonarch;
+      expect(map['VR'], equals(8));
+      expect(map['EIIR'], equals(2));
+      expect(map.length, equals(MonarchInfo.points.length));
     });
   });
 

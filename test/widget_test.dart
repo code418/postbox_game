@@ -839,6 +839,35 @@ void main() {
     });
   });
 
+  group('pickCountyLeaderEntry (heatmap friends-only toggle)', () {
+    // Server-sorted entries: a non-friend leads, a friend is second.
+    final entries = <dynamic>[
+      {'uid': 'stranger', 'displayName': 'Stranger', 'uniquePostboxesClaimed': 9},
+      {'uid': 'friend', 'displayName': 'Friend', 'uniquePostboxesClaimed': 5},
+      {'uid': 'me', 'displayName': 'Me', 'uniquePostboxesClaimed': 2},
+    ];
+    final candidates = {'me', 'friend'};
+
+    test('friends-only picks the top entry within the candidate set', () {
+      final e = pickCountyLeaderEntry(entries, candidates, true);
+      expect(e?['uid'], equals('friend'));
+    });
+
+    test('global (friends-only off) picks the overall top entry', () {
+      final e = pickCountyLeaderEntry(entries, candidates, false);
+      expect(e?['uid'], equals('stranger'));
+    });
+
+    test('friends-only returns null when no candidate has claimed the county', () {
+      final e = pickCountyLeaderEntry(entries, {'nobody'}, true);
+      expect(e, isNull);
+    });
+
+    test('global returns null for an empty county', () {
+      expect(pickCountyLeaderEntry(const [], candidates, false), isNull);
+    });
+  });
+
   group('FuzzyCompass.vagueLabel', () {
     test('returns None for zero', () {
       expect(FuzzyCompass.vagueLabel(0), equals('None'));

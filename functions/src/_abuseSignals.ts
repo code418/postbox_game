@@ -29,6 +29,10 @@ export const CLUSTER_DECIMALS = 6;
  *  clustering signal (the current claim plus this many repeats). */
 export const CLUSTER_MIN_REPEATS = 3;
 
+/** Number of distinct accounts sharing one device hash within 24h that trips the
+ *  repeated-device signal (multi-accounting from a single install). */
+export const REPEATED_DEVICE_MIN_ACCOUNTS = 3;
+
 /** Trust score assigned to a user with no prior flags. */
 export const DEFAULT_TRUST_SCORE = 100;
 
@@ -89,6 +93,14 @@ export function coordClusterSignal(repeatCount: number): SignalResult {
   return { flagged: repeatCount >= CLUSTER_MIN_REPEATS, value: repeatCount };
 }
 
+/** Repeated-device signal: the number of DISTINCT accounts that have claimed
+ *  from the same device hash within the recent window reaches
+ *  REPEATED_DEVICE_MIN_ACCOUNTS. `distinctAccounts` is supplied by the caller
+ *  from a Firestore query over recent claims sharing the deviceIdHash. */
+export function repeatedDeviceSignal(distinctAccounts: number): SignalResult {
+  return { flagged: distinctAccounts >= REPEATED_DEVICE_MIN_ACCOUNTS, value: distinctAccounts };
+}
+
 function severityForCount(n: number): Severity {
   if (n >= 3) return "high";
   if (n === 2) return "med";
@@ -101,6 +113,53 @@ function severityForCount(n: number): Severity {
 export function summariseFlags(signals: NamedSignal[]): { reasons: string[]; severity: Severity } {
   const reasons = signals.filter((s) => s.flagged).map((s) => s.reason);
   return { reasons, severity: severityForCount(reasons.length) };
+}
+
+/** Inputs the onClaimCreated trigger gathers from the claim + Firestore, fed to
+ *  the pure signal evaluator so the combination logic is unit-testable. */
+export interface ClaimSignalInputs {
+  travelSpeedMPerMin?: number;
+  serverTsMs: number;
+  clientTsMs?: number;
+  coordRepeatCount: number;
+  distinctDeviceAccounts: number;
+}
+
+export interface ClaimSignalEvaluation {
+  reasons: string[];
+  severity: Severity;
+  signals: {
+    travelSpeedMPerMin: number;
+    clockSkewMs: number;
+    coordRepeatCount: number;
+    deviceAccountCount: number;
+  };
+}
+
+/** Evaluate every shadow-mode anomaly signal for one claim and reduce to the
+ *  fired-reason list, an overall severity, and the measured values for the flag
+ *  doc. Pure — the trigger supplies the IO-derived inputs. */
+export function evaluateClaimSignals(inp: ClaimSignalInputs): ClaimSignalEvaluation {
+  const travel = impossibleTravelSignal(inp.travelSpeedMPerMin);
+  const window = outOfWindowSignal(inp.serverTsMs, inp.clientTsMs);
+  const cluster = coordClusterSignal(inp.coordRepeatCount);
+  const device = repeatedDeviceSignal(inp.distinctDeviceAccounts);
+  const { reasons, severity } = summariseFlags([
+    { reason: "impossible_travel", flagged: travel.flagged },
+    { reason: "out_of_window", flagged: window.flagged },
+    { reason: "coord_cluster", flagged: cluster.flagged },
+    { reason: "repeated_device", flagged: device.flagged },
+  ]);
+  return {
+    reasons,
+    severity,
+    signals: {
+      travelSpeedMPerMin: travel.value,
+      clockSkewMs: window.value,
+      coordRepeatCount: cluster.value,
+      deviceAccountCount: device.value,
+    },
+  };
 }
 
 const DECAY_BY_SEVERITY: Record<Severity, number> = { low: 5, med: 15, high: 30 };
