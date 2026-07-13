@@ -134,3 +134,7 @@ functions/.last_import_manifest.json
 # flutter_map tile cache — created at the project root whenever a widget test
 # (or the app) renders a PostboxMap. A runtime artifact, never source.
 /fm_cache/
+
+# Feature worktrees (git worktree add .worktrees/<name>). Local scratch space
+# for in-flight branches; never source.
+/.worktrees/
