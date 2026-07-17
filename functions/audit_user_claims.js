@@ -10,7 +10,10 @@
  *
  * Usage (run from the functions/ directory so node_modules resolve):
  *
- *   node audit_user_claims.js --uid <userid> --project the-postbox-game [--out-dir ./audit]
+ *   node audit_user_claims.js --uid <userid> --project the-postbox-game [--out-dir ./audit_exports]
+ *
+ * Output defaults to ./audit_exports (gitignored) — reports contain real UIDs
+ * and GPS movement traces, so they must never land somewhere committable.
  *
  * Authentication:
  *   Set GOOGLE_APPLICATION_CREDENTIALS to a service account JSON path, OR run
@@ -47,7 +50,7 @@ function classifySpeed(mPerMin) {
 }
 
 function parseArgs(argv) {
-  const opts = { uid: null, projectId: null, outDir: '.', help: false };
+  const opts = { uid: null, projectId: null, outDir: './audit_exports', help: false };
   const args = argv.slice(2);
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
@@ -61,7 +64,7 @@ function parseArgs(argv) {
 }
 
 function usage() {
-  console.log(`Usage: node audit_user_claims.js --uid <userid> --project <projectId> [--out-dir <dir>]`);
+  console.log(`Usage: node audit_user_claims.js --uid <userid> --project <projectId> [--out-dir <dir>] (default out-dir: ./audit_exports)`);
 }
 
 function median(arr) {

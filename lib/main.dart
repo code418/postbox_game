@@ -8,6 +8,7 @@ import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/claim.dart';
 import 'package:postbox_game/claim_history_screen.dart';
 import 'package:postbox_game/friends_screen.dart';
+import 'package:postbox_game/consent_screen.dart';
 import 'package:postbox_game/home.dart';
 import 'package:postbox_game/leaderboard_screen.dart';
 import 'package:postbox_game/intro.dart';
@@ -33,7 +34,7 @@ import 'package:postbox_game/analytics_user_properties.dart';
 import 'package:postbox_game/notification_service.dart';
 import 'package:postbox_game/remote_config_service.dart';
 import 'package:postbox_game/services/crashlytics_helper.dart';
-import 'package:postbox_game/services/perf_service.dart';
+import 'package:postbox_game/services/telemetry_consent.dart';
 import 'package:postbox_game/route/destination_picker_screen.dart';
 import 'package:postbox_game/route/route_notifications.dart';
 import 'package:postbox_game/services/user_properties_publisher.dart';
@@ -51,14 +52,16 @@ void main() async {
       options: DefaultFirebaseOptions.currentPlatform,
     );
   }
-  // Route uncaught framework + platform errors to Crashlytics as fatals, and
-  // disable collection in debug so local runs don't pollute the dashboard.
+  // Route uncaught framework + platform errors to Crashlytics as fatals.
   FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
   WidgetsBinding.instance.platformDispatcher.onError = (error, stack) {
     FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
     return true;
   };
-  unawaited(CrashlyticsHelper.setCollectionEnabled(!kDebugMode));
+  // Apply the stored GDPR telemetry consent to Analytics/Crashlytics/Perf in
+  // one place (analytics is opt-in and starts manifest-disabled; crash/perf
+  // are legitimate-interest with Settings opt-outs, still off in debug).
+  unawaited(applyStoredTelemetryPreferences());
   try {
     await FirebaseAppCheck.instance.activate(
       providerWeb: ReCaptchaV3Provider(kRecaptchaSiteKey),
@@ -92,8 +95,6 @@ void main() async {
             : null,
     serverClientId: kIsWeb ? null : webClientId,
   );
-  // Keep debug runs out of the Performance dashboard; production collects.
-  unawaited(PerfService.setCollectionEnabled(!kDebugMode));
   await HomeWidgetService.init();
   await _checkInitialWidgetLaunch();
   await RouteNotifications.initialise();
@@ -265,19 +266,24 @@ class _PostboxGameState extends State<PostboxGame> with WidgetsBindingObserver {
                 return _UnauthGate(userRepository: _userRepository);
               }
               if (state is Authenticated) {
+                // ConsentGate is a pass-through for anyone who has made the
+                // analytics choice (new users decide in the intro); existing
+                // installs get a one-time consent prompt before Home.
                 if (_autoScanEpoch > 0) {
                   // Keying on the epoch forces a fresh Home + Claim mount on
                   // each widget tap. Without the key, Flutter reconciles the
                   // existing _HomeState whose `late final _pages` was built
                   // with autoScan=false, so the new props are ignored and no
                   // scan fires.
-                  return Home(
-                    key: ValueKey('claim-widget-$_autoScanEpoch'),
-                    initialIndex: 1,
-                    autoScan: true,
+                  return ConsentGate(
+                    child: Home(
+                      key: ValueKey('claim-widget-$_autoScanEpoch'),
+                      initialIndex: 1,
+                      autoScan: true,
+                    ),
                   );
                 }
-                return const Home();
+                return const ConsentGate(child: Home());
               }
               return const Splash();
             },

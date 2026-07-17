@@ -11,7 +11,13 @@ import 'package:postbox_game/analytics_user_properties.dart';
 class _FakeFirebaseAnalytics extends Fake implements FirebaseAnalytics {
   String? lastUserId;
   bool setUserIdCalled = false;
+  bool? collectionEnabled;
   final Map<String, String?> properties = <String, String?>{};
+
+  @override
+  Future<void> setAnalyticsCollectionEnabled(bool enabled) async {
+    collectionEnabled = enabled;
+  }
 
   @override
   Future<void> setUserId({
@@ -123,6 +129,15 @@ void main() {
 
       expect(Analytics.lastSetUserProperties.keys.toSet(),
           equals(AnalyticsUserProps.all.toSet()));
+    });
+  });
+
+  group('Analytics.setCollectionEnabled', () {
+    test('forwards the flag to FirebaseAnalytics', () async {
+      await Analytics.setCollectionEnabled(true);
+      expect(fake.collectionEnabled, isTrue);
+      await Analytics.setCollectionEnabled(false);
+      expect(fake.collectionEnabled, isFalse);
     });
   });
 

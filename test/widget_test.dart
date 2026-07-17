@@ -22,6 +22,7 @@ import 'package:postbox_game/main.dart';
 import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/settings_screen.dart';
 import 'package:postbox_game/streak_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/user_profile_page.dart';
 import 'package:postbox_game/user_repository.dart';
@@ -1361,6 +1362,39 @@ void main() {
       expect(find.text('First friend to score today'), findsOneWidget);
       expect(find.text('Friend overtakes you'), findsOneWidget);
       expect(find.text('Added as a friend'), findsOneWidget);
+    });
+
+    testWidgets('Privacy section shows consent toggles and data tiles',
+        (tester) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      // Even taller viewport: Privacy sits below Notifications.
+      tester.view.physicalSize = const Size(800, 3400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+
+      await tester.pumpWidget(buildSettings());
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('Privacy', skipOffstage: false), findsOneWidget);
+      expect(find.text('Usage analytics', skipOffstage: false), findsOneWidget);
+      expect(find.text('Crash reports', skipOffstage: false), findsOneWidget);
+      expect(find.text('Performance monitoring', skipOffstage: false),
+          findsOneWidget);
+      expect(find.text('Privacy policy', skipOffstage: false), findsOneWidget);
+      expect(
+          find.text('Download my data', skipOffstage: false), findsOneWidget);
+
+      // Analytics is opt-in: its switch must default OFF while the
+      // legitimate-interest crash/perf switches default ON.
+      SwitchListTile tile(String title) => tester.widget<SwitchListTile>(
+            find.ancestor(
+              of: find.text(title, skipOffstage: false),
+              matching: find.byType(SwitchListTile, skipOffstage: false),
+            ),
+          );
+      expect(tile('Usage analytics').value, isFalse);
+      expect(tile('Crash reports').value, isTrue);
+      expect(tile('Performance monitoring').value, isTrue);
     });
   });
 

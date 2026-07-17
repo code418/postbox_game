@@ -48,10 +48,12 @@ interface StartScoringCallData {
   /** Client wall-clock at claim time (ms since epoch). Optional — legacy/web
    *  clients omit it. Stored for the shadow-mode out-of-window anomaly signal. */
   clientTsMs?: number;
-  /** SHA-256 hash of the client's Firebase installation id. Optional — legacy/
-   *  web clients omit it. Stored for the shadow-mode repeated-device signal
-   *  (one install claiming across many accounts). Hashed client-side; treated
-   *  as PII and stripped on account deletion (_accountDeletion.ts). */
+  /** Random 256-bit per-install token (64 hex chars), generated and persisted
+   *  by lib/services/device_id_service.dart — deliberately NOT derived from
+   *  hardware or any Firebase id. Optional — legacy/web clients omit it. Stored
+   *  for the shadow-mode repeated-device signal (one install claiming across
+   *  many accounts). Treated as PII: stripped on account deletion
+   *  (_accountDeletion.ts) and by the 90-day retention sweep (dataRetention.ts). */
   deviceIdHash?: string;
 }
 

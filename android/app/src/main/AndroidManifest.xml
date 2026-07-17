@@ -41,6 +41,13 @@
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
             android:value="postbox_social" />
+        <!-- GDPR: Analytics collection stays OFF (including first_open) until
+             the user opts in and Analytics.setCollectionEnabled(true) runs.
+             Crashlytics/Performance deliberately have no such flags — they run
+             under legitimate interest with in-app Settings opt-outs. -->
+        <meta-data
+            android:name="firebase_analytics_collection_enabled"
+            android:value="false" />
         <!-- Home-screen widget. -->
         <receiver
             android:name=".PostboxWidgetProvider"

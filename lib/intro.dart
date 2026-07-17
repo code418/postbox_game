@@ -5,6 +5,9 @@ import 'package:confetti/confetti.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:postbox_game/analytics_service.dart';
+import 'package:postbox_game/consent_preferences.dart';
+import 'package:postbox_game/consent_screen.dart';
 import 'package:postbox_game/james_messages.dart';
 import 'package:postbox_game/postman_james.dart';
 import 'package:postbox_game/remote_config_service.dart';
@@ -30,7 +33,16 @@ class Intro extends StatefulWidget {
 
 class _IntroState extends State<Intro> {
   int _step = 0;
-  static const int _totalSteps = 7;
+  static const int _totalSteps = 8;
+
+  /// Analytics opt-in choice made on the final (consent) step. Default OFF —
+  /// GDPR consent must be opt-in.
+  bool _analyticsOptIn = false;
+
+  /// Settings replay skips the consent step (consent is managed from
+  /// Settings → Privacy once the choice exists), so the replay run terminates
+  /// one step earlier.
+  int get _lastStep => widget.replay ? _totalSteps - 2 : _totalSteps - 1;
 
   /// True once [_advance] has fired the terminal-step branch (pop / onDone)
   /// so a double-tap on "Get started" can't pop the screen twice or invoke
@@ -72,7 +84,7 @@ class _IntroState extends State<Intro> {
     if (_completed) return;
     // Fire confetti as the user enters the Mega Points step.
     if (_step == 3) _confettiController.play();
-    if (_step < _totalSteps - 1) {
+    if (_step < _lastStep) {
       setState(() => _step++);
     } else {
       _completed = true;
@@ -83,6 +95,10 @@ class _IntroState extends State<Intro> {
       if (widget.replay) {
         Navigator.of(context).pop();
       } else {
+        // Persist the consent-step choice and apply it immediately so
+        // analytics starts (or stays off) without waiting for a restart.
+        unawaited(ConsentPreferences.setAnalyticsConsent(_analyticsOptIn));
+        unawaited(Analytics.setCollectionEnabled(_analyticsOptIn));
         widget.onDone?.call();
       }
     }
@@ -111,8 +127,7 @@ class _IntroState extends State<Intro> {
                   width: double.infinity,
                   child: FilledButton(
                     onPressed: _advance,
-                    child:
-                        Text(_step == _totalSteps - 1 ? 'Get started' : 'Next'),
+                    child: Text(_step == _lastStep ? 'Get started' : 'Next'),
                   ),
                 ),
               ),
@@ -139,9 +154,22 @@ class _IntroState extends State<Intro> {
         return _buildOverview();
       case 6:
         return _buildOverviewEnd();
+      case 7:
+        return _buildConsent();
       default:
         return _buildStageWithPostbox();
     }
+  }
+
+  /// Final first-run step: GDPR telemetry disclosure + analytics opt-in.
+  /// Never reached on replay (see [_lastStep]).
+  Widget _buildConsent() {
+    return _scrollCentre(
+      ConsentContent(
+        analyticsOptIn: _analyticsOptIn,
+        onAnalyticsChanged: (v) => setState(() => _analyticsOptIn = v),
+      ),
+    );
   }
 
   // Wraps a step's content so it scrolls (and stays centred when there's room)

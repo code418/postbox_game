@@ -3848,6 +3848,28 @@ describe("account deletion: anonymiseReportsForUser (mock Firestore)", () => {
     assert.strictEqual(writes[0].id, "r1");
     assert.strictEqual(writes[0].update.reporterUid, DELETED_UID);
   });
+
+  it("strips note and photos (PII) but keeps lat/lng/status/type for data integrity", async () => {
+    const { db, writes } = makeDb([
+      { id: "r1", reporterUid: "u1" },
+    ]);
+    await anonymiseReportsForUser(db, "u1");
+    assert.strictEqual(writes.length, 1);
+    const update = writes[0].update;
+    // note (free text) and photos (EXIF GPS + uid-bearing storage paths) must be
+    // FieldValue.delete() sentinels (objects, not values).
+    for (const f of ["note", "photos"]) {
+      assert.ok(f in update, `${f} should be in the update`);
+      assert.notStrictEqual(typeof update[f], "string");
+      assert.ok(!Array.isArray(update[f]), `${f} must not survive as an array`);
+    }
+    // lat/lng stay: reviewReport needs them to create the postbox for a
+    // still-pending missing-box report, and post-anonymisation they describe a
+    // public postbox site, unlinkable to a person. status/type also untouched.
+    for (const f of ["lat", "lng", "status", "type"]) {
+      assert.ok(!(f in update), `${f} must not be touched by anonymisation`);
+    }
+  });
 });
 
 describe("account deletion: removeUserFromFriends (mock Firestore)", () => {
@@ -4145,5 +4167,401 @@ describe("sendStreakReminders", () => {
     );
     assert.strictEqual(count, 2, "both are eligible even if one send throws");
     assert.deepStrictEqual(sent, ["u2"]);
+  });
+});
+
+// ── Data retention (GDPR) sweep (unit, mock Firestore) ────────────────────────
+import * as adminRet from "firebase-admin";
+import {
+  claimNeedsPiiStrip,
+  reportNeedsMediaPurge,
+  reportStoragePaths,
+  sweepClaimPii,
+  sweepReportMedia,
+  sweepModerationFlags,
+  CLAIM_PII_RETENTION_DAYS,
+  REPORT_MEDIA_RETENTION_DAYS,
+  FLAG_RETENTION_DAYS,
+} from "../dataRetention";
+
+const RET_NOW = 1_800_000_000_000; // fixed "now" for deterministic cutoffs
+const RET_DAY = 24 * 60 * 60 * 1000;
+const retTs = (daysAgo: number) => adminRet.firestore.Timestamp.fromMillis(RET_NOW - daysAgo * RET_DAY);
+
+type RetDoc = Record<string, unknown> & { id: string };
+
+/** Shared mock Firestore for the sweeps: a single swept collection filtered on
+ *  one timestamp field (range + orderBy + limit + startAfter cursor), plus the
+ *  `retention` watermark-state collection, plus batch set/delete that mutate
+ *  the live doc array so re-reads observe strips/deletes (as Firestore would). */
+function makeRetentionDb(config: {
+  collectionName: string;
+  tsField: string;
+  docs: RetDoc[];
+  initialState?: Record<string, unknown>;
+}) {
+  const writes: Array<{ id: string; update: Record<string, unknown> }> = [];
+  const deletes: string[] = [];
+  const stateWrites: Array<Record<string, unknown>> = [];
+  let state: Record<string, unknown> | undefined = config.initialState;
+  let docs = config.docs.map((d) => ({ ...d }));
+
+  const tsMillis = (d: RetDoc) =>
+    (d[config.tsField] as adminRet.firestore.Timestamp | undefined)?.toMillis?.();
+
+  const db = {
+    collection(name: string) {
+      if (name === "retention") {
+        return {
+          doc: () => ({
+            async get() {
+              return { exists: state !== undefined, data: () => state };
+            },
+            async set(v: Record<string, unknown>) {
+              state = { ...(state ?? {}), ...v };
+              stateWrites.push(v);
+            },
+          }),
+        };
+      }
+      if (name !== config.collectionName) throw new Error(`unexpected collection ${name}`);
+      let gte: number | undefined;
+      let lt: number | undefined;
+      let lim = Infinity;
+      let afterId: string | undefined;
+      const q = {
+        where(field: string, op: string, val: unknown) {
+          assert.strictEqual(field, config.tsField);
+          const ms = (val as adminRet.firestore.Timestamp).toMillis();
+          if (op === ">=") gte = ms;
+          else if (op === "<") lt = ms;
+          else throw new Error(`unexpected op ${op}`);
+          return q;
+        },
+        orderBy(field: string) {
+          assert.strictEqual(field, config.tsField);
+          return q;
+        },
+        limit(n: number) {
+          lim = n;
+          return q;
+        },
+        startAfter(snap: { id: string }) {
+          afterId = snap.id;
+          return q;
+        },
+        async get() {
+          let matched = docs
+            .filter((d) => tsMillis(d) !== undefined)
+            .filter(
+              (d) =>
+                (gte === undefined || (tsMillis(d) as number) >= gte) &&
+                (lt === undefined || (tsMillis(d) as number) < lt),
+            )
+            .sort((a, b) => (tsMillis(a) as number) - (tsMillis(b) as number));
+          if (afterId !== undefined) {
+            const idx = matched.findIndex((d) => d.id === afterId);
+            matched = matched.slice(idx + 1);
+          }
+          matched = matched.slice(0, lim);
+          return {
+            docs: matched.map((d) => ({ ref: { id: d.id }, id: d.id, data: () => d })),
+          };
+        },
+      };
+      return q;
+    },
+    batch() {
+      const ops: Array<() => void> = [];
+      return {
+        set(ref: { id: string }, update: Record<string, unknown>) {
+          ops.push(() => {
+            writes.push({ id: ref.id, update });
+            const doc = docs.find((d) => d.id === ref.id);
+            if (doc) {
+              for (const [k, v] of Object.entries(update)) {
+                // FieldValue.delete() sentinel = plain object (not a Timestamp).
+                if (v !== null && typeof v === "object" && !(v instanceof adminRet.firestore.Timestamp)) {
+                  delete doc[k];
+                } else {
+                  doc[k] = v;
+                }
+              }
+            }
+          });
+        },
+        delete(ref: { id: string }) {
+          ops.push(() => {
+            deletes.push(ref.id);
+            docs = docs.filter((d) => d.id !== ref.id);
+          });
+        },
+        async commit() {
+          for (const f of ops) f();
+        },
+      };
+    },
+  };
+  return {
+    db: db as unknown as import("firebase-admin").firestore.Firestore,
+    writes,
+    deletes,
+    stateWrites,
+    getState: () => state,
+    getDocs: () => docs,
+  };
+}
+
+describe("data retention: policy constants", () => {
+  it("pins the documented retention windows", () => {
+    assert.strictEqual(CLAIM_PII_RETENTION_DAYS, 90);
+    assert.strictEqual(REPORT_MEDIA_RETENTION_DAYS, 30);
+    assert.strictEqual(FLAG_RETENTION_DAYS, 180);
+  });
+});
+
+describe("data retention: claimNeedsPiiStrip", () => {
+  it("true when any claim PII field is present", () => {
+    assert.strictEqual(claimNeedsPiiStrip({ userLat: 51.4, points: 9 }), true);
+    assert.strictEqual(claimNeedsPiiStrip({ deviceIdHash: "ab" }), true);
+    assert.strictEqual(claimNeedsPiiStrip({ clientTsMs: 5 }), true);
+  });
+  it("false for already-clean / already-anonymised claims", () => {
+    assert.strictEqual(claimNeedsPiiStrip({ userid: "deleted", points: 9, monarch: "VR" }), false);
+    assert.strictEqual(claimNeedsPiiStrip({}), false);
+  });
+});
+
+describe("data retention: reportNeedsMediaPurge / reportStoragePaths", () => {
+  it("needs purge when note or photos survive", () => {
+    assert.strictEqual(reportNeedsMediaPurge({ note: "hi" }), true);
+    assert.strictEqual(reportNeedsMediaPurge({ photos: [] }), true);
+    assert.strictEqual(reportNeedsMediaPurge({ lat: 51, lng: -2, status: "accepted" }), false);
+  });
+  it("extracts storage paths, ignoring malformed entries", () => {
+    assert.deepStrictEqual(
+      reportStoragePaths({
+        photos: [
+          { storagePath: "report_photos/u1/a.jpg", exifLat: 51 },
+          { storagePath: "" },
+          "junk",
+          { other: 1 },
+          { storagePath: "report_photos/u1/b.png" },
+        ],
+      }),
+      ["report_photos/u1/a.jpg", "report_photos/u1/b.png"],
+    );
+    assert.deepStrictEqual(reportStoragePaths({}), []);
+    assert.deepStrictEqual(reportStoragePaths({ photos: "nope" }), []);
+  });
+});
+
+describe("data retention: sweepClaimPii (mock Firestore)", () => {
+  it("strips PII from claims past 90 days only, skips clean docs, advances the watermark", async () => {
+    const { db, writes, getState } = makeRetentionDb({
+      collectionName: "claims",
+      tsField: "timestamp",
+      docs: [
+        { id: "old-dirty", timestamp: retTs(100), userLat: 51.4, userLng: -2.6, deviceIdHash: "ab", points: 9 },
+        { id: "old-clean", timestamp: retTs(95), userid: "deleted", points: 4 },
+        { id: "recent-dirty", timestamp: retTs(10), userLat: 51.5, points: 2 },
+      ],
+    });
+    const r = await sweepClaimPii(db, RET_NOW);
+    assert.strictEqual(r.scanned, 2, "only the two >90d docs are scanned");
+    assert.strictEqual(r.stripped, 1, "only the dirty old doc is written");
+    assert.strictEqual(r.pagesRemaining, false);
+    assert.strictEqual(writes.length, 1);
+    assert.strictEqual(writes[0].id, "old-dirty");
+    for (const f of ["userLat", "userLng", "coordKey6", "clientTsMs", "travelSpeed", "deviceIdHash"]) {
+      assert.ok(f in writes[0].update, `${f} in strip update`);
+    }
+    assert.strictEqual("points" in writes[0].update, false, "points untouched");
+    const wm = getState()?.watermark as adminRet.firestore.Timestamp;
+    assert.ok(wm, "watermark persisted");
+    assert.strictEqual(wm.toMillis(), retTs(95).toMillis(), "watermark = newest processed doc");
+  });
+
+  it("pages with a cursor, honours maxPages, and resumes from the watermark next run", async () => {
+    const mk = () =>
+      makeRetentionDb({
+        collectionName: "claims",
+        tsField: "timestamp",
+        docs: [
+          { id: "a", timestamp: retTs(120), userLat: 1 },
+          { id: "b", timestamp: retTs(110), userLat: 2 },
+          { id: "c", timestamp: retTs(100), userLat: 3 },
+        ],
+      });
+    const { db, writes, getState } = mk();
+    const r1 = await sweepClaimPii(db, RET_NOW, { pageSize: 1, maxPages: 2 });
+    assert.strictEqual(r1.stripped, 2);
+    assert.strictEqual(r1.pagesRemaining, true);
+    assert.deepStrictEqual(writes.map((w) => w.id), ["a", "b"]);
+
+    // Second run resumes from the persisted watermark and finishes the backlog.
+    const r2 = await sweepClaimPii(db, RET_NOW, { pageSize: 1, maxPages: 5 });
+    assert.strictEqual(r2.stripped, 1);
+    assert.strictEqual(r2.pagesRemaining, false);
+    assert.deepStrictEqual(writes.map((w) => w.id), ["a", "b", "c"]);
+    const wm = getState()?.watermark as adminRet.firestore.Timestamp;
+    assert.strictEqual(wm.toMillis(), retTs(100).toMillis());
+  });
+});
+
+describe("data retention: sweepReportMedia (mock Firestore + fake bucket)", () => {
+  it("purges photos+note of reports reviewed >30 days ago; pending and recent untouched", async () => {
+    const { db, writes, getDocs } = makeRetentionDb({
+      collectionName: "reports",
+      tsField: "reviewedAt",
+      docs: [
+        {
+          id: "old-reviewed",
+          reviewedAt: retTs(40),
+          status: "accepted",
+          lat: 51.4,
+          note: "cypher looks like GR",
+          photos: [
+            { storagePath: "report_photos/u1/a.jpg", exifLat: 51.4 },
+            { storagePath: "report_photos/u1/gone.jpg" },
+          ],
+        },
+        { id: "recent-reviewed", reviewedAt: retTs(5), status: "rejected", note: "n" },
+        { id: "pending", status: "pending", note: "n", photos: [] }, // no reviewedAt
+      ],
+    });
+    const deleted: string[] = [];
+    const bucket = {
+      file: (p: string) => ({
+        async delete() {
+          if (p.endsWith("gone.jpg")) throw Object.assign(new Error("No such object"), { code: 404 });
+          deleted.push(p);
+        },
+      }),
+    };
+    const r = await sweepReportMedia(db, bucket, RET_NOW);
+    assert.strictEqual(r.scanned, 1);
+    assert.strictEqual(r.purged, 1);
+    assert.strictEqual(r.filesDeleted, 1, "the 404 blob is tolerated, the other deleted");
+    assert.deepStrictEqual(deleted, ["report_photos/u1/a.jpg"]);
+    assert.strictEqual(writes.length, 1);
+    assert.strictEqual(writes[0].id, "old-reviewed");
+    assert.ok("note" in writes[0].update && "photos" in writes[0].update);
+    assert.ok(writes[0].update.mediaPurgedAt instanceof adminRet.firestore.Timestamp);
+    const oldDoc = getDocs().find((d) => d.id === "old-reviewed");
+    assert.ok(oldDoc && !("note" in oldDoc) && !("photos" in oldDoc), "live doc stripped");
+    assert.strictEqual(oldDoc?.lat, 51.4, "postbox coordinate kept");
+    const pending = getDocs().find((d) => d.id === "pending");
+    assert.ok(pending && "note" in pending, "pending report untouched");
+  });
+
+  it("skips already-purged reports on watermark-boundary re-reads (idempotent)", async () => {
+    const { db, writes } = makeRetentionDb({
+      collectionName: "reports",
+      tsField: "reviewedAt",
+      docs: [{ id: "r1", reviewedAt: retTs(40), status: "accepted", mediaPurgedAt: retTs(1) }],
+    });
+    const bucket = { file: () => ({ async delete() {} }) };
+    const r = await sweepReportMedia(db, bucket, RET_NOW);
+    assert.strictEqual(r.purged, 0);
+    assert.strictEqual(writes.length, 0, "no rewrite of an already-clean report");
+  });
+});
+
+describe("data retention: sweepModerationFlags (mock Firestore)", () => {
+  it("deletes flags older than 180 days, keeps newer ones, pages until drained", async () => {
+    const { db, deletes, getDocs } = makeRetentionDb({
+      collectionName: "moderationFlags",
+      tsField: "createdAt",
+      docs: [
+        { id: "f-old-1", createdAt: retTs(200), uid: "u1" },
+        { id: "f-old-2", createdAt: retTs(190), uid: "u2" },
+        { id: "f-new", createdAt: retTs(20), uid: "u1" },
+      ],
+    });
+    const r = await sweepModerationFlags(db, RET_NOW, { pageSize: 1, maxPages: 10 });
+    assert.strictEqual(r.deleted, 2);
+    assert.strictEqual(r.pagesRemaining, false);
+    assert.deepStrictEqual(deletes.sort(), ["f-old-1", "f-old-2"]);
+    assert.deepStrictEqual(getDocs().map((d) => d.id), ["f-new"]);
+  });
+});
+
+// ── exportMyData (GDPR access/portability) ────────────────────────────────────
+import { serialiseForExport, buildExportBundle, EXPORT_CLAIMS_CAP, type ExportParts } from "../exportMyData";
+
+describe("exportMyData: serialiseForExport", () => {
+  it("converts Timestamps to ISO strings and GeoPoints to {lat,lng}, recursively", () => {
+    const ts = adminRet.firestore.Timestamp.fromMillis(1_800_000_000_000);
+    const gp = new adminRet.firestore.GeoPoint(51.45, -2.59);
+    const out = serialiseForExport({
+      when: ts,
+      where: gp,
+      nested: { list: [ts, { deep: gp }] },
+      n: 7,
+      s: "x",
+      b: true,
+      nothing: null,
+    }) as Record<string, unknown>;
+    assert.strictEqual(out.when, new Date(1_800_000_000_000).toISOString());
+    assert.deepStrictEqual(out.where, { lat: 51.45, lng: -2.59 });
+    const nested = out.nested as { list: unknown[] };
+    assert.strictEqual(nested.list[0], new Date(1_800_000_000_000).toISOString());
+    assert.deepStrictEqual((nested.list[1] as Record<string, unknown>).deep, { lat: 51.45, lng: -2.59 });
+    assert.strictEqual(out.n, 7);
+    assert.strictEqual(out.s, "x");
+    assert.strictEqual(out.b, true);
+    assert.strictEqual(out.nothing, null);
+  });
+});
+
+describe("exportMyData: buildExportBundle", () => {
+  const baseParts: ExportParts = {
+    uid: "u1",
+    generatedAtIso: "2026-07-17T10:00:00.000Z",
+    account: { email: "a@b.c", providers: ["google.com"] },
+    profile: { id: "u1", displayName: "Richy", friends: ["u2"] },
+    countyStats: [{ id: "avon", totalPoints: 12 }],
+    claims: [{ id: "c1", timestamp: adminRet.firestore.Timestamp.fromMillis(1_800_000_000_000) }],
+    claimsTruncated: false,
+    reports: [{ id: "r1", note: "n" }],
+    moderationFlags: [{ id: "f1", severity: "low" }],
+    trustScore: { score: 95 },
+    reportQuota: null,
+    fcmTokens: null,
+    leaderboards: [{ board: "lifetime", entry: { uid: "u1", totalPoints: 12 } }],
+  };
+
+  it("assembles the versioned bundle with Firestore types serialised", () => {
+    const bundle = buildExportBundle(baseParts) as Record<string, unknown>;
+    assert.strictEqual(bundle.exportVersion, 1);
+    assert.strictEqual(bundle.generatedAt, "2026-07-17T10:00:00.000Z");
+    assert.strictEqual(bundle.uid, "u1");
+    assert.deepStrictEqual(bundle.trustScore, { score: 95 });
+    assert.strictEqual(bundle.reportQuota, null);
+    const claims = bundle.claims as Array<Record<string, unknown>>;
+    assert.strictEqual(claims[0].timestamp, new Date(1_800_000_000_000).toISOString());
+    assert.strictEqual(bundle.claimsTruncated, false);
+    const boards = bundle.leaderboards as Array<Record<string, unknown>>;
+    assert.strictEqual((boards[0].entry as Record<string, unknown>).totalPoints, 12);
+    assert.ok(typeof bundle.notes === "object" && bundle.notes !== null, "explanatory notes present");
+  });
+
+  it("keeps a sane claims cap constant", () => {
+    assert.ok(EXPORT_CLAIMS_CAP >= 1000 && EXPORT_CLAIMS_CAP <= 30000);
+  });
+});
+
+describe("exportMyData callable (auth)", () => {
+  it("throws unauthenticated when no auth context", async function (this: Mocha.Context) {
+    this.timeout(5000);
+    const wrapped = testEnv.wrap(myFunctions.exportMyData) as (data: unknown, context?: unknown) => Promise<unknown>;
+    try {
+      await wrapped({ data: {} });
+      assert.fail("Expected unauthenticated error");
+    } catch (e: unknown) {
+      const err = e as { code?: string };
+      assert.strictEqual(err.code, "unauthenticated");
+    }
   });
 });

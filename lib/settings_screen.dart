@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -9,11 +12,16 @@ import 'package:latlong2/latlong.dart';
 import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/analytics_user_properties.dart';
 import 'package:postbox_game/app_preferences.dart';
+import 'package:postbox_game/consent_preferences.dart';
+import 'package:postbox_game/firebase_functions_eu.dart';
+import 'package:postbox_game/legal/privacy_policy_screen.dart';
 import 'package:postbox_game/remote_config_service.dart';
 import 'package:postbox_game/authentication_bloc/bloc.dart';
 import 'package:postbox_game/county_heatmap.dart';
 import 'package:postbox_game/intro.dart';
 import 'package:postbox_game/maintenance_guard.dart';
+import 'package:postbox_game/services/telemetry_consent.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/user_repository.dart';
@@ -39,6 +47,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     'streakReminder': true,
   };
   bool _notifPrefsLoaded = false;
+  bool _analyticsConsent = false;
+  bool _crashReports = true;
+  bool _perfMonitoring = true;
+  bool _privacyPrefsLoaded = false;
+  bool _isExporting = false;
   final _userRepository = UserRepository();
 
   @override
@@ -46,7 +59,78 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.initState();
     _loadPrefs();
     _loadNotifPrefs();
+    _loadPrivacyPrefs();
     _loadLastPosition();
+  }
+
+  Future<void> _loadPrivacyPrefs() async {
+    final analytics = await ConsentPreferences.analyticsGranted();
+    final crash = await ConsentPreferences.crashReportingEnabled();
+    final perf = await ConsentPreferences.perfMonitoringEnabled();
+    if (!mounted) return;
+    setState(() {
+      _analyticsConsent = analytics;
+      _crashReports = crash;
+      _perfMonitoring = perf;
+      _privacyPrefsLoaded = true;
+    });
+  }
+
+  // Consent toggles persist to SharedPreferences (device-local — unlike the
+  // Firestore-backed notification prefs there's no network write to roll
+  // back), then re-apply the whole telemetry state so the change takes effect
+  // immediately.
+  Future<void> _setAnalyticsConsent(bool v) async {
+    setState(() => _analyticsConsent = v);
+    await ConsentPreferences.setAnalyticsConsent(v);
+    unawaited(applyStoredTelemetryPreferences());
+  }
+
+  Future<void> _setCrashReports(bool v) async {
+    setState(() => _crashReports = v);
+    await ConsentPreferences.setCrashReportingEnabled(v);
+    unawaited(applyStoredTelemetryPreferences());
+  }
+
+  Future<void> _setPerfMonitoring(bool v) async {
+    setState(() => _perfMonitoring = v);
+    await ConsentPreferences.setPerfMonitoringEnabled(v);
+    unawaited(applyStoredTelemetryPreferences());
+  }
+
+  /// GDPR Art. 15/20 self-serve export: fetch the full data bundle from the
+  /// `exportMyData` callable and hand it to the platform share sheet as a
+  /// JSON file.
+  Future<void> _downloadMyData() async {
+    if (MaintenanceGuard.blocked(context, actionLabel: 'export your data')) {
+      return;
+    }
+    setState(() => _isExporting = true);
+    try {
+      final result = await appFunctions.httpsCallable('exportMyData').call();
+      final jsonStr = const JsonEncoder.withIndent('  ').convert(result.data);
+      final date = DateTime.now().toIso8601String().split('T').first;
+      await SharePlus.instance.share(ShareParams(
+        files: [
+          XFile.fromData(
+            utf8.encode(jsonStr),
+            mimeType: 'application/json',
+          ),
+        ],
+        fileNameOverrides: ['postbox-game-export-$date.json'],
+        subject: 'The Postbox Game — my data',
+      ));
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not export your data. Please try again.'),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isExporting = false);
+    }
   }
 
   Future<void> _loadLastPosition() async {
@@ -783,6 +867,64 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onChanged: (v) => _setNotifPref('streakReminder', v),
             ),
           ],
+          const Divider(height: 24),
+          _sectionHeader('Privacy'),
+          if (!_privacyPrefsLoaded)
+            const Padding(
+              padding: EdgeInsets.symmetric(
+                  horizontal: AppSpacing.md, vertical: AppSpacing.md),
+              child: LinearProgressIndicator(),
+            )
+          else ...[
+            SwitchListTile(
+              secondary: const Icon(Icons.insights_outlined),
+              title: const Text('Usage analytics'),
+              subtitle: const Text(
+                  'Share anonymous usage statistics to help improve the app'),
+              value: _analyticsConsent,
+              onChanged: _setAnalyticsConsent,
+            ),
+            SwitchListTile(
+              secondary: const Icon(Icons.bug_report_outlined),
+              title: const Text('Crash reports'),
+              subtitle:
+                  const Text('Anonymous crash reports that help us fix bugs'),
+              value: _crashReports,
+              onChanged: _setCrashReports,
+            ),
+            SwitchListTile(
+              secondary: const Icon(Icons.speed_outlined),
+              title: const Text('Performance monitoring'),
+              subtitle: const Text(
+                  'Anonymous timing traces that help us keep the app fast'),
+              value: _perfMonitoring,
+              onChanged: _setPerfMonitoring,
+            ),
+          ],
+          ListTile(
+            leading: const Icon(Icons.privacy_tip_outlined),
+            title: const Text('Privacy policy'),
+            subtitle: const Text('How we handle your data'),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                  builder: (_) => const PrivacyPolicyScreen()),
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.download_outlined),
+            title: const Text('Download my data'),
+            subtitle: const Text(
+                'Export everything we store about you as a JSON file'),
+            trailing: _isExporting
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : null,
+            enabled: !_isExporting,
+            onTap: _downloadMyData,
+          ),
           const Divider(height: 24),
           _sectionHeader('About'),
           ListTile(
