@@ -1,10 +1,26 @@
 {
+  "conditions": [
+    {
+      "name": "Admin",
+      "expression": "app.userProperty['is_admin'].exactlyMatches(['true'])",
+      "tagColor": "PINK"
+    }
+  ],
   "parameters": {
     "kill_switch_route_mode": {
       "defaultValue": {
-        "value": "false"
+        "value": "true"
       },
-      "description": "When true, hides the 'Walk to a destination' CTA on the Nearby tab so Route Mode can be disabled without a release.",
+      "conditionalValues": {
+        "Admin": {
+          "rolloutValue": {
+            "rolloutId": "rollout_1",
+            "value": "false",
+            "percent": 100
+          }
+        }
+      },
+      "description": "When true, hides the 'Walk to a destination' CTA on the Nearby tab so Route Mode can be disabled without a release. Currently ON (Route Mode hidden) for everyone except the Admin audience, which receives 'false' via rollout_1 at 100%.",
       "valueType": "BOOLEAN"
     },
     "kill_switch_reporting": {
@@ -30,13 +46,27 @@
     },
     "maintenance_message": {
       "defaultValue": {
-        "value": "The Royal Mail van's pulled in for a service. Have a browse around for a bit, postie..."
+        "useInAppDefault": true
       },
-      "description": "Admin-authored banner copy shown while maintenance_mode is on. Empty falls back to the in-app default. Postman James voice; no em-dashes.",
+      "description": "Admin-authored banner copy shown while maintenance_mode is on. Defaults to the in-app copy in RemoteConfigService.defaultMaintenanceMessage. Postman James voice; no em-dashes.",
       "valueType": "STRING"
+    },
+    "claim_radius_meters": {
+      "defaultValue": {
+        "value": "30"
+      },
+      "description": "Claim radius in metres. Must start equal to the code default (30). Values outside the [10, 100] safety band are ignored; client and server fall back to 30. Publish this key to the SERVER template too (functions/src/_config.ts).",
+      "valueType": "NUMBER"
+    },
+    "points_by_monarch": {
+      "defaultValue": {
+        "value": "{\"EIIR\":2,\"CIIIR\":9,\"GR\":4,\"GVR\":4,\"GVIR\":4,\"VR\":7,\"EVIIR\":9,\"EVIIIR\":12,\"SCOTTISH_CROWN\":4}"
+      },
+      "description": "Per-cypher point overrides. Must start equal to the code default (RemoteConfigService.defaultPointsByMonarchJson). Values outside [1, 50] and unknown keys are ignored; omitted monarchs keep their hard-coded value. Publish to the SERVER template too.",
+      "valueType": "JSON"
     }
   },
   "version": {
-    "description": "Remote Config template for Postbox Game: two kill switches (Route Mode, problem reporting), one A/B copy variant (James welcome line), and the maintenance-mode kill switch + banner message. Defaults mirror RemoteConfigService.defaults in lib/remote_config_service.dart."
+    "description": "Postbox Game CLIENT template: kill switches, James welcome variant, maintenance mode + message, and the v1.4 balance pair. Defaults mirror RemoteConfigService.defaults. The balance pair also needs publishing to the server template."
   }
 }
