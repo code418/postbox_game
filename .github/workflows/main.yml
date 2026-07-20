@@ -42,7 +42,11 @@ jobs:
   # deployment target, and Dart compiles/links to a native Runner.app — WITHOUT
   # needing a paid Apple Developer account or signing certificates. This is the
   # only way to build for iOS without a Mac of your own.
+  #
+  # macOS runners bill at 10x the Linux rate, so this is manual-only: trigger it
+  # from the Actions tab ("Run workflow") when the iOS side has changed.
   build-ios:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: macos-latest
 
     steps:

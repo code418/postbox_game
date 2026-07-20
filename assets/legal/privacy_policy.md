@@ -18,7 +18,7 @@ The Postbox Game is an independent mobile game. For data protection enquiries, c
 - **Problem reports:** If you report a postbox data problem, we store your report, its location, and any note or photos you attach (photos may include the time and place they were taken).
 - **Anti-abuse records:** Automated checks may record anomaly flags and an internal trust score for your account. While this system runs in "shadow mode" it has no effect on your account or gameplay.
 - **Crash and performance data:** Crash reports and performance traces collected by Firebase Crashlytics and Firebase Performance Monitoring to help us fix bugs. You can turn these off in Settings → Privacy.
-- **Usage analytics (optional):** Anonymous usage events collected by Firebase Analytics, only if you opt in. Analytics is off until you choose to share it, and you can change your choice any time in Settings → Privacy.
+- **Usage analytics:** Anonymous usage events collected by Firebase Analytics to understand how the App is used. On by default — you can turn it off during onboarding or any time in Settings → Privacy.
 
 ## 3. How We Use Your Data
 
@@ -26,7 +26,7 @@ The Postbox Game is an independent mobile game. For data protection enquiries, c
 - To display your scores and display name on leaderboards and to friends.
 - To keep the game fair by detecting location spoofing and multi-account abuse.
 - To review postbox data problems you report and improve the postbox database.
-- To improve the App by analysing crash reports, performance data, and (with your consent) aggregated usage statistics.
+- To improve the App by analysing crash reports, performance data, and aggregated usage statistics (each of which you can opt out of).
 - To associate your gameplay history with your account so it persists across devices.
 
 ## 4. Legal Basis for Processing
@@ -34,8 +34,8 @@ The Postbox Game is an independent mobile game. For data protection enquiries, c
 We process your personal data on the following legal bases under UK GDPR:
 
 - **Contract:** Processing your account and gameplay data is necessary to provide the service you signed up for.
-- **Legitimate interests:** Crash reporting and performance monitoring to maintain a working app (you can object via the Settings → Privacy toggles), and anti-abuse checks to keep the game fair.
-- **Consent:** Usage analytics (opt-in inside the App) and location access (grant or revoke at any time in your device settings).
+- **Legitimate interests:** Usage analytics, crash reporting, and performance monitoring to maintain and improve a working app (each can be turned off via the Settings → Privacy toggles), and anti-abuse checks to keep the game fair.
+- **Consent:** Location access, which you can grant or revoke at any time in your device settings.
 
 ## 5. Data Sharing
 
@@ -63,7 +63,7 @@ Under UK GDPR you have the right to:
 - **Rectification** of inaccurate data (e.g. update your display name in the App).
 - **Erasure** ("right to be forgotten"): use Settings → "Delete account" in the App. Your personal data is deleted and your claims are anonymised immediately.
 - **Restriction or objection** to certain processing, including turning off crash reporting, performance monitoring, and analytics in Settings → Privacy.
-- **Withdraw consent** for analytics (Settings → Privacy) or location access (device settings) at any time.
+- **Withdraw consent** for location access at any time via your device settings; analytics, crash reporting, and performance monitoring can each be turned off in Settings → Privacy.
 
 To exercise any right, or if you have any questions, contact us at richard@agilepixel.io. You also have the right to lodge a complaint with the Information Commissioner's Office (ICO) at ico.org.uk.
 

@@ -1384,15 +1384,14 @@ void main() {
       expect(
           find.text('Download my data', skipOffstage: false), findsOneWidget);
 
-      // Analytics is opt-in: its switch must default OFF while the
-      // legitimate-interest crash/perf switches default ON.
+      // All three telemetry toggles default ON (opt-out model).
       SwitchListTile tile(String title) => tester.widget<SwitchListTile>(
             find.ancestor(
               of: find.text(title, skipOffstage: false),
               matching: find.byType(SwitchListTile, skipOffstage: false),
             ),
           );
-      expect(tile('Usage analytics').value, isFalse);
+      expect(tile('Usage analytics').value, isTrue);
       expect(tile('Crash reports').value, isTrue);
       expect(tile('Performance monitoring').value, isTrue);
     });

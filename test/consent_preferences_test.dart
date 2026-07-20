@@ -10,9 +10,9 @@ void main() {
   });
 
   group('ConsentPreferences defaults', () {
-    test('analytics is undecided and not granted (opt-in)', () async {
+    test('analytics is undecided but ON by default (opt-out model)', () async {
       expect(await ConsentPreferences.hasDecidedAnalytics(), isFalse);
-      expect(await ConsentPreferences.analyticsGranted(), isFalse);
+      expect(await ConsentPreferences.analyticsGranted(), isTrue);
     });
 
     test('crash reporting and perf monitoring default on (legitimate interest)',

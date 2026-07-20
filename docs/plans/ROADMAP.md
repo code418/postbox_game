@@ -162,7 +162,7 @@ exceptions in key flows to non-fatals.
 ## v1.4 — Trust & safety  (In flight)
 
 **Theme**: harden the platform now that we can see what's happening (v1.3 observability).
-**Ship gate**: account-deletion flow tested end-to-end in staging; impossible-travel detector in shadow mode logging flags but not blocking; Remote Config drives `claim_radius_meters` and `points_by_monarch` end-to-end (client + Cloud Functions) with the safety bounds enforced; analytics consent gate live (fresh install fires no events before opt-in — verified in DebugView); `exportMyData` returns a complete bundle in staging; `dataRetentionSweep` executed once in staging with logged strip/delete counts.
+**Ship gate**: account-deletion flow tested end-to-end in staging; impossible-travel detector in shadow mode logging flags but not blocking; Remote Config drives `claim_radius_meters` and `points_by_monarch` end-to-end (client + Cloud Functions) with the safety bounds enforced; telemetry disclosure live with analytics on by default and a working opt-out (DebugView goes silent when the Settings → Privacy toggle is switched off); `exportMyData` returns a complete bundle in staging; `dataRetentionSweep` executed once in staging with logged strip/delete counts.
 
 > **Status** (branch `feat/v1.4-trust-safety`, `1.4.0+18`): all four workstreams
 > implemented (Remote Config balance, GDPR deletion, shadow-mode abuse, and the
@@ -270,13 +270,18 @@ Shadow mode first — log flags, no user-facing effect — for 2 weeks; tune thr
 > anonymisation. Also fixed the dependency skew that broke Dart test loading
 > (`firebase_core_platform_interface` ^8.0.0 + `fake_cloud_firestore` 4.2.0).
 
-- **Analytics consent (opt-in)**: `firebase_analytics_collection_enabled=false`
-  manifest flag keeps the SDK silent from cold boot; consent recorded on the new
-  final intro step (new users) or the one-time `ConsentGate` prompt in
-  `lib/consent_screen.dart` (existing installs); Crashlytics/Performance stay on
-  under legitimate interest. Settings → Privacy has toggles for all three, all
-  persisted in `lib/consent_preferences.dart` (SharedPreferences, pre-login-safe)
-  and applied by `applyStoredTelemetryPreferences()` at every cold start.
+- **Telemetry disclosure + opt-outs (analytics ON by default)**: all three
+  streams (analytics, Crashlytics, Performance) run under legitimate interest,
+  on by default. The final intro step (new users) and the one-time `ConsentGate`
+  prompt in `lib/consent_screen.dart` (existing installs) disclose this with a
+  pre-enabled analytics switch; Settings → Privacy has opt-out toggles for all
+  three, persisted in `lib/consent_preferences.dart` (SharedPreferences,
+  pre-login-safe) and applied by `applyStoredTelemetryPreferences()` at every
+  cold start. The `firebase_analytics_collection_enabled=false` manifest flag is
+  kept so opted-out users never leak events before the runtime toggle applies.
+  **Product decision 2026-07-17**: analytics was briefly opt-in per ICO guidance
+  and deliberately switched to opt-out — a known residual compliance risk
+  (ICO/PECR treat analytics as consent-requiring), accepted for now.
 - **Privacy policy**: single source `assets/legal/privacy_policy.md`, rendered
   in-app by `lib/legal/privacy_policy_screen.dart` (no markdown dep) and mirrored
   at `web/privacy-policy.html` (hosted at `/privacy-policy`, for the Play

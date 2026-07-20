@@ -11,10 +11,14 @@ const String _keyPerfEnabled = 'perf_monitoring_enabled';
 /// state that must be readable before login (the intro runs unauthenticated)
 /// and applied at every cold start before any Firebase collection begins.
 ///
-/// Analytics is OPT-IN (default off until the user decides — the manifest flag
-/// `firebase_analytics_collection_enabled=false` keeps the SDK silent before
-/// the first runtime enable). Crash reporting and performance monitoring run
-/// under legitimate interest, on by default with a Settings opt-out.
+/// All three telemetry streams — usage analytics, crash reporting, and
+/// performance monitoring — run ON BY DEFAULT under a legitimate-interest
+/// posture with opt-outs (the intro/one-time disclosure switch and
+/// Settings → Privacy). Product decision 2026-07-17: analytics was briefly
+/// opt-in per ICO guidance and was deliberately switched to opt-out; the
+/// manifest flag `firebase_analytics_collection_enabled=false` is kept so an
+/// opted-OUT user never leaks events between process start and the runtime
+/// toggle being applied.
 class ConsentPreferences {
   ConsentPreferences._();
 
@@ -25,10 +29,10 @@ class ConsentPreferences {
     return prefs.getBool(_keyAnalyticsDecided) ?? false;
   }
 
-  /// Whether the user opted in to usage analytics. Default off (opt-in).
+  /// Whether usage analytics is enabled. Default ON (opt-out model).
   static Future<bool> analyticsGranted() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool(_keyAnalyticsGranted) ?? false;
+    return prefs.getBool(_keyAnalyticsGranted) ?? true;
   }
 
   /// Record the analytics choice: marks it decided and stores [granted].

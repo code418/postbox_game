@@ -47,7 +47,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     'streakReminder': true,
   };
   bool _notifPrefsLoaded = false;
-  bool _analyticsConsent = false;
+  bool _analyticsConsent = true;
   bool _crashReports = true;
   bool _perfMonitoring = true;
   bool _privacyPrefsLoaded = false;

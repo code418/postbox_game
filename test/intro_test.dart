@@ -66,13 +66,13 @@ void main() {
       await tester.pump(const Duration(milliseconds: 700));
     }
 
-    // Final step: the consent disclosure with the opt-in switch DEFAULT OFF,
-    // and the CTA flips to "Get started".
+    // Final step: the telemetry disclosure with the analytics switch DEFAULT
+    // ON (opt-out model), and the CTA flips to "Get started".
     expect(find.text('Get started'), findsOneWidget);
     final switchFinder = find.byType(SwitchListTile);
     expect(switchFinder, findsOneWidget);
-    expect(tester.widget<SwitchListTile>(switchFinder).value, isFalse,
-        reason: 'analytics consent must be opt-in (default OFF)');
+    expect(tester.widget<SwitchListTile>(switchFinder).value, isTrue,
+        reason: 'analytics defaults ON (opt-out model)');
 
     expect(doneCalled, isFalse);
     await tester.tap(find.text('Get started'));
@@ -83,27 +83,27 @@ void main() {
     await tester.pump(const Duration(seconds: 2));
     expect(doneCalled, isTrue);
 
-    // Completing without touching the switch records a decided-but-declined
-    // consent and keeps analytics collection off.
+    // Completing without touching the switch records a decided choice with
+    // analytics left on.
     expect(await ConsentPreferences.hasDecidedAnalytics(), isTrue);
-    expect(await ConsentPreferences.analyticsGranted(), isFalse);
-    expect(fakeAnalytics.collectionEnabled, isFalse);
+    expect(await ConsentPreferences.analyticsGranted(), isTrue);
+    expect(fakeAnalytics.collectionEnabled, isTrue);
   });
 
-  testWidgets('opting in on the consent step enables analytics',
+  testWidgets('opting out on the consent step disables analytics',
       (tester) async {
     await tester.pumpWidget(MaterialApp(home: Intro(onDone: () {})));
     for (var i = 0; i < 7; i++) {
       await tester.tap(find.text('Next'));
       await tester.pump(const Duration(milliseconds: 700));
     }
-    await tester.tap(find.byType(SwitchListTile));
+    await tester.tap(find.byType(SwitchListTile)); // switch OFF
     await tester.pump();
     await tester.tap(find.text('Get started'));
     await tester.pump(const Duration(seconds: 2));
 
-    expect(await ConsentPreferences.analyticsGranted(), isTrue);
-    expect(fakeAnalytics.collectionEnabled, isTrue);
+    expect(await ConsentPreferences.analyticsGranted(), isFalse);
+    expect(fakeAnalytics.collectionEnabled, isFalse);
   });
 
   testWidgets('Settings replay ends on the outro and never shows consent',

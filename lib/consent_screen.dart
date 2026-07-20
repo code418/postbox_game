@@ -40,7 +40,8 @@ class ConsentContent extends StatelessWidget {
         ),
         const SizedBox(height: AppSpacing.md),
         const Text(
-          'Anonymous usage analytics are optional and OFF unless you opt in:',
+          'We also collect anonymous usage analytics. You can switch that off '
+          'here, or later in Settings → Privacy:',
           style: TextStyle(color: Colors.white70, height: 1.4),
         ),
         const SizedBox(height: AppSpacing.sm),
@@ -87,7 +88,7 @@ class ConsentGate extends StatefulWidget {
 
 class _ConsentGateState extends State<ConsentGate> {
   bool? _decided;
-  bool _optIn = false;
+  bool _optIn = true; // analytics defaults ON (opt-out model)
 
   @override
   void initState() {

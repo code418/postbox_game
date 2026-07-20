@@ -35,9 +35,9 @@ class _IntroState extends State<Intro> {
   int _step = 0;
   static const int _totalSteps = 8;
 
-  /// Analytics opt-in choice made on the final (consent) step. Default OFF —
-  /// GDPR consent must be opt-in.
-  bool _analyticsOptIn = false;
+  /// Analytics choice made on the final (disclosure) step. Default ON —
+  /// opt-out model; the switch lets the user turn it off before starting.
+  bool _analyticsOptIn = true;
 
   /// Settings replay skips the consent step (consent is managed from
   /// Settings → Privacy once the choice exists), so the replay run terminates

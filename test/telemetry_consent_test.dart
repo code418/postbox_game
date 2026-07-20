@@ -52,21 +52,20 @@ void main() {
     PerfService.instance = fakePerf;
   });
 
-  test('defaults (release): analytics off until consented, crash+perf on',
-      () async {
+  test('defaults (release): analytics, crash, and perf all on', () async {
     await applyStoredTelemetryPreferences(isDebug: false);
-    expect(fakeAnalytics.collectionEnabled, isFalse);
+    expect(fakeAnalytics.collectionEnabled, isTrue);
     expect(fakeCrashlytics.collectionEnabled, isTrue);
     expect(fakePerf.collectionEnabled, isTrue);
   });
 
-  test('granted analytics consent enables collection', () async {
+  test('an explicit opt-in keeps collection on', () async {
     await ConsentPreferences.setAnalyticsConsent(true);
     await applyStoredTelemetryPreferences(isDebug: false);
     expect(fakeAnalytics.collectionEnabled, isTrue);
   });
 
-  test('declined analytics consent keeps collection off', () async {
+  test('an analytics opt-out turns collection off', () async {
     await ConsentPreferences.setAnalyticsConsent(false);
     await applyStoredTelemetryPreferences(isDebug: false);
     expect(fakeAnalytics.collectionEnabled, isFalse);

@@ -35,24 +35,24 @@ void main() {
     expect(find.text('Your data, your choice'), findsOneWidget);
     expect(find.text('HOME'), findsNothing);
     expect(tester.widget<SwitchListTile>(find.byType(SwitchListTile)).value,
-        isFalse);
+        isTrue, reason: 'analytics defaults ON (opt-out model)');
   });
 
-  testWidgets('Continue persists the choice and reveals the app',
+  testWidgets('Continue persists an opt-out and reveals the app',
       (tester) async {
     SharedPreferences.setMockInitialValues(<String, Object>{});
     await tester.pumpWidget(gate());
     await tester.pump();
 
-    await tester.tap(find.byType(SwitchListTile)); // opt in
+    await tester.tap(find.byType(SwitchListTile)); // opt out
     await tester.pump();
     await tester.tap(find.text('Continue'));
     await tester.pumpAndSettle();
 
     expect(find.text('HOME'), findsOneWidget);
     expect(await ConsentPreferences.hasDecidedAnalytics(), isTrue);
-    expect(await ConsentPreferences.analyticsGranted(), isTrue);
-    expect(fakeAnalytics.collectionEnabled, isTrue);
+    expect(await ConsentPreferences.analyticsGranted(), isFalse);
+    expect(fakeAnalytics.collectionEnabled, isFalse);
   });
 
   testWidgets('passes straight through when the choice was already made',
