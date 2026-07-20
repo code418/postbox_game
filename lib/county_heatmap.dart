@@ -85,6 +85,40 @@ Map<String, dynamic>? pickCountyLeaderEntry(
   return null;
 }
 
+/// Maximum number of named player chips in the legend before it collapses the
+/// rest into a "+N more" chip.
+const int _kMaxLegendChips = 8;
+
+/// Orders legend entries: self first, then by counties led (desc), then by
+/// display name, then uid. The last two keys keep the row stable across
+/// rebuilds — a comparator returning 0 for a pair leaves the order at the mercy
+/// of iteration order, which changes between rebuilds.
+///
+/// [leaderUidByCounty] is one uid per led county, so repeats are the count.
+@visibleForTesting
+List<String> orderLegendLeaders(
+  Iterable<String> leaderUidByCounty, {
+  required String myUid,
+  required Map<String, String> displayNames,
+}) {
+  final counties = <String, int>{};
+  for (final uid in leaderUidByCounty) {
+    counties[uid] = (counties[uid] ?? 0) + 1;
+  }
+  return counties.keys.toList()
+    ..sort((a, b) {
+      if (a == b) return 0;
+      if (a == myUid) return -1;
+      if (b == myUid) return 1;
+      final byCount = counties[b]!.compareTo(counties[a]!);
+      if (byCount != 0) return byCount;
+      final byName = (displayNames[a] ?? '')
+          .toLowerCase()
+          .compareTo((displayNames[b] ?? '').toLowerCase());
+      return byName != 0 ? byName : a.compareTo(b);
+    });
+}
+
 class CountyHeatmap extends StatefulWidget {
   const CountyHeatmap({super.key, this.friendsOnly = true});
 
@@ -111,7 +145,12 @@ class _CountyHeatmapState extends State<CountyHeatmap> {
     super.didUpdateWidget(oldWidget);
     // The toggle flips friendsOnly; reload so the county leaders recompute.
     if (oldWidget.friendsOnly != widget.friendsOnly) {
-      setState(() => _future = _load());
+      // Braces, not an arrow: `=> _future = _load()` makes the closure return
+      // the Future, which trips setState's "callback returned a Future" assert
+      // and red-screens the tab in debug on every toggle flip.
+      setState(() {
+        _future = _load();
+      });
     }
   }
 
@@ -154,9 +193,7 @@ class _CountyHeatmapState extends State<CountyHeatmap> {
       for (final d in snap.docs) {
         final data = d.data();
         final n = data['displayName'] as String?;
-        names[d.id] = (n == null || n.isEmpty)
-            ? 'Player_${d.id.substring(0, d.id.length.clamp(0, 6))}'
-            : n;
+        names[d.id] = (n == null || n.isEmpty) ? _synthName(d.id) : n;
         final mc = data['mapColor'];
         if (mc is String && kMapColourPalette.containsKey(mc)) {
           chosenColours[d.id] = mc;
@@ -167,10 +204,7 @@ class _CountyHeatmapState extends State<CountyHeatmap> {
     // missing from the batch result (e.g. a deleted account still in someone's
     // friends list).
     for (final u in candidates) {
-      names.putIfAbsent(
-        u,
-        () => 'Player_${u.substring(0, u.length.clamp(0, 6))}',
-      );
+      names.putIfAbsent(u, () => _synthName(u));
     }
 
     // Parse the geojson asset and build polygon geometry per county slug.
@@ -251,13 +285,25 @@ class _CountyHeatmapState extends State<CountyHeatmap> {
       final e = pickCountyLeaderEntry(entries, candidates, widget.friendsOnly);
       if (e == null) continue;
       final entryUid = e['uid'] as String;
+      final entryName = e['displayName'] as String?;
       leaderBySlug[slug] = _CountyLeader(
         uid: entryUid,
-        displayName:
-            (e['displayName'] as String?) ?? names[entryUid] ?? 'Unknown',
+        displayName: (entryName != null && entryName.isNotEmpty)
+            ? entryName
+            : (names[entryUid] ?? _synthName(entryUid)),
         uniqueBoxes: (e['uniquePostboxesClaimed'] as num?)?.toInt() ?? 0,
         totalPoints: (e['totalPoints'] as num?)?.toInt() ?? 0,
       );
+    }
+
+    // With the friends-only toggle off, leaders are arbitrary global players
+    // who were never in the candidate set, so their names never came back from
+    // the users/ batch above. Every county leaderboard entry carries a
+    // server-maintained displayName (functions/src/_leaderboardUtils.ts), so
+    // fold those in and the legend can label non-friends with no extra reads.
+    // putIfAbsent keeps the fresher user-doc name for candidates.
+    for (final leader in leaderBySlug.values) {
+      names.putIfAbsent(leader.uid, () => leader.displayName);
     }
 
     return _HeatmapData(
@@ -270,6 +316,12 @@ class _CountyHeatmapState extends State<CountyHeatmap> {
       friendsOnly: widget.friendsOnly,
     );
   }
+
+  /// Placeholder for a player whose name we can't resolve (deleted account, or
+  /// an empty displayName). Mirrors the server's sanitiseName fallback in
+  /// functions/src/onUserCreated.ts so the same user reads the same either way.
+  static String _synthName(String uid) =>
+      'Player_${uid.substring(0, uid.length.clamp(0, 6))}';
 
   static List<LatLng> _ringToLatLng(dynamic ring) {
     if (ring is! List) return const [];
@@ -462,23 +514,15 @@ class _HeatmapViewState extends State<_HeatmapView> {
     }
     if (selectedPoly != null) polygons.add(selectedPoly);
 
-    // Distinct friend uids that lead at least one county — used in legend.
-    final leaderUids = <String>{
-      for (final l in data.leaderBySlug.values) l.uid,
-    };
-    // Self first, then friends ordered alphabetically by display name so the
-    // chip row is stable across rebuilds (a comparator returning 0 for any
-    // friend pair leaves the order at the mercy of set-iteration order, which
-    // changes between rebuilds).
-    final orderedLeaders = leaderUids.toList()
-      ..sort((a, b) {
-        if (a == data.myUid) return -1;
-        if (b == data.myUid) return 1;
-        final na = data.displayNames[a] ?? '';
-        final nb = data.displayNames[b] ?? '';
-        final byName = na.toLowerCase().compareTo(nb.toLowerCase());
-        return byName != 0 ? byName : a.compareTo(b);
-      });
+    // Distinct uids that lead at least one county — used in the legend, self
+    // first then ranked by how many counties they hold. With the friends-only
+    // toggle off there can be hundreds of leaders, so ranking (rather than
+    // alphabetical) keeps the truncated chip row meaningful.
+    final orderedLeaders = orderLegendLeaders(
+      data.leaderBySlug.values.map((l) => l.uid),
+      myUid: data.myUid,
+      displayNames: data.displayNames,
+    );
 
     final hasUnclaimed = data.leaderBySlug.length <
         data.shapes.map((s) => s.slug).toSet().length;
@@ -577,6 +621,9 @@ class _LegendOverlay extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final shown =
+        leaders.length < _kMaxLegendChips ? leaders.length : _kMaxLegendChips;
+    final hidden = leaders.length - shown;
     return Material(
       elevation: 2,
       borderRadius: BorderRadius.circular(12),
@@ -589,17 +636,25 @@ class _LegendOverlay extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              for (var i = 0; i < leaders.take(8).length; i++) ...[
+              for (var i = 0; i < shown; i++) ...[
                 if (i > 0) const SizedBox(width: AppSpacing.sm),
                 _LegendChip(
                   colour: colourFor(leaders[i]),
+                  // Every leader uid is in displayNames — candidates from the
+                  // users/ batch, global leaders from their leaderboard entry.
                   label: leaders[i] == myUid
                       ? 'You'
-                      : (displayNames[leaders[i]] ?? 'Friend'),
+                      : (displayNames[leaders[i]] ?? 'Unknown player'),
                 ),
               ],
+              if (hidden > 0) ...[
+                if (shown > 0) const SizedBox(width: AppSpacing.sm),
+                // No swatch: this chip stands in for many colours at once.
+                _LegendChip(label: '+$hidden more'),
+              ],
               if (showNoLeader) ...[
-                if (leaders.isNotEmpty) const SizedBox(width: AppSpacing.sm),
+                if (shown > 0 || hidden > 0)
+                  const SizedBox(width: AppSpacing.sm),
                 _LegendChip(
                   colour: scheme.onSurface.withValues(alpha: 0.4),
                   label: 'No leader',
@@ -635,30 +690,35 @@ class _RecenterButton extends StatelessWidget {
 }
 
 class _LegendChip extends StatelessWidget {
-  final Color colour;
+  /// Null renders the label alone — used by the "+N more" chip, which stands
+  /// in for several players and so has no single colour to show.
+  final Color? colour;
   final String label;
-  const _LegendChip({required this.colour, required this.label});
+  const _LegendChip({this.colour, required this.label});
 
   @override
   Widget build(BuildContext context) {
+    final swatch = colour;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Container(
-          width: 10,
-          height: 10,
-          decoration: BoxDecoration(
-            color: colour,
-            shape: BoxShape.circle,
-            border: Border.all(
-                color: Theme.of(context)
-                    .colorScheme
-                    .onSurface
-                    .withValues(alpha: 0.45),
-                width: 0.5),
+        if (swatch != null) ...[
+          Container(
+            width: 10,
+            height: 10,
+            decoration: BoxDecoration(
+              color: swatch,
+              shape: BoxShape.circle,
+              border: Border.all(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withValues(alpha: 0.45),
+                  width: 0.5),
+            ),
           ),
-        ),
-        const SizedBox(width: 4),
+          const SizedBox(width: 4),
+        ],
         Text(label,
             style: Theme.of(context).textTheme.bodySmall),
       ],

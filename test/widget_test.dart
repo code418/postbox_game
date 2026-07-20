@@ -869,6 +869,94 @@ void main() {
     });
   });
 
+  group('orderLegendLeaders (heatmap legend ordering)', () {
+    const names = {
+      'me': 'Me',
+      'alpha': 'alpha',
+      'bravo': 'Bravo',
+      'charlie': 'Charlie',
+    };
+
+    test('self comes first even when leading the fewest counties', () {
+      final order = orderLegendLeaders(
+        ['alpha', 'alpha', 'alpha', 'bravo', 'bravo', 'me'],
+        myUid: 'me',
+        displayNames: names,
+      );
+      expect(order.first, equals('me'));
+    });
+
+    test('ranks the rest by counties led, descending', () {
+      final order = orderLegendLeaders(
+        ['bravo', 'alpha', 'alpha', 'alpha', 'charlie', 'charlie'],
+        myUid: 'me',
+        displayNames: names,
+      );
+      expect(order, equals(['alpha', 'charlie', 'bravo']));
+    });
+
+    test('ties on count break by display name, case-insensitively', () {
+      // 'alpha' is lowercase in the map; a naive compareTo would sort it after
+      // the capitalised names.
+      final order = orderLegendLeaders(
+        ['charlie', 'bravo', 'alpha'],
+        myUid: 'me',
+        displayNames: names,
+      );
+      expect(order, equals(['alpha', 'bravo', 'charlie']));
+    });
+
+    test('order is stable regardless of input iteration order', () {
+      // Same counts, differently-ordered input: the uid tiebreak must make the
+      // result identical, otherwise the chip row reshuffles between rebuilds.
+      final a = orderLegendLeaders(
+        ['x1', 'x2', 'x3'],
+        myUid: 'me',
+        displayNames: const {'x1': 'Same', 'x2': 'Same', 'x3': 'Same'},
+      );
+      final b = orderLegendLeaders(
+        ['x3', 'x1', 'x2'],
+        myUid: 'me',
+        displayNames: const {'x1': 'Same', 'x2': 'Same', 'x3': 'Same'},
+      );
+      expect(a, equals(b));
+      expect(a, equals(['x1', 'x2', 'x3']));
+    });
+
+    test('uids missing from displayNames still sort deterministically', () {
+      final order = orderLegendLeaders(
+        ['ghost', 'alpha'],
+        myUid: 'me',
+        displayNames: names,
+      );
+      // 'ghost' has no name, so it sorts as '' — ahead of 'alpha' — but the
+      // point is that it neither throws nor varies between calls.
+      expect(order, equals(['ghost', 'alpha']));
+      expect(
+        orderLegendLeaders(['alpha', 'ghost'],
+            myUid: 'me', displayNames: names),
+        equals(order),
+      );
+    });
+
+    test('deduplicates: one chip per leader however many counties they hold',
+        () {
+      final order = orderLegendLeaders(
+        ['alpha', 'alpha', 'alpha', 'alpha'],
+        myUid: 'me',
+        displayNames: names,
+      );
+      expect(order, equals(['alpha']));
+    });
+
+    test('returns empty for a map with no leaders at all', () {
+      expect(
+        orderLegendLeaders(const [], myUid: 'me', displayNames: names),
+        isEmpty,
+      );
+    });
+  });
+
   group('FuzzyCompass.vagueLabel', () {
     test('returns None for zero', () {
       expect(FuzzyCompass.vagueLabel(0), equals('None'));
