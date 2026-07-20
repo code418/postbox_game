@@ -272,6 +272,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   child: const Text('Cancel'),
                 ),
                 FilledButton(
+                  style: dialogActionStyle(),
                   onPressed: trySubmit,
                   child: const Text('Save'),
                 ),
@@ -484,6 +485,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     child: const Text('Cancel'),
                   ),
                   FilledButton(
+                    style: dialogActionStyle(),
                     onPressed: trySubmit,
                     child: const Text('Update'),
                   ),
@@ -543,6 +545,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: const Text('Cancel'),
           ),
           FilledButton(
+            style: dialogActionStyle(),
             onPressed: () => Navigator.of(context).pop(true),
             child: const Text('Sign out'),
           ),
@@ -582,7 +585,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: const Text('Cancel'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.red.shade700,
+              // Matches dialogActionStyle(); spelled out here so the
+              // destructive red is not lost by overriding the whole style.
+              minimumSize: const Size(0, 44),
+            ),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Delete'),
           ),
@@ -665,6 +673,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 child: const Text('Cancel'),
               ),
               FilledButton(
+                style: dialogActionStyle(),
                 onPressed: () => Navigator.pop(ctx, ctrl.text),
                 child: const Text('Continue'),
               ),

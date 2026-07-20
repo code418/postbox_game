@@ -184,6 +184,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
             child: const Text('Cancel'),
           ),
           FilledButton(
+            style: dialogActionStyle(),
             onPressed: () => Navigator.of(context).pop(true),
             child: const Text('Remove'),
           ),

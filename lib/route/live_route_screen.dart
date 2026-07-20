@@ -571,6 +571,7 @@ class _LiveRouteScreenState extends State<LiveRouteScreen> {
             child: const Text('Keep going'),
           ),
           FilledButton(
+            style: dialogActionStyle(),
             onPressed: () => Navigator.of(ctx).pop(true),
             child: const Text('End route'),
           ),
