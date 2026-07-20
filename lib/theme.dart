@@ -51,6 +51,19 @@ class AppSpacing {
 /// JamesStrip overlay (~72 px). Applied as [EdgeInsets.only(bottom: ...)].
 const double kJamesStripClearance = 80.0;
 
+/// Style for a [FilledButton] or [OutlinedButton] used as an [AlertDialog]
+/// action.
+///
+/// The app-wide filled/outlined button themes set
+/// `minimumSize: Size(double.infinity, 52)` so page-level CTAs stretch to the
+/// full column width. Dialog actions are laid out by [OverflowBar], which
+/// loosens its constraints — the infinite minimum is clamped to the dialog
+/// width rather than asserting, but the button then eats the entire action row
+/// and forces the buttons to stack vertically. Passing this style sizes the
+/// button to its content so Cancel/confirm sit side by side as intended.
+ButtonStyle dialogActionStyle() =>
+    FilledButton.styleFrom(minimumSize: const Size(0, 44));
+
 class AppTheme {
   static ThemeData get light {
     final base = ThemeData(
