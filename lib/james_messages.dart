@@ -184,7 +184,45 @@ abstract final class JamesMessages {
 
   static const errorOffline = JamesMessage(
     'jamesErrorOffline',
-    ["No signal out here. Find some Wi-Fi and give it another go."],
+    [
+      "No signal out here. Find some Wi-Fi and give it another go.",
+      "The line's gone quiet. We'll try again when the bars come back.",
+      "Not a whisper of signal. Proper countryside, this.",
+    ],
+  );
+
+  /// Shown when a claim is banked to the offline outbox (v1.5 offline play).
+  static const offlineBanked = JamesMessage(
+    'jamesOfflineBanked',
+    [
+      "In the satchel it goes... I'll post it the moment we're back in signal.",
+      "Signed, sealed, not yet delivered. It'll post itself when the bars return.",
+    ],
+  );
+
+  /// Shown when the offline scan rescue serves results from the last scan.
+  static const offlineFromLastScan = JamesMessage(
+    'jamesOfflineFromLastScan',
+    [
+      "No signal, but I remember this spot from the last scan. Carry on.",
+    ],
+  );
+
+  /// Dynamic: banked claims settled after reconnecting. [claimed] boxes,
+  /// [points] points.
+  static String offlineFlushed(int claimed, int points) {
+    final box = claimed == 1 ? 'claim' : 'claims';
+    return 'Post office rung up... $claimed banked $box delivered '
+        'for $points points. Lovely.';
+  }
+
+  /// Shown when a banked claim was rejected at flush (expired, too far...).
+  static const offlineFlushRejected = JamesMessage(
+    'jamesOfflineFlushRejected',
+    [
+      "One of the banked claims didn't make it past the sorting office. "
+          "The rest went through.",
+    ],
   );
 
   // ── Claim scan found nothing (30 m radius empty) ─────────────────────────

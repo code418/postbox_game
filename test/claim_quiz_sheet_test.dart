@@ -22,6 +22,8 @@ import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:postbox_game/james_strip.dart';
 import 'package:postbox_game/remote_config_service.dart';
+import 'package:postbox_game/services/claim_outbox.dart';
+import 'package:postbox_game/services/scan_cache.dart';
 import 'package:postbox_game/widgets/claim_quiz_sheet.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -554,5 +556,141 @@ void main() {
     expect((claimPayload!['attemptId'] as String).length,
         greaterThanOrEqualTo(16),
         reason: 'attemptId must be long enough to be collision-safe');
+  });
+
+  // ── Offline capture, warm path (ROADMAP v1.5, offline play Phase 3) ───────
+
+  testWidgets(
+      'claim transport failure offers "Save and post later" and banks the capture',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    ClaimOutbox.resetForTest();
+    var claimCalls = 0;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ClaimQuizSheet(
+          scanPosition: const LatLng(51.5, -0.12),
+          nearbyCallable: (payload) async {
+            final base = await _nearbyUnknownCipher(payload);
+            final data = Map<String, dynamic>.from(base.data as Map);
+            data['scanId'] = 'tok-live-scan';
+            return _FakeResult<dynamic>(data);
+          },
+          positionProvider: () async => _fakePos(),
+          startScoringCallable: (_) async {
+            claimCalls++;
+            throw _FakeFunctionsException(
+                code: 'unavailable', message: 'transport down');
+          },
+          onCompleted: (_) {},
+        ),
+      ),
+    ));
+
+    await _settle(tester);
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.tap(find.text('Claim this postbox!'));
+    await _settle(tester);
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+
+    expect(find.text('Save & post later'), findsOneWidget,
+        reason: 'a scan-token-bearing claim can be banked when the link dies');
+    await tester.tap(find.text('Save & post later'));
+    await _settle(tester);
+
+    expect(find.textContaining('post it'), findsWidgets);
+    final entries = await ClaimOutbox.instance.entries();
+    expect(entries, hasLength(1));
+    expect(entries.single.scanId, 'tok-live-scan');
+    expect(claimCalls, 3, reason: 'the claim itself was only auto-retried');
+  });
+
+  testWidgets(
+      'offline scan rescue serves the cached scan and banks the claim '
+      'without touching the claim callable', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    ClaimOutbox.resetForTest();
+    ScanCache.resetForTest();
+    // A fresh scan from moments ago at (almost) the same spot.
+    final base = await _nearbyUnknownCipher(<String, dynamic>{});
+    ScanCache.store(CachedScan(
+      data: Map<String, dynamic>.from(base.data as Map),
+      scanId: 'tok-cached',
+      position: const LatLng(51.5, -0.12),
+      fetchedAtMs: DateTime.now().millisecondsSinceEpoch - 60000,
+    ));
+
+    var claimCalls = 0;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ClaimQuizSheet(
+          scanPosition: const LatLng(51.5, -0.12),
+          nearbyCallable: (_) async => throw _FakeFunctionsException(
+              code: 'unavailable', message: 'transport down'),
+          positionProvider: () async => _fakePos(),
+          startScoringCallable: (_) async {
+            claimCalls++;
+            return _FakeResult<dynamic>(<String, dynamic>{});
+          },
+          onCompleted: (_) {},
+        ),
+      ),
+    ));
+
+    // Scan fails (with auto-retries) then falls back to the cached scan.
+    await _settle(tester);
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+
+    expect(find.text('Claim this postbox!'), findsOneWidget,
+        reason: 'the cached scan must serve the results stage offline');
+
+    await tester.tap(find.text('Claim this postbox!'));
+    await _settle(tester);
+
+    expect(claimCalls, 0,
+        reason: 'offline mode must bank the capture, not call the server');
+    final entries = await ClaimOutbox.instance.entries();
+    expect(entries, hasLength(1));
+    expect(entries.single.scanId, 'tok-cached');
+    expect(find.textContaining('post it'), findsWidgets);
+  });
+
+  testWidgets('a stale cached scan does not rescue an offline scan',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    ClaimOutbox.resetForTest();
+    ScanCache.resetForTest();
+    final base = await _nearbyUnknownCipher(<String, dynamic>{});
+    ScanCache.store(CachedScan(
+      data: Map<String, dynamic>.from(base.data as Map),
+      scanId: 'tok-stale',
+      position: const LatLng(51.5, -0.12),
+      fetchedAtMs: DateTime.now().millisecondsSinceEpoch -
+          ScanCache.maxAge.inMilliseconds - 60000,
+    ));
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ClaimQuizSheet(
+          scanPosition: const LatLng(51.5, -0.12),
+          nearbyCallable: (_) async => throw _FakeFunctionsException(
+              code: 'unavailable', message: 'transport down'),
+          onCompleted: (_) {},
+        ),
+      ),
+    ));
+
+    await _settle(tester);
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+
+    expect(find.text('Retry'), findsOneWidget,
+        reason: 'no usable cache: plain network-error state');
+    expect(find.text('Claim this postbox!'), findsNothing);
   });
 }

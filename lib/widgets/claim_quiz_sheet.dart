@@ -21,9 +21,11 @@ import 'package:postbox_game/maintenance_guard.dart';
 import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/remote_config_service.dart';
 import 'package:postbox_game/reports/report_missing_postbox_screen.dart';
+import 'package:postbox_game/services/claim_outbox.dart';
 import 'package:postbox_game/services/crashlytics_helper.dart';
 import 'package:postbox_game/services/device_id_service.dart';
 import 'package:postbox_game/services/home_widget_service.dart';
+import 'package:postbox_game/services/scan_cache.dart';
 import 'package:postbox_game/services/perf_service.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/widgets/postbox_map.dart';
@@ -88,6 +90,9 @@ enum _QuizStage {
   /// the sheet down here is how players used to lose earned claims
   /// (ROADMAP v1.5, offline play Phase 1).
   networkError,
+  /// The claim was captured to the offline outbox (Phase 3 warm path); it
+  /// settles via flushOfflineClaims when the link returns.
+  banked,
 }
 
 /// How far (metres) the user must move from the scan point before the empty
@@ -242,6 +247,16 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
   // (true) or the scan (false).
   bool _retryIsClaim = false;
 
+  // ── Offline capture state (v1.5 Phase 3) ──────────────────────────────────
+  // The HMAC capture token issued with the current scan (live or cached).
+  String? _scanId;
+  // True when the results on screen came from ScanCache (the offline rescue):
+  // claims then bank straight to the outbox instead of calling the server.
+  bool _offlineFromCache = false;
+  // The GPS fix acquired by the most recent _claimPostbox — the position an
+  // offline capture is banked with.
+  Position? _lastClaimPosition;
+
   // ── State machine ─────────────────────────────────────────────────────────
   _QuizStage _stage = _QuizStage.searching;
 
@@ -379,6 +394,56 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
 
   // ── Search ────────────────────────────────────────────────────────────────
 
+  /// Applies a parsed nearbyPostboxes payload (live or cached) to the sheet
+  /// state and advances to results/empty.
+  void _applyScanData(Map<String, dynamic> data,
+      {required String? scanId, required bool fromCache}) {
+    final counts = Map<String, dynamic>.from(data['counts'] as Map);
+    final points = Map<String, dynamic>.from(data['points'] as Map);
+    final rawPostboxes = data['postboxes'] as Map? ?? {};
+    final postboxes = <String, dynamic>{};
+    for (final entry in rawPostboxes.entries) {
+      postboxes[entry.key as String] =
+          Map<String, dynamic>.from(entry.value as Map);
+    }
+
+    // Cloud Functions serialise JS numbers as either int or double;
+    // assigning a double to a typed int field throws, so normalise via num.
+    int asInt(dynamic v) => (v as num?)?.toInt() ?? 0;
+
+    setState(() {
+      _count = asInt(counts['total']);
+      _maxPoints = asInt(points['max']);
+      _minPoints = asInt(points['min']);
+      _claimedToday = asInt(counts['claimedToday']);
+      _postboxes = postboxes;
+      _scanId = scanId;
+      _offlineFromCache = fromCache;
+      _stage = _count > 0 ? _QuizStage.results : _QuizStage.empty;
+    });
+  }
+
+  /// Offline rescue (v1.5 Phase 3): when a scan can't reach the server, serve
+  /// the last successful scan IF it's fresh and taken from (nearly) the same
+  /// spot. Returns true when the rescue applied.
+  bool _tryOfflineScanRescue(LatLng scanPos) {
+    final cached = ScanCache.fresh();
+    if (cached == null) return false;
+    final movedM = Geolocator.distanceBetween(
+      cached.position.latitude,
+      cached.position.longitude,
+      scanPos.latitude,
+      scanPos.longitude,
+    );
+    // Matches the server's flush-time proximity bound (MAX_SCAN_DISTANCE_M):
+    // beyond it the flush would reject the capture anyway.
+    if (movedM > 250) return false;
+    _applyScanData(Map<String, dynamic>.from(cached.data),
+        scanId: cached.scanId, fromCache: true);
+    _james?.show(JamesMessages.offlineFromLastScan.resolve());
+    return true;
+  }
+
   /// Scans for postboxes around [position] (default = the original
   /// `widget.scanPosition`).
   ///
@@ -413,27 +478,19 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
       if (!mounted) return;
 
       final data = Map<String, dynamic>.from(result.data as Map);
-      final counts = Map<String, dynamic>.from(data['counts'] as Map);
-      final points = Map<String, dynamic>.from(data['points'] as Map);
-      final rawPostboxes = data['postboxes'] as Map? ?? {};
-      final postboxes = <String, dynamic>{};
-      for (final entry in rawPostboxes.entries) {
-        postboxes[entry.key as String] =
-            Map<String, dynamic>.from(entry.value as Map);
+      // Cache the scan for the offline rescue path. The payload carries no
+      // coordinates (applyUserClaims strips them server-side) and the scanId
+      // is the server-issued offline capture token.
+      final freshScanId = data['scanId'] as String?;
+      if (freshScanId != null) {
+        ScanCache.store(CachedScan(
+          data: data,
+          scanId: freshScanId,
+          position: scanPos,
+          fetchedAtMs: DateTime.now().millisecondsSinceEpoch,
+        ));
       }
-
-      // Cloud Functions serialise JS numbers as either int or double;
-      // assigning a double to a typed int field throws, so normalise via num.
-      int asInt(dynamic v) => (v as num?)?.toInt() ?? 0;
-
-      setState(() {
-        _count = asInt(counts['total']);
-        _maxPoints = asInt(points['max']);
-        _minPoints = asInt(points['min']);
-        _claimedToday = asInt(counts['claimedToday']);
-        _postboxes = postboxes;
-        _stage = _count > 0 ? _QuizStage.results : _QuizStage.empty;
-      });
+      _applyScanData(data, scanId: freshScanId, fromCache: false);
 
       if (_count > 0) {
         Analytics.scanComplete(
@@ -464,6 +521,9 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
           dedupeKey: isTransport ? 'nearbyPostboxes_unavailable' : null);
       if (!mounted) return;
       if (isTransport) {
+        // Offline rescue first: a fresh cached scan from this spot serves the
+        // results and routes the claim to the outbox (v1.5 Phase 3).
+        if (_tryOfflineScanRescue(scanPos)) return;
         // Transport failure (offline / unreachable): keep the sheet alive on
         // the retryable network-error stage — the automatic retries in
         // retryOnUnavailable are already exhausted by the time we get here.
@@ -479,7 +539,9 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
       _cancel();
     } on TimeoutException {
       if (!mounted) return;
-      // A timed-out round-trip is a transport failure too: same retry state.
+      // A timed-out round-trip is a transport failure too: same rescue, same
+      // retry state.
+      if (_tryOfflineScanRescue(scanPos)) return;
       _james?.show(JamesMessages.errorOffline.resolve());
       setState(() {
         _retryIsClaim = false;
@@ -546,6 +608,14 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
     HapticFeedback.mediumImpact();
     try {
       final position = await _positionProvider();
+      _lastClaimPosition = position;
+
+      // Offline mode (v1.5 Phase 3): the results came from the scan cache, so
+      // the server is unreachable — bank the capture instead of calling it.
+      if (_offlineFromCache) {
+        await _bankCapture(position, attemptId);
+        return;
+      }
       // Stable per-install id for the shadow-mode repeated-device signal. Null
       // (best-effort) when unavailable — the key is then omitted so the server
       // never sees a null deviceIdHash.
@@ -731,6 +801,32 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
     } finally {
       if (mounted && _isClaiming) setState(() => _isClaiming = false);
     }
+  }
+
+  // ── Offline banking (v1.5 Phase 3) ────────────────────────────────────────
+
+  /// Bank the current claim to the offline outbox under the active scan
+  /// token and show the banked stage. The capture settles (or is honestly
+  /// rejected) via flushOfflineClaims when the link returns.
+  Future<void> _bankCapture(Position position, String attemptId) async {
+    final scanId = _scanId;
+    if (scanId == null) return; // no token: banking is not available
+    await ClaimOutbox.instance.add(OutboxEntry(
+      scanId: scanId,
+      lat: position.latitude,
+      lng: position.longitude,
+      capturedWallMs: DateTime.now().millisecondsSinceEpoch,
+      capturedMonotonicMs: ClaimOutbox.monotonicNowMs(),
+      attemptId: attemptId,
+    ));
+    Analytics.claimFailed(reason: 'banked_offline');
+    if (!mounted) return;
+    setState(() {
+      _isClaiming = false;
+      _attemptId = null;
+      _stage = _QuizStage.banked;
+    });
+    _james?.show(JamesMessages.offlineBanked.resolve());
   }
 
   // ── Quiz helpers ──────────────────────────────────────────────────────────
@@ -963,6 +1059,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
       _QuizStage.quizFailed => _buildQuizFailed(context),
       _QuizStage.claimed => _buildClaimed(context),
       _QuizStage.networkError => _buildNetworkError(context),
+      _QuizStage.banked => _buildBanked(context),
     };
     final james = _ownJames;
     if (james == null) return content;
@@ -1405,10 +1502,82 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
                 icon: const Icon(Icons.refresh),
                 label: const Text('Retry'),
               ),
+              // Offline banking (v1.5 Phase 3): a claim that already passed
+              // the quiz and holds a scan token can be saved to the outbox
+              // instead of retried live.
+              if (_retryIsClaim && _scanId != null && _lastClaimPosition != null) ...[
+                const SizedBox(height: AppSpacing.sm),
+                OutlinedButton.icon(
+                  onPressed: _isClaiming
+                      ? null
+                      : () {
+                          final attemptId =
+                              _attemptId ?? _generateAttemptId();
+                          unawaited(
+                              _bankCapture(_lastClaimPosition!, attemptId));
+                        },
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: Size(double.infinity, _buttonHeight),
+                  ),
+                  icon: const Icon(Icons.schedule_send_outlined),
+                  label: const Text('Save & post later'),
+                ),
+              ],
               const SizedBox(height: AppSpacing.sm),
               TextButton(
                 onPressed: _cancel,
                 child: const Text('Back'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBanked(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        padding: EdgeInsets.only(
+          top: AppSpacing.xl,
+          left: AppSpacing.xl,
+          right: AppSpacing.xl,
+          bottom: _bottomPad,
+        ),
+        child: ConstrainedBox(
+          constraints:
+              BoxConstraints(minHeight: constraints.maxHeight - _bottomPad),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.schedule_send_outlined,
+                  size: 80, color: _warning(context)),
+              const SizedBox(height: AppSpacing.lg),
+              Text(
+                'Saved for later',
+                style: Theme.of(context)
+                    .textTheme
+                    .headlineMedium
+                    ?.copyWith(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                "No signal, so this claim is banked on your phone. "
+                "We'll post it automatically when you're back online "
+                'and your points will land then.',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: AppSpacing.xl),
+              FilledButton.icon(
+                onPressed: () =>
+                    widget.onCompleted(const ClaimQuizResult()),
+                style: FilledButton.styleFrom(
+                  minimumSize: Size(double.infinity, _buttonHeight),
+                ),
+                icon: const Icon(Icons.explore_outlined),
+                label: const Text('Keep exploring'),
               ),
             ],
           ),
