@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:postbox_game/firebase_functions_eu.dart';
@@ -75,7 +76,19 @@ class ClaimQuizResult {
 // Internal state enum
 // ─────────────────────────────────────────────────────────────────────────────
 
-enum _QuizStage { searching, results, empty, quiz, quizFailed, claimed }
+enum _QuizStage {
+  searching,
+  results,
+  empty,
+  quiz,
+  quizFailed,
+  claimed,
+  /// A transport failure (offline / server unreachable) interrupted the scan
+  /// or the claim. Preserves all scan/quiz state and offers a Retry — tearing
+  /// the sheet down here is how players used to lose earned claims
+  /// (ROADMAP v1.5, offline play Phase 1).
+  networkError,
+}
 
 /// How far (metres) the user must move from the scan point before the empty
 /// state offers a "Rescan from here" button. Far enough that a rescan can
@@ -217,6 +230,17 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
   int _pointsEarned = 0;
   int _claimedCount = 0;
   bool _isClaiming = false;
+
+  // ── Network-error retry state ─────────────────────────────────────────────
+  // Identifies the current logical claim attempt for the server's idempotent
+  // replay (functions/src/_attempts.ts). Generated when a claim attempt
+  // starts, KEPT across transport-failure retries (same id → the server
+  // replays the stored response instead of hitting the already-claimed
+  // fast-path with zero points), and cleared on any definitive outcome.
+  String? _attemptId;
+  // Whether the Retry button on the networkError stage re-runs the claim
+  // (true) or the scan (false).
+  bool _retryIsClaim = false;
 
   // ── State machine ─────────────────────────────────────────────────────────
   _QuizStage _stage = _QuizStage.searching;
@@ -379,11 +403,12 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
     try {
       _distanceUnit = await AppPreferences.getDistanceUnit();
 
-      final result = await _nearbyCallable(<String, dynamic>{
-        'lat': scanPos.latitude,
-        'lng': scanPos.longitude,
-        'meters': RemoteConfigService.instance.claimRadiusMeters,
-      });
+      // Scans are read-only, so wholesale retry on transport failure is safe.
+      final result = await retryOnUnavailable(() => _nearbyCallable(<String, dynamic>{
+            'lat': scanPos.latitude,
+            'lng': scanPos.longitude,
+            'meters': RemoteConfigService.instance.claimRadiusMeters,
+          }));
 
       if (!mounted) return;
 
@@ -433,27 +458,34 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
       }
     } on FirebaseFunctionsException catch (e) {
       debugPrint('Firebase functions error: ${e.code} ${e.message}');
-      final isOffline = e.code == 'unavailable';
+      final isTransport = retryableCallableCodes.contains(e.code);
       CrashlyticsHelper.recordHandled(e, e.stackTrace,
           reason: 'nearbyPostboxes:${e.code}',
-          dedupeKey: isOffline ? 'nearbyPostboxes_unavailable' : null);
-      _showErrorSnackBar(isOffline
-          ? 'No internet connection. Please try again.'
-          : 'Could not scan for postboxes. Please try again.');
+          dedupeKey: isTransport ? 'nearbyPostboxes_unavailable' : null);
       if (!mounted) return;
-      _james?.show(
-        isOffline
-            ? JamesMessages.errorOffline.resolve()
-            : JamesMessages.claimErrorGeneral.resolve(),
-      );
+      if (isTransport) {
+        // Transport failure (offline / unreachable): keep the sheet alive on
+        // the retryable network-error stage — the automatic retries in
+        // retryOnUnavailable are already exhausted by the time we get here.
+        _james?.show(JamesMessages.errorOffline.resolve());
+        setState(() {
+          _retryIsClaim = false;
+          _stage = _QuizStage.networkError;
+        });
+        return;
+      }
+      _showErrorSnackBar('Could not scan for postboxes. Please try again.');
+      _james?.show(JamesMessages.claimErrorGeneral.resolve());
       _cancel();
     } on TimeoutException {
-      _showErrorSnackBar(
-          'GPS signal timed out. Move to an open area and try again.');
       if (!mounted) return;
-      _james
-          ?.show(JamesMessages.claimErrorGeneral.resolve());
-      _cancel();
+      // A timed-out round-trip is a transport failure too: same retry state.
+      _james?.show(JamesMessages.errorOffline.resolve());
+      setState(() {
+        _retryIsClaim = false;
+        _stage = _QuizStage.networkError;
+      });
+      return;
     } on LocationServiceException catch (e) {
       debugPrint('Location error scanning: $e');
       switch (e.kind) {
@@ -490,11 +522,26 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
 
   // ── Claim ─────────────────────────────────────────────────────────────────
 
-  Future<void> _claimPostbox() async {
+  /// Generates a collision-safe id for one logical claim attempt (32 hex
+  /// chars). Kept across retries; the server replays the stored response for
+  /// a repeated id (functions/src/_attempts.ts).
+  static String _generateAttemptId() {
+    final rnd = Random.secure();
+    return List<int>.generate(16, (_) => rnd.nextInt(256))
+        .map((b) => b.toRadixString(16).padLeft(2, '0'))
+        .join();
+  }
+
+  Future<void> _claimPostbox({bool isRetry = false}) async {
     if (_isClaiming) return;
     if (MaintenanceGuard.blocked(context, actionLabel: 'claim')) {
       return;
     }
+    // A fresh attempt gets a fresh id; a Retry after a transport failure MUST
+    // keep the old one so the server can replay the stored response instead
+    // of falling into the already-claimed fast-path with zero points.
+    if (!isRetry || _attemptId == null) _attemptId = _generateAttemptId();
+    final attemptId = _attemptId!;
     setState(() => _isClaiming = true);
     HapticFeedback.mediumImpact();
     try {
@@ -507,14 +554,17 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
         PerfTraces.callableStartScoring,
         (trace) async {
           try {
-            final r = await _claimCallable(<String, dynamic>{
-              'lat': position.latitude,
-              'lng': position.longitude,
-              // Client wall-clock for the shadow-mode out-of-window anomaly
-              // signal (server compares it against its own claim timestamp).
-              'clientTsMs': DateTime.now().millisecondsSinceEpoch,
-              if (deviceIdHash != null) 'deviceIdHash': deviceIdHash,
-            });
+            // Safe to auto-retry ONLY because attemptId makes the call
+            // idempotent server-side (see _attempts.ts).
+            final r = await retryOnUnavailable(() => _claimCallable(<String, dynamic>{
+                  'lat': position.latitude,
+                  'lng': position.longitude,
+                  // Client wall-clock for the shadow-mode out-of-window anomaly
+                  // signal (server compares it against its own claim timestamp).
+                  'clientTsMs': DateTime.now().millisecondsSinceEpoch,
+                  if (deviceIdHash != null) 'deviceIdHash': deviceIdHash,
+                  'attemptId': attemptId,
+                }));
             trace.putAttribute(PerfTraces.attrOutcome, 'ok');
             return r;
           } catch (_) {
@@ -524,6 +574,8 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
         },
         attributes: {PerfTraces.attrMonarch: _quizCipher ?? 'unknown'},
       );
+      // The server answered: this logical attempt is settled either way.
+      _attemptId = null;
       final claimData = Map<String, dynamic>.from(result.data as Map);
       final found = claimData['found'] == true;
       final allClaimedToday = claimData['allClaimedToday'] == true;
@@ -611,9 +663,26 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
       if (e.code != 'failed-precondition') {
         CrashlyticsHelper.recordHandled(e, e.stackTrace,
             reason: 'startScoring:${e.code}',
-            dedupeKey:
-                e.code == 'unavailable' ? 'startScoring_unavailable' : null);
+            dedupeKey: retryableCallableCodes.contains(e.code)
+                ? 'startScoring_unavailable'
+                : null);
       }
+      if (!mounted) return;
+      if (retryableCallableCodes.contains(e.code)) {
+        // Transport failure: the automatic retries are exhausted. Keep the
+        // quiz context AND the attemptId, and offer a manual Retry — the
+        // claim may have committed server-side, and the replay mechanism
+        // will surface the real outcome when the link recovers.
+        _james?.show(JamesMessages.errorOffline.resolve());
+        setState(() {
+          _isClaiming = false;
+          _retryIsClaim = true;
+          _stage = _QuizStage.networkError;
+        });
+        return;
+      }
+      // A definitive server answer settles this logical attempt.
+      _attemptId = null;
       // The server's anti-spoof travel-speed check throws `failed-precondition`
       // with a message written for the end user ("You're travelling too
       // fast..."). Surface that instead of the generic "try again" so a user
@@ -621,9 +690,6 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
       final String snackMsg;
       final String jamesMsg;
       switch (e.code) {
-        case 'unavailable':
-          snackMsg = 'No internet connection. Please try again.';
-          jamesMsg = JamesMessages.errorOffline.resolve();
         case 'failed-precondition':
           snackMsg = (e.message != null && e.message!.isNotEmpty)
               ? e.message!
@@ -634,7 +700,6 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
           jamesMsg = JamesMessages.claimErrorGeneral.resolve();
       }
       _showErrorSnackBar(snackMsg);
-      if (!mounted) return;
       setState(() => _isClaiming = false);
       _james?.show(jamesMsg);
     } on LocationServiceException catch (e) {
@@ -897,6 +962,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
       _QuizStage.quiz => _buildQuiz(context),
       _QuizStage.quizFailed => _buildQuizFailed(context),
       _QuizStage.claimed => _buildClaimed(context),
+      _QuizStage.networkError => _buildNetworkError(context),
     };
     final james = _ownJames;
     if (james == null) return content;
@@ -1280,6 +1346,68 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
                 onPressed: _isClaiming
                     ? null
                     : () => setState(() => _stage = _QuizStage.results),
+                child: const Text('Back'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNetworkError(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        padding: EdgeInsets.only(
+          top: AppSpacing.xl,
+          left: AppSpacing.xl,
+          right: AppSpacing.xl,
+          bottom: _bottomPad,
+        ),
+        child: ConstrainedBox(
+          constraints:
+              BoxConstraints(minHeight: constraints.maxHeight - _bottomPad),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.wifi_off_rounded, size: 80, color: _warning(context)),
+              const SizedBox(height: AppSpacing.lg),
+              Text(
+                'No connection',
+                style: Theme.of(context)
+                    .textTheme
+                    .headlineMedium
+                    ?.copyWith(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                _retryIsClaim
+                    ? "Couldn't reach the post office to log your claim. "
+                        'Your quiz answer is safe — retry when the signal returns.'
+                    : "Couldn't reach the post office to scan for postboxes. "
+                        'Retry when the signal returns.',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: AppSpacing.xl),
+              FilledButton.icon(
+                onPressed: () {
+                  if (_retryIsClaim) {
+                    unawaited(_claimPostbox(isRetry: true));
+                  } else {
+                    unawaited(_runSearch(position: _scanCenter));
+                  }
+                },
+                style: FilledButton.styleFrom(
+                  minimumSize: Size(double.infinity, _buttonHeight),
+                ),
+                icon: const Icon(Icons.refresh),
+                label: const Text('Retry'),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              TextButton(
+                onPressed: _cancel,
                 child: const Text('Back'),
               ),
             ],
