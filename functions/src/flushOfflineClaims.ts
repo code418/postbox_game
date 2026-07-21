@@ -26,6 +26,7 @@ import { requireAppCheck } from "./_appCheck";
 import { validateAttemptId, beginAttempt, completeAttempt, failAttempt, attemptDecisionToAction } from "./_attempts";
 import { defineSecret } from "firebase-functions/params";
 import { getScanSecret, verifyScanToken, ScanTokenPayload, SCAN_SECRET_ENV } from "./_scanToken";
+import { computeBatchSpeedCv } from "./_abuseSignals";
 import { QuotaState } from "./reports";
 
 /** Secret Manager binding so process.env carries the HMAC secret at runtime. */
@@ -234,6 +235,14 @@ async function runFlush(
   const batchSpanMs = batchTimes.length > 1
     ? Math.max(...batchTimes) - Math.min(...batchTimes)
     : 0;
+  // Speed-regularity fingerprint across the pre-check-passing captures — a
+  // synthesised trace has metronome-constant implied speeds; a human doing a
+  // postbox round stops, waits, gets a coffee. Stored per-claim for the
+  // shadow-mode constant_batch_speed signal (see _abuseSignals.ts).
+  const batchSpeedCv = computeBatchSpeedCv(
+    items.filter((_, i) => verdicts[i].ok)
+      .map((i) => ({ lat: i.lat, lng: i.lng, tMs: i.capturedAtMs })),
+  );
 
   // Sequential adjudication (NOT allSettled): each settled claim must be
   // visible to the next item's eventTime-neighbour travel check, or the
@@ -262,6 +271,7 @@ async function runFlush(
           batchSize: items.length,
           batchSpanMs,
           flushClientTsMs,
+          batchSpeedCv,
         },
       });
       results.push({ ok: true, ...outcome });

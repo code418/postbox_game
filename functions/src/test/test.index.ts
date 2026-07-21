@@ -1027,6 +1027,121 @@ describe("checkTravelSpeed", () => {
   });
 });
 
+describe("offline abuse signals (v1.5, shadow mode)", () => {
+  describe("queuedTooLongSignal", () => {
+    const GRACE = 36 * 3600_000;
+    it("does not flag a promptly-flushed capture", () => {
+      const r = queuedTooLongSignal(3600_000, GRACE);
+      assert.strictEqual(r.flagged, false);
+    });
+    it("flags a capture flushed near the grace ceiling", () => {
+      const r = queuedTooLongSignal(GRACE - 3600_000, GRACE);
+      assert.strictEqual(r.flagged, true);
+    });
+    it("is unflagged when inputs are absent/invalid", () => {
+      assert.strictEqual(queuedTooLongSignal(undefined, GRACE).flagged, false);
+      assert.strictEqual(queuedTooLongSignal(NaN, GRACE).flagged, false);
+    });
+  });
+
+  describe("computeBatchSpeedCv + constantBatchSpeedSignal", () => {
+    const mPerDegLat = 111_320;
+    const pt = (northM: number, tMs: number) =>
+      ({ lat: 51.5 + northM / mPerDegLat, lng: -0.1, tMs });
+
+    it("returns undefined for fewer than 3 points", () => {
+      assert.strictEqual(computeBatchSpeedCv([pt(0, 0), pt(100, 60_000)]), undefined);
+    });
+
+    it("a synthesised constant-speed trace has near-zero CV and flags", () => {
+      // 100 m per minute, four legs, metronome-regular.
+      const cv = computeBatchSpeedCv([
+        pt(0, 0), pt(100, 60_000), pt(200, 120_000), pt(300, 180_000), pt(400, 240_000),
+      ]);
+      assert.ok(cv !== undefined && cv < 0.05, `cv=${cv}`);
+      assert.strictEqual(constantBatchSpeedSignal(cv, 5).flagged, true);
+    });
+
+    it("a human-shaped trace (stops, varying pace) does not flag", () => {
+      // Walk, long pause at a box, brisk leg, dawdle.
+      const cv = computeBatchSpeedCv([
+        pt(0, 0), pt(80, 60_000), pt(90, 600_000), pt(400, 780_000), pt(430, 1_000_000),
+      ]);
+      assert.ok(cv !== undefined && cv > 0.3, `cv=${cv}`);
+      assert.strictEqual(constantBatchSpeedSignal(cv, 5).flagged, false);
+    });
+
+    it("a stationary batch (all captures at one spot) never flags", () => {
+      const cv = computeBatchSpeedCv([pt(0, 0), pt(1, 60_000), pt(0, 120_000), pt(1, 180_000)]);
+      // Zero-ish speeds: cv is undefined (mean too small) or the signal
+      // declines to flag.
+      if (cv !== undefined) {
+        assert.strictEqual(constantBatchSpeedSignal(cv, 4).flagged, false);
+      }
+    });
+
+    it("small batches never flag regardless of CV", () => {
+      assert.strictEqual(constantBatchSpeedSignal(0.0, 2).flagged, false);
+    });
+  });
+
+  describe("evaluateClaimSignals offline wiring", () => {
+    it("offline claims use flushClientTsMs for the out-of-window signal", () => {
+      const serverTs = 1_800_000_000_000;
+      // Capture-time clientTsMs is HOURS off serverTs (that's the point of
+      // offline) but the flush-time clock agrees — must NOT flag.
+      const r = evaluateClaimSignals({
+        travelSpeedMPerMin: 50,
+        serverTsMs: serverTs,
+        clientTsMs: serverTs - 10 * 3600_000,
+        offline: true,
+        flushClientTsMs: serverTs + 5_000,
+        coordRepeatCount: 0,
+        distinctDeviceAccounts: 0,
+      });
+      assert.ok(!r.reasons.includes("out_of_window"));
+    });
+
+    it("offline claims with a skewed flush clock DO flag out_of_window", () => {
+      const serverTs = 1_800_000_000_000;
+      const r = evaluateClaimSignals({
+        serverTsMs: serverTs,
+        offline: true,
+        flushClientTsMs: serverTs - 3 * 3600_000, // tampered device clock
+        coordRepeatCount: 0,
+        distinctDeviceAccounts: 0,
+      });
+      assert.ok(r.reasons.includes("out_of_window"));
+    });
+
+    it("new offline signals surface as reasons", () => {
+      const r = evaluateClaimSignals({
+        serverTsMs: 1_800_000_000_000,
+        offline: true,
+        queuedForMs: 35 * 3600_000,
+        graceMs: 36 * 3600_000,
+        batchSize: 5,
+        batchSpeedCv: 0.02,
+        coordRepeatCount: 0,
+        distinctDeviceAccounts: 0,
+      });
+      assert.ok(r.reasons.includes("queued_near_ceiling"), r.reasons.join(","));
+      assert.ok(r.reasons.includes("constant_batch_speed"), r.reasons.join(","));
+    });
+
+    it("live claims are untouched by the offline inputs", () => {
+      const serverTs = 1_800_000_000_000;
+      const r = evaluateClaimSignals({
+        serverTsMs: serverTs,
+        clientTsMs: serverTs + 1_000,
+        coordRepeatCount: 0,
+        distinctDeviceAccounts: 0,
+      });
+      assert.deepStrictEqual(r.reasons, []);
+    });
+  });
+});
+
 describe("getLondonDayOf (v1.5 backdated claim days)", () => {
   it("formats an arbitrary instant as a London calendar day", () => {
     // 2026-01-15 23:30 UTC in GMT (winter) is still Jan 15 in London.
@@ -4133,6 +4248,9 @@ import {
   outOfWindowSignal,
   coordClusterSignal,
   repeatedDeviceSignal,
+  queuedTooLongSignal,
+  computeBatchSpeedCv,
+  constantBatchSpeedSignal,
   evaluateClaimSignals,
   summariseFlags,
   applyTrustDecay,

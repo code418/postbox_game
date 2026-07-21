@@ -9,6 +9,7 @@
 // Thresholds are constants for now; a follow-up makes them Remote-Config-driven
 // alongside the v1.4 "Remote Config for game balance" item.
 
+import * as geolib from "geolib";
 import { MAX_METRES_PER_MIN } from "./_travelSpeed";
 
 /** Implied-travel speed (m/min) at or above which a claim is *flagged* in shadow
@@ -101,6 +102,75 @@ export function repeatedDeviceSignal(distinctAccounts: number): SignalResult {
   return { flagged: distinctAccounts >= REPEATED_DEVICE_MIN_ACCOUNTS, value: distinctAccounts };
 }
 
+// ── Offline-flush signals (v1.5, shadow mode) ───────────────────────────────
+
+/** Fraction of the grace window past which a flushed capture's queue time is
+ *  flagged. A capture flushed at 90%+ of the window is exactly the shape of a
+ *  saved-and-replayed outbox probing the ceiling. */
+export const QUEUED_CEILING_FRACTION = 0.9;
+
+/** Minimum flush batch size for the constant-speed signal — a pair of legs
+ *  can be coincidentally regular; three or more raise the bar. */
+export const CONSTANT_SPEED_MIN_BATCH = 3;
+
+/** Coefficient-of-variation ceiling below which a batch's implied speeds are
+ *  suspiciously metronome-regular (a human doing a postbox round stops,
+ *  waits, gets a coffee). */
+export const CONSTANT_SPEED_MAX_CV = 0.15;
+
+/** Mean implied speed (m/min) below which the constant-speed signal declines
+ *  to judge — a stationary batch is regular but not suspicious. */
+export const CONSTANT_SPEED_MIN_MEAN_M_PER_MIN = 20;
+
+/** Queued-too-long signal: the capture sat in the outbox for at least
+ *  QUEUED_CEILING_FRACTION of the grace window before flushing. */
+export function queuedTooLongSignal(queuedForMs: number | undefined, graceMs: number): SignalResult {
+  if (queuedForMs === undefined || !Number.isFinite(queuedForMs) ||
+      !Number.isFinite(graceMs) || graceMs <= 0) {
+    return { flagged: false, value: 0 };
+  }
+  return { flagged: queuedForMs >= graceMs * QUEUED_CEILING_FRACTION, value: queuedForMs };
+}
+
+/** Coefficient of variation (stddev / mean) of the implied speeds across a
+ *  batch's consecutive capture legs. Returns undefined when there are fewer
+ *  than CONSTANT_SPEED_MIN_BATCH points, any leg has a non-positive time
+ *  delta, or the mean speed is below the stationary floor — those batches
+ *  carry no judgeable signal. Computed at FLUSH time (the only place the
+ *  whole batch is visible) and stored per-claim as `batchSpeedCv`. */
+export function computeBatchSpeedCv(
+  points: Array<{ lat: number; lng: number; tMs: number }>,
+): number | undefined {
+  if (points.length < CONSTANT_SPEED_MIN_BATCH) return undefined;
+  const speeds: number[] = [];
+  for (let i = 1; i < points.length; i++) {
+    const dtMin = (points[i].tMs - points[i - 1].tMs) / 60_000;
+    if (dtMin <= 0) return undefined;
+    const dist = geolib.getDistance(
+      { latitude: points[i - 1].lat, longitude: points[i - 1].lng },
+      { latitude: points[i].lat, longitude: points[i].lng },
+    );
+    speeds.push(dist / dtMin);
+  }
+  const mean = speeds.reduce((a, b) => a + b, 0) / speeds.length;
+  if (mean < CONSTANT_SPEED_MIN_MEAN_M_PER_MIN) return undefined;
+  const variance = speeds.reduce((a, b) => a + (b - mean) ** 2, 0) / speeds.length;
+  return Math.sqrt(variance) / mean;
+}
+
+/** Constant-batch-speed signal: a flush batch of ≥ CONSTANT_SPEED_MIN_BATCH
+ *  captures whose implied speeds are near-uniform (a synthesised trace). */
+export function constantBatchSpeedSignal(
+  batchSpeedCv: number | undefined,
+  batchSize: number | undefined,
+): SignalResult {
+  if (batchSpeedCv === undefined || !Number.isFinite(batchSpeedCv) ||
+      batchSize === undefined || batchSize < CONSTANT_SPEED_MIN_BATCH) {
+    return { flagged: false, value: 0 };
+  }
+  return { flagged: batchSpeedCv <= CONSTANT_SPEED_MAX_CV, value: batchSpeedCv };
+}
+
 function severityForCount(n: number): Severity {
   if (n >= 3) return "high";
   if (n === 2) return "med";
@@ -123,6 +193,20 @@ export interface ClaimSignalInputs {
   clientTsMs?: number;
   coordRepeatCount: number;
   distinctDeviceAccounts: number;
+  /** True when the claim was written by the flush path — derived server-side
+   *  from the claim's `offline` field, which only flushOfflineClaims writes. */
+  offline?: boolean;
+  /** Flush-time client wall-clock. For an offline claim the out-of-window
+   *  signal compares THIS against serverTs — the capture-time clientTsMs is
+   *  legitimately hours old, while a skewed flush clock is precisely the
+   *  tampered-device-clock attack this path opens. */
+  flushClientTsMs?: number;
+  queuedForMs?: number;
+  /** The grace window active when the claim was flushed (for the ceiling
+   *  fraction). */
+  graceMs?: number;
+  batchSize?: number;
+  batchSpeedCv?: number;
 }
 
 export interface ClaimSignalEvaluation {
@@ -133,6 +217,8 @@ export interface ClaimSignalEvaluation {
     clockSkewMs: number;
     coordRepeatCount: number;
     deviceAccountCount: number;
+    queuedForMs: number;
+    batchSpeedCv: number;
   };
 }
 
@@ -141,14 +227,27 @@ export interface ClaimSignalEvaluation {
  *  doc. Pure — the trigger supplies the IO-derived inputs. */
 export function evaluateClaimSignals(inp: ClaimSignalInputs): ClaimSignalEvaluation {
   const travel = impossibleTravelSignal(inp.travelSpeedMPerMin);
-  const window = outOfWindowSignal(inp.serverTsMs, inp.clientTsMs);
+  // Offline claims: judge clock skew at FLUSH time; the capture-time client
+  // clock is expected to be far from the server write time.
+  const window = outOfWindowSignal(
+    inp.serverTsMs,
+    inp.offline === true ? inp.flushClientTsMs : inp.clientTsMs,
+  );
   const cluster = coordClusterSignal(inp.coordRepeatCount);
   const device = repeatedDeviceSignal(inp.distinctDeviceAccounts);
+  const queued = inp.offline === true
+    ? queuedTooLongSignal(inp.queuedForMs, inp.graceMs ?? 0)
+    : { flagged: false, value: 0 };
+  const constantSpeed = inp.offline === true
+    ? constantBatchSpeedSignal(inp.batchSpeedCv, inp.batchSize)
+    : { flagged: false, value: 0 };
   const { reasons, severity } = summariseFlags([
     { reason: "impossible_travel", flagged: travel.flagged },
     { reason: "out_of_window", flagged: window.flagged },
     { reason: "coord_cluster", flagged: cluster.flagged },
     { reason: "repeated_device", flagged: device.flagged },
+    { reason: "queued_near_ceiling", flagged: queued.flagged },
+    { reason: "constant_batch_speed", flagged: constantSpeed.flagged },
   ]);
   return {
     reasons,
@@ -158,6 +257,8 @@ export function evaluateClaimSignals(inp: ClaimSignalInputs): ClaimSignalEvaluat
       clockSkewMs: window.value,
       coordRepeatCount: cluster.value,
       deviceAccountCount: device.value,
+      queuedForMs: queued.value,
+      batchSpeedCv: constantSpeed.value,
     },
   };
 }

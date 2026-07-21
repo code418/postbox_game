@@ -48,6 +48,10 @@ export interface OfflineClaimMeta {
   /** Client wall-clock at FLUSH time (clock-skew signal — the capture-time
    *  clientTsMs is meaningless for an offline claim's out-of-window check). */
   flushClientTsMs?: number;
+  /** Coefficient of variation of implied speeds across the batch's capture
+   *  legs (computed at flush time — the only place the whole batch is
+   *  visible). Near-zero = synthesised trace (constant_batch_speed signal). */
+  batchSpeedCv?: number;
 }
 
 /** Optional inputs to [scoreClaimAt] beyond the position. */
@@ -120,6 +124,9 @@ export function buildClaimData(inp: BuildClaimDataInput): Record<string, unknown
     d.batchSpanMs = inp.offline.batchSpanMs;
     if (inp.offline.flushClientTsMs !== undefined) {
       d.flushClientTsMs = inp.offline.flushClientTsMs;
+    }
+    if (inp.offline.batchSpeedCv !== undefined) {
+      d.batchSpeedCv = inp.offline.batchSpeedCv;
     }
   }
   return d;

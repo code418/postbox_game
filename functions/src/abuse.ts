@@ -9,6 +9,7 @@ import {
   applyTrustDecay,
   DEFAULT_TRUST_SCORE,
 } from "./_abuseSignals";
+import { getGameConfig } from "./_config";
 
 // SHADOW MODE: the detector only records flags + decays an internal trust score.
 // It NEVER blocks, voids, or otherwise affects a claim. Enforcement (step-up
@@ -51,6 +52,19 @@ export const onClaimCreated = onDocumentCreated(
       const travelSpeed = typeof claim.travelSpeed === "number" ? (claim.travelSpeed as number) : undefined;
       const coordKey6 = typeof claim.coordKey6 === "string" ? (claim.coordKey6 as string) : undefined;
       const deviceIdHash = typeof claim.deviceIdHash === "string" ? (claim.deviceIdHash as string) : undefined;
+      // Offline-flush metadata (v1.5). `offline` is trustworthy because ONLY
+      // flushOfflineClaims writes it (server-derived, never client payload).
+      const offline = claim.offline === true;
+      const flushClientTsMs = typeof claim.flushClientTsMs === "number" ? (claim.flushClientTsMs as number) : undefined;
+      const queuedForMs = typeof claim.queuedForMs === "number" ? (claim.queuedForMs as number) : undefined;
+      const batchSize = typeof claim.batchSize === "number" ? (claim.batchSize as number) : undefined;
+      const batchSpeedCv = typeof claim.batchSpeedCv === "number" ? (claim.batchSpeedCv as number) : undefined;
+      // Current grace window for the queued-near-ceiling fraction. Cached
+      // 5 min in _config; slight drift vs the flush-time value is fine for a
+      // shadow signal.
+      const graceMs = offline
+        ? (await getGameConfig()).offlineGraceHours * 3600_000
+        : undefined;
 
       // Coordinate clustering: how many of this user's claims sit at the same
       // rounded coordinate (this one included). Two equality filters are served
@@ -93,6 +107,12 @@ export const onClaimCreated = onDocumentCreated(
         clientTsMs,
         coordRepeatCount: repeatCount,
         distinctDeviceAccounts,
+        offline,
+        flushClientTsMs,
+        queuedForMs,
+        graceMs,
+        batchSize,
+        batchSpeedCv,
       });
       if (reasons.length === 0) return; // nothing anomalous
 
