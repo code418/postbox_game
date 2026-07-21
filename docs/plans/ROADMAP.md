@@ -22,10 +22,11 @@ lands). Their original bodies are preserved below for diff archaeology.
 | **v1.2** | Intro polish | Done |
 | **v1.3** | Platform foundations (EU region + observability) | Done |
 | **v1.4** | Trust & safety (GDPR, anti-cheat) | Done |
-| **v1.5** | iOS & offline play (reach + resilience) | Queued — next up |
-| **v1.6** | Engagement & avatars (social loops + Postie avatar) | Deferred |
-| **v1.7** | Collection & content | Deferred |
-| **v1.8** | Localisation | Deferred |
+| **v1.5** | Resilience & offline play | Queued — next up |
+| **v1.6** | Reach (iOS + Sign in with Apple) | Deferred |
+| **v1.7** | Engagement & avatars (social loops + Postie avatar) | Deferred |
+| **v1.8** | Collection & content | Deferred |
+| **v1.9** | Localisation | Deferred |
 | **v2.0** | Growth (Analytics + experimentation) | Deferred |
 | **Backlog** | Speculative big-rocks | Speculative |
 
@@ -49,8 +50,8 @@ lands). Their original bodies are preserved below for diff archaeology.
   Version bumped to `1.2.0+13`.
 
 > **Postie avatar (PR #113)** was bundled here originally but has been
-> moved down to **v1.6** (Engagement & avatars). PR #113 is non-draft and
-> ready, but will sit waiting through v1.3, v1.4 and v1.5. **Risk**: long-lived
+> moved down to **v1.7** (Engagement & avatars). PR #113 is non-draft and
+> ready, but will sit waiting through v1.3 to v1.6. **Risk**: long-lived
 > branch accumulates merge conflicts (especially against `leaderboard_screen.dart`, `friends_screen.dart`, `user_profile_page.dart`,
 > `startScoring.ts`, `_leaderboardUtils.ts`). Mitigation: rebase #113
 > onto `master` whenever any of those files changes.
@@ -177,14 +178,15 @@ exceptions in key flows to non-fatals.
 > ship-gate pair only (no `quiz_required_streak`, other constants left
 > hard-coded).
 
-> **Carried into v1.5**: (a) the abuse **Phase 2 enforcement** decision — after
+> **Carried forward**: (a) the abuse **Phase 2 enforcement** decision — after
 > the two-week shadow-mode observation window, tune thresholds from the flag
 > exports and decide whether to flip `SHADOW_MODE`; (b) the iOS side of the
 > telemetry work (`FirebaseAnalyticsCollectionEnabled` in `Info.plist`), which
-> is on the v1.5 iOS checklist.
+> is on the v1.6 iOS checklist.
 
-> **App Check enforcement moved to v1.5** (it's gated on iOS `AppleProvider`
-> wiring, which lands in v1.5's iOS work). See the App Check item under v1.5.
+> **App Check enforcement split across v1.5 and v1.6**: server-side enforcement
+> is a prerequisite of v1.5 offline play; the iOS `AppleProvider` half lands
+> with the v1.6 iOS build.
 
 ### Remote Config for game balance and copy  (was #107, moved from v1.3)
 
@@ -312,95 +314,55 @@ Shadow mode first — log flags, no user-facing effect — for 2 weeks; tune thr
 
 Risk: the first sweep night backfills history in bounded pages (~6k docs/night)
 — watch the `pagesRemaining` log until the backlog drains. iOS
-(`FirebaseAnalyticsCollectionEnabled`) is a v1.5 checklist item.
+(`FirebaseAnalyticsCollectionEnabled`) is a v1.6 checklist item.
 
 ---
 
-## v1.5 — iOS & offline play  (Queued — next up)
+## v1.5 — Resilience & offline play  (Queued — next up)
 
-**Theme**: two ways of reaching players the app currently can't. **Reach** opens the
-door to users outside the Android-phone + Wear OS + Android Auto funnel. **Resilience**
-opens it to the *place* the game is actually played — lanes, parks and villages, where
-reception fails and today's all-live claim loop simply stops working. Promoted ahead of
-the engagement work after v1.4 shipped: the platform is now hardened (v1.3 observability,
-v1.4 trust & safety), so widening who and where can play beats deepening the loop for the
-players already here.
+**Theme**: reach the *place* the game is actually played. The claim loop is a chain of
+live callable round-trips, and players hunt postboxes on foot — lanes, parks, villages —
+which is exactly where reception fails. Make the flow degrade gracefully on a bad link,
+then work without one. Split ahead of the iOS release (v1.6) because it fixes a bug that
+is losing real players real claims today, and because it needs no App Store review cycle
+to reach anyone.
 
-**Ship gate**: signed iOS build available on TestFlight; Sign in with Apple works
-end-to-end on iOS including account deletion with token revocation; `startScoring` and
-`nearbyPostboxes` enforce App Check with a denial rate < 1 %; a claim whose response is
-dropped mid-flight is never lost (the player sees their points, not an empty state); a
-claim captured with no signal settles correctly on reconnect, including across a London
-midnight rollover, without disturbing any other player's leaderboard.
+**Ship gate**: `startScoring` and `nearbyPostboxes` enforce App Check with a denial rate
+< 1 %; a claim whose response is dropped mid-flight is never lost (the player sees their
+points, not an empty state); a claim captured with no signal settles correctly on
+reconnect, including across a London midnight rollover, without disturbing any other
+player's leaderboard.
 
-> **Size warning.** This is the largest release on the roadmap — an iOS launch *and* a
-> claim-path refactor with a new security control. The two halves are independent apart
-> from App Check, so they can ship as separate releases (`1.5.x` iOS, `1.6.x` offline) if
-> the combined scope proves too big. Offline Phase 1 alone fixes the lost-claim bug and
-> carries most of the user value; Phase 4 is explicitly conditional. Cut from the back.
+> **Cut from the back if it runs long.** Phase 1 alone fixes the lost-claim bug and
+> carries most of the user value; Phase 4 is explicitly conditional and may never be
+> built. Phases 2–3 are the offline feature proper.
 
-> Localisation moved to **v1.8** — it was the other half of the original "Reach" release
-> but shares no work with the iOS build.
+### App Check enforcement — server side  (was #96, moved from v1.4)
 
-### iOS support  (new)
+**Hard prerequisite for everything below**, because offline claiming makes `startScoring`
+accept client-supplied timestamps. An endpoint that trusts a client clock *without*
+attestation is strictly worse than today’s. The iOS `AppleProvider` half of this item
+moves to v1.6 with the iOS build.
 
-**Already done** (since this item was first written): `ios/Podfile` exists and
-`pod install` resolves the Firebase 12.x pods against a minimum iOS of 15.0;
-a `build-ios` job on `macos-latest` in `.github/workflows/main.yml` builds
-`Runner.app` green with `flutter build ios --release --no-codesign`. The
-`pubspec.yaml` `default-flavor: phone` applies to iOS too, so the project
-carries matching `Debug/Profile/Release-phone` configs and a shared
-`phone.xcscheme`.
-
-Remaining work:
-
-- **Signing + TestFlight** — the blocker. Needs the $99/yr Apple Developer account; a commented sketch of the signed-IPA + `apple-actions` steps already sits in the `build-ios` job.
-- Verify `Info.plist` permissions: `NSLocationWhenInUseUsageDescription`, `NSLocationAlwaysAndWhenInUseUsageDescription`, `NSCameraUsageDescription`, `NSPhotoLibraryUsageDescription` (last two already present per CLAUDE.md).
-- Add `FirebaseAnalyticsCollectionEnabled = false` to `Info.plist` — the iOS half of the v1.4 telemetry opt-out (mirrors the Android manifest flag so opted-out users never leak events before the runtime toggle applies).
-- Wire `AppleProvider` (`DeviceCheck` / `AppAttest`) for App Check (see the App Check enforcement item below — the two land together in v1.5).
-- App Store Connect listing: name, screenshots, age rating, privacy nutrition labels (matching what the GDPR work in v1.4 implements — reuse the Play Data Safety declaration as the source of truth).
-- Mac Catalyst evaluation — `firebase_options.dart` already has a macOS config; trivial scope or skip.
-
-Smoke-test gates: login (email + Google), nearby scan, claim quiz, report submission with photo, route mode end-to-end. Wear/Android Auto are not relevant on iOS.
-
-Backend risk: callable region pinning (v1.3, done) and App Check enforcement (a sibling v1.5 item below) both touch iOS — wire `AppleProvider` as part of the App Check work.
-
-### Sign in with Apple  (new)
-
-**Not optional.** App Store Review Guideline 4.8 requires an equivalent
-privacy-preserving login wherever a third-party social login is offered, so the
-existing Google button makes Sign in with Apple a hard gate on the iOS binary.
-Scoped to Apple only — Microsoft and Facebook are a separate Backlog item so
-neither can hold up the release.
-
-- **No new dependency**: `firebase_auth` already exposes `AppleAuthProvider`; use `signInWithProvider(AppleAuthProvider())`, which routes through native `ASAuthorization` on iOS. Avoids adding `sign_in_with_apple`.
-- **Setup**: enable the Apple provider in the Firebase console, add the *Sign in with Apple* capability to the `Runner` target, and register a Services ID + return URL only if the button is also offered on Android/web (see below).
-- **Android/web scope — decide explicitly.** On non-Apple platforms this falls back to a web OAuth flow that needs the Services ID and offers users nothing Google doesn't already. Recommendation: gate the button on `Platform.isIOS || Platform.isMacOS` and leave Android on Google/email, which also keeps the Services ID out of scope.
-- **The name is returned exactly once.** Apple sends the user's full name only on the *first* authorisation and never again; if it isn't captured and written on that first callback, `displayName` is null forever and no re-install recovers it. Must be persisted at sign-in time and reconciled with the `onUserCreated` function, which currently populates `users/{uid}.displayName` from the Auth record.
-- **Hide My Email** yields a `@privaterelay.appleid.com` address. Harmless today (friend lookup is UID-only, and the DSAR/erasure paths key on uid), but the Backlog "Trigger Email" item would need Apple's relay-domain registration to reach those users.
-- **`deleteAccount()` must grow an `apple.com` branch** (`lib/user_repository.dart:157`), which today re-authenticates only `password` and `google.com` users — anything else falls through to a bare `user.delete()` and throws `requires-recent-login`.
-- **Token revocation is an App Store requirement**, not a nicety: apps offering Sign in with Apple must revoke the token on account deletion. Capture the authorisation code at sign-in and call `revokeTokenWithAuthorizationCode` inside the delete flow, before `user.delete()`. Missing this is a review rejection and a GDPR gap. Guideline 5.1.1(v) (in-app account deletion) is already satisfied by the v1.4 work.
-- **Account linking**: a second provider on an email that already exists throws `account-exists-with-different-credential`. Two providers made this rare; three makes it routine. Decide the policy — auto-link after re-auth with the original provider, or a clear "you already signed up with X" message — and implement it once rather than per-provider.
-- **Provider-agnostic clean-up**: `signOut()` unconditionally calls `_googleSignIn.signOut()`. Generalise it as part of this work rather than adding a second special case.
-- **Out of scope**: `lib/wear/wear_login_screen.dart` stays Google-only (Wear is Android-only, so 4.8 doesn't apply).
-- **UI**: Apple's Human Interface Guidelines require the button be no less prominent than other sign-in options, and mandate their supplied wordmark/styling. `lib/login/login_form.dart:147` currently renders `GoogleLoginButton` alone.
-
-Tests: extend the `firebase_auth_mocks` suite to cover the new re-auth branch and the linking-collision path.
-
-### App Check enforcement audit and hardening  (was #96, moved from v1.4)
-
-App Check is configured client-side for Android release (`AndroidPlayIntegrityProvider`). Audit and **enforce** server-side. Moved here from v1.4 because iOS `AppleProvider` wiring is part of v1.5's iOS work — and it is now also a **hard prerequisite of the offline work below**, which makes `startScoring` accept client-supplied timestamps.
-
-**Verified against master**: `enforceAppCheck` appears nowhere in `functions/src` — App Check is activated on the client but **no callable enforces it**, so it currently buys nothing. Setting `enforceAppCheck: true` on `startScoring` and `nearbyPostboxes` is one options object per function on `firebase-functions` v2 and is the highest-leverage anti-abuse control available.
+**Verified against master**: `enforceAppCheck` appears nowhere in `functions/src` — App
+Check is activated on the client but **no callable enforces it**, so it currently buys
+nothing. Setting `enforceAppCheck: true` on `startScoring` and `nearbyPostboxes` is one
+options object per function on `firebase-functions` v2 and is the highest-leverage
+anti-abuse control available.
 
 1. `AndroidDebugProvider` for dev — token committed to developer machines, not the repo.
-2. iOS: activate `AppleProvider` (`DeviceCheck` / `AppAttest`) once iOS builds are wired up (the iOS support item above).
-3. Firebase Console: enforce on Cloud Functions, Firestore, Storage, RTDB.
-4. Functions code: every callable rejects with `failed-precondition` if `context.app` absent (defence-in-depth on top of platform enforcement). Wrap in `functions/src/_appCheck.ts`.
-5. Cloud Monitoring alert on App Check denial rate spikes.
-6. **Off-Play `auto` flavour**: it ships `AndroidPlayIntegrityProvider`, which expects Play distribution. Confirm what Play Integrity actually returns for a sideloaded build *before* flipping enforcement, or the Android Auto build locks itself out.
+2. Firebase Console: enforce on Cloud Functions, Firestore, Storage, RTDB.
+3. Functions code: every callable rejects with `failed-precondition` if `context.app` absent (defence-in-depth on top of platform enforcement). Wrap in `functions/src/_appCheck.ts`.
+4. Cloud Monitoring alert on App Check denial rate spikes.
+5. **Off-Play `auto` flavour**: it ships `AndroidPlayIntegrityProvider`, which expects Play distribution. Confirm what Play Integrity actually returns for a sideloaded build *before* flipping enforcement, or the Android Auto build locks itself out.
 
-Roll out in **monitor** mode for 7 days, then **enforce** if denial rate < 1 %. Keep a break-glass env var to temporarily disable explicit `context.app` checks during provider outages.
+Roll out in **monitor** mode for 7 days, then **enforce** if denial rate < 1 %. Keep a
+break-glass env var to temporarily disable explicit `context.app` checks during provider
+outages.
+
+⚠️ **Consequence for v1.6**: once enforcement is on, an iOS build with no `AppleProvider`
+is rejected by every callable. Wiring it stops being a hardening task and becomes a
+blocker on the iOS app functioning at all.
 
 ### Offline play  (new)
 
@@ -639,16 +601,80 @@ the live deployment, pin the region, and extend the guard test to cover Kotlin s
 
 ---
 
-## v1.6 — Engagement & avatars  (Deferred)
+## v1.6 — Reach (iOS)  (Deferred)
 
-**Theme**: build the daily-return loop and the friend-pressure loop on top of the now-stable v1.4 platform and the widened v1.5 audience — and ship the visible-identity work (Postie avatars) so users have something to flex with on the new live leaderboards.
+**Theme**: open the door to users outside the Android-phone + Wear OS + Android Auto
+funnel. Second half of the old combined v1.5; nothing here shares work with the offline
+release except App Check, whose server-side half lands in v1.5.
+
+**Ship gate**: signed iOS build available on TestFlight; Sign in with Apple works
+end-to-end on iOS including account deletion with token revocation; iOS `AppleProvider`
+registered and passing against the App Check enforcement switched on in v1.5.
+
+### iOS support  (new)
+
+**Already done** (since this item was first written): `ios/Podfile` exists and
+`pod install` resolves the Firebase 12.x pods against a minimum iOS of 15.0;
+a `build-ios` job on `macos-latest` in `.github/workflows/main.yml` builds
+`Runner.app` green with `flutter build ios --release --no-codesign`. The
+`pubspec.yaml` `default-flavor: phone` applies to iOS too, so the project
+carries matching `Debug/Profile/Release-phone` configs and a shared
+`phone.xcscheme`.
+
+Remaining work:
+
+- **Signing + TestFlight** — the blocker. Needs the $99/yr Apple Developer account; a commented sketch of the signed-IPA + `apple-actions` steps already sits in the `build-ios` job.
+- Verify `Info.plist` permissions: `NSLocationWhenInUseUsageDescription`, `NSLocationAlwaysAndWhenInUseUsageDescription`, `NSCameraUsageDescription`, `NSPhotoLibraryUsageDescription` (last two already present per CLAUDE.md).
+- Add `FirebaseAnalyticsCollectionEnabled = false` to `Info.plist` — the iOS half of the v1.4 telemetry opt-out (mirrors the Android manifest flag so opted-out users never leak events before the runtime toggle applies).
+- Wire `AppleProvider` (`DeviceCheck` / `AppAttest`) for App Check (see the App Check item below — v1.5 already switched enforcement on, so this gates the build working at all).
+- App Store Connect listing: name, screenshots, age rating, privacy nutrition labels (matching what the GDPR work in v1.4 implements — reuse the Play Data Safety declaration as the source of truth).
+- Mac Catalyst evaluation — `firebase_options.dart` already has a macOS config; trivial scope or skip.
+
+Smoke-test gates: login (email + Google), nearby scan, claim quiz, report submission with photo, route mode end-to-end. Wear/Android Auto are not relevant on iOS.
+
+Backend risk: callable region pinning (v1.3, done) and App Check enforcement (v1.5, server side) both touch iOS — wire `AppleProvider` before the first TestFlight build.
+
+### Sign in with Apple  (new)
+
+**Not optional.** App Store Review Guideline 4.8 requires an equivalent
+privacy-preserving login wherever a third-party social login is offered, so the
+existing Google button makes Sign in with Apple a hard gate on the iOS binary.
+Scoped to Apple only — Microsoft and Facebook are a separate Backlog item so
+neither can hold up the release.
+
+- **No new dependency**: `firebase_auth` already exposes `AppleAuthProvider`; use `signInWithProvider(AppleAuthProvider())`, which routes through native `ASAuthorization` on iOS. Avoids adding `sign_in_with_apple`.
+- **Setup**: enable the Apple provider in the Firebase console, add the *Sign in with Apple* capability to the `Runner` target, and register a Services ID + return URL only if the button is also offered on Android/web (see below).
+- **Android/web scope — decide explicitly.** On non-Apple platforms this falls back to a web OAuth flow that needs the Services ID and offers users nothing Google doesn't already. Recommendation: gate the button on `Platform.isIOS || Platform.isMacOS` and leave Android on Google/email, which also keeps the Services ID out of scope.
+- **The name is returned exactly once.** Apple sends the user's full name only on the *first* authorisation and never again; if it isn't captured and written on that first callback, `displayName` is null forever and no re-install recovers it. Must be persisted at sign-in time and reconciled with the `onUserCreated` function, which currently populates `users/{uid}.displayName` from the Auth record.
+- **Hide My Email** yields a `@privaterelay.appleid.com` address. Harmless today (friend lookup is UID-only, and the DSAR/erasure paths key on uid), but the Backlog "Trigger Email" item would need Apple's relay-domain registration to reach those users.
+- **`deleteAccount()` must grow an `apple.com` branch** (`lib/user_repository.dart:157`), which today re-authenticates only `password` and `google.com` users — anything else falls through to a bare `user.delete()` and throws `requires-recent-login`.
+- **Token revocation is an App Store requirement**, not a nicety: apps offering Sign in with Apple must revoke the token on account deletion. Capture the authorisation code at sign-in and call `revokeTokenWithAuthorizationCode` inside the delete flow, before `user.delete()`. Missing this is a review rejection and a GDPR gap. Guideline 5.1.1(v) (in-app account deletion) is already satisfied by the v1.4 work.
+- **Account linking**: a second provider on an email that already exists throws `account-exists-with-different-credential`. Two providers made this rare; three makes it routine. Decide the policy — auto-link after re-auth with the original provider, or a clear "you already signed up with X" message — and implement it once rather than per-provider.
+- **Provider-agnostic clean-up**: `signOut()` unconditionally calls `_googleSignIn.signOut()`. Generalise it as part of this work rather than adding a second special case.
+- **Out of scope**: `lib/wear/wear_login_screen.dart` stays Google-only (Wear is Android-only, so 4.8 doesn't apply).
+- **UI**: Apple's Human Interface Guidelines require the button be no less prominent than other sign-in options, and mandate their supplied wordmark/styling. `lib/login/login_form.dart:147` currently renders `GoogleLoginButton` alone.
+
+Tests: extend the `firebase_auth_mocks` suite to cover the new re-auth branch and the linking-collision path.
+
+### App Check — iOS provider  (remainder of #96; server half in v1.5)
+
+Activate `AppleProvider` (`DeviceCheck` / `AppAttest`) and register the app in the
+Firebase console. **Not optional and not last**: v1.5 turns on `enforceAppCheck` for the
+callables, so until this is wired the iOS build cannot successfully call `startScoring`,
+`nearbyPostboxes`, or anything else. Do it before the first TestFlight build, not after.
+
+---
+
+## v1.7 — Engagement & avatars  (Deferred)
+
+**Theme**: build the daily-return loop and the friend-pressure loop on top of the now-stable v1.4 platform and the widened v1.6 audience — and ship the visible-identity work (Postie avatars) so users have something to flex with on the new live leaderboards.
 **Ship gate**: DAU / WAU lift measurable in Analytics; POTD claim rate ≥ 30 % of DAU; weekly recap engaged-with by ≥ 25 % of recipients; avatar coverage > 50 % of WAU within two weeks of release.
 
 ### Postie avatar creator + surface across app  (was #113, originally v1.2)
 
-Moved here after v1.4 Trust & safety and v1.5 Reach. PR #113 is non-draft and
+Moved here after v1.4 Trust & safety, v1.5 offline play and v1.6 Reach. PR #113 is non-draft and
 fully tested (`flutter analyze` clean, 98 + 227 tests passing); blocked only on
-manual QA + deploy. Avatars surface naturally on the v1.6 engagement surfaces (live
+manual QA + deploy. Avatars surface naturally on the v1.7 engagement surfaces (live
 leaderboards, friend cards, profile headers), so bundling them is the
 right pairing.
 
@@ -659,14 +685,14 @@ right pairing.
 
 Pre-merge:
 
-1. Rebase #113 onto `master` (it has been sitting through v1.3, v1.4 and v1.5 — expect conflicts in `leaderboard_screen.dart`, `friends_screen.dart`, `user_profile_page.dart`, `_leaderboardUtils.ts`, `startScoring.ts`).
+1. Rebase #113 onto `master` (it has been sitting through v1.3 to v1.6 — expect conflicts in `leaderboard_screen.dart`, `friends_screen.dart`, `user_profile_page.dart`, `_leaderboardUtils.ts`, `startScoring.ts`).
 2. Run the manual checklist: Settings → Your postie → cycle parts → Save → confirm avatar shows in Friends list, both Leaderboard tabs, Profile header. Re-open creator → confirm saved state loads. Claim a postbox → confirm new leaderboard entry carries the avatar.
 3. `firebase deploy --only firestore:rules,functions`.
 4. Merge.
 
 Long-tail follow-ups (do as separate PRs after avatars land):
 
-- Avatar unlock tiles tied to v1.7 streak rewards (e.g. a "Centurion" hat at 100-day streaks).
+- Avatar unlock tiles tied to v1.8 streak rewards (e.g. a "Centurion" hat at 100-day streaks).
 - Avatar appears in v2.0 BigQuery export as a cohort dimension (no PII — just style choices).
 
 ### Live leaderboard with overtake animations  (was #104)
@@ -709,7 +735,7 @@ Progress: Firestore trigger `onClaimCreated` updates active challenges. FCM on i
 
 ---
 
-## v1.7 — Collection & content  (Deferred)
+## v1.8 — Collection & content  (Deferred)
 
 **Theme**: turn the claim loop into a collection loop. Most users today see a
 points number; few have a sense of *which* cyphers they've seen or what's
@@ -818,9 +844,9 @@ No backend changes — `nearbyPostboxes` already returns enough metadata for the
 
 ---
 
-## v1.8 — Localisation  (Deferred)
+## v1.9 — Localisation  (Deferred)
 
-**Theme**: the second half of the original "Reach" release. iOS widened the platform in v1.5; this widens the language.
+**Theme**: the last piece of the original "Reach" release. iOS widened the platform in v1.6; this widens the language.
 
 **Ship gate**: at least one non-English locale ships and is selectable in Settings; no hardcoded user-facing strings remain in `lib/` per the CI lint below.
 
@@ -999,7 +1025,7 @@ No backend changes beyond rule updates and a small fan-out adjustment so the act
 
 ### Additional sign-in providers — Microsoft, Facebook  (new)
 
-Split out of the v1.5 Sign in with Apple work so that neither can block the iOS
+Split out of the v1.6 Sign in with Apple work so that neither can block the iOS
 release. Promote when there's evidence users actually want them — the current
 email/password + Google + Apple set covers the overwhelming majority of UK
 consumer sign-ins, and every extra provider permanently widens the account-linking,
@@ -1014,14 +1040,14 @@ weak fit outside a corporate crowd.
 **Facebook** — expensive, and the cost is external. Requires the
 `flutter_facebook_auth` SDK, a Meta Developer app, and Meta **App Review** for
 `public_profile` + `email` (unpredictable turnaround, which is why it was kept
-off the v1.5 critical path). It also adds compliance work: a hosted **Data
+off the v1.6 critical path). It also adds compliance work: a hosted **Data
 Deletion Callback** endpoint, Meta added to the processor disclosure in
 `assets/legal/privacy_policy.md` and the mirrored `web/privacy-policy.html`,
 and a corresponding Play Data Safety / App Store privacy-label update. Weigh
 that against a login method whose consumer share has been falling for years.
 
 Prerequisite for both: the account-linking policy and the provider-agnostic
-`deleteAccount()` / `signOut()` refactor from the v1.5 Apple item. With those
+`deleteAccount()` / `signOut()` refactor from the v1.6 Apple item. With those
 done, each additional provider is mostly configuration.
 
 ### Churn-risk retention push via BigQuery ML  (was #97)
@@ -1057,7 +1083,7 @@ Roll out the BQ model with monitoring only first; review prediction quality manu
   nightly `dataRetention` sweep); abuse detection in shadow mode (impossible
   travel, out-of-window, coord cluster, repeated device) with an admin review
   screen. Shipped as `1.4.0+18` (PR #170). App Check enforcement was split out
-  to v1.5; abuse Phase 2 enforcement remains deferred.
+  to v1.6; abuse Phase 2 enforcement remains deferred.
 
 ## Open exploration (no release commitment)
 
