@@ -1,7 +1,7 @@
 # Postbox Game — Roadmap
 
 Working backlog, organised by app release. Current shipped version is
-`pubspec.yaml`'s `1.2.0+13`. Each release names a **theme** and a **ship gate**;
+`pubspec.yaml`'s `1.4.0+18`. Each release names a **theme** and a **ship gate**;
 items inside it can be re-ordered freely.
 
 This file replaces the bulk-created draft PRs `#94`–`#112` (closed once this
@@ -21,10 +21,11 @@ lands). Their original bodies are preserved below for diff archaeology.
 |---|---|---|
 | **v1.2** | Intro polish | Done |
 | **v1.3** | Platform foundations (EU region + observability) | Done |
-| **v1.4** | Trust & safety (GDPR, anti-cheat) | In flight |
-| **v1.5** | Engagement & avatars (social loops + Postie avatar) | Deferred |
-| **v1.6** | Collection & content | Deferred |
-| **v1.7** | Reach (iOS, localisation, App Check) | Deferred |
+| **v1.4** | Trust & safety (GDPR, anti-cheat) | Done |
+| **v1.5** | iOS & offline play (reach + resilience) | Queued — next up |
+| **v1.6** | Engagement & avatars (social loops + Postie avatar) | Deferred |
+| **v1.7** | Collection & content | Deferred |
+| **v1.8** | Localisation | Deferred |
 | **v2.0** | Growth (Analytics + experimentation) | Deferred |
 | **Backlog** | Speculative big-rocks | Speculative |
 
@@ -48,8 +49,8 @@ lands). Their original bodies are preserved below for diff archaeology.
   Version bumped to `1.2.0+13`.
 
 > **Postie avatar (PR #113)** was bundled here originally but has been
-> moved down to **v1.5** after Trust & safety. PR #113 is non-draft and
-> ready, but will sit waiting through v1.3 and v1.4. **Risk**: long-lived
+> moved down to **v1.6** (Engagement & avatars). PR #113 is non-draft and
+> ready, but will sit waiting through v1.3, v1.4 and v1.5. **Risk**: long-lived
 > branch accumulates merge conflicts (especially against `leaderboard_screen.dart`, `friends_screen.dart`, `user_profile_page.dart`,
 > `startScoring.ts`, `_leaderboardUtils.ts`). Mitigation: rebase #113
 > onto `master` whenever any of those files changes.
@@ -159,28 +160,31 @@ exceptions in key flows to non-fatals.
 
 ---
 
-## v1.4 — Trust & safety  (In flight)
+## v1.4 — Trust & safety  (Done)
 
 **Theme**: harden the platform now that we can see what's happening (v1.3 observability).
 **Ship gate**: account-deletion flow tested end-to-end in staging; impossible-travel detector in shadow mode logging flags but not blocking; Remote Config drives `claim_radius_meters` and `points_by_monarch` end-to-end (client + Cloud Functions) with the safety bounds enforced; telemetry disclosure live with analytics on by default and a working opt-out (DebugView goes silent when the Settings → Privacy toggle is switched off); `exportMyData` returns a complete bundle in staging; `dataRetentionSweep` executed once in staging with logged strip/delete counts.
 
-> **Status** (branch `feat/v1.4-trust-safety`, `1.4.0+18`): all four workstreams
-> implemented (Remote Config balance, GDPR deletion, shadow-mode abuse, and the
-> GDPR compliance finish below); `flutter analyze` + Dart tests + functions
-> lint/tests green. Remaining before ship: the manual staging passes (account
-> deletion, consent DebugView check, export bundle, one forced retention-sweep
-> run) and the Remote Config console setup (publish `claim_radius_meters` +
-> `points_by_monarch` to the client AND server templates with values equal to
-> the code defaults). Two roadmap divergences, both deliberate: (1) GDPR uses a
-> **self-contained `onUserDeleted` function, not the Delete-User-Data extension**
-> (the extension can only delete, not anonymise claims, which would break
-> leaderboard integrity); (2) abuse **enforcement/voiding stays deferred
-> (Phase 2)** — the ship gate requires shadow mode, so `SHADOW_MODE` remains
-> `true`. Remote Config was scoped to the ship-gate pair only (no
-> `quiz_required_streak`, other constants left hard-coded).
+> **Status**: shipped — merged to `master` as `1.4.0+18` (PR #170), with the
+> Remote Config template reconciled against live in `8c0cca1`. All four
+> workstreams landed (Remote Config balance, GDPR deletion, shadow-mode abuse,
+> and the GDPR compliance finish below). Two roadmap divergences, both
+> deliberate: (1) GDPR uses a **self-contained `onUserDeleted` function, not the
+> Delete-User-Data extension** (the extension can only delete, not anonymise
+> claims, which would break leaderboard integrity); (2) abuse
+> **enforcement/voiding stays deferred (Phase 2)** — the ship gate requires
+> shadow mode, so `SHADOW_MODE` remains `true`. Remote Config was scoped to the
+> ship-gate pair only (no `quiz_required_streak`, other constants left
+> hard-coded).
 
-> **App Check enforcement moved to v1.7** (it's gated on iOS `AppleProvider`
-> wiring, which lands in v1.7's iOS work). See the App Check item under v1.7.
+> **Carried into v1.5**: (a) the abuse **Phase 2 enforcement** decision — after
+> the two-week shadow-mode observation window, tune thresholds from the flag
+> exports and decide whether to flip `SHADOW_MODE`; (b) the iOS side of the
+> telemetry work (`FirebaseAnalyticsCollectionEnabled` in `Info.plist`), which
+> is on the v1.5 iOS checklist.
+
+> **App Check enforcement moved to v1.5** (it's gated on iOS `AppleProvider`
+> wiring, which lands in v1.5's iOS work). See the App Check item under v1.5.
 
 ### Remote Config for game balance and copy  (was #107, moved from v1.3)
 
@@ -308,20 +312,343 @@ Shadow mode first — log flags, no user-facing effect — for 2 weeks; tune thr
 
 Risk: the first sweep night backfills history in bounded pages (~6k docs/night)
 — watch the `pagesRemaining` log until the backlog drains. iOS
-(`FirebaseAnalyticsCollectionEnabled`) is a v1.7 checklist item.
+(`FirebaseAnalyticsCollectionEnabled`) is a v1.5 checklist item.
 
 ---
 
-## v1.5 — Engagement & avatars  (Deferred)
+## v1.5 — iOS & offline play  (Queued — next up)
 
-**Theme**: build the daily-return loop and the friend-pressure loop on top of the now-stable v1.4 platform — and ship the visible-identity work (Postie avatars) so users have something to flex with on the new live leaderboards.
+**Theme**: two ways of reaching players the app currently can't. **Reach** opens the
+door to users outside the Android-phone + Wear OS + Android Auto funnel. **Resilience**
+opens it to the *place* the game is actually played — lanes, parks and villages, where
+reception fails and today's all-live claim loop simply stops working. Promoted ahead of
+the engagement work after v1.4 shipped: the platform is now hardened (v1.3 observability,
+v1.4 trust & safety), so widening who and where can play beats deepening the loop for the
+players already here.
+
+**Ship gate**: signed iOS build available on TestFlight; Sign in with Apple works
+end-to-end on iOS including account deletion with token revocation; `startScoring` and
+`nearbyPostboxes` enforce App Check with a denial rate < 1 %; a claim whose response is
+dropped mid-flight is never lost (the player sees their points, not an empty state); a
+claim captured with no signal settles correctly on reconnect, including across a London
+midnight rollover, without disturbing any other player's leaderboard.
+
+> **Size warning.** This is the largest release on the roadmap — an iOS launch *and* a
+> claim-path refactor with a new security control. The two halves are independent apart
+> from App Check, so they can ship as separate releases (`1.5.x` iOS, `1.6.x` offline) if
+> the combined scope proves too big. Offline Phase 1 alone fixes the lost-claim bug and
+> carries most of the user value; Phase 4 is explicitly conditional. Cut from the back.
+
+> Localisation moved to **v1.8** — it was the other half of the original "Reach" release
+> but shares no work with the iOS build.
+
+### iOS support  (new)
+
+**Already done** (since this item was first written): `ios/Podfile` exists and
+`pod install` resolves the Firebase 12.x pods against a minimum iOS of 15.0;
+a `build-ios` job on `macos-latest` in `.github/workflows/main.yml` builds
+`Runner.app` green with `flutter build ios --release --no-codesign`. The
+`pubspec.yaml` `default-flavor: phone` applies to iOS too, so the project
+carries matching `Debug/Profile/Release-phone` configs and a shared
+`phone.xcscheme`.
+
+Remaining work:
+
+- **Signing + TestFlight** — the blocker. Needs the $99/yr Apple Developer account; a commented sketch of the signed-IPA + `apple-actions` steps already sits in the `build-ios` job.
+- Verify `Info.plist` permissions: `NSLocationWhenInUseUsageDescription`, `NSLocationAlwaysAndWhenInUseUsageDescription`, `NSCameraUsageDescription`, `NSPhotoLibraryUsageDescription` (last two already present per CLAUDE.md).
+- Add `FirebaseAnalyticsCollectionEnabled = false` to `Info.plist` — the iOS half of the v1.4 telemetry opt-out (mirrors the Android manifest flag so opted-out users never leak events before the runtime toggle applies).
+- Wire `AppleProvider` (`DeviceCheck` / `AppAttest`) for App Check (see the App Check enforcement item below — the two land together in v1.5).
+- App Store Connect listing: name, screenshots, age rating, privacy nutrition labels (matching what the GDPR work in v1.4 implements — reuse the Play Data Safety declaration as the source of truth).
+- Mac Catalyst evaluation — `firebase_options.dart` already has a macOS config; trivial scope or skip.
+
+Smoke-test gates: login (email + Google), nearby scan, claim quiz, report submission with photo, route mode end-to-end. Wear/Android Auto are not relevant on iOS.
+
+Backend risk: callable region pinning (v1.3, done) and App Check enforcement (a sibling v1.5 item below) both touch iOS — wire `AppleProvider` as part of the App Check work.
+
+### Sign in with Apple  (new)
+
+**Not optional.** App Store Review Guideline 4.8 requires an equivalent
+privacy-preserving login wherever a third-party social login is offered, so the
+existing Google button makes Sign in with Apple a hard gate on the iOS binary.
+Scoped to Apple only — Microsoft and Facebook are a separate Backlog item so
+neither can hold up the release.
+
+- **No new dependency**: `firebase_auth` already exposes `AppleAuthProvider`; use `signInWithProvider(AppleAuthProvider())`, which routes through native `ASAuthorization` on iOS. Avoids adding `sign_in_with_apple`.
+- **Setup**: enable the Apple provider in the Firebase console, add the *Sign in with Apple* capability to the `Runner` target, and register a Services ID + return URL only if the button is also offered on Android/web (see below).
+- **Android/web scope — decide explicitly.** On non-Apple platforms this falls back to a web OAuth flow that needs the Services ID and offers users nothing Google doesn't already. Recommendation: gate the button on `Platform.isIOS || Platform.isMacOS` and leave Android on Google/email, which also keeps the Services ID out of scope.
+- **The name is returned exactly once.** Apple sends the user's full name only on the *first* authorisation and never again; if it isn't captured and written on that first callback, `displayName` is null forever and no re-install recovers it. Must be persisted at sign-in time and reconciled with the `onUserCreated` function, which currently populates `users/{uid}.displayName` from the Auth record.
+- **Hide My Email** yields a `@privaterelay.appleid.com` address. Harmless today (friend lookup is UID-only, and the DSAR/erasure paths key on uid), but the Backlog "Trigger Email" item would need Apple's relay-domain registration to reach those users.
+- **`deleteAccount()` must grow an `apple.com` branch** (`lib/user_repository.dart:157`), which today re-authenticates only `password` and `google.com` users — anything else falls through to a bare `user.delete()` and throws `requires-recent-login`.
+- **Token revocation is an App Store requirement**, not a nicety: apps offering Sign in with Apple must revoke the token on account deletion. Capture the authorisation code at sign-in and call `revokeTokenWithAuthorizationCode` inside the delete flow, before `user.delete()`. Missing this is a review rejection and a GDPR gap. Guideline 5.1.1(v) (in-app account deletion) is already satisfied by the v1.4 work.
+- **Account linking**: a second provider on an email that already exists throws `account-exists-with-different-credential`. Two providers made this rare; three makes it routine. Decide the policy — auto-link after re-auth with the original provider, or a clear "you already signed up with X" message — and implement it once rather than per-provider.
+- **Provider-agnostic clean-up**: `signOut()` unconditionally calls `_googleSignIn.signOut()`. Generalise it as part of this work rather than adding a second special case.
+- **Out of scope**: `lib/wear/wear_login_screen.dart` stays Google-only (Wear is Android-only, so 4.8 doesn't apply).
+- **UI**: Apple's Human Interface Guidelines require the button be no less prominent than other sign-in options, and mandate their supplied wordmark/styling. `lib/login/login_form.dart:147` currently renders `GoogleLoginButton` alone.
+
+Tests: extend the `firebase_auth_mocks` suite to cover the new re-auth branch and the linking-collision path.
+
+### App Check enforcement audit and hardening  (was #96, moved from v1.4)
+
+App Check is configured client-side for Android release (`AndroidPlayIntegrityProvider`). Audit and **enforce** server-side. Moved here from v1.4 because iOS `AppleProvider` wiring is part of v1.5's iOS work — and it is now also a **hard prerequisite of the offline work below**, which makes `startScoring` accept client-supplied timestamps.
+
+**Verified against master**: `enforceAppCheck` appears nowhere in `functions/src` — App Check is activated on the client but **no callable enforces it**, so it currently buys nothing. Setting `enforceAppCheck: true` on `startScoring` and `nearbyPostboxes` is one options object per function on `firebase-functions` v2 and is the highest-leverage anti-abuse control available.
+
+1. `AndroidDebugProvider` for dev — token committed to developer machines, not the repo.
+2. iOS: activate `AppleProvider` (`DeviceCheck` / `AppAttest`) once iOS builds are wired up (the iOS support item above).
+3. Firebase Console: enforce on Cloud Functions, Firestore, Storage, RTDB.
+4. Functions code: every callable rejects with `failed-precondition` if `context.app` absent (defence-in-depth on top of platform enforcement). Wrap in `functions/src/_appCheck.ts`.
+5. Cloud Monitoring alert on App Check denial rate spikes.
+6. **Off-Play `auto` flavour**: it ships `AndroidPlayIntegrityProvider`, which expects Play distribution. Confirm what Play Integrity actually returns for a sideloaded build *before* flipping enforcement, or the Android Auto build locks itself out.
+
+Roll out in **monitor** mode for 7 days, then **enforce** if denial rate < 1 %. Keep a break-glass env var to temporarily disable explicit `context.app` checks during provider outages.
+
+### Offline play  (new)
+
+The claim loop is a chain of live callable round-trips. There is no offline story at
+all today: no connectivity detection (the app infers "offline" from
+`FirebaseFunctionsException.code == 'unavailable'` at three call sites), no timeouts,
+no retries, no local cache. Make the flow degrade gracefully on a bad link, then work
+without one. Imported from branch `docs/roadmap-offline`; its three code findings were
+re-verified against current `master`.
+
+#### Why this is more than a nice-to-have
+
+Two concrete failures exist today:
+
+1. **A player can lose a claim they earned.** The claim *write* is idempotent
+   (deterministic doc ID `claims/{uid}_{box}_{day}`), but the *response* is not. If
+   the response is dropped, the retry hits the "already claimed today" fast-path in
+   `startScoring` and the client renders an empty state — no points, no confetti. The
+   claim landed; the player never sees it.
+2. **A player in a notspot cannot play at all.** Every step needs signal.
+
+Three findings from tracing the flow shape the whole design:
+
+- **The quiz is 100 % client-side.** `startScoring` accepts only `{lat, lng, clientTsMs}`
+  and never sees the answer — `quiz_helpers.dart` builds the options from the `monarch`
+  values `nearbyPostboxes` already returned, and `claim_quiz_sheet.dart` grades locally.
+  The quiz is flavour, not an authorisation gate, so it is no obstacle to offline play.
+- **`startScoring` derives *which* boxes you claimed from position alone** — it runs
+  `lookupPostboxes(lat, lng, 30)` and claims every unclaimed box in range. So a claim
+  can be represented as *"I stood here, then"* and adjudicated later exactly as it
+  would have been live.
+- **The travel-speed check would reject a flushed queue.** `enforceTravelSpeedLimit`
+  compares `Date.now()` against the previous claim's *server* timestamp, and
+  `_travelSpeed.ts` floors elapsed time at 1 second. Flushing sequentially computes
+  `speed = 60 × distance`, so any two queued boxes more than ~32 m apart hard-reject
+  the second. This must be fixed before anything can be flushed.
+
+#### The security problem, and the design that answers it
+
+Today's travel-speed check is not really an anti-spoof control — the server has always
+trusted client-supplied lat/lng, so a GPS spoofer already wins. What it actually is, is
+a **serialisation tax**: farming 300 boxes across a city forces a script to space its
+calls out in real wall-clock time.
+
+A naive offline claim deletes that tax. Because the claim ID is `{uid}_{box}_{day}`, an
+attacker can save the outbox JSON, add 86,400,000 ms to every capture time, and
+resubmit tomorrow — same boxes, full points, from an armchair, forever. The travel-speed
+chain validates perfectly, because a uniformly-shifted trace has identical implied speeds.
+
+**The fix is a server-issued offline capture token.** On any successful online call the
+server issues an HMAC-signed token `{uid, issuedAtMs, exp, budget, nonce}` (secret in
+Secret Manager). Every offline capture carries it, and at flush the server enforces
+`capturedAtMs >= token.issuedAtMs`, `capturedAtMs <= serverNow`, and single-use nonce
+consumption against `budget`. Both bounds are server-attested, so the whole offline
+timeline must fit inside a wall-clock window the server actually observed — you cannot
+submit an 8-hour synthesised walk five minutes after going offline. That restores the
+serialisation tax, which is the property that matters.
+
+Chaining capture times is a *consistency* control, not a security control. The token is
+what does the work.
+
+#### Prerequisites (both nearly free)
+
+- **`enforceAppCheck: true` on `startScoring` and `nearbyPostboxes`** — covered by the
+  App Check item above, which is in this same release. Nothing here ships until it does:
+  an endpoint accepting client-supplied timestamps without attestation is strictly worse
+  than today's. (iOS `AppleProvider` now lands in this release too, with the iOS work.)
+- **`allow read: if false` on `/postbox`.** `firestore.rules:10` currently lets any signed-in
+  user read every postbox `geopoint`, and **no Dart or Kotlin code reads that collection**
+  — everything goes through the callables. So the fuzzy compass is presently a UI
+  convention, not a security property. Closing the rule costs nothing and makes the
+  on-device cache below a deliberate, bounded exposure rather than a formality.
+
+#### Phase 1 — Survive a flaky link
+
+Ships alone and fixes the lost-claim bug. The common real failure is *"one bar, request
+hangs, I lose my quiz sheet and have to walk back and rescan"* — not "no signal all walk".
+Most of the user value is here.
+
+- **`attempts/{attemptId}` idempotency doc** — `{uid, status, result, expiresAt}`.
+  Transaction at the top of the handler: `done` → return the stored result verbatim;
+  `in_progress` → throw `aborted`; else create. One doc read by ID, no index. Beats a
+  `claims`-query approach, which would double-credit across a midnight boundary and
+  cannot represent a *zero-claim* attempt (`found: false` / `allClaimedToday` write no
+  claim doc — exactly the responses worth replaying). Firestore native TTL on `expiresAt`.
+- **Callable timeouts + jittered retry** on `unavailable` / `deadline-exceeded`, added at
+  the `appFunctions` chokepoint (`lib/firebase_functions_eu.dart`). **Must land after the
+  attempts doc** — a shorter timeout *increases* the rate of "the server may or may not
+  have processed this", so retry without idempotency is retrying a non-idempotent write
+  against an uncertain outcome.
+- **Stop destroying sheet state.** `claim_quiz_sheet.dart` calls `_cancel()` on every
+  network failure, tearing the sheet down; the claim path strands the user mid-quiz behind
+  a SnackBar. Add a `networkError` stage with a Retry that preserves the scan + quiz state.
+- **`Geolocator.getLastKnownPosition()` fallback** when the 30 s fix times out — currently
+  never used anywhere in the app.
+- **Connectivity service** (`connectivity_plus`) exposing a `ValueListenable<bool>`; an
+  `OfflineBanner` cloned from `maintenance_banner.dart` and mounted beside it in `home.dart`.
+  More Postman James offline lines — there is currently exactly one (`errorOffline`).
+- **Cached reads** — Firestore persistence is *already on by default* on Android/iOS, so the
+  work is `Source.cache` fallbacks and `isFromCache` staleness chips on History /
+  Leaderboard / Friends, not "enabling persistence".
+
+#### Phase 2 — A backend that can accept a claim made in the past
+
+Server-only; nothing user-visible ships here.
+
+- **Extract `_claimCore.ts`** — the scoring write path lifted out of `startScoring`, which
+  becomes a thin live wrapper. Single source of truth, in the spirit of `_routePlanner.ts`.
+- **Add `eventTime`; don't redefine `timestamp`.** `timestamp` stays the immutable
+  server-write time (audit trail; `abuse.ts` reads it). `eventTime` is when the user was
+  physically there. Travel-speed orders by `eventTime`.
+  ⚠️ **Deploy hazard**: Firestore *excludes documents missing the `orderBy` field*. Every
+  existing claim lacks `eventTime`, so the neighbour query returns empty for every user and
+  `enforceTravelSpeedLimit` **silently no-ops for the entire user base** until each user's
+  first post-deploy claim. A backfill (`eventTime = timestamp`, reusing the
+  `WRITE_BATCH_SIZE = 400` pattern in `_recomputeScores.ts`) must land **before** the query
+  switches over.
+- **Two-sided neighbour travel-speed check.** A claim at time `t` must be plausible against
+  both the nearest stored claim *before* `t` and the nearest *after* it. One-sided ("reject
+  anything older than your newest claim") permanently strands a legitimate claim: capture
+  t1 and t2 offline → flush t1 → network dies → make a live claim at T → retry t2 where
+  t2 < T → rejected forever. Two-sided *inserts* into the timeline instead, and catches
+  backdating a capture to just before a known-distant live claim.
+  - **Process batch items sequentially, not `Promise.allSettled`** — earlier items must be
+    visible to later items' neighbour queries. The `allSettled` reflex in `startScoring` is
+    the trap; used across items, the chain isn't validated at all.
+  - Don't change `checkTravelSpeed`'s signature — a substantial pinned suite depends on it.
+  - The 1 s floor becomes dangerous with client times (an NTP resync mid-outbox yields a
+    zero delta, and a 40 m gap reads as 2400 m/min — spuriously rejecting an honest user).
+    Reject non-monotonic sequences server-side, **and** derive `capturedAtMs` client-side
+    from a monotonic anchor (`Stopwatch` elapsed + wall clock at flush).
+- **Offline capture token** — issue on `nearbyPostboxes` / app start, verify at flush.
+- **Fix the uniqueness query.** It currently asks for claims with `dailyDate < today`, which
+  for a backdated claim misses a *later* claim on the same box and **double-counts a unique
+  postbox**. Replace with a `.count()` on `(userid, postboxes)`; the existing 3-field index
+  covers the prefix.
+- **`lookupPostboxes` needs a `today?` parameter** — it calls `getTodayLondon()` internally
+  and derives `claimedToday` from it, so adjudicating a backdated claim computes the
+  response against the wrong day.
+- **`streakFromClaimDays(days, today)`** — a new pure helper. `computeNewStreak` is
+  forward-only and cannot handle out-of-order days: a live claim on Wed landing *before* a
+  Tue-dated flush resets the streak to 1, with no forward-only repair. Flush path only; the
+  live path keeps the cheap incremental version. This is what turns a late flush into a
+  **saved streak** — the moment that makes the feature feel good.
+- **`flushOfflineClaims` callable**, sharing `_claimCore`. Must **re-check maintenance mode
+  server-side** — `MaintenanceGuard` is client-only, so an offline user can queue during
+  maintenance and flush into a mid-migration server.
+- **New shadow abuse signals**: `queuedForMs`, `batchSize` / `batchSpanMs`, and **speed
+  variance across the batch** (a synthesised trace has near-constant implied speed; a human
+  doing a postbox round stops, waits, gets a coffee). Derive the `offline` flag server-side
+  from which handler ran — never from client payload, or it becomes a self-declared
+  exemption from a security signal. Don't exempt offline claims from `outOfWindowSignal`;
+  re-point it at a `flushClientTsMs` so it still catches a tampered device clock, which is
+  precisely the attack this phase opens.
+- **Remote Config**: `kill_switch_offline_claims`, `offline_claim_grace_hours` (~36),
+  `max_offline_claims_per_day`. Builds on the game-balance Remote Config layer shipped in v1.4.
+
+**Backdating needs no per-day leaderboard archive.** With `updateUserLeaderboards` still
+called with the **real** today, its weekly/monthly range queries pick up a backdated claim
+automatically while its exact `dailyDate == today` daily query correctly excludes it; and
+`maxDailyFromClaims` already buckets by `dailyDate`. Claims, lifetime, county, weekly,
+monthly, `maxDailyPoints`, unique count and streak all get credited. Only a *closed* daily
+board doesn't — and no UI can display one.
+
+⚠️ **The landmine**: never pass a backdated `today` to `updateUserLeaderboards`. It would
+see a `periodKey` mismatch, set `existing = []`, and `tx.set(..., { merge: false })` —
+**wiping the daily leaderboard for every player**, stamped with yesterday's key. Silent
+cross-user data loss. Deserves a dedicated test.
+
+#### Phase 3 — Offline claiming, warm path
+
+The high-value, low-risk half.
+
+- Cache the last `nearbyPostboxes` payload — it contains **no coordinates** (`applyUserClaims`
+  strips them), so this leaks nothing — alongside a server-issued, position-bound,
+  short-lived `scanId`. An offline claim requires `scanId` + freshness + proximity to the
+  scan position.
+- **`scanId` *is* the offline capture token, for free** — the server has already told this
+  user a box is here, so the abuse delta is small.
+- Full quiz preserved: same options, same grading, same feel. This is the "signal died
+  mid-claim" rescue, and it is the case that actually happens.
+- `claim_outbox.dart` (queue as JSON in `shared_preferences`) + `outbox_sync.dart` (flush on
+  connectivity-restored / app-resume / manual "Send now", reconciling results honestly into
+  the UI and James).
+
+#### Phase 4 — Blind capture and offline discovery  (Conditional — do not start by default)
+
+**Explicitly gated on evidence.** This phase carries most of the attack surface and the
+least payoff: no quiz, no feedback at the box, and it is what forces postbox coordinates
+onto the device. **Ship Phases 1–3, measure, and only build this if the warm path
+demonstrably fails to cover real usage.** If Phases 1–3 land well, the right outcome may be
+to drop it and move the pieces to Backlog.
+
+If it does go ahead, it ships behind `kill_switch_offline_claims`, with a low daily cap and
+gated on `trustScores`:
+
+- **Blind capture ("post it later")** — the player stands at a box and taps; the app banks
+  `{position, capturedAtMs, token}`. The server adjudicates on flush and reports back.
+  Requires zero postbox data on device.
+- **Offline discovery** — a `prefetchArea` callable (bounded radius, hard cap on boxes,
+  rate-limited via the transactional-counter pattern in `reports.ts`), an app-private
+  `postbox_cache.dart`, and a `local_scan.dart` mirroring `lookupPostboxes` on-device
+  (geohash cell + neighbours, distance filter, 16-wind compass) against `_geo.ts`'s
+  `setPrecision`. Dart's `latlong2` won't agree with `geolib` to the metre, so keep the
+  local radius slightly permissive (~35 m) and let the server remain the judge on flush.
+- **Product guardrail**: the offline UI stays the fuzzy compass and scan. The cache is an
+  implementation detail reproducing the existing experience offline; it must never become a
+  map-of-all-pins surface. That — not the rules file — is what preserves the game.
+
+#### Deliberately cut
+
+- **A pre-midnight "you have unposted claims" notification.** It fires precisely when the
+  user has no signal and therefore cannot act, converting a silent loss into an announced,
+  unavoidable one. Strictly worse than saying nothing.
+- **A per-day leaderboard archive.** Unnecessary — see the backdating note above.
+
+#### Drive-by bug found while tracing the claim path  (fix in this release)
+
+`android/app/src/auto/kotlin/com/code418/postbox_game/car/ClaimAction.kt` calls
+`FirebaseFunctions.getInstance()` with **no region**, so it targets `us-central1` while
+every function deploys to `europe-west2` (`_region.ts`). The CI guard
+`test/firebase_functions_region_test.dart` only scans `lib/`, so Kotlin call sites are
+invisible to it — **the Android Auto claim button may simply not work**. Confirm against
+the live deployment, pin the region, and extend the guard test to cover Kotlin sources.
+
+#### Known test breakage (decide deliberately, don't discover in CI)
+
+- `test/cross_language_sync_test.dart` reads `functions/src/startScoring.ts` and regexes
+  `CLAIM_RADIUS_METERS`. Moving that constant into `_claimCore.ts` fails the anchor
+  assertion hard — and a re-export doesn't match the regex either. Keep the literal
+  declaration in `startScoring.ts`, or update the test's path.
+- `test.index.ts` imports `dailyClaimPatch` from the `startScoring` module, and pins
+  `checkTravelSpeed`'s signature.
+- Extend the `updateUserLeaderboards` mock-Firestore suite with the "a backdated `today`
+  must not clobber the daily board" case — highest-value new test in the project.
+
+---
+
+## v1.6 — Engagement & avatars  (Deferred)
+
+**Theme**: build the daily-return loop and the friend-pressure loop on top of the now-stable v1.4 platform and the widened v1.5 audience — and ship the visible-identity work (Postie avatars) so users have something to flex with on the new live leaderboards.
 **Ship gate**: DAU / WAU lift measurable in Analytics; POTD claim rate ≥ 30 % of DAU; weekly recap engaged-with by ≥ 25 % of recipients; avatar coverage > 50 % of WAU within two weeks of release.
 
 ### Postie avatar creator + surface across app  (was #113, originally v1.2)
 
-Moved here after v1.4 Trust & safety. PR #113 is non-draft and fully tested
-(`flutter analyze` clean, 98 + 227 tests passing); blocked only on manual QA
-+ deploy. Avatars surface naturally on the v1.5 engagement surfaces (live
+Moved here after v1.4 Trust & safety and v1.5 Reach. PR #113 is non-draft and
+fully tested (`flutter analyze` clean, 98 + 227 tests passing); blocked only on
+manual QA + deploy. Avatars surface naturally on the v1.6 engagement surfaces (live
 leaderboards, friend cards, profile headers), so bundling them is the
 right pairing.
 
@@ -332,14 +659,14 @@ right pairing.
 
 Pre-merge:
 
-1. Rebase #113 onto `master` (it has been sitting through v1.3 and v1.4 — expect conflicts in `leaderboard_screen.dart`, `friends_screen.dart`, `user_profile_page.dart`, `_leaderboardUtils.ts`, `startScoring.ts`).
+1. Rebase #113 onto `master` (it has been sitting through v1.3, v1.4 and v1.5 — expect conflicts in `leaderboard_screen.dart`, `friends_screen.dart`, `user_profile_page.dart`, `_leaderboardUtils.ts`, `startScoring.ts`).
 2. Run the manual checklist: Settings → Your postie → cycle parts → Save → confirm avatar shows in Friends list, both Leaderboard tabs, Profile header. Re-open creator → confirm saved state loads. Claim a postbox → confirm new leaderboard entry carries the avatar.
 3. `firebase deploy --only firestore:rules,functions`.
 4. Merge.
 
 Long-tail follow-ups (do as separate PRs after avatars land):
 
-- Avatar unlock tiles tied to v1.6 streak rewards (e.g. a "Centurion" hat at 100-day streaks).
+- Avatar unlock tiles tied to v1.7 streak rewards (e.g. a "Centurion" hat at 100-day streaks).
 - Avatar appears in v2.0 BigQuery export as a cohort dimension (no PII — just style choices).
 
 ### Live leaderboard with overtake animations  (was #104)
@@ -382,7 +709,7 @@ Progress: Firestore trigger `onClaimCreated` updates active challenges. FCM on i
 
 ---
 
-## v1.6 — Collection & content  (Deferred)
+## v1.7 — Collection & content  (Deferred)
 
 **Theme**: turn the claim loop into a collection loop. Most users today see a
 points number; few have a sense of *which* cyphers they've seen or what's
@@ -491,37 +818,11 @@ No backend changes — `nearbyPostboxes` already returns enough metadata for the
 
 ---
 
-## v1.7 — Reach (iOS, localisation)  (Deferred)
+## v1.8 — Localisation  (Deferred)
 
-**Theme**: open the door to users outside the current Android-phone + Wear OS + Android Auto + (eventual) XR funnel.
+**Theme**: the second half of the original "Reach" release. iOS widened the platform in v1.5; this widens the language.
 
-**Ship gate**: signed iOS build available on TestFlight; at least one non-English locale ships and is selectable in Settings; no English-language strings remain in user-facing widgets per `flutter_lints` rule; App Check enforced server-side with denial rate < 1 % in monitor mode.
-
-### iOS support  (new)
-
-CLAUDE.md notes `firebase_options.dart` has iOS config but no `Podfile` exists. Real work:
-
-- `cd ios && pod install` (generates the Podfile).
-- Verify `Info.plist` permissions: `NSLocationWhenInUseUsageDescription`, `NSLocationAlwaysAndWhenInUseUsageDescription`, `NSCameraUsageDescription`, `NSPhotoLibraryUsageDescription` (last two already present per CLAUDE.md).
-- Wire `AppleProvider` (`DeviceCheck` / `AppAttest`) for App Check (see the App Check enforcement item below — the two land together in v1.7).
-- App Store Connect listing: name, screenshots, age rating, privacy nutrition labels (matching what the GDPR plan in v1.4 implements).
-- Mac Catalyst evaluation — `firebase_options.dart` already has a macOS config; trivial scope or skip.
-
-Smoke-test gates: login (email + Google), nearby scan, claim quiz, report submission with photo, route mode end-to-end. Wear/Android Auto are not relevant on iOS.
-
-Backend risk: callable region pinning (v1.3, done) and App Check enforcement (a sibling v1.7 item below) both touch iOS — wire `AppleProvider` as part of the App Check work.
-
-### App Check enforcement audit and hardening  (was #96, moved from v1.4)
-
-App Check is configured client-side for Android release (`AndroidPlayIntegrityProvider`). Audit and **enforce** server-side. Moved here from v1.4 because iOS `AppleProvider` wiring is part of v1.7's iOS work, so the two are best done together.
-
-1. `AndroidDebugProvider` for dev — token committed to developer machines, not the repo.
-2. iOS: activate `AppleProvider` (`DeviceCheck` / `AppAttest`) once iOS builds are wired up (the iOS support item above).
-3. Firebase Console: enforce on Cloud Functions, Firestore, Storage, RTDB.
-4. Functions code: every callable rejects with `failed-precondition` if `context.app` absent (defence-in-depth on top of platform enforcement). Wrap in `functions/src/_appCheck.ts`.
-5. Cloud Monitoring alert on App Check denial rate spikes.
-
-Roll out in **monitor** mode for 7 days, then **enforce** if denial rate < 1 %. Keep a break-glass env var to temporarily disable explicit `context.app` checks during provider outages.
+**Ship gate**: at least one non-English locale ships and is selectable in Settings; no hardcoded user-facing strings remain in `lib/` per the CI lint below.
 
 ### Localisation infrastructure  (new)
 
@@ -696,6 +997,33 @@ activity feed or challenges land.
 
 No backend changes beyond rule updates and a small fan-out adjustment so the activity feed (above) honours the block.
 
+### Additional sign-in providers — Microsoft, Facebook  (new)
+
+Split out of the v1.5 Sign in with Apple work so that neither can block the iOS
+release. Promote when there's evidence users actually want them — the current
+email/password + Google + Apple set covers the overwhelming majority of UK
+consumer sign-ins, and every extra provider permanently widens the account-linking,
+re-auth, and erasure surface.
+
+**Microsoft** — cheap. Generic OAuth via `OAuthProvider('microsoft.com')` with
+`signInWithProvider`, no extra Flutter dependency. Needs an Entra ID (Azure AD)
+app registration and the provider enabled in the Firebase console. Main question
+is audience: this is a consumer geocaching game, so Microsoft accounts are a
+weak fit outside a corporate crowd.
+
+**Facebook** — expensive, and the cost is external. Requires the
+`flutter_facebook_auth` SDK, a Meta Developer app, and Meta **App Review** for
+`public_profile` + `email` (unpredictable turnaround, which is why it was kept
+off the v1.5 critical path). It also adds compliance work: a hosted **Data
+Deletion Callback** endpoint, Meta added to the processor disclosure in
+`assets/legal/privacy_policy.md` and the mirrored `web/privacy-policy.html`,
+and a corresponding Play Data Safety / App Store privacy-label update. Weigh
+that against a login method whose consumer share has been falling for years.
+
+Prerequisite for both: the account-linking policy and the provider-agnostic
+`deleteAccount()` / `signOut()` refactor from the v1.5 Apple item. With those
+done, each additional provider is mostly configuration.
+
 ### Churn-risk retention push via BigQuery ML  (was #97)
 
 Depends on the v2.0 Analytics + BigQuery export. Firebase Predictions is deprecated. Modern path: train a BQ-ML logistic regression on the Analytics export.
@@ -721,6 +1049,15 @@ Roll out the BQ model with monitoring only first; review prediction quality manu
   / AGP 8.11.1 bump (Built-in Kotlin not yet viable). Shipped as `1.3.2+16`. The
   Remote Config game-balance work was split out to v1.4; operational migration
   follow-ups in `docs/plans/v1.3-region-migration-followups.md`.
+- **v1.4** — Trust & safety: Remote Config game balance (`claim_radius_meters` +
+  `points_by_monarch`, client + server templates reconciled with live); GDPR
+  account deletion via a self-contained `onUserDeleted` trigger that anonymises
+  rather than deletes claims; GDPR compliance finish (telemetry disclosure +
+  Settings opt-outs, in-app/hosted privacy policy, `exportMyData` DSAR bundle,
+  nightly `dataRetention` sweep); abuse detection in shadow mode (impossible
+  travel, out-of-window, coord cluster, repeated device) with an admin review
+  screen. Shipped as `1.4.0+18` (PR #170). App Check enforcement was split out
+  to v1.5; abuse Phase 2 enforcement remains deferred.
 
 ## Open exploration (no release commitment)
 
