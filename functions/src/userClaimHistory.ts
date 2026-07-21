@@ -1,4 +1,5 @@
 import "./adminInit";
+import { monitorAppCheck } from "./_appCheck";
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions";
 import { getTodayLondon } from "./_dateUtils";
@@ -101,6 +102,7 @@ export function periodStartDate(period: HistoryPeriod, today: string): string | 
 }
 
 export const userClaimHistory = functions.https.onCall(async (request) => {
+  monitorAppCheck(request, "userClaimHistory");
   const uid = request.auth?.uid;
   if (!uid) {
     throw new functions.https.HttpsError(

@@ -1,4 +1,5 @@
 import "./adminInit";
+import { monitorAppCheck } from "./_appCheck";
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions";
 import { onDocumentUpdated } from "firebase-functions/v2/firestore";
@@ -255,6 +256,7 @@ export async function notifyFriendOfAddition(
 // ── Callable: register device FCM token ──────────────────────────────────
 
 export const registerFcmToken = functions.https.onCall(async (request) => {
+  monitorAppCheck(request, "registerFcmToken");
   const uid = request.auth?.uid;
   if (!uid) {
     throw new functions.https.HttpsError(

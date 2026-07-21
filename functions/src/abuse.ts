@@ -1,4 +1,5 @@
 import "./adminInit";
+import { monitorAppCheck } from "./_appCheck";
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions";
 import { onDocumentCreated } from "firebase-functions/v2/firestore";
@@ -153,6 +154,7 @@ interface ReviewFlagData {
  * recomputeUserAggregates in _recomputeScores.ts).
  */
 export const reviewFlag = functions.https.onCall(async (request) => {
+  monitorAppCheck(request, "reviewFlag");
   if (request.auth?.token?.admin !== true) {
     throw new functions.https.HttpsError("permission-denied", "Admin access required");
   }

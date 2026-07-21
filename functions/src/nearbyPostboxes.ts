@@ -4,6 +4,7 @@ import * as functions from "firebase-functions";
 import { getTodayLondon } from "./_dateUtils";
 import { applyUserClaims } from "./_nearbyUtils";
 import { lookupPostboxes } from "./_lookupPostboxes";
+import { requireAppCheck } from "./_appCheck";
 
 interface NearbyCallData {
   lat?: number;
@@ -11,7 +12,10 @@ interface NearbyCallData {
   meters?: number;
 }
 
-export const nearbyPostboxes = functions.https.onCall(async (request) => {
+export const nearbyPostboxes = functions.https.onCall({ enforceAppCheck: true }, async (request) => {
+  // Platform enforceAppCheck rejects unattested requests up front; this
+  // in-code check is the defence-in-depth + break-glass layer (see _appCheck).
+  requireAppCheck(request);
   if (!request.auth?.uid) {
     throw new functions.https.HttpsError("unauthenticated", "Must be signed in to scan for postboxes");
   }

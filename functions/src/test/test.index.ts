@@ -42,6 +42,7 @@ import { computeNewStreak } from "../_streakUtils";
 import { containsProfanity } from "../_profanityFilter";
 import { sanitiseName } from "../onUserCreated";
 import { checkTravelSpeed, MAX_METRES_PER_MIN } from "../_travelSpeed";
+import { requireAppCheck, monitorAppCheck, BREAK_GLASS_ENV } from "../_appCheck";
 import { aggregateClaimHistory, periodStartDate } from "../userClaimHistory";
 import { diffSnapshots, type MigrationSnapshot } from "../_migrationVerify";
 
@@ -991,6 +992,49 @@ describe("checkTravelSpeed", () => {
   });
 });
 
+describe("requireAppCheck / monitorAppCheck (v1.5 App Check enforcement)", () => {
+  it("passes silently when the request carries a verified app", () => {
+    assert.doesNotThrow(() => requireAppCheck({ app: { appId: "1:2:android:abc" } }, {}));
+  });
+
+  it("throws failed-precondition when request.app is absent", () => {
+    try {
+      requireAppCheck({}, {});
+      assert.fail("expected failed-precondition");
+    } catch (e: unknown) {
+      assert.strictEqual((e as { code?: string }).code, "failed-precondition");
+    }
+  });
+
+  it("throws failed-precondition when request.app is null/undefined-ish", () => {
+    try {
+      requireAppCheck({ app: undefined }, {});
+      assert.fail("expected failed-precondition");
+    } catch (e: unknown) {
+      assert.strictEqual((e as { code?: string }).code, "failed-precondition");
+    }
+  });
+
+  it("break-glass env allows a tokenless request through", () => {
+    assert.doesNotThrow(() =>
+      requireAppCheck({}, { [BREAK_GLASS_ENV]: "1" }));
+  });
+
+  it("break-glass requires exactly '1' (not merely set)", () => {
+    try {
+      requireAppCheck({}, { [BREAK_GLASS_ENV]: "true" });
+      assert.fail("expected failed-precondition");
+    } catch (e: unknown) {
+      assert.strictEqual((e as { code?: string }).code, "failed-precondition");
+    }
+  });
+
+  it("monitorAppCheck never throws, with or without an app", () => {
+    assert.doesNotThrow(() => monitorAppCheck({}, "someCallable"));
+    assert.doesNotThrow(() => monitorAppCheck({ app: { appId: "x" } }, "someCallable"));
+  });
+});
+
 // ── Cloud Function integration tests (require Firebase emulator) ─────────────
 
 const testEnv = test();
@@ -1055,9 +1099,22 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
   // argument is ignored for v2 functions.
 
   describe("nearbyPostboxes (onCall)", () => {
+    it("should reject a request without an App Check token (failed-precondition)", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      // Authenticated but unattested — in-code defence-in-depth must reject
+      // even where platform enforceAppCheck is bypassed (e.g. test wrappers).
+      const req = { data: { lat: 51.45, lng: -0.95, meters: 500 }, auth: { uid: "test-uid" } };
+      try {
+        await wrappedNearby(req);
+        assert.fail("Expected failed-precondition error");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "failed-precondition");
+      }
+    });
+
     it("should return an object with postboxes and counts when given lat, lng, meters", async function (this: Mocha.Context) {
       this.timeout(10000);
-      const req = { data: { lat: 51.45, lng: -0.95, meters: 500 }, auth: { uid: "test-uid" } };
+      const req = { data: { lat: 51.45, lng: -0.95, meters: 500 }, auth: { uid: "test-uid" }, app: { appId: "test-app" } };
       try {
         const result = (await wrappedNearby(req)) as Record<string, unknown>;
         assert.strictEqual(typeof result, "object");
@@ -1082,7 +1139,7 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
 
     it("should throw unauthenticated when no auth context", async function (this: Mocha.Context) {
       this.timeout(5000);
-      const req = { data: { lat: 51.45, lng: -0.95, meters: 500 } };
+      const req = { data: { lat: 51.45, lng: -0.95, meters: 500 }, app: { appId: "test-app" } };
       try {
         await wrappedNearby(req);
         assert.fail("Expected unauthenticated error");
@@ -1094,7 +1151,7 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
 
     it("should throw invalid-argument when lat/lng are missing", async function (this: Mocha.Context) {
       this.timeout(5000);
-      const req = { data: {}, auth: { uid: "test-uid" } };
+      const req = { data: {}, auth: { uid: "test-uid" }, app: { appId: "test-app" } };
       try {
         await wrappedNearby(req);
         assert.fail("Expected invalid-argument error");
@@ -1106,7 +1163,7 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
 
     it("should throw invalid-argument when lat is out of range", async function (this: Mocha.Context) {
       this.timeout(5000);
-      const req = { data: { lat: 999, lng: -0.95, meters: 500 }, auth: { uid: "test-uid" } };
+      const req = { data: { lat: 999, lng: -0.95, meters: 500 }, auth: { uid: "test-uid" }, app: { appId: "test-app" } };
       try {
         await wrappedNearby(req);
         assert.fail("Expected invalid-argument error");
@@ -1118,7 +1175,7 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
 
     it("should throw invalid-argument when lng is out of range", async function (this: Mocha.Context) {
       this.timeout(5000);
-      const req = { data: { lat: 51.45, lng: 999, meters: 500 }, auth: { uid: "test-uid" } };
+      const req = { data: { lat: 51.45, lng: 999, meters: 500 }, auth: { uid: "test-uid" }, app: { appId: "test-app" } };
       try {
         await wrappedNearby(req);
         assert.fail("Expected invalid-argument error");
@@ -1131,7 +1188,7 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
     it("should clamp meters to 2000 without error", async function (this: Mocha.Context) {
       this.timeout(10000);
       // This will still hit Firestore but at least validates the clamping path doesn't throw
-      const req = { data: { lat: 51.45, lng: -0.95, meters: 999999 }, auth: { uid: "test-uid" } };
+      const req = { data: { lat: 51.45, lng: -0.95, meters: 999999 }, auth: { uid: "test-uid" }, app: { appId: "test-app" } };
       try {
         await wrappedNearby(req);
         // If emulator is running, this succeeds. Without emulator, PERMISSION_DENIED is expected.
@@ -1144,7 +1201,7 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
 
     it("should throw invalid-argument when meters is zero", async function (this: Mocha.Context) {
       this.timeout(5000);
-      const req = { data: { lat: 51.45, lng: -0.95, meters: 0 }, auth: { uid: "test-uid" } };
+      const req = { data: { lat: 51.45, lng: -0.95, meters: 0 }, auth: { uid: "test-uid" }, app: { appId: "test-app" } };
       try {
         await wrappedNearby(req);
         assert.fail("Expected invalid-argument error");
@@ -1155,7 +1212,7 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
 
     it("should throw invalid-argument when meters is negative", async function (this: Mocha.Context) {
       this.timeout(5000);
-      const req = { data: { lat: 51.45, lng: -0.95, meters: -100 }, auth: { uid: "test-uid" } };
+      const req = { data: { lat: 51.45, lng: -0.95, meters: -100 }, auth: { uid: "test-uid" }, app: { appId: "test-app" } };
       try {
         await wrappedNearby(req);
         assert.fail("Expected invalid-argument error");
@@ -1166,9 +1223,20 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
   });
 
   describe("startScoring (onCall)", () => {
+    it("should reject a request without an App Check token (failed-precondition)", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      const req = { data: { lat: 51.45, lng: -0.95 }, auth: { uid: "test-uid" } };
+      try {
+        await wrappedStartScoring(req);
+        assert.fail("Expected failed-precondition error");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "failed-precondition");
+      }
+    });
+
     it("should return an object with found, claimed, points, allClaimedToday", async function (this: Mocha.Context) {
       this.timeout(10000);
-      const req = { data: { lat: 51.45, lng: -0.95 }, auth: { uid: "test-uid" } };
+      const req = { data: { lat: 51.45, lng: -0.95 }, auth: { uid: "test-uid" }, app: { appId: "test-app" } };
       try {
         const result = (await wrappedStartScoring(req)) as Record<string, unknown>;
         assert.strictEqual(typeof result, "object");
@@ -1193,7 +1261,7 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
 
     it("should throw unauthenticated when no auth context", async function (this: Mocha.Context) {
       this.timeout(5000);
-      const req = { data: { lat: 51.45, lng: -0.95 } };
+      const req = { data: { lat: 51.45, lng: -0.95 }, app: { appId: "test-app" } };
       try {
         await wrappedStartScoring(req);
         assert.fail("Expected unauthenticated error");
@@ -1205,7 +1273,7 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
 
     it("should throw invalid-argument when lat/lng are missing", async function (this: Mocha.Context) {
       this.timeout(5000);
-      const req = { data: {}, auth: { uid: "test-uid" } };
+      const req = { data: {}, auth: { uid: "test-uid" }, app: { appId: "test-app" } };
       try {
         await wrappedStartScoring(req);
         assert.fail("Expected invalid-argument error");
@@ -1217,7 +1285,7 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
 
     it("should throw invalid-argument when clientTsMs is not finite", async function (this: Mocha.Context) {
       this.timeout(5000);
-      const req = { data: { lat: 51.45, lng: -0.95, clientTsMs: "nope" }, auth: { uid: "test-uid" } };
+      const req = { data: { lat: 51.45, lng: -0.95, clientTsMs: "nope" }, auth: { uid: "test-uid" }, app: { appId: "test-app" } };
       try {
         await wrappedStartScoring(req);
         assert.fail("Expected invalid-argument error");
@@ -1229,7 +1297,7 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
 
     it("should throw invalid-argument when lat is out of range", async function (this: Mocha.Context) {
       this.timeout(5000);
-      const req = { data: { lat: 999, lng: -0.95 }, auth: { uid: "test-uid" } };
+      const req = { data: { lat: 999, lng: -0.95 }, auth: { uid: "test-uid" }, app: { appId: "test-app" } };
       try {
         await wrappedStartScoring(req);
         assert.fail("Expected invalid-argument error");
@@ -1241,7 +1309,7 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
 
     it("should throw invalid-argument when lng is out of range", async function (this: Mocha.Context) {
       this.timeout(5000);
-      const req = { data: { lat: 51.45, lng: 999 }, auth: { uid: "test-uid" } };
+      const req = { data: { lat: 51.45, lng: 999 }, auth: { uid: "test-uid" }, app: { appId: "test-app" } };
       try {
         await wrappedStartScoring(req);
         assert.fail("Expected invalid-argument error");
@@ -1253,7 +1321,7 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
 
     it("should return dailyDate string on success", async function (this: Mocha.Context) {
       this.timeout(10000);
-      const req = { data: { lat: 51.45, lng: -0.95 }, auth: { uid: "test-uid" } };
+      const req = { data: { lat: 51.45, lng: -0.95 }, auth: { uid: "test-uid" }, app: { appId: "test-app" } };
       try {
         const result = (await wrappedStartScoring(req)) as Record<string, unknown>;
         // dailyDate is on every return path so callers don't have to special-case

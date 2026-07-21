@@ -9,6 +9,7 @@ import { computeNewStreak } from "./_streakUtils";
 import { notifyFriendsFirstClaim, notifyFriendOvertake } from "./_notifications";
 import { checkTravelSpeed } from "./_travelSpeed";
 import { coordKey } from "./_abuseSignals";
+import { requireAppCheck } from "./_appCheck";
 
 const database = admin.firestore();
 
@@ -60,7 +61,10 @@ interface StartScoringCallData {
 /** Max stored length of a device-id hash (SHA-256 hex is 64 chars; allow slack). */
 const MAX_DEVICE_ID_HASH_LEN = 128;
 
-export const startScoring = functions.https.onCall(async (request) => {
+export const startScoring = functions.https.onCall({ enforceAppCheck: true }, async (request) => {
+  // Platform enforceAppCheck rejects unattested requests up front; this
+  // in-code check is the defence-in-depth + break-glass layer (see _appCheck).
+  requireAppCheck(request);
   const userid = request.auth?.uid;
   if (!userid) {
     throw new functions.https.HttpsError("unauthenticated", "Must be signed in to claim a postbox");

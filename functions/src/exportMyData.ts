@@ -9,6 +9,7 @@
 // only in Auth). The client offers it as Settings → "Download my data".
 
 import "./adminInit";
+import { monitorAppCheck } from "./_appCheck";
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions";
 
@@ -80,6 +81,7 @@ export function buildExportBundle(parts: ExportParts): Record<string, unknown> {
 }
 
 export const exportMyData = functions.https.onCall(async (request) => {
+  monitorAppCheck(request, "exportMyData");
   const uid = request.auth?.uid;
   if (!uid) {
     throw new functions.https.HttpsError("unauthenticated", "Must be signed in to export your data");

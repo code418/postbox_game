@@ -1,4 +1,5 @@
 import "./adminInit";
+import { monitorAppCheck } from "./_appCheck";
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions";
 import { getTodayLondon } from "./_dateUtils";
@@ -18,6 +19,7 @@ import {
  * Throws invalid-argument if the name fails validation.
  */
 export const updateDisplayName = functions.https.onCall(async (request) => {
+  monitorAppCheck(request, "updateDisplayName");
   const uid = request.auth?.uid;
   if (!uid) {
     throw new functions.https.HttpsError(
