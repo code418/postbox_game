@@ -149,6 +149,16 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // ── attempts collection ──────────────────────────────────────────────────
+    // Idempotent claim-attempt markers (v1.5 offline play): the server stores
+    // each startScoring/flushOfflineClaims response under a client-generated
+    // attempt id so a dropped response can be replayed on retry. Server-only —
+    // replay happens inside the callables; results echo claim data clients
+    // must never read directly. Reaped by Firestore TTL on `expiresAt`.
+    match /attempts/{attemptId} {
+      allow read, write: if false;
+    }
+
     // ── notificationState collection ─────────────────────────────────────────
     // Server-only dispatch bookkeeping for scheduled notifications (e.g. the
     // once-per-day streak reminder's random target slot / sent marker). Written

@@ -10,6 +10,7 @@ import { notifyFriendsFirstClaim, notifyFriendOvertake } from "./_notifications"
 import { checkTravelSpeed } from "./_travelSpeed";
 import { coordKey } from "./_abuseSignals";
 import { requireAppCheck } from "./_appCheck";
+import { validateAttemptId, beginAttempt, completeAttempt, failAttempt, attemptDecisionToAction } from "./_attempts";
 
 const database = admin.firestore();
 
@@ -56,6 +57,10 @@ interface StartScoringCallData {
    *  many accounts). Treated as PII: stripped on account deletion
    *  (_accountDeletion.ts) and by the 90-day retention sweep (dataRetention.ts). */
   deviceIdHash?: string;
+  /** Client-generated UUID identifying this logical claim attempt. A retry
+   *  (same id) replays the stored response instead of re-running the scoring
+   *  path — see _attempts.ts. Optional; legacy clients omit it. */
+  attemptId?: string;
 }
 
 /** Max stored length of a device-id hash (SHA-256 hex is 64 chars; allow slack). */
@@ -70,7 +75,7 @@ export const startScoring = functions.https.onCall({ enforceAppCheck: true }, as
     throw new functions.https.HttpsError("unauthenticated", "Must be signed in to claim a postbox");
   }
 
-  const { lat, lng, clientTsMs, deviceIdHash } = (request.data as StartScoringCallData) ?? {};
+  const { lat, lng, clientTsMs, deviceIdHash, attemptId } = (request.data as StartScoringCallData) ?? {};
   if (lat === undefined || lat === null || lng === undefined || lng === null) {
     throw new functions.https.HttpsError("invalid-argument", "lat and lng are required");
   }
@@ -87,7 +92,37 @@ export const startScoring = functions.https.onCall({ enforceAppCheck: true }, as
       (typeof deviceIdHash !== "string" || deviceIdHash.length === 0 || deviceIdHash.length > MAX_DEVICE_ID_HASH_LEN)) {
     throw new functions.https.HttpsError("invalid-argument", "deviceIdHash must be a non-empty string when provided");
   }
+  validateAttemptId(attemptId);
 
+  // Idempotent replay (v1.5, offline play Phase 1): a retry carrying the same
+  // attemptId gets its original response verbatim instead of falling into the
+  // already-claimed fast-path with zero points — the lost-claim bug. Legacy
+  // clients omit attemptId and take the direct path unchanged.
+  if (attemptId !== undefined) {
+    const action = attemptDecisionToAction(await beginAttempt(database, attemptId, userid));
+    if (action) return action.replay;
+    try {
+      const response = await runStartScoring(userid, lat, lng, clientTsMs, deviceIdHash);
+      await completeAttempt(database, attemptId, userid, response);
+      return response;
+    } catch (e) {
+      await failAttempt(database, attemptId);
+      throw e;
+    }
+  }
+  return runStartScoring(userid, lat, lng, clientTsMs, deviceIdHash);
+});
+
+/** The scoring body, shared by the direct and idempotent-attempt paths.
+ *  (The v1.5 B1 step extracts this into _claimCore.ts for reuse by
+ *  flushOfflineClaims.) */
+async function runStartScoring(
+  userid: string,
+  lat: number,
+  lng: number,
+  clientTsMs: number | undefined,
+  deviceIdHash: string | undefined,
+): Promise<Record<string, unknown>> {
   // Anti-spoof: reject claims whose implied travel speed from the user's
   // previous claim exceeds a liberal physical limit. Fail-open when the
   // previous claim's location can't be resolved (e.g. legacy claims where
@@ -472,7 +507,7 @@ export const startScoring = functions.https.onCall({ enforceAppCheck: true }, as
     allClaimedToday: earnedPoints.length === 0,
     dailyDate: todayLondon,
   };
-});
+}
 
 /** Resolve the user's most recent claim location and reject the request if
  *  the implied travel speed exceeds MAX_METRES_PER_MIN. Location resolution

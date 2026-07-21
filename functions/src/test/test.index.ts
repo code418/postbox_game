@@ -43,6 +43,16 @@ import { containsProfanity } from "../_profanityFilter";
 import { sanitiseName } from "../onUserCreated";
 import { checkTravelSpeed, MAX_METRES_PER_MIN } from "../_travelSpeed";
 import { requireAppCheck, monitorAppCheck, BREAK_GLASS_ENV } from "../_appCheck";
+import {
+  decideAttempt,
+  beginAttempt,
+  completeAttempt,
+  failAttempt,
+  validateAttemptId,
+  ATTEMPT_IN_PROGRESS_STALE_MS,
+  ATTEMPT_TTL_MS,
+  type AttemptDoc,
+} from "../_attempts";
 import { aggregateClaimHistory, periodStartDate } from "../userClaimHistory";
 import { diffSnapshots, type MigrationSnapshot } from "../_migrationVerify";
 
@@ -1035,6 +1045,162 @@ describe("requireAppCheck / monitorAppCheck (v1.5 App Check enforcement)", () =>
   });
 });
 
+describe("attempts idempotency (v1.5 offline play, Phase 1)", () => {
+  const NOW = 1_800_000_000_000;
+
+  describe("validateAttemptId", () => {
+    it("accepts a UUID-ish id", () => {
+      assert.doesNotThrow(() => validateAttemptId("3f2a9c1e-77aa-4a0b-9c9f-1234567890ab"));
+    });
+    it("accepts undefined (legacy clients skip the mechanism)", () => {
+      assert.doesNotThrow(() => validateAttemptId(undefined));
+    });
+    it("rejects non-strings", () => {
+      try {
+        validateAttemptId(42);
+        assert.fail("expected invalid-argument");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+    it("rejects empty, over-long, and path-traversing ids", () => {
+      for (const bad of ["", "x".repeat(200), "a/b"]) {
+        try {
+          validateAttemptId(bad);
+          assert.fail(`expected invalid-argument for ${JSON.stringify(bad)}`);
+        } catch (e: unknown) {
+          assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+        }
+      }
+    });
+  });
+
+  describe("decideAttempt (pure)", () => {
+    it("proceeds when no attempt doc exists", () => {
+      assert.deepStrictEqual(decideAttempt(undefined, "u1", NOW), { kind: "proceed" });
+    });
+
+    it("replays the stored result verbatim when done", () => {
+      const doc: AttemptDoc = {
+        uid: "u1", status: "done",
+        result: { found: true, claimed: 2, points: 9, allClaimedToday: false, dailyDate: "2026-07-21" },
+        createdAtMs: NOW - 5000,
+      };
+      const d = decideAttempt(doc, "u1", NOW);
+      assert.strictEqual(d.kind, "replay");
+      assert.deepStrictEqual(
+        (d as { kind: string; result: unknown }).result,
+        doc.result,
+      );
+    });
+
+    it("reports in_progress for a fresh concurrent attempt", () => {
+      const doc: AttemptDoc = { uid: "u1", status: "in_progress", createdAtMs: NOW - 1000 };
+      assert.deepStrictEqual(decideAttempt(doc, "u1", NOW), { kind: "in_progress" });
+    });
+
+    it("proceeds (retakes) a stale in_progress attempt", () => {
+      const doc: AttemptDoc = {
+        uid: "u1", status: "in_progress",
+        createdAtMs: NOW - ATTEMPT_IN_PROGRESS_STALE_MS - 1,
+      };
+      assert.deepStrictEqual(decideAttempt(doc, "u1", NOW), { kind: "proceed" });
+    });
+
+    it("reports foreign when another uid owns the attempt id", () => {
+      const doc: AttemptDoc = { uid: "u2", status: "done", result: {}, createdAtMs: NOW };
+      assert.deepStrictEqual(decideAttempt(doc, "u1", NOW), { kind: "foreign" });
+    });
+  });
+
+  describe("beginAttempt / completeAttempt / failAttempt (mock Firestore)", () => {
+    interface StoredDoc { data: Record<string, unknown> }
+
+    function makeAttemptsMockDb() {
+      const store = new Map<string, StoredDoc>();
+      const db = {
+        collection(name: string) {
+          assert.strictEqual(name, "attempts");
+          return {
+            doc(id: string) {
+              return {
+                id,
+                async get() {
+                  const cur = store.get(id);
+                  return { exists: cur !== undefined, data: () => cur?.data };
+                },
+                async set(data: Record<string, unknown>) {
+                  store.set(id, { data });
+                },
+                async delete() {
+                  store.delete(id);
+                },
+              };
+            },
+          };
+        },
+        async runTransaction<T>(fn: (tx: unknown) => Promise<T>): Promise<T> {
+          const tx = {
+            async get(ref: { get: () => Promise<unknown> }) {
+              return ref.get();
+            },
+            set(ref: { id: string }, data: Record<string, unknown>) {
+              store.set(ref.id, { data });
+            },
+          };
+          return fn(tx);
+        },
+      };
+      return { db: db as never, store };
+    }
+
+    it("first begin proceeds and writes an in_progress marker", async () => {
+      const { db, store } = makeAttemptsMockDb();
+      const d = await beginAttempt(db, "att-1", "u1", NOW);
+      assert.deepStrictEqual(d, { kind: "proceed" });
+      const doc = store.get("att-1")!.data;
+      assert.strictEqual(doc.status, "in_progress");
+      assert.strictEqual(doc.uid, "u1");
+    });
+
+    it("begin after complete replays the stored result", async () => {
+      const { db } = makeAttemptsMockDb();
+      await beginAttempt(db, "att-1", "u1", NOW);
+      const result = { found: true, claimed: 1, points: 7, allClaimedToday: false, dailyDate: "2026-07-21" };
+      await completeAttempt(db, "att-1", "u1", result, NOW + 2000);
+      const d = await beginAttempt(db, "att-1", "u1", NOW + 5000);
+      assert.strictEqual(d.kind, "replay");
+      assert.deepStrictEqual((d as { kind: string; result: unknown }).result, result);
+    });
+
+    it("concurrent begin sees in_progress", async () => {
+      const { db } = makeAttemptsMockDb();
+      await beginAttempt(db, "att-1", "u1", NOW);
+      const d = await beginAttempt(db, "att-1", "u1", NOW + 1000);
+      assert.deepStrictEqual(d, { kind: "in_progress" });
+    });
+
+    it("failAttempt clears the marker so an immediate retry proceeds", async () => {
+      const { db, store } = makeAttemptsMockDb();
+      await beginAttempt(db, "att-1", "u1", NOW);
+      await failAttempt(db, "att-1");
+      assert.strictEqual(store.has("att-1"), false);
+      const d = await beginAttempt(db, "att-1", "u1", NOW + 1000);
+      assert.deepStrictEqual(d, { kind: "proceed" });
+    });
+
+    it("completeAttempt stamps a TTL expiry", async () => {
+      const { db, store } = makeAttemptsMockDb();
+      await beginAttempt(db, "att-1", "u1", NOW);
+      await completeAttempt(db, "att-1", "u1", { ok: true }, NOW);
+      const doc = store.get("att-1")!.data;
+      const expires = doc.expiresAt as { toMillis(): number };
+      assert.strictEqual(typeof expires.toMillis, "function");
+      assert.strictEqual(expires.toMillis(), NOW + ATTEMPT_TTL_MS);
+    });
+  });
+});
+
 // ── Cloud Function integration tests (require Firebase emulator) ─────────────
 
 const testEnv = test();
@@ -1286,6 +1452,17 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
     it("should throw invalid-argument when clientTsMs is not finite", async function (this: Mocha.Context) {
       this.timeout(5000);
       const req = { data: { lat: 51.45, lng: -0.95, clientTsMs: "nope" }, auth: { uid: "test-uid" }, app: { appId: "test-app" } };
+      try {
+        await wrappedStartScoring(req);
+        assert.fail("Expected invalid-argument error");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("should throw invalid-argument for a malformed attemptId", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      const req = { data: { lat: 51.45, lng: -0.95, attemptId: 42 }, auth: { uid: "test-uid" }, app: { appId: "test-app" } };
       try {
         await wrappedStartScoring(req);
         assert.fail("Expected invalid-argument error");
