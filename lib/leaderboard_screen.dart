@@ -49,9 +49,6 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
   void _onTabChanged() {
     if (_tabController.indexIsChanging) return;
     if (!mounted) return;
-    // Rebuild so the Friends-only toggle row hides on the Map tab (where it
-    // doesn't apply) and reappears on the period tabs.
-    setState(() {});
     final period = _periods[_tabController.index];
     if (period == 'lifetime') {
       JamesController.of(context)
@@ -64,7 +61,6 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
 
   @override
   Widget build(BuildContext context) {
-    final isMapTab = _periods[_tabController.index] == 'counties';
     return Column(
       children: [
         Container(
@@ -78,42 +74,40 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
                 .toList(),
           ),
         ),
-        // Friends-only toggle row — hidden on the Map tab where the heatmap is
-        // inherently friend-scoped (you + your friends) and the toggle has no
-        // effect, so showing it is misleading and wastes vertical space.
-        if (!isMapTab) ...[
-          Padding(
-            padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.md, vertical: AppSpacing.xs),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text('Friends only',
-                    style: Theme.of(context).textTheme.bodyMedium),
-                Switch(
-                  value: _friendsOnly,
-                  activeThumbColor: postalRed,
-                  onChanged: (v) {
-                    setState(() => _friendsOnly = v);
-                    if (v) {
-                      JamesController.of(context)
-                          ?.show(JamesMessages.navFriendsLeaderboard.resolve());
-                    }
-                  },
-                ),
-              ],
-            ),
+        // Friends-only toggle row. Applies to every tab, including the Map
+        // (county heatmap): on = leader among you + your friends, off = global.
+        Padding(
+          padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.md, vertical: AppSpacing.xs),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Friends only',
+                  style: Theme.of(context).textTheme.bodyMedium),
+              Switch(
+                value: _friendsOnly,
+                activeThumbColor: postalRed,
+                onChanged: (v) {
+                  setState(() => _friendsOnly = v);
+                  if (v) {
+                    JamesController.of(context)
+                        ?.show(JamesMessages.navFriendsLeaderboard.resolve());
+                  }
+                },
+              ),
+            ],
           ),
-          const Divider(height: 1),
-        ],
+        ),
+        const Divider(height: 1),
         Expanded(
           child: TabBarView(
             controller: _tabController,
             children: _periods.map<Widget>((period) {
               if (period == 'counties') {
-                // County heatmap is inherently friend-scoped (uses your
-                // friends list); the friends-only toggle does not apply.
-                return const CountyHeatmap();
+                // The heatmap honours the same friends-only toggle: on colours
+                // each county by the leader among you + your friends, off by the
+                // global leader.
+                return CountyHeatmap(friendsOnly: _friendsOnly);
               }
               if (_friendsOnly) {
                 return _FriendsPeriodList(

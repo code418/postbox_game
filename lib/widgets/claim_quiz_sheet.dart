@@ -21,6 +21,7 @@ import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/remote_config_service.dart';
 import 'package:postbox_game/reports/report_missing_postbox_screen.dart';
 import 'package:postbox_game/services/crashlytics_helper.dart';
+import 'package:postbox_game/services/device_id_service.dart';
 import 'package:postbox_game/services/home_widget_service.dart';
 import 'package:postbox_game/services/perf_service.dart';
 import 'package:postbox_game/theme.dart';
@@ -381,7 +382,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
       final result = await _nearbyCallable(<String, dynamic>{
         'lat': scanPos.latitude,
         'lng': scanPos.longitude,
-        'meters': AppPreferences.claimRadiusMeters,
+        'meters': RemoteConfigService.instance.claimRadiusMeters,
       });
 
       if (!mounted) return;
@@ -498,6 +499,10 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
     HapticFeedback.mediumImpact();
     try {
       final position = await _positionProvider();
+      // Stable per-install id for the shadow-mode repeated-device signal. Null
+      // (best-effort) when unavailable — the key is then omitted so the server
+      // never sees a null deviceIdHash.
+      final deviceIdHash = await DeviceIdService.get();
       final result = await PerfService.traceAsync(
         PerfTraces.callableStartScoring,
         (trace) async {
@@ -508,6 +513,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
               // Client wall-clock for the shadow-mode out-of-window anomaly
               // signal (server compares it against its own claim timestamp).
               'clientTsMs': DateTime.now().millisecondsSinceEpoch,
+              if (deviceIdHash != null) 'deviceIdHash': deviceIdHash,
             });
             trace.putAttribute(PerfTraces.attrOutcome, 'ok');
             return r;
@@ -792,7 +798,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
                 circleMarkers: [
                   CircleMarker(
                     point: center,
-                    radius: AppPreferences.claimRadiusMeters,
+                    radius: RemoteConfigService.instance.claimRadiusMeters,
                     useRadiusInMeter: true,
                     color: postalRed.withValues(alpha: 0.1),
                     borderColor: postalRed.withValues(alpha: 0.4 + alpha * 0.5),
@@ -826,7 +832,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
           circleMarkers: [
             CircleMarker(
               point: center,
-              radius: AppPreferences.claimRadiusMeters,
+              radius: RemoteConfigService.instance.claimRadiusMeters,
               useRadiusInMeter: true,
               color: fillColor.withValues(alpha: 0.12),
               borderColor: borderColor,
@@ -927,7 +933,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
             const CircularProgressIndicator(color: postalRed),
             const SizedBox(height: AppSpacing.md),
             Text(
-              'Scanning within ${AppPreferences.formatShortDistance(AppPreferences.claimRadiusMeters, _distanceUnit)}...',
+              'Scanning within ${AppPreferences.formatShortDistance(RemoteConfigService.instance.claimRadiusMeters, _distanceUnit)}...',
               textAlign: TextAlign.center,
             ),
           ],
@@ -989,7 +995,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
                       .withValues(alpha: 0.2)),
               const SizedBox(height: AppSpacing.md),
               Text(
-                'No postboxes found within ${AppPreferences.formatShortDistance(AppPreferences.claimRadiusMeters, _distanceUnit)}',
+                'No postboxes found within ${AppPreferences.formatShortDistance(RemoteConfigService.instance.claimRadiusMeters, _distanceUnit)}',
                 style: Theme.of(context)
                     .textTheme
                     .titleLarge
@@ -1140,7 +1146,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
                             : 'All $_count postboxes claimed today')
                         : _claimedToday > 0
                             ? '${_count - _claimedToday} of $_count available · $_claimedToday claimed today'
-                            : '$_count postbox${_count == 1 ? '' : 'es'} within ${AppPreferences.formatShortDistance(AppPreferences.claimRadiusMeters, _distanceUnit)}',
+                            : '$_count postbox${_count == 1 ? '' : 'es'} within ${AppPreferences.formatShortDistance(RemoteConfigService.instance.claimRadiusMeters, _distanceUnit)}',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.bold,
                         ),

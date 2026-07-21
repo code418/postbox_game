@@ -22,6 +22,7 @@ import 'package:postbox_game/main.dart';
 import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/settings_screen.dart';
 import 'package:postbox_game/streak_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/user_profile_page.dart';
 import 'package:postbox_game/user_repository.dart';
@@ -839,6 +840,123 @@ void main() {
     });
   });
 
+  group('pickCountyLeaderEntry (heatmap friends-only toggle)', () {
+    // Server-sorted entries: a non-friend leads, a friend is second.
+    final entries = <dynamic>[
+      {'uid': 'stranger', 'displayName': 'Stranger', 'uniquePostboxesClaimed': 9},
+      {'uid': 'friend', 'displayName': 'Friend', 'uniquePostboxesClaimed': 5},
+      {'uid': 'me', 'displayName': 'Me', 'uniquePostboxesClaimed': 2},
+    ];
+    final candidates = {'me', 'friend'};
+
+    test('friends-only picks the top entry within the candidate set', () {
+      final e = pickCountyLeaderEntry(entries, candidates, true);
+      expect(e?['uid'], equals('friend'));
+    });
+
+    test('global (friends-only off) picks the overall top entry', () {
+      final e = pickCountyLeaderEntry(entries, candidates, false);
+      expect(e?['uid'], equals('stranger'));
+    });
+
+    test('friends-only returns null when no candidate has claimed the county', () {
+      final e = pickCountyLeaderEntry(entries, {'nobody'}, true);
+      expect(e, isNull);
+    });
+
+    test('global returns null for an empty county', () {
+      expect(pickCountyLeaderEntry(const [], candidates, false), isNull);
+    });
+  });
+
+  group('orderLegendLeaders (heatmap legend ordering)', () {
+    const names = {
+      'me': 'Me',
+      'alpha': 'alpha',
+      'bravo': 'Bravo',
+      'charlie': 'Charlie',
+    };
+
+    test('self comes first even when leading the fewest counties', () {
+      final order = orderLegendLeaders(
+        ['alpha', 'alpha', 'alpha', 'bravo', 'bravo', 'me'],
+        myUid: 'me',
+        displayNames: names,
+      );
+      expect(order.first, equals('me'));
+    });
+
+    test('ranks the rest by counties led, descending', () {
+      final order = orderLegendLeaders(
+        ['bravo', 'alpha', 'alpha', 'alpha', 'charlie', 'charlie'],
+        myUid: 'me',
+        displayNames: names,
+      );
+      expect(order, equals(['alpha', 'charlie', 'bravo']));
+    });
+
+    test('ties on count break by display name, case-insensitively', () {
+      // 'alpha' is lowercase in the map; a naive compareTo would sort it after
+      // the capitalised names.
+      final order = orderLegendLeaders(
+        ['charlie', 'bravo', 'alpha'],
+        myUid: 'me',
+        displayNames: names,
+      );
+      expect(order, equals(['alpha', 'bravo', 'charlie']));
+    });
+
+    test('order is stable regardless of input iteration order', () {
+      // Same counts, differently-ordered input: the uid tiebreak must make the
+      // result identical, otherwise the chip row reshuffles between rebuilds.
+      final a = orderLegendLeaders(
+        ['x1', 'x2', 'x3'],
+        myUid: 'me',
+        displayNames: const {'x1': 'Same', 'x2': 'Same', 'x3': 'Same'},
+      );
+      final b = orderLegendLeaders(
+        ['x3', 'x1', 'x2'],
+        myUid: 'me',
+        displayNames: const {'x1': 'Same', 'x2': 'Same', 'x3': 'Same'},
+      );
+      expect(a, equals(b));
+      expect(a, equals(['x1', 'x2', 'x3']));
+    });
+
+    test('uids missing from displayNames still sort deterministically', () {
+      final order = orderLegendLeaders(
+        ['ghost', 'alpha'],
+        myUid: 'me',
+        displayNames: names,
+      );
+      // 'ghost' has no name, so it sorts as '' — ahead of 'alpha' — but the
+      // point is that it neither throws nor varies between calls.
+      expect(order, equals(['ghost', 'alpha']));
+      expect(
+        orderLegendLeaders(['alpha', 'ghost'],
+            myUid: 'me', displayNames: names),
+        equals(order),
+      );
+    });
+
+    test('deduplicates: one chip per leader however many counties they hold',
+        () {
+      final order = orderLegendLeaders(
+        ['alpha', 'alpha', 'alpha', 'alpha'],
+        myUid: 'me',
+        displayNames: names,
+      );
+      expect(order, equals(['alpha']));
+    });
+
+    test('returns empty for a map with no leaders at all', () {
+      expect(
+        orderLegendLeaders(const [], myUid: 'me', displayNames: names),
+        isEmpty,
+      );
+    });
+  });
+
   group('FuzzyCompass.vagueLabel', () {
     test('returns None for zero', () {
       expect(FuzzyCompass.vagueLabel(0), equals('None'));
@@ -1332,6 +1450,38 @@ void main() {
       expect(find.text('First friend to score today'), findsOneWidget);
       expect(find.text('Friend overtakes you'), findsOneWidget);
       expect(find.text('Added as a friend'), findsOneWidget);
+    });
+
+    testWidgets('Privacy section shows consent toggles and data tiles',
+        (tester) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      // Even taller viewport: Privacy sits below Notifications.
+      tester.view.physicalSize = const Size(800, 3400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+
+      await tester.pumpWidget(buildSettings());
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('Privacy', skipOffstage: false), findsOneWidget);
+      expect(find.text('Usage analytics', skipOffstage: false), findsOneWidget);
+      expect(find.text('Crash reports', skipOffstage: false), findsOneWidget);
+      expect(find.text('Performance monitoring', skipOffstage: false),
+          findsOneWidget);
+      expect(find.text('Privacy policy', skipOffstage: false), findsOneWidget);
+      expect(
+          find.text('Download my data', skipOffstage: false), findsOneWidget);
+
+      // All three telemetry toggles default ON (opt-out model).
+      SwitchListTile tile(String title) => tester.widget<SwitchListTile>(
+            find.ancestor(
+              of: find.text(title, skipOffstage: false),
+              matching: find.byType(SwitchListTile, skipOffstage: false),
+            ),
+          );
+      expect(tile('Usage analytics').value, isTrue);
+      expect(tile('Crash reports').value, isTrue);
+      expect(tile('Performance monitoring').value, isTrue);
     });
   });
 

@@ -223,6 +223,7 @@ class _LoginFormState extends State<LoginForm> {
               child: const Text('Cancel'),
             ),
             FilledButton(
+              style: dialogActionStyle(),
               onPressed: () {
                 WidgetsBinding.instance.addPostFrameCallback((_) {
                   if (mounted) Navigator.of(context).pop(true);

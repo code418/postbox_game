@@ -11,8 +11,20 @@ const WRITE_BATCH_SIZE = 400;
 
 /** Firestore field names on a claim that carry location/timing PII and must be
  *  removed when a claim is anonymised. `points`/`monarch`/`dailyDate`/etc. are
- *  kept so the global claim/postbox-history record stays intact. */
-const CLAIM_PII_FIELDS = ["userLat", "userLng", "coordKey6", "clientTsMs", "travelSpeed"] as const;
+ *  kept so the global claim/postbox-history record stays intact. Exported for
+ *  reuse by the 90-day retention sweep (dataRetention.ts) so erasure and
+ *  retention can never disagree about what counts as claim PII. */
+export const CLAIM_PII_FIELDS = ["userLat", "userLng", "coordKey6", "clientTsMs", "travelSpeed", "deviceIdHash"] as const;
+
+/** Firestore field names on a report that carry PII and must be removed when a
+ *  report is anonymised: `note` is free text, and `photos[]` embeds EXIF GPS
+ *  (`exifLat`/`exifLng`), capture times, and `report_photos/{uid}/…` storage
+ *  paths (the blobs themselves are deleted by onUserDeleted's Storage phase).
+ *  `lat`/`lng` are deliberately KEPT: reviewReport requires them to create the
+ *  postbox for a still-pending missing-box report, and once `reporterUid` is
+ *  the deleted sentinel they describe a public postbox site, unlinkable to a
+ *  person — the same integrity carve-out as claims' `points`/`monarch`. */
+export const REPORT_PII_FIELDS = ["note", "photos"] as const;
 
 /** Anonymise every claim by [uid]: rewrite `userid` to the deleted sentinel and
  *  strip location PII. Returns the number of claims rewritten. Batched (400). */
@@ -36,15 +48,20 @@ export async function anonymiseClaimsForUser(db: Firestore, uid: string): Promis
 }
 
 /** Anonymise every report submitted by [uid]: rewrite `reporterUid` to the
- *  deleted sentinel, keeping the report content for data/OSM integrity. */
+ *  deleted sentinel and strip REPORT_PII_FIELDS (note + photos), keeping the
+ *  postbox-describing fields (`lat`/`lng`/cypher/status) for data/OSM
+ *  integrity — see the REPORT_PII_FIELDS doc for the reasoning. */
 export async function anonymiseReportsForUser(db: Firestore, uid: string): Promise<number> {
   const snap = await db.collection("reports").where("reporterUid", "==", uid).get();
+  const update: Record<string, unknown> = { reporterUid: DELETED_UID };
+  for (const f of REPORT_PII_FIELDS) update[f] = admin.firestore.FieldValue.delete();
+
   let rewritten = 0;
   const batches: admin.firestore.WriteBatch[] = [];
   for (let i = 0; i < snap.docs.length; i += WRITE_BATCH_SIZE) {
     const batch = db.batch();
     for (const doc of snap.docs.slice(i, i + WRITE_BATCH_SIZE)) {
-      batch.set(doc.ref, { reporterUid: DELETED_UID }, { merge: true });
+      batch.set(doc.ref, update, { merge: true });
       rewritten++;
     }
     batches.push(batch);

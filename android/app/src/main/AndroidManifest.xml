@@ -41,6 +41,15 @@
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
             android:value="postbox_social" />
+        <!-- Analytics is ON by default via the runtime enable in
+             applyStoredTelemetryPreferences() at cold start (opt-out model).
+             This flag stays false so an opted-OUT user never leaks events in
+             the window between process start and that runtime call applying
+             their stored preference. Crashlytics/Performance have no such
+             flags — they run with in-app Settings opt-outs only. -->
+        <meta-data
+            android:name="firebase_analytics_collection_enabled"
+            android:value="false" />
         <!-- Home-screen widget. -->
         <receiver
             android:name=".PostboxWidgetProvider"

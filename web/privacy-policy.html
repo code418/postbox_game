@@ -69,7 +69,7 @@
   <p>Your privacy matters to us.</p>
 </header>
 <main>
-  <span class="last-updated">Last updated: April 2026</span>
+  <span class="last-updated">Last updated: July 2026</span>
 
   <p>This Privacy Policy explains how <strong>The Postbox Game</strong> ("the App", "we", "us") collects, uses, and protects your personal data when you use our mobile application. We are committed to complying with the UK General Data Protection Regulation (UK GDPR) and the Data Protection Act 2018.</p>
 
@@ -79,18 +79,23 @@
   <h2>2. Data We Collect</h2>
   <ul>
     <li><strong>Account information:</strong> When you register or sign in with Google, we receive your email address and display name. When you register with email/password, we store your email address and chosen display name.</li>
-    <li><strong>Location data:</strong> With your permission, we collect your precise GPS location to identify nearby postboxes and validate claims. Location is used only during active gameplay and is not stored permanently.</li>
+    <li><strong>Location data:</strong> With your permission, we collect your precise GPS location to identify nearby postboxes and validate claims. The location you claimed from is stored with each claim for anti-cheat verification and is automatically removed after 90 days.</li>
     <li><strong>Gameplay data:</strong> Postbox claims you make (postbox ID, timestamp, points awarded), your running scores, streaks, and leaderboard entries (display name and points only).</li>
+    <li><strong>Device token:</strong> A random per-install identifier sent with claims to detect multi-account abuse. It is not derived from your hardware and identifies only the app installation; it is removed from claims after 90 days.</li>
     <li><strong>Friends list:</strong> User IDs of friends you choose to add within the App.</li>
-    <li><strong>Crash and performance data:</strong> Anonymous crash reports and performance traces collected by Firebase Crashlytics and Firebase Performance Monitoring to help us fix bugs and improve the App.</li>
-    <li><strong>Analytics:</strong> Anonymous usage events (screens visited, features used) collected by Firebase Analytics to understand how the App is used.</li>
+    <li><strong>Problem reports:</strong> If you report a postbox data problem, we store your report, its location, and any note or photos you attach (photos may include the time and place they were taken).</li>
+    <li><strong>Anti-abuse records:</strong> Automated checks may record anomaly flags and an internal trust score for your account. While this system runs in "shadow mode" it has no effect on your account or gameplay.</li>
+    <li><strong>Crash and performance data:</strong> Crash reports and performance traces collected by Firebase Crashlytics and Firebase Performance Monitoring to help us fix bugs. You can turn these off in Settings → Privacy.</li>
+    <li><strong>Usage analytics:</strong> Anonymous usage events collected by Firebase Analytics to understand how the App is used. On by default — you can turn it off during onboarding or any time in Settings → Privacy.</li>
   </ul>
 
   <h2>3. How We Use Your Data</h2>
   <ul>
     <li>To operate the App and provide gameplay features (claims, leaderboards, friends).</li>
     <li>To display your scores and display name on leaderboards and to friends.</li>
-    <li>To improve the App by analysing crash reports, performance data, and aggregated usage statistics.</li>
+    <li>To keep the game fair by detecting location spoofing and multi-account abuse.</li>
+    <li>To review postbox data problems you report and improve the postbox database.</li>
+    <li>To improve the App by analysing crash reports, performance data, and aggregated usage statistics (each of which you can opt out of).</li>
     <li>To associate your gameplay history with your account so it persists across devices.</li>
   </ul>
 
@@ -98,7 +103,7 @@
   <p>We process your personal data on the following legal bases under UK GDPR:</p>
   <ul>
     <li><strong>Contract:</strong> Processing your account and gameplay data is necessary to provide the service you signed up for.</li>
-    <li><strong>Legitimate interests:</strong> Crash reporting and performance monitoring to maintain a working and safe app.</li>
+    <li><strong>Legitimate interests:</strong> Usage analytics, crash reporting, and performance monitoring to maintain and improve a working app (each can be turned off via the Settings → Privacy toggles), and anti-abuse checks to keep the game fair.</li>
     <li><strong>Consent:</strong> Location access, which you can grant or revoke at any time in your device settings.</li>
   </ul>
 
@@ -106,12 +111,16 @@
   <p>We do not sell your personal data. We share data only with the following service providers, who process it on our behalf:</p>
   <ul>
     <li><strong>Google Firebase</strong> (Authentication, Firestore database, Cloud Functions, Crashlytics, Performance Monitoring, Analytics) – processed within Google's infrastructure. See <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">Google's Privacy Policy</a>.</li>
+    <li><strong>OpenStreetMap / Nominatim:</strong> If you search for a destination in Route Mode, only the text you type is sent to the OpenStreetMap Nominatim search service – never your GPS position.</li>
   </ul>
-  <p>Your display name and score are visible to other users on leaderboards and to friends you add in the App.</p>
+  <p>Your display name and score are visible to other users on leaderboards and to friends you add in the App. Corrections we submit back to OpenStreetMap from accepted postbox reports contain only postbox data, never anything about you.</p>
 
   <h2>6. Data Retention</h2>
   <ul>
-    <li>Account data is retained for as long as your account exists.</li>
+    <li>Account data is retained for as long as your account exists; deleting your account anonymises your claims and removes your personal data (see Your Rights).</li>
+    <li>The GPS position, timing metadata, and device token stored with a claim are automatically removed after 90 days.</li>
+    <li>Photos and notes attached to a postbox problem report are removed 30 days after the report is reviewed.</li>
+    <li>Anti-abuse anomaly records are deleted after 180 days.</li>
     <li>Leaderboard entries are retained for the relevant period (daily / weekly / monthly) then overwritten.</li>
     <li>Crash and analytics data is retained per Firebase's default retention periods (90 days for Crashlytics; configurable for Analytics).</li>
   </ul>
@@ -119,17 +128,16 @@
   <h2>7. Your Rights</h2>
   <p>Under UK GDPR you have the right to:</p>
   <ul>
-    <li><strong>Access</strong> the personal data we hold about you.</li>
+    <li><strong>Access and portability:</strong> Use Settings → Privacy → "Download my data" in the App to receive a machine-readable copy of everything we store about you.</li>
     <li><strong>Rectification</strong> of inaccurate data (e.g. update your display name in the App).</li>
-    <li><strong>Erasure</strong> ("right to be forgotten") – contact us to delete your account and associated data.</li>
-    <li><strong>Restriction or objection</strong> to certain processing.</li>
-    <li><strong>Data portability</strong> for data you provided to us.</li>
-    <li><strong>Withdraw consent</strong> for location access at any time via your device settings.</li>
+    <li><strong>Erasure</strong> ("right to be forgotten"): use Settings → "Delete account" in the App. Your personal data is deleted and your claims are anonymised immediately.</li>
+    <li><strong>Restriction or objection</strong> to certain processing, including turning off crash reporting, performance monitoring, and analytics in Settings → Privacy.</li>
+    <li><strong>Withdraw consent</strong> for location access at any time via your device settings; analytics, crash reporting, and performance monitoring can each be turned off in Settings → Privacy.</li>
   </ul>
   <p>To exercise any right, contact us at <a href="mailto:richard@agilepixel.io">richard@agilepixel.io</a>. You also have the right to lodge a complaint with the <a href="https://ico.org.uk" target="_blank" rel="noopener">Information Commissioner's Office (ICO)</a>.</p>
 
   <h2>8. Location Data</h2>
-  <p>The App requests access to your device's precise location (<em>while the app is in use</em>) to find nearby postboxes. We do not track your location in the background, share it with third parties, or store it beyond the duration of an active claim check.</p>
+  <p>The App requests access to your device's precise location (<em>while the app is in use</em>) to find nearby postboxes. We do not track your location in the background. The position you claimed from is stored with that claim for anti-cheat verification and automatically removed after 90 days. Other players never see your location – nearby postboxes are shown only as fuzzy directions.</p>
 
   <h2>9. Children</h2>
   <p>The App is not directed at children under 13. We do not knowingly collect personal data from children under 13. If you believe a child has provided us with personal data, contact us and we will delete it.</p>

@@ -190,12 +190,18 @@ class _FlagCardState extends State<_FlagCard> {
               ),
             if (!isReviewed) ...[
               const SizedBox(height: AppSpacing.sm),
+              // Expanded, not a bare Row child: the theme gives FilledButton a
+              // `minimumSize: Size(double.infinity, 52)`, and a Row hands its
+              // children an unbounded width, so the tight-infinite minimum
+              // throws "BoxConstraints forces an infinite width" and blanks the
+              // whole card. See the same fix in admin_reports_screen.dart.
               Row(
-                mainAxisAlignment: MainAxisAlignment.end,
                 children: [
-                  FilledButton(
-                    onPressed: _busy ? null : _markReviewed,
-                    child: const Text('Mark reviewed'),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: _busy ? null : _markReviewed,
+                      child: const Text('Mark reviewed'),
+                    ),
                   ),
                 ],
               ),

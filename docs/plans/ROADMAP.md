@@ -159,15 +159,37 @@ exceptions in key flows to non-fatals.
 
 ---
 
-## v1.4 — Trust & safety  (Queued)
+## v1.4 — Trust & safety  (In flight)
 
 **Theme**: harden the platform now that we can see what's happening (v1.3 observability).
-**Ship gate**: account-deletion flow tested end-to-end in staging; impossible-travel detector in shadow mode logging flags but not blocking; Remote Config drives `claim_radius_meters` and `points_by_monarch` end-to-end (client + Cloud Functions) with the safety bounds enforced.
+**Ship gate**: account-deletion flow tested end-to-end in staging; impossible-travel detector in shadow mode logging flags but not blocking; Remote Config drives `claim_radius_meters` and `points_by_monarch` end-to-end (client + Cloud Functions) with the safety bounds enforced; telemetry disclosure live with analytics on by default and a working opt-out (DebugView goes silent when the Settings → Privacy toggle is switched off); `exportMyData` returns a complete bundle in staging; `dataRetentionSweep` executed once in staging with logged strip/delete counts.
+
+> **Status** (branch `feat/v1.4-trust-safety`, `1.4.0+18`): all four workstreams
+> implemented (Remote Config balance, GDPR deletion, shadow-mode abuse, and the
+> GDPR compliance finish below); `flutter analyze` + Dart tests + functions
+> lint/tests green. Remaining before ship: the manual staging passes (account
+> deletion, consent DebugView check, export bundle, one forced retention-sweep
+> run) and the Remote Config console setup (publish `claim_radius_meters` +
+> `points_by_monarch` to the client AND server templates with values equal to
+> the code defaults). Two roadmap divergences, both deliberate: (1) GDPR uses a
+> **self-contained `onUserDeleted` function, not the Delete-User-Data extension**
+> (the extension can only delete, not anonymise claims, which would break
+> leaderboard integrity); (2) abuse **enforcement/voiding stays deferred
+> (Phase 2)** — the ship gate requires shadow mode, so `SHADOW_MODE` remains
+> `true`. Remote Config was scoped to the ship-gate pair only (no
+> `quiz_required_streak`, other constants left hard-coded).
 
 > **App Check enforcement moved to v1.7** (it's gated on iOS `AppleProvider`
 > wiring, which lands in v1.7's iOS work). See the App Check item under v1.7.
 
 ### Remote Config for game balance and copy  (was #107, moved from v1.3)
+
+> ✅ Implemented (ship-gate pair only). Client: `RemoteConfigService.claimRadiusMeters`
+> + `pointsForCipher`/`pointsByMonarch` (bounds-checked, defaults = constants), force-refetch
+> on login. Backend: `functions/src/_config.ts` (`getServerTemplate` + 5-min cache, never
+> throws) wired into `startScoring` + `_recomputeScores`. Fallback constants stay canonical
+> (guarded by `test/cross_language_sync_test.dart`). Other tunables + `quiz_required_streak`
+> intentionally out of scope.
 
 The Remote Config *infrastructure* (typed `RemoteConfigService`, fetch lifecycle,
 push updates, kill switches, `maintenance_mode`) already shipped in v1.3. What
@@ -183,6 +205,14 @@ and Cloud Functions read Remote Config.
 - Risk: stale client cache hides a bad value — force refetch on login. Cost drift if `points_by_monarch` mis-set — sanity-check rejecting values outside `[1, 50]`.
 
 ### GDPR "Delete User Data" Firebase Extension  (was #99)
+
+> ✅ Implemented as a **self-contained `onUserDeleted` v1 Auth trigger** (europe-west2)
+> + `functions/src/_accountDeletion.ts`, NOT the extension (the extension can't anonymise
+> claims). Anonymises claims/reports (strips PII incl. the new `deviceIdHash`), hard-deletes
+> user docs + `report_photos/` (and future-proof `claims-photos/` via
+> `storagePrefixesForUser`), audit counter at `deletions/{day}`. Flutter re-auth + `User.delete()`
+> in `lib/user_repository.dart`, Settings "Delete account" UI. Helpers unit-tested; full-flow
+> e2e is the staging pass below.
 
 Install the official extension. Configure paths:
 
@@ -200,6 +230,14 @@ In-app:
 Test in staging first: create a user with claims, photos, friends; delete; assert no residuals.
 
 ### Abuse detection (impossible-travel and claim anomalies)  (was #112)
+
+> ✅ Implemented in **shadow mode** (`SHADOW_MODE = true`, stays that way per the ship gate).
+> All four signals now fire: impossible-travel, out-of-window, coord-cluster, and the new
+> **repeated-device** signal (`repeatedDeviceSignal` + `evaluateClaimSignals` in
+> `_abuseSignals.ts`, wired in `onClaimCreated`; client sends a stable per-install
+> `deviceIdHash` via `lib/services/device_id_service.dart`; composite index added). Flags →
+> `moderationFlags`, trust decay → `trustScores`, admin review UI `admin_abuse_screen.dart`.
+> Enforcement / claim-voiding remains the deferred **Phase 2** below.
 
 `startScoring` already has a travel-speed anti-spoof check. Extend to:
 
@@ -223,6 +261,54 @@ Implementation:
 Admin UI: mirror `lib/admin/admin_reports_screen.dart` as `lib/admin/admin_abuse_screen.dart`; existing rollback path in `_recomputeScores.ts` handles voiding claims.
 
 Shadow mode first — log flags, no user-facing effect — for 2 weeks; tune thresholds from Firestore exports. False-positive guard: require **two** signals (e.g. impossible travel AND repeated device hash) before any action.
+
+### GDPR compliance finish (consent, DSAR export, retention)  (new)
+
+> ✅ Implemented. Closes the four blockers a full GDPR review (2026-07-17) found
+> after the deletion work shipped: no consent/transparency surface, no
+> self-serve right-of-access, no retention limits, and a partial report
+> anonymisation. Also fixed the dependency skew that broke Dart test loading
+> (`firebase_core_platform_interface` ^8.0.0 + `fake_cloud_firestore` 4.2.0).
+
+- **Telemetry disclosure + opt-outs (analytics ON by default)**: all three
+  streams (analytics, Crashlytics, Performance) run under legitimate interest,
+  on by default. The final intro step (new users) and the one-time `ConsentGate`
+  prompt in `lib/consent_screen.dart` (existing installs) disclose this with a
+  pre-enabled analytics switch; Settings → Privacy has opt-out toggles for all
+  three, persisted in `lib/consent_preferences.dart` (SharedPreferences,
+  pre-login-safe) and applied by `applyStoredTelemetryPreferences()` at every
+  cold start. The `firebase_analytics_collection_enabled=false` manifest flag is
+  kept so opted-out users never leak events before the runtime toggle applies.
+  **Product decision 2026-07-17**: analytics was briefly opt-in per ICO guidance
+  and deliberately switched to opt-out — a known residual compliance risk
+  (ICO/PECR treat analytics as consent-requiring), accepted for now.
+- **Privacy policy**: single source `assets/legal/privacy_policy.md`, rendered
+  in-app by `lib/legal/privacy_policy_screen.dart` (no markdown dep) and mirrored
+  at `web/privacy-policy.html` (hosted at `/privacy-policy`, for the Play
+  listing); `test/privacy_policy_sync_test.dart` pins the two against each other.
+  Content now discloses the device token, anti-abuse records, retention
+  schedule, and in-app rights surfaces.
+- **DSAR export (Art. 15/20)**: `exportMyData` callable returns a JSON bundle of
+  every per-user store (mirrors `_accountDeletion.ts`'s authoritative list, incl.
+  moderation flags and the Auth record); Settings → Privacy → "Download my data"
+  shares it as a file via `share_plus`. Claims capped at 20k newest with a
+  truncation flag (10 MB callable limit).
+- **Retention (Art. 5(1)(e))**: `functions/src/dataRetention.ts` nightly sweep
+  (03:30 London) — strips `CLAIM_PII_FIELDS` off claims after 90 days
+  (watermark-paged, never rescans), purges report photos/notes 30 days after
+  review (Storage blobs + doc fields), deletes `moderationFlags` after 180 days.
+  Sweep chosen over Firestore TTL deliberately (backfill needed either way,
+  compliance-evidence logs, unit-testable).
+- **Erasure gap closed**: `anonymiseReportsForUser` now strips
+  `REPORT_PII_FIELDS` (note + photos incl. EXIF GPS and uid-bearing storage
+  paths); report `lat`/`lng` kept for pending-review integrity (documented).
+- **Hygiene**: `audit_*` exports gitignored and evicted from the repo root;
+  `audit_user_claims.js` defaults to `./audit_exports`; `startScoring.ts`'s
+  deviceIdHash comment corrected (random install token, not a hardware hash).
+
+Risk: the first sweep night backfills history in bounded pages (~6k docs/night)
+— watch the `pagesRemaining` log until the backlog drains. iOS
+(`FirebaseAnalyticsCollectionEnabled`) is a v1.7 checklist item.
 
 ---
 

@@ -32,9 +32,13 @@
 // Plain VM tests (use dart:io) — `flutter test` runs with the package root as
 // the working directory, so the relative paths resolve.
 
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:postbox_game/app_preferences.dart';
+import 'package:postbox_game/monarch_info.dart';
+import 'package:postbox_game/remote_config_service.dart';
 
 /// Extracts the string literals from the first `[ ... ]` array literal that
 /// follows [anchor] in [source]. Handles both single- and double-quoted entries
@@ -363,6 +367,163 @@ void main() {
       final dart = double.parse(dartM!.group(1)!);
       final ts = _extractIntConst(startScoringTs, 'CLAIM_RADIUS_METERS');
       expect(dart, equals(ts.toDouble()));
+    });
+  });
+
+  group('Remote Config game-balance defaults stay in sync', () {
+    // v1.4: claim_radius_meters + points_by_monarch are Remote-Config-driven,
+    // but the hard-coded constants remain the canonical fallback. The RC
+    // *defaults* must therefore equal those constants (ship first with defaults
+    // == current code), and the server safety bounds (_config.ts) must match
+    // the client's (RemoteConfigService) so a value the client accepts isn't
+    // rejected server-side (or vice versa).
+
+    test('RC points_by_monarch default JSON == MonarchInfo.points', () {
+      final decoded =
+          (jsonDecode(RemoteConfigService.defaultPointsByMonarchJson)
+                  as Map<String, dynamic>)
+              .map((k, v) => MapEntry(k, v as int));
+      expect(decoded, equals(MonarchInfo.points));
+    });
+
+    test('RC claim_radius_meters default == AppPreferences.claimRadiusMeters',
+        () {
+      expect(
+        RemoteConfigService.defaults[RemoteConfigService.keyClaimRadiusMeters],
+        equals(AppPreferences.claimRadiusMeters),
+      );
+    });
+
+    test('server _config.ts fallback + safety bounds match the Dart client',
+        () {
+      final configTs = File('functions/src/_config.ts').readAsStringSync();
+      expect(_extractIntConst(configTs, 'DEFAULT_CLAIM_RADIUS_METERS'),
+          equals(AppPreferences.claimRadiusMeters.toInt()));
+      expect(_extractIntConst(configTs, 'MIN_CLAIM_RADIUS_METERS'),
+          equals(RemoteConfigService.minClaimRadiusMeters.toInt()));
+      expect(_extractIntConst(configTs, 'MAX_CLAIM_RADIUS_METERS'),
+          equals(RemoteConfigService.maxClaimRadiusMeters.toInt()));
+      expect(_extractIntConst(configTs, 'MIN_MONARCH_POINTS'),
+          equals(RemoteConfigService.minMonarchPoints));
+      expect(_extractIntConst(configTs, 'MAX_MONARCH_POINTS'),
+          equals(RemoteConfigService.maxMonarchPoints));
+    });
+  });
+
+  group('Remote Config template file stays deployable and in sync', () {
+    // remoteconfig.template.json is what `firebase deploy --only remoteconfig`
+    // publishes as the CLIENT template. Two failure modes guarded here, both
+    // of which actually bit during v1.4:
+    //
+    //   1. A parameter exists in RemoteConfigService.defaults but not in the
+    //      template, so the key never reaches production and the client
+    //      silently serves its in-app default forever. Nothing errors — which
+    //      is exactly how claim_radius_meters / points_by_monarch reached the
+    //      v1.4 ship gate absent from both templates.
+    //   2. A description grows past the Remote Config API's 256-char limit and
+    //      the deploy dies with 400 DESCRIPTION_EXCEEDS_MAXIMUM_SIZE — at
+    //      deploy time, against production, instead of in CI.
+    //
+    // IMPORTANT: only the game-balance pair is asserted equal to the code
+    // defaults (the v1.4 ship gate requires publishing them with values equal
+    // to code). The kill switches deliberately DIVERGE: the Dart default is
+    // the safe in-app fallback (false = feature visible), while the template
+    // mirrors live production state (kill_switch_route_mode is currently true,
+    // hiding Route Mode from everyone outside the Admin audience). Do not
+    // "fix" a future failure here by equating those — that would silently
+    // re-enable Route Mode for all users on the next deploy.
+
+    /// Remote Config API cap on any `description` field.
+    const maxDescriptionChars = 256;
+
+    late Map<String, dynamic> params;
+    late Map<String, dynamic> template;
+
+    setUpAll(() {
+      template =
+          jsonDecode(File('remoteconfig.template.json').readAsStringSync())
+              as Map<String, dynamic>;
+      params = template['parameters'] as Map<String, dynamic>;
+    });
+
+    /// The literal default value string for [key], or null if the parameter is
+    /// absent or uses `useInAppDefault`.
+    String? defaultValueOf(String key) {
+      final param = params[key] as Map<String, dynamic>?;
+      final defaultValue = param?['defaultValue'] as Map<String, dynamic>?;
+      return defaultValue?['value'] as String?;
+    }
+
+    test('every RemoteConfigService.defaults key exists in the template', () {
+      // Sanity: guard against a parse that silently found nothing.
+      expect(params.length, greaterThan(3),
+          reason: 'parsed too few template parameters — extraction likely '
+              'broke or the template was truncated');
+
+      final codeKeys = RemoteConfigService.defaults.keys.toSet();
+      final missing = codeKeys.difference(params.keys.toSet());
+      expect(missing, isEmpty,
+          reason: 'keys declared in RemoteConfigService.defaults but absent '
+              'from remoteconfig.template.json: $missing. The client will '
+              'serve its in-app default for these forever — no error, just a '
+              'parameter that never reaches production.');
+    });
+
+    test('template claim_radius_meters default == the code default', () {
+      final raw = defaultValueOf(RemoteConfigService.keyClaimRadiusMeters);
+      expect(raw, isNotNull,
+          reason: 'claim_radius_meters has no literal defaultValue');
+      expect(double.parse(raw!), equals(AppPreferences.claimRadiusMeters),
+          reason: 'the published default must start equal to the code default');
+
+      // functions/src/_config.ts reads this via getValue().asNumber(), so the
+      // declared valueType has to be NUMBER for the server half to work.
+      expect(
+        (params[RemoteConfigService.keyClaimRadiusMeters]
+            as Map<String, dynamic>)['valueType'],
+        equals('NUMBER'),
+      );
+    });
+
+    test('template points_by_monarch default == MonarchInfo.points', () {
+      final raw = defaultValueOf(RemoteConfigService.keyPointsByMonarch);
+      expect(raw, isNotNull,
+          reason: 'points_by_monarch has no literal defaultValue');
+      final decoded = (jsonDecode(raw!) as Map<String, dynamic>)
+          .map((k, v) => MapEntry(k, v as int));
+      expect(decoded, equals(MonarchInfo.points),
+          reason: 'the published points default drifted from MonarchInfo.points '
+              '— publishing this template would re-score the game');
+
+      // Read server-side via getValue().asString(), which returns the raw JSON.
+      expect(
+        (params[RemoteConfigService.keyPointsByMonarch]
+            as Map<String, dynamic>)['valueType'],
+        equals('JSON'),
+      );
+    });
+
+    test('no description exceeds the Remote Config 256-char limit', () {
+      final overLong = <String, int>{};
+      for (final entry in params.entries) {
+        final description =
+            (entry.value as Map<String, dynamic>)['description'] as String?;
+        if (description != null && description.length > maxDescriptionChars) {
+          overLong[entry.key] = description.length;
+        }
+      }
+      final versionDescription =
+          (template['version'] as Map<String, dynamic>?)?['description']
+              as String?;
+      if (versionDescription != null &&
+          versionDescription.length > maxDescriptionChars) {
+        overLong['version.description'] = versionDescription.length;
+      }
+
+      expect(overLong, isEmpty,
+          reason: 'descriptions longer than $maxDescriptionChars chars will '
+              'fail the deploy with 400 DESCRIPTION_EXCEEDS_MAXIMUM_SIZE: '
+              '$overLong');
     });
   });
 }

@@ -12,6 +12,8 @@ import { userClaimHistory } from "./userClaimHistory";
 import { submitReport, reviewReport } from "./reports";
 import { routePostboxes } from "./routePostboxes";
 import { onClaimCreated, reviewFlag } from "./abuse";
+import { dataRetentionSweep } from "./dataRetention";
+import { exportMyData } from "./exportMyData";
 
 export {
   nearbyPostboxes,
@@ -29,4 +31,6 @@ export {
   routePostboxes,
   onClaimCreated,
   reviewFlag,
+  dataRetentionSweep,
+  exportMyData,
 };

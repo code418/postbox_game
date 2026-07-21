@@ -122,6 +122,11 @@ functions/.last_import_manifest.json
 /ciiir_postboxes.json
 /postman_james.svg
 
+# Per-user claim audit exports (functions/audit_user_claims.js) — contain real
+# UIDs + GPS movement traces; must never be committed
+/audit_*
+functions/audit_exports/
+
 .claude/skills
 
 # Desktop is not a build target (mobile-only app; runner scaffolding removed).

@@ -1,7 +1,7 @@
 import "./adminInit";
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions";
-import { getPoints } from "./_getPoints";
+import { getGameConfig, resolvePointsForMonarch, DEFAULT_CLAIM_RADIUS_METERS } from "./_config";
 import { getTodayLondon } from "./_dateUtils";
 import { lookupPostboxes, getLatLng } from "./_lookupPostboxes";
 import { updateUserLeaderboards, mergeLifetimeEntries, LifetimeLeaderboardEntry, getWeekStart, getMonthStart, countySlug } from "./_leaderboardUtils";
@@ -12,9 +12,20 @@ import { coordKey } from "./_abuseSignals";
 
 const database = admin.firestore();
 
-/** Radius (metres) within which a user must stand to claim a postbox.
- *  Must match AppPreferences.claimRadiusMeters in lib/app_preferences.dart. */
+/** Fallback radius (metres) within which a user must stand to claim a postbox.
+ *  The live value comes from Remote Config via _config.ts (getClaimRadiusMeters);
+ *  this constant is only the documented fallback. Must match
+ *  AppPreferences.claimRadiusMeters in lib/app_preferences.dart (pinned by
+ *  test/cross_language_sync_test.dart) and DEFAULT_CLAIM_RADIUS_METERS. */
 const CLAIM_RADIUS_METERS = 30;
+
+// The documented fallback here must equal _config's fallback, since the
+// cross-language sync test pins THIS constant against the Dart client while the
+// runtime radius actually resolves through _config. (Same load-time-invariant
+// pattern as _abuseSignals.ts.)
+if (CLAIM_RADIUS_METERS !== DEFAULT_CLAIM_RADIUS_METERS) {
+  throw new Error("CLAIM_RADIUS_METERS must equal DEFAULT_CLAIM_RADIUS_METERS in _config.ts");
+}
 
 /** The patch merged onto a `postbox` doc when it's claimed: only the London
  *  date it was last claimed (a "someone found this today" display hint).
@@ -37,7 +48,17 @@ interface StartScoringCallData {
   /** Client wall-clock at claim time (ms since epoch). Optional — legacy/web
    *  clients omit it. Stored for the shadow-mode out-of-window anomaly signal. */
   clientTsMs?: number;
+  /** Random 256-bit per-install token (64 hex chars), generated and persisted
+   *  by lib/services/device_id_service.dart — deliberately NOT derived from
+   *  hardware or any Firebase id. Optional — legacy/web clients omit it. Stored
+   *  for the shadow-mode repeated-device signal (one install claiming across
+   *  many accounts). Treated as PII: stripped on account deletion
+   *  (_accountDeletion.ts) and by the 90-day retention sweep (dataRetention.ts). */
+  deviceIdHash?: string;
 }
+
+/** Max stored length of a device-id hash (SHA-256 hex is 64 chars; allow slack). */
+const MAX_DEVICE_ID_HASH_LEN = 128;
 
 export const startScoring = functions.https.onCall(async (request) => {
   const userid = request.auth?.uid;
@@ -45,7 +66,7 @@ export const startScoring = functions.https.onCall(async (request) => {
     throw new functions.https.HttpsError("unauthenticated", "Must be signed in to claim a postbox");
   }
 
-  const { lat, lng, clientTsMs } = (request.data as StartScoringCallData) ?? {};
+  const { lat, lng, clientTsMs, deviceIdHash } = (request.data as StartScoringCallData) ?? {};
   if (lat === undefined || lat === null || lng === undefined || lng === null) {
     throw new functions.https.HttpsError("invalid-argument", "lat and lng are required");
   }
@@ -57,6 +78,10 @@ export const startScoring = functions.https.onCall(async (request) => {
   }
   if (clientTsMs !== undefined && (typeof clientTsMs !== "number" || !Number.isFinite(clientTsMs))) {
     throw new functions.https.HttpsError("invalid-argument", "clientTsMs must be a finite number when provided");
+  }
+  if (deviceIdHash !== undefined &&
+      (typeof deviceIdHash !== "string" || deviceIdHash.length === 0 || deviceIdHash.length > MAX_DEVICE_ID_HASH_LEN)) {
+    throw new functions.https.HttpsError("invalid-argument", "deviceIdHash must be a non-empty string when provided");
   }
 
   // Anti-spoof: reject claims whose implied travel speed from the user's
@@ -70,7 +95,12 @@ export const startScoring = functions.https.onCall(async (request) => {
   // Hoist date computation so all return paths include dailyDate for consistency.
   const todayLondon = getTodayLondon();
 
-  const results = await lookupPostboxes(lat, lng, CLAIM_RADIUS_METERS);
+  // Fetch the Remote-Config-driven game balance once (5-min cached in _config).
+  // claim radius + per-monarch points both resolve from here, falling back to
+  // the hard-coded constants when Remote Config is absent/invalid.
+  const gameConfig = await getGameConfig();
+
+  const results = await lookupPostboxes(lat, lng, gameConfig.claimRadiusMeters);
 
   if (results.counts.total === 0) {
     return { found: false, claimed: 0, points: 0, allClaimedToday: false, dailyDate: todayLondon };
@@ -114,7 +144,7 @@ export const startScoring = functions.https.onCall(async (request) => {
       // the pre-fetch, then creates it atomically — preventing double-claims from
       // concurrent requests.
       const claimRef = database.collection('claims').doc(`${userid}_${key}_${todayLondon}`);
-      const pts = postbox.monarch !== undefined ? getPoints(postbox.monarch) : 2;
+      const pts = resolvePointsForMonarch(gameConfig, postbox.monarch);
 
       return database.runTransaction(async (tx) => {
         const claimSnap = await tx.get(claimRef);
@@ -141,6 +171,7 @@ export const startScoring = functions.https.onCall(async (request) => {
         // never write `undefined` to Firestore).
         if (clientTsMs !== undefined) claimData.clientTsMs = clientTsMs;
         if (travelSpeed !== undefined) claimData.travelSpeed = travelSpeed;
+        if (deviceIdHash !== undefined) claimData.deviceIdHash = deviceIdHash;
         tx.set(claimRef, claimData);
         // Keep dailyClaim on the postbox doc for display purposes (shows
         // "someone found this today" in future UI); does not gate claiming.

@@ -8,6 +8,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/app_preferences.dart';
+import 'package:postbox_game/remote_config_service.dart';
 import 'package:postbox_game/fuzzy_compass.dart';
 import 'package:postbox_game/james_controller.dart';
 import 'package:postbox_game/james_messages.dart';
@@ -436,7 +437,7 @@ class _LiveRouteScreenState extends State<LiveRouteScreen> {
       final dist = rawDist is num ? rawDist.toDouble() : double.infinity;
 
       if (claimedToday) continue;
-      if (dist > AppPreferences.claimRadiusMeters) continue;
+      if (dist > RemoteConfigService.instance.claimRadiusMeters) continue;
       if (_recentDismissals.containsKey(id)) continue;
 
       if (dist < bestDist) {
@@ -570,6 +571,7 @@ class _LiveRouteScreenState extends State<LiveRouteScreen> {
             child: const Text('Keep going'),
           ),
           FilledButton(
+            style: dialogActionStyle(),
             onPressed: () => Navigator.of(ctx).pop(true),
             child: const Text('End route'),
           ),

@@ -261,6 +261,7 @@ Future<PhotoUploadFailureChoice> showPhotoUploadFailedDialog(
             child: const Text('Send without photo'),
           ),
         FilledButton(
+          style: dialogActionStyle(),
           onPressed: () => Navigator.pop(context, PhotoUploadFailureChoice.retry),
           child: const Text('Try again'),
         ),

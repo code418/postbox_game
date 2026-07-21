@@ -6,6 +6,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/app_preferences.dart';
+import 'package:postbox_game/remote_config_service.dart';
 import 'package:postbox_game/james_controller.dart';
 import 'package:postbox_game/james_messages.dart';
 import 'package:postbox_game/location_service.dart';
@@ -228,7 +229,7 @@ class _ClaimState extends State<Claim> {
           textAlign: landscape ? TextAlign.start : TextAlign.center,
         );
         final subtitle = Text(
-          'Stand within ${AppPreferences.formatShortDistance(AppPreferences.claimRadiusMeters, _distanceUnit)} of a postbox, then tap below to check if you can claim it.',
+          'Stand within ${AppPreferences.formatShortDistance(RemoteConfigService.instance.claimRadiusMeters, _distanceUnit)} of a postbox, then tap below to check if you can claim it.',
           style: Theme.of(context)
               .textTheme
               .bodyMedium

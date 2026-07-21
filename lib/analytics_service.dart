@@ -37,6 +37,17 @@ class Analytics {
   static final FirebaseAnalyticsObserver observer =
       FirebaseAnalyticsObserver(analytics: _fa);
 
+  /// Toggle Analytics collection (GDPR consent gate). Collection starts OFF at
+  /// cold boot via the `firebase_analytics_collection_enabled=false` manifest
+  /// flag; this is the runtime switch driven by ConsentPreferences.
+  static Future<void> setCollectionEnabled(bool enabled) async {
+    try {
+      await _fa.setAnalyticsCollectionEnabled(enabled);
+    } catch (e) {
+      debugPrint('Analytics.setCollectionEnabled failed: $e');
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Claim scan events
   // ---------------------------------------------------------------------------
