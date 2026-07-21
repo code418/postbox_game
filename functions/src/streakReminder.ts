@@ -89,7 +89,7 @@ export function shouldNotifyStreakReminder(
  */
 export function streakReminderBody(streak: number | undefined): string {
   const base =
-    "You claimed yesterday but not yet today, squire. Claim a postbox before " +
+    "You claimed yesterday but not yet today! Claim a postbox before " +
     "midnight to keep your ";
   if (typeof streak === "number" && streak > 0) {
     return `${base}${streak}-day streak alive.`;
