@@ -22,7 +22,7 @@ lands). Their original bodies are preserved below for diff archaeology.
 | **v1.2** | Intro polish | Done |
 | **v1.3** | Platform foundations (EU region + observability) | Done |
 | **v1.4** | Trust & safety (GDPR, anti-cheat) | Done |
-| **v1.5** | Resilience & offline play | Queued — next up |
+| **v1.5** | Resilience & offline play | In flight |
 | **v1.6** | Reach (iOS + Sign in with Apple) | Deferred |
 | **v1.7** | Engagement & avatars (social loops + Postie avatar) | Deferred |
 | **v1.8** | Collection & content | Deferred |
@@ -318,7 +318,11 @@ Risk: the first sweep night backfills history in bounded pages (~6k docs/night)
 
 ---
 
-## v1.5 — Resilience & offline play  (Queued — next up)
+## v1.5 — Resilience & offline play  (In flight)
+
+> **Status**: in development on branch `feat/v1.5-resilience-offline` — App Check
+> server-side enforcement + offline Phases 1–3 + the drive-by fixes. Phase 4
+> stays unbuilt per the gate below.
 
 **Theme**: reach the *place* the game is actually played. The claim loop is a chain of
 live callable round-trips, and players hunt postboxes on foot — lanes, parks, villages —
