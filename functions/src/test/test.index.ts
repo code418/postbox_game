@@ -1,4 +1,5 @@
 import assert from "assert";
+import * as admin from "firebase-admin";
 import test from "firebase-functions-test";
 import * as myFunctions from "../index";
 import { filterToCorridor, filterToEllipse, beamSearchOrienteering, metresBetween } from "../_routePlanner";
@@ -38,7 +39,9 @@ import {
 import { getWeekStart, getMonthStart, getPeriodKey, mergePeriodEntries, mergeLifetimeEntries, updateUserLeaderboards, countySlug } from "../_leaderboardUtils";
 import { setPrecision, getLatLng, MAX_GEOHASH_PRECISION } from "../_lookupPostboxes";
 import { applyUserClaims } from "../_nearbyUtils";
-import { computeNewStreak } from "../_streakUtils";
+import { computeNewStreak, streakFromClaimDays } from "../_streakUtils";
+import { checkNeighbourSpeeds } from "../_travelSpeed";
+import { buildClaimData } from "../_claimCore";
 import { containsProfanity } from "../_profanityFilter";
 import { sanitiseName } from "../onUserCreated";
 import { checkTravelSpeed, MAX_METRES_PER_MIN } from "../_travelSpeed";
@@ -999,6 +1002,188 @@ describe("checkTravelSpeed", () => {
     });
     assert.strictEqual(res.ok, true);
     assert.ok(res.speedMPerMin < 100);
+  });
+});
+
+describe("streakFromClaimDays (v1.5 offline flush streak repair)", () => {
+  // computeNewStreak is forward-only: a live claim on Wed landing BEFORE a
+  // Tue-dated flush resets the streak to 1 with no repair. The flush path
+  // recomputes from the user's distinct claim days instead.
+  it("returns zero state for no claim days", () => {
+    assert.deepStrictEqual(
+      streakFromClaimDays([], "2026-07-21"),
+      { lastClaimDate: undefined, streak: 0 });
+  });
+
+  it("single day yields a streak of 1", () => {
+    assert.deepStrictEqual(
+      streakFromClaimDays(["2026-07-20"], "2026-07-21"),
+      { lastClaimDate: "2026-07-20", streak: 1 });
+  });
+
+  it("counts a consecutive run ending at the most recent day", () => {
+    assert.deepStrictEqual(
+      streakFromClaimDays(["2026-07-18", "2026-07-19", "2026-07-20"], "2026-07-21"),
+      { lastClaimDate: "2026-07-20", streak: 3 });
+  });
+
+  it("a gap resets the run (only the trailing run counts)", () => {
+    assert.deepStrictEqual(
+      streakFromClaimDays(["2026-07-15", "2026-07-16", "2026-07-19", "2026-07-20"], "2026-07-21"),
+      { lastClaimDate: "2026-07-20", streak: 2 });
+  });
+
+  it("input order does not matter (out-of-order flush arrival)", () => {
+    assert.deepStrictEqual(
+      streakFromClaimDays(["2026-07-20", "2026-07-18", "2026-07-19"], "2026-07-21"),
+      { lastClaimDate: "2026-07-20", streak: 3 });
+  });
+
+  it("the backdated-fill scenario: a flush plugs the hole and SAVES the streak", () => {
+    // Live claims Mon+Wed, then a Tue-dated offline claim flushes late.
+    assert.deepStrictEqual(
+      streakFromClaimDays(["2026-07-20", "2026-07-22", "2026-07-21"], "2026-07-22"),
+      { lastClaimDate: "2026-07-22", streak: 3 });
+  });
+
+  it("deduplicates repeated days (multiple boxes claimed the same day)", () => {
+    assert.deepStrictEqual(
+      streakFromClaimDays(["2026-07-20", "2026-07-20", "2026-07-19"], "2026-07-21"),
+      { lastClaimDate: "2026-07-20", streak: 2 });
+  });
+
+  it("ignores days after today (defensive against bad data)", () => {
+    assert.deepStrictEqual(
+      streakFromClaimDays(["2026-07-20", "2026-07-25"], "2026-07-21"),
+      { lastClaimDate: "2026-07-20", streak: 1 });
+  });
+
+  it("crosses a month boundary correctly", () => {
+    assert.deepStrictEqual(
+      streakFromClaimDays(["2026-06-30", "2026-07-01"], "2026-07-02"),
+      { lastClaimDate: "2026-07-01", streak: 2 });
+  });
+});
+
+describe("checkNeighbourSpeeds (v1.5 two-sided travel check)", () => {
+  // ~degree of latitude in metres, matching the checkTravelSpeed suite.
+  const mPerDegLat = 111_320;
+  const at = (metresNorth: number, tMs: number) => ({
+    lat: 51.5 + metresNorth / mPerDegLat,
+    lng: -0.1,
+    tMs,
+  });
+
+  it("accepts with no neighbours (first claim)", () => {
+    const r = checkNeighbourSpeeds(at(0, 1_000_000));
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(r.speedPrev, undefined);
+    assert.strictEqual(r.speedNext, undefined);
+  });
+
+  it("accepts a plausible insert between two neighbours", () => {
+    // 80 m in 60 s on each side — walking pace.
+    const r = checkNeighbourSpeeds(
+      at(80, 1_060_000),
+      at(0, 1_000_000),
+      at(160, 1_120_000),
+    );
+    assert.strictEqual(r.ok, true);
+    assert.ok(r.speedPrev !== undefined && r.speedPrev < 100);
+    assert.ok(r.speedNext !== undefined && r.speedNext < 100);
+  });
+
+  it("rejects an implausible speed against the PREVIOUS neighbour", () => {
+    // 50 km in one minute from the previous claim.
+    const r = checkNeighbourSpeeds(at(50_000, 1_060_000), at(0, 1_000_000));
+    assert.strictEqual(r.ok, false);
+  });
+
+  it("rejects an implausible speed against the NEXT neighbour (backdating)", () => {
+    // Claim backdated to just before a known distant live claim: 50 km gap,
+    // one minute apart. One-sided checks miss exactly this.
+    const r = checkNeighbourSpeeds(
+      at(0, 1_000_000),
+      undefined,
+      at(50_000, 1_060_000),
+    );
+    assert.strictEqual(r.ok, false);
+  });
+
+  it("prev-only check still enforces (the live-claim shape)", () => {
+    const r = checkNeighbourSpeeds(at(80, 1_060_000), at(0, 1_000_000));
+    assert.strictEqual(r.ok, true);
+    assert.ok(r.speedPrev !== undefined);
+    assert.strictEqual(r.speedNext, undefined);
+  });
+});
+
+describe("buildClaimData (v1.5 claim doc construction)", () => {
+  const ts = admin.firestore.Timestamp.fromMillis(1_800_000_000_000);
+  const base = {
+    userid: "u1",
+    postboxKey: "osm_123",
+    points: 7,
+    claimDate: "2026-07-21",
+    lat: 51.5,
+    lng: -0.1,
+    timestamp: ts,
+    eventTime: ts,
+  };
+
+  it("live claim: eventTime equals the server timestamp, no offline fields", () => {
+    const d = buildClaimData(base);
+    assert.strictEqual(d.timestamp, ts);
+    assert.strictEqual(d.eventTime, ts);
+    assert.strictEqual(d.userid, "u1");
+    assert.strictEqual(d.postboxes, "/postbox/osm_123");
+    assert.strictEqual(d.points, 7);
+    assert.strictEqual(d.dailyDate, "2026-07-21");
+    assert.ok(!("offline" in d));
+    assert.ok(!("queuedForMs" in d));
+    assert.ok(!("monarch" in d), "absent monarch must be omitted");
+    assert.ok(!("clientTsMs" in d));
+    assert.ok(!("deviceIdHash" in d));
+    assert.ok(!("travelSpeed" in d));
+  });
+
+  it("includes optional shadow-signal fields only when provided", () => {
+    const d = buildClaimData({
+      ...base,
+      monarch: "VR",
+      clientTsMs: 123,
+      travelSpeed: 45.6,
+      deviceIdHash: "abc",
+    });
+    assert.strictEqual(d.monarch, "VR");
+    assert.strictEqual(d.clientTsMs, 123);
+    assert.strictEqual(d.travelSpeed, 45.6);
+    assert.strictEqual(d.deviceIdHash, "abc");
+  });
+
+  it("offline claim: server-derived offline flag + queue metadata", () => {
+    const evt = admin.firestore.Timestamp.fromMillis(1_799_990_000_000);
+    const d = buildClaimData({
+      ...base,
+      eventTime: evt,
+      offline: {
+        queuedForMs: 10_000_000,
+        batchSize: 3,
+        batchSpanMs: 600_000,
+        flushClientTsMs: 1_800_000_000_500,
+      },
+    });
+    assert.strictEqual(d.offline, true);
+    assert.strictEqual(d.eventTime, evt);
+    assert.strictEqual(d.queuedForMs, 10_000_000);
+    assert.strictEqual(d.batchSize, 3);
+    assert.strictEqual(d.batchSpanMs, 600_000);
+    assert.strictEqual(d.flushClientTsMs, 1_800_000_000_500);
+  });
+
+  it("writes the rounded coordKey6 for the clustering signal", () => {
+    const d = buildClaimData(base);
+    assert.strictEqual(d.coordKey6, "51.500000,-0.100000");
   });
 });
 

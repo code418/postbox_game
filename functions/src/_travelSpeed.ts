@@ -45,3 +45,66 @@ export function checkTravelSpeed(input: TravelSpeedCheckInput): TravelSpeedCheck
     elapsedMinutes,
   };
 }
+
+/** A claim adjacent (by eventTime) to the one being adjudicated. */
+export interface NeighbourPoint {
+  lat: number;
+  lng: number;
+  tMs: number;
+}
+
+export interface NeighbourSpeedResult {
+  ok: boolean;
+  /** Implied speed vs the previous neighbour (persisted as `travelSpeed`). */
+  speedPrev?: number;
+  /** Implied speed vs the next neighbour (diagnostics only). */
+  speedNext?: number;
+}
+
+/**
+ * Two-sided travel-speed check (ROADMAP v1.5, offline play Phase 2): a claim
+ * at time `t` must be physically plausible against BOTH the nearest stored
+ * claim before `t` and the nearest after it.
+ *
+ * One-sided checks ("reject anything older than your newest claim") would
+ * permanently strand a legitimate late flush; two-sided INSERTS into the
+ * timeline instead — and catches backdating a capture to just before a
+ * known-distant live claim, which the prev-only check cannot see.
+ *
+ * Pure composition over [checkTravelSpeed] (whose signature is pinned by a
+ * substantial test suite and must not change).
+ */
+export function checkNeighbourSpeeds(
+  current: NeighbourPoint,
+  prev?: NeighbourPoint,
+  next?: NeighbourPoint,
+): NeighbourSpeedResult {
+  let speedPrev: number | undefined;
+  let speedNext: number | undefined;
+  let ok = true;
+  if (prev) {
+    const r = checkTravelSpeed({
+      lastLat: prev.lat,
+      lastLng: prev.lng,
+      lastTimestampMs: prev.tMs,
+      currentLat: current.lat,
+      currentLng: current.lng,
+      nowMs: current.tMs,
+    });
+    speedPrev = r.speedMPerMin;
+    ok = ok && r.ok;
+  }
+  if (next) {
+    const r = checkTravelSpeed({
+      lastLat: current.lat,
+      lastLng: current.lng,
+      lastTimestampMs: current.tMs,
+      currentLat: next.lat,
+      currentLng: next.lng,
+      nowMs: next.tMs,
+    });
+    speedNext = r.speedMPerMin;
+    ok = ok && r.ok;
+  }
+  return { ok, speedPrev, speedNext };
+}

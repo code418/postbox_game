@@ -14,9 +14,9 @@ import { getGameConfig, resolvePointsForMonarch } from "./_config";
 import { getTodayLondon } from "./_dateUtils";
 import { lookupPostboxes, getLatLng } from "./_lookupPostboxes";
 import { updateUserLeaderboards, mergeLifetimeEntries, LifetimeLeaderboardEntry, getWeekStart, getMonthStart, countySlug } from "./_leaderboardUtils";
-import { computeNewStreak } from "./_streakUtils";
+import { computeNewStreak, streakFromClaimDays } from "./_streakUtils";
 import { notifyFriendsFirstClaim, notifyFriendOvertake } from "./_notifications";
-import { checkTravelSpeed } from "./_travelSpeed";
+import { checkNeighbourSpeeds, NeighbourPoint } from "./_travelSpeed";
 import { coordKey } from "./_abuseSignals";
 
 const database = admin.firestore();
@@ -35,12 +35,94 @@ export function dailyClaimPatch(date: string): { dailyClaim: { date: string } } 
   return { dailyClaim: { date } };
 }
 
+/** Queue metadata for a claim adjudicated by the offline flush path. Derived
+ *  SERVER-SIDE from which handler ran — never from client payload, or
+ *  `offline` becomes a self-declared exemption from the abuse signals. */
+export interface OfflineClaimMeta {
+  /** How long the capture sat in the client outbox before flushing. */
+  queuedForMs: number;
+  /** Number of captures in the flush batch this claim arrived with. */
+  batchSize: number;
+  /** Time span covered by the batch's capture times. */
+  batchSpanMs: number;
+  /** Client wall-clock at FLUSH time (clock-skew signal — the capture-time
+   *  clientTsMs is meaningless for an offline claim's out-of-window check). */
+  flushClientTsMs?: number;
+}
+
 /** Optional inputs to [scoreClaimAt] beyond the position. */
 export interface ScoreClaimOptions {
   /** Client wall-clock at claim time (shadow-mode out-of-window signal). */
   clientTsMs?: number;
   /** Per-install random id (shadow-mode repeated-device signal). */
   deviceIdHash?: string;
+  /** When the user was physically at the position (ms since epoch). Defaults
+   *  to now (live claim). The flush path passes the verified capture time. */
+  eventTimeMs?: number;
+  /** The London day the claim belongs to (YYYY-MM-DD). Defaults to the real
+   *  today. The flush path passes the capture day so the claim doc, dedup id
+   *  and claimedToday comparisons all use the day the user was there.
+   *  NEVER passed to updateUserLeaderboards — see the leaderboard note below. */
+  claimDate?: string;
+  /** Present iff this claim is being adjudicated by flushOfflineClaims. */
+  offline?: OfflineClaimMeta;
+}
+
+/** Everything needed to construct one claim document. Pure — exported for
+ *  unit tests pinning the eventTime/offline field semantics. */
+export interface BuildClaimDataInput {
+  userid: string;
+  postboxKey: string;
+  points: number;
+  claimDate: string;
+  lat: number;
+  lng: number;
+  /** Immutable server-write time — the audit trail; abuse.ts reads it. */
+  timestamp: admin.firestore.Timestamp;
+  /** When the user was physically there. Equal to [timestamp] for live
+   *  claims; the verified capture time for flushed offline claims. The
+   *  travel-speed neighbour queries order by THIS field. */
+  eventTime: admin.firestore.Timestamp;
+  monarch?: string;
+  clientTsMs?: number;
+  travelSpeed?: number;
+  deviceIdHash?: string;
+  offline?: OfflineClaimMeta;
+}
+
+export function buildClaimData(inp: BuildClaimDataInput): Record<string, unknown> {
+  const d: Record<string, unknown> = {
+    userid: inp.userid,
+    timestamp: inp.timestamp,
+    eventTime: inp.eventTime,
+    validated: false,
+    postboxes: `/postbox/${inp.postboxKey}`,
+    points: inp.points,
+    dailyDate: inp.claimDate,
+    // Persist the user's GPS at claim time so the next claim's travel-speed
+    // check uses the user's own position, not the postbox coordinates.
+    userLat: inp.lat,
+    userLng: inp.lng,
+    // Rounded coordinate key for the shadow-mode clustering signal — lets
+    // the onClaimCreated trigger count same-spot claims with an equality
+    // query instead of scanning raw doubles.
+    coordKey6: coordKey(inp.lat, inp.lng),
+  };
+  // Optional fields are omitted (never undefined) so Firestore writes stay clean.
+  if (inp.monarch !== undefined) d.monarch = inp.monarch;
+  if (inp.clientTsMs !== undefined) d.clientTsMs = inp.clientTsMs;
+  if (inp.travelSpeed !== undefined) d.travelSpeed = inp.travelSpeed;
+  if (inp.deviceIdHash !== undefined) d.deviceIdHash = inp.deviceIdHash;
+  if (inp.offline) {
+    d.offline = true;
+    d.queuedForMs = inp.offline.queuedForMs;
+    d.batchSize = inp.offline.batchSize;
+    d.batchSpanMs = inp.offline.batchSpanMs;
+    if (inp.offline.flushClientTsMs !== undefined) {
+      d.flushClientTsMs = inp.offline.flushClientTsMs;
+    }
+  }
+  return d;
 }
 
 /**
@@ -54,35 +136,41 @@ export async function scoreClaimAt(
   lng: number,
   opts: ScoreClaimOptions = {},
 ): Promise<Record<string, unknown>> {
-  const { clientTsMs, deviceIdHash } = opts;
-  // Anti-spoof: reject claims whose implied travel speed from the user's
-  // previous claim exceeds a liberal physical limit. Fail-open when the
-  // previous claim's location can't be resolved (e.g. legacy claims where
-  // neither userLat/userLng nor the referenced postbox geopoint are
-  // available). Returns the computed speed (m/min) so it can be persisted on
-  // the new claim for the shadow-mode anomaly detector; undefined when skipped.
-  const travelSpeed = await enforceTravelSpeedLimit(userid, lat, lng);
+  const { clientTsMs, deviceIdHash, offline } = opts;
+  const nowMs = Date.now();
+  const eventTimeMs = opts.eventTimeMs ?? nowMs;
 
-  // Hoist date computation so all return paths include dailyDate for consistency.
+  // Hoist date computation so all return paths include dailyDate for
+  // consistency. todayLondon is ALWAYS the real today (leaderboards depend on
+  // it — see the landmine note below); claimDate is the day the user was
+  // physically at the box, which differs only on the offline flush path.
   const todayLondon = getTodayLondon();
+  const claimDate = opts.claimDate ?? todayLondon;
+
+  // Anti-spoof: reject claims implausibly fast against BOTH eventTime
+  // neighbours (the claim before and after the claimed moment). Fail-open per
+  // side when a neighbour's location can't be resolved. Returns the implied
+  // speed vs the previous claim for the shadow-mode anomaly detector.
+  const travelSpeed = await enforceNeighbourSpeedLimit(userid, lat, lng, eventTimeMs);
 
   // Fetch the Remote-Config-driven game balance once (5-min cached in _config).
   // claim radius + per-monarch points both resolve from here, falling back to
   // the hard-coded constants when Remote Config is absent/invalid.
   const gameConfig = await getGameConfig();
 
-  const results = await lookupPostboxes(lat, lng, gameConfig.claimRadiusMeters);
+  const results = await lookupPostboxes(lat, lng, gameConfig.claimRadiusMeters, claimDate);
 
   if (results.counts.total === 0) {
-    return { found: false, claimed: 0, points: 0, allClaimedToday: false, dailyDate: todayLondon };
+    return { found: false, claimed: 0, points: 0, allClaimedToday: false, dailyDate: claimDate };
   }
 
-  // Pre-fetch this user's today claims so we can check per-user claim status
-  // without a postbox-document read inside every transaction.  One query covers
-  // all postboxes in range; we extract the postbox keys from the stored path.
+  // Pre-fetch this user's claims for the claim day so we can check per-user
+  // claim status without a postbox-document read inside every transaction.
+  // One query covers all postboxes in range; we extract the postbox keys from
+  // the stored path.
   const userClaimsSnap = await database.collection('claims')
     .where('userid', '==', userid)
-    .where('dailyDate', '==', todayLondon)
+    .where('dailyDate', '==', claimDate)
     .get();
   const userClaimedKeys = new Set(
     userClaimsSnap.docs
@@ -91,13 +179,13 @@ export async function scoreClaimAt(
       .map(ref => ref.replace(/^\/postbox\//, ""))
   );
 
-  // Fast-path: if every postbox in range was already claimed today by THIS USER,
-  // skip all transactions.  Uses per-user data so other players' claims don't
-  // block the current user.
+  // Fast-path: if every postbox in range was already claimed on the claim day
+  // by THIS USER, skip all transactions.  Uses per-user data so other players'
+  // claims don't block the current user.
   const userClaimedInRange = Object.keys(results.postboxes)
     .filter(k => userClaimedKeys.has(k)).length;
   if (userClaimedInRange === results.counts.total) {
-    return { found: true, claimed: 0, points: 0, allClaimedToday: true, dailyDate: todayLondon };
+    return { found: true, claimed: 0, points: 0, allClaimedToday: true, dailyDate: claimDate };
   }
 
   // Use allSettled so a single transient transaction failure does not discard
@@ -114,40 +202,39 @@ export async function scoreClaimAt(
       // The transaction reads this doc to confirm the user hasn't claimed since
       // the pre-fetch, then creates it atomically — preventing double-claims from
       // concurrent requests.
-      const claimRef = database.collection('claims').doc(`${userid}_${key}_${todayLondon}`);
+      const claimRef = database.collection('claims').doc(`${userid}_${key}_${claimDate}`);
       const pts = resolvePointsForMonarch(gameConfig, postbox.monarch);
 
       return database.runTransaction(async (tx) => {
         const claimSnap = await tx.get(claimRef);
         if (claimSnap.exists) return null; // concurrent request already claimed
 
-        const claimData: Record<string, unknown> = {
+        const writeTs = admin.firestore.Timestamp.now();
+        tx.set(claimRef, buildClaimData({
           userid,
-          timestamp: admin.firestore.Timestamp.now(),
-          validated: false,
-          postboxes: `/postbox/${key}`,
+          postboxKey: key,
           points: pts,
-          dailyDate: todayLondon,
-          // Persist the user's GPS at claim time so the next claim's travel-speed
-          // check uses the user's own position, not the postbox coordinates.
-          userLat: lat,
-          userLng: lng,
-          // Rounded coordinate key for the shadow-mode clustering signal — lets
-          // the onClaimCreated trigger count same-spot claims with an equality
-          // query instead of scanning raw doubles.
-          coordKey6: coordKey(lat, lng),
-        };
-        if (postbox.monarch !== undefined) claimData.monarch = postbox.monarch;
-        // Shadow-mode anomaly inputs (optional — omitted when unavailable so we
-        // never write `undefined` to Firestore).
-        if (clientTsMs !== undefined) claimData.clientTsMs = clientTsMs;
-        if (travelSpeed !== undefined) claimData.travelSpeed = travelSpeed;
-        if (deviceIdHash !== undefined) claimData.deviceIdHash = deviceIdHash;
-        tx.set(claimRef, claimData);
+          claimDate,
+          lat,
+          lng,
+          timestamp: writeTs,
+          // Live claims: the claimed moment IS the write moment. Flush: the
+          // verified capture time.
+          eventTime: opts.eventTimeMs !== undefined
+            ? admin.firestore.Timestamp.fromMillis(opts.eventTimeMs)
+            : writeTs,
+          monarch: postbox.monarch,
+          clientTsMs,
+          travelSpeed,
+          deviceIdHash,
+          offline,
+        }));
         // Keep dailyClaim on the postbox doc for display purposes (shows
         // "someone found this today" in future UI); does not gate claiming.
         // The claimant's uid is deliberately NOT written — see dailyClaimPatch.
-        tx.set(postboxRef, dailyClaimPatch(todayLondon), { merge: true });
+        // Backdated claims write their capture day, which correctly does NOT
+        // read as "found today" in _lookupPostboxes.
+        tx.set(postboxRef, dailyClaimPatch(claimDate), { merge: true });
         return { key, pts };
       });
     })
@@ -184,6 +271,7 @@ export async function scoreClaimAt(
     yesterdayDate.setUTCDate(yesterdayDate.getUTCDate() - 1);
     const yesterday = yesterdayDate.toISOString().slice(0, 10);
     const userRef = database.collection("users").doc(userid);
+    const isBackdated = claimDate !== todayLondon;
 
     // Fetch displayName and update streak in parallel. The streak transaction
     // only writes lastClaimDate/streak — never displayName — so both
@@ -193,17 +281,27 @@ export async function scoreClaimAt(
       // Update daily-claim streak. Runs server-side (Admin SDK) because
       // Firestore rules restrict client writes on users/{uid} to the friends
       // array only, to prevent profanity-filter bypass on displayName.
-      database.runTransaction(async (tx) => {
-        const snap = await tx.get(userRef);
-        const d = snap.data() ?? {};
-        const lastClaimDate = d.lastClaimDate as string | undefined;
-        const currentStreak = (d.streak as number | undefined) ?? 0;
-        const newStreak = computeNewStreak(lastClaimDate, currentStreak, todayLondon, yesterday);
-        if (newStreak === null) return; // already updated today
-        tx.set(userRef, { lastClaimDate: todayLondon, streak: newStreak }, { merge: true });
-      }).catch((streakErr) => {
-        console.error("streak update failed (non-fatal):", streakErr);
-      }),
+      //
+      // Live claims keep the cheap incremental computeNewStreak. A BACKDATED
+      // claim (offline flush) instead recomputes from the user's distinct
+      // claim days — computeNewStreak is forward-only and a Tuesday-dated
+      // flush landing after Wednesday's live claim would otherwise never
+      // repair the chain. This is what turns a late flush into a SAVED streak.
+      isBackdated
+        ? recomputeStreakFromClaims(userid, todayLondon).catch((streakErr) => {
+            console.error("streak recompute failed (non-fatal):", streakErr);
+          })
+        : database.runTransaction(async (tx) => {
+            const snap = await tx.get(userRef);
+            const d = snap.data() ?? {};
+            const lastClaimDate = d.lastClaimDate as string | undefined;
+            const currentStreak = (d.streak as number | undefined) ?? 0;
+            const newStreak = computeNewStreak(lastClaimDate, currentStreak, todayLondon, yesterday);
+            if (newStreak === null) return; // already updated today
+            tx.set(userRef, { lastClaimDate: todayLondon, streak: newStreak }, { merge: true });
+          }).catch((streakErr) => {
+            console.error("streak update failed (non-fatal):", streakErr);
+          }),
     ]);
     const displayName =
       (userDoc.data()?.displayName as string | undefined) ||
@@ -213,20 +311,30 @@ export async function scoreClaimAt(
     // updateUserLeaderboards uses Promise.allSettled internally and never
     // throws; uniqueness checks use allSettled so individual read failures
     // only affect that postbox's unique count without aborting the rest.
+    //
+    // ⚠️ updateUserLeaderboards must ALWAYS receive the REAL today, never a
+    // backdated claimDate: a stale day makes its periodKey mismatch, which
+    // empties `existing` and rewrites the daily board with {merge:false} —
+    // wiping every player's daily leaderboard under yesterday's key. Its
+    // weekly/monthly range queries pick up a backdated claim automatically;
+    // a *closed* daily board is the only thing not credited, and no UI can
+    // display one. Pinned by the "backdated today must not clobber the daily
+    // board" test.
     const [periodSums, uniqueCheckResults] = await Promise.all([
       updateUserLeaderboards(userid, displayName, todayLondon, database),
       Promise.allSettled(
-        // For each postbox claimed this session, check whether the user has any
-        // prior claim on a different day. Empty result → first-ever claim for
-        // that postbox → increment the unique counter by 1.
+        // For each postbox claimed this session, count the user's claims on
+        // that box — the claim just written included. Exactly 1 → first-ever
+        // claim → increment the unique counter. (The previous
+        // `dailyDate < today` probe missed LATER same-box claims when
+        // adjudicating a backdated capture and double-counted uniques.)
         successfulClaims.map(({ key }) =>
           database.collection("claims")
             .where("userid", "==", userid)
             .where("postboxes", "==", `/postbox/${key}`)
-            .where("dailyDate", "<", todayLondon)
-            .limit(1)
+            .count()
             .get()
-            .then((snap) => snap.empty ? 1 : 0)
+            .then((agg) => (agg.data().count === 1 ? 1 : 0))
         )
       ),
     ]);
@@ -288,9 +396,11 @@ export async function scoreClaimAt(
         // streak tx committed and we leave it alone. Otherwise, compute the
         // streak update inline and include it in this tx's write so a
         // dropped streak update doesn't permanently break the user's chain.
+        // LIVE PATH ONLY: this fallback assumes the claim happened today, so
+        // it would corrupt the recomputed streak of a backdated flush claim.
         const lastClaimDate = d.lastClaimDate as string | undefined;
         const currentStreak = (d.streak as number | undefined) ?? 0;
-        const fallbackStreak = lastClaimDate === todayLondon
+        const fallbackStreak = (isBackdated || lastClaimDate === todayLondon)
           ? null
           : computeNewStreak(lastClaimDate, currentStreak, todayLondon, yesterday);
 
@@ -402,7 +512,19 @@ export async function scoreClaimAt(
 
     // Fire-and-forget social notifications — not awaited so claim latency is
     // unaffected. userClaimsSnap.docs.length === 0 means this is the user's
-    // first claim of the day.
+    // first claim of the day. Suppressed for backdated flush claims: the
+    // pre-fetch covers the CAPTURE day, so "first claim of the day" and the
+    // daily-points overtake comparison would both be computed against the
+    // wrong day.
+    if (isBackdated) {
+      return {
+        found: true,
+        claimed: earnedPoints.length,
+        points: earnedPoints.reduce((s, p) => s + p, 0),
+        allClaimedToday: earnedPoints.length === 0,
+        dailyDate: claimDate,
+      };
+    }
     void (async () => {
       try {
         const isFirstClaimToday = userClaimsSnap.docs.length === 0;
@@ -437,61 +559,117 @@ export async function scoreClaimAt(
     claimed: earnedPoints.length,
     points: earnedPoints.reduce((s, p) => s + p, 0),
     allClaimedToday: earnedPoints.length === 0,
-    dailyDate: todayLondon,
+    dailyDate: claimDate,
   };
 }
 
-/** Resolve the user's most recent claim location and reject the request if
- *  the implied travel speed exceeds MAX_METRES_PER_MIN. Location resolution
- *  order: (1) userLat/userLng stored on the claim doc (written going
- *  forward); (2) geopoint of the referenced postbox (legacy fallback). If
- *  neither yields a coordinate pair, the check is skipped.
- *
- *  Returns the implied speed (m/min) for the caller to persist on the new claim
- *  (shadow-mode anomaly detector), or `undefined` when the check was skipped
- *  (no previous claim / no resolvable location). Throws on hard-limit breach. */
-async function enforceTravelSpeedLimit(userid: string, currentLat: number, currentLng: number): Promise<number | undefined> {
-  const lastSnap = await database.collection("claims")
+/** How far back the streak recompute scans for claim days. Comfortably above
+ *  any realistic streak while bounding the projection query. */
+const STREAK_RECOMPUTE_WINDOW_DAYS = 400;
+
+/** Recompute `users/{uid}.{lastClaimDate,streak}` from the user's distinct
+ *  claim days (bounded window). Used by the backdated flush path only — see
+ *  the call site in scoreClaimAt for why the incremental path can't repair
+ *  out-of-order days. */
+async function recomputeStreakFromClaims(userid: string, today: string): Promise<void> {
+  const windowStart = new Date(today + "T00:00:00Z");
+  windowStart.setUTCDate(windowStart.getUTCDate() - STREAK_RECOMPUTE_WINDOW_DAYS);
+  const startDay = windowStart.toISOString().slice(0, 10);
+  const snap = await database.collection("claims")
     .where("userid", "==", userid)
-    .orderBy("timestamp", "desc")
-    .limit(1)
+    .where("dailyDate", ">=", startDay)
+    .select("dailyDate")
     .get();
-  if (lastSnap.empty) return undefined;
-  const last = lastSnap.docs[0].data();
-  const tsMs = (last.timestamp as admin.firestore.Timestamp | undefined)?.toMillis?.();
-  if (!tsMs) return undefined;
+  const days = snap.docs
+    .map((d) => d.data().dailyDate as string | undefined)
+    .filter((d): d is string => typeof d === "string");
+  const { lastClaimDate, streak } = streakFromClaimDays(days, today);
+  if (lastClaimDate === undefined) return;
+  await database.collection("users").doc(userid)
+    .set({ lastClaimDate, streak }, { merge: true });
+}
 
-  let lastLat = typeof last.userLat === "number" ? (last.userLat as number) : undefined;
-  let lastLng = typeof last.userLng === "number" ? (last.userLng as number) : undefined;
+/** Resolve a claim's location: (1) userLat/userLng stored on the claim doc
+ *  (written going forward); (2) geopoint of the referenced postbox (legacy
+ *  fallback). Returns undefined when neither yields a coordinate pair. */
+async function resolveClaimPoint(
+  claim: FirebaseFirestore.DocumentData,
+): Promise<{ lat: number; lng: number } | undefined> {
+  const lat = typeof claim.userLat === "number" ? (claim.userLat as number) : undefined;
+  const lng = typeof claim.userLng === "number" ? (claim.userLng as number) : undefined;
+  if (lat !== undefined && lng !== undefined) return { lat, lng };
 
-  if (lastLat === undefined || lastLng === undefined) {
-    const postboxPath = last.postboxes as string | undefined;
-    const postboxKey = typeof postboxPath === "string"
-      ? postboxPath.replace(/^\/postbox\//, "")
-      : undefined;
-    if (!postboxKey) return undefined;
-    const postboxSnap = await database.collection("postbox").doc(postboxKey).get();
-    if (!postboxSnap.exists) return undefined;
-    const geo = getLatLng((postboxSnap.data() ?? {}).geopoint);
-    if (!geo) return undefined;
-    lastLat = geo.lat;
-    lastLng = geo.lng;
-  }
+  const postboxPath = claim.postboxes as string | undefined;
+  const postboxKey = typeof postboxPath === "string"
+    ? postboxPath.replace(/^\/postbox\//, "")
+    : undefined;
+  if (!postboxKey) return undefined;
+  const postboxSnap = await database.collection("postbox").doc(postboxKey).get();
+  if (!postboxSnap.exists) return undefined;
+  const geo = getLatLng((postboxSnap.data() ?? {}).geopoint);
+  if (!geo) return undefined;
+  return { lat: geo.lat, lng: geo.lng };
+}
 
-  const check = checkTravelSpeed({
-    lastLat,
-    lastLng,
-    lastTimestampMs: tsMs,
-    currentLat,
-    currentLng,
-    nowMs: Date.now(),
-  });
-  if (!check.ok) {
-    console.warn(`travel-speed check rejected uid=${userid} speed=${check.speedMPerMin.toFixed(1)} m/min distance=${check.distanceMetres}m elapsedMin=${check.elapsedMinutes.toFixed(3)}`);
+/** Load one eventTime-neighbour of the claimed moment as a NeighbourPoint,
+ *  fail-open (undefined) when absent or unresolvable. */
+async function loadNeighbour(
+  query: FirebaseFirestore.Query,
+): Promise<NeighbourPoint | undefined> {
+  const snap = await query.limit(1).get();
+  if (snap.empty) return undefined;
+  const claim = snap.docs[0].data();
+  const tMs = (claim.eventTime as admin.firestore.Timestamp | undefined)?.toMillis?.();
+  if (!tMs) return undefined;
+  const point = await resolveClaimPoint(claim);
+  if (!point) return undefined;
+  return { ...point, tMs };
+}
+
+/** Two-sided anti-spoof (ROADMAP v1.5 Phase 2): the claimed moment must be
+ *  physically plausible against the nearest stored claim BEFORE it and the
+ *  nearest AFTER it (by `eventTime`). For a live claim the after-query is
+ *  normally empty and this degrades to the historical prev-only check.
+ *
+ *  ⚠️ Firestore excludes documents missing the orderBy field, so claims
+ *  created before the eventTime backfill are invisible here — the deploy
+ *  sequence REQUIRES scripts/backfill_event_time.ts to run first.
+ *
+ *  Returns the implied speed vs the previous claim (persisted as
+ *  `travelSpeed` for the shadow-mode detector), or undefined when skipped.
+ *  Throws failed-precondition on breach. */
+async function enforceNeighbourSpeedLimit(
+  userid: string,
+  lat: number,
+  lng: number,
+  eventTimeMs: number,
+): Promise<number | undefined> {
+  const evt = admin.firestore.Timestamp.fromMillis(eventTimeMs);
+  const claims = database.collection("claims");
+  const [prev, next] = await Promise.all([
+    loadNeighbour(
+      claims.where("userid", "==", userid)
+        .where("eventTime", "<=", evt)
+        .orderBy("eventTime", "desc"),
+    ),
+    loadNeighbour(
+      claims.where("userid", "==", userid)
+        .where("eventTime", ">=", evt)
+        .orderBy("eventTime", "asc"),
+    ),
+  ]);
+
+  const result = checkNeighbourSpeeds({ lat, lng, tMs: eventTimeMs }, prev, next);
+  if (!result.ok) {
+    console.warn(
+      `travel-speed check rejected uid=${userid} ` +
+      `speedPrev=${result.speedPrev?.toFixed(1) ?? "-"} ` +
+      `speedNext=${result.speedNext?.toFixed(1) ?? "-"} m/min`,
+    );
     throw new functions.https.HttpsError(
       "failed-precondition",
       "You're travelling too fast — slow down before your next postbox claim."
     );
   }
-  return check.speedMPerMin;
+  return result.speedPrev;
 }
