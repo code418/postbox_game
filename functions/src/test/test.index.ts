@@ -13,6 +13,10 @@ import {
   getPointsForMonarch,
   setConfigLoaderForTest,
   DEFAULT_CLAIM_RADIUS_METERS,
+  sanitiseGraceHours,
+  sanitiseMaxOfflinePerDay,
+  DEFAULT_OFFLINE_GRACE_HOURS,
+  DEFAULT_MAX_OFFLINE_CLAIMS_PER_DAY,
   type GameConfig,
 } from "../_config";
 
@@ -21,12 +25,28 @@ import {
 // the whole run so startScoring / _recomputeScores paths resolve to the
 // hard-coded points+radius without a network call; the _config caching tests
 // override it per-test and restore this in afterEach.
+// Offline-tunable defaults for GameConfig stubs (fields added in v1.5).
+const offlineDefaults = {
+  offlineClaimsKilled: false,
+  offlineGraceHours: DEFAULT_OFFLINE_GRACE_HOURS,
+  maxOfflineClaimsPerDay: DEFAULT_MAX_OFFLINE_CLAIMS_PER_DAY,
+  maintenanceMode: false,
+} as const;
+
 const fallbackGameConfig = async (): Promise<GameConfig> => ({
   claimRadiusMeters: DEFAULT_CLAIM_RADIUS_METERS,
   pointsOverride: null,
+  ...offlineDefaults,
 });
 before(() => setConfigLoaderForTest(fallbackGameConfig));
-import { getTodayLondon, previousDay, getLondonHourMinute } from "../_dateUtils";
+import { getTodayLondon, previousDay, getLondonHourMinute, getLondonDayOf } from "../_dateUtils";
+import { signScanToken, verifyScanToken } from "../_scanToken";
+import {
+  validateFlushBatch,
+  nextQuotaStateBy,
+  MAX_FLUSH_BATCH,
+  MAX_SCAN_DISTANCE_M,
+} from "../flushOfflineClaims";
 import {
   decideFire,
   slotForLondonTime,
@@ -114,6 +134,7 @@ describe("_config: resolvePointsForMonarch", () => {
   const cfg = (pointsOverride: Record<string, number> | null): GameConfig => ({
     claimRadiusMeters: 30,
     pointsOverride,
+    ...offlineDefaults,
   });
   it("uses the override when present for the monarch", () =>
     assert.strictEqual(resolvePointsForMonarch(cfg({ VR: 8 }), "VR"), 8));
@@ -134,7 +155,7 @@ describe("_config: getGameConfig caching", () => {
     let calls = 0;
     setConfigLoaderForTest(async () => {
       calls++;
-      return { claimRadiusMeters: 40 + calls, pointsOverride: null };
+      return { claimRadiusMeters: 40 + calls, pointsOverride: null, ...offlineDefaults };
     });
     const t0 = 1_000_000;
     const a = await getGameConfig(t0);
@@ -150,6 +171,7 @@ describe("_config: getGameConfig caching", () => {
     setConfigLoaderForTest(async () => ({
       claimRadiusMeters: 55,
       pointsOverride: { VR: 8 },
+      ...offlineDefaults,
     }));
     assert.strictEqual(await getClaimRadiusMeters(), 55);
     assert.strictEqual(await getPointsForMonarch("VR"), 8);
@@ -1002,6 +1024,184 @@ describe("checkTravelSpeed", () => {
     });
     assert.strictEqual(res.ok, true);
     assert.ok(res.speedMPerMin < 100);
+  });
+});
+
+describe("getLondonDayOf (v1.5 backdated claim days)", () => {
+  it("formats an arbitrary instant as a London calendar day", () => {
+    // 2026-01-15 23:30 UTC in GMT (winter) is still Jan 15 in London.
+    assert.strictEqual(getLondonDayOf(new Date("2026-01-15T23:30:00Z")), "2026-01-15");
+  });
+  it("handles the BST offset (summer): 23:30 UTC is the NEXT London day", () => {
+    assert.strictEqual(getLondonDayOf(new Date("2026-07-15T23:30:00Z")), "2026-07-16");
+  });
+  it("agrees with getTodayLondon for now", () => {
+    assert.strictEqual(getLondonDayOf(new Date()), getTodayLondon());
+  });
+});
+
+describe("scan token sign/verify (v1.5 offline capture token)", () => {
+  const SECRET = "test-secret-0123456789abcdef";
+  const payload = {
+    uid: "u1",
+    lat: 51.5,
+    lng: -0.12,
+    issuedAtMs: 1_800_000_000_000,
+    nonce: "abc123",
+  };
+
+  it("round-trips a signed token back to its payload", () => {
+    const token = signScanToken(payload, SECRET);
+    assert.strictEqual(typeof token, "string");
+    const back = verifyScanToken(token, "u1", SECRET);
+    assert.deepStrictEqual(back, payload);
+  });
+
+  it("rejects a tampered token", () => {
+    const token = signScanToken(payload, SECRET);
+    // Flip a character in the body half.
+    const tampered = token.replace(/^./, token[0] === "A" ? "B" : "A");
+    assert.strictEqual(verifyScanToken(tampered, "u1", SECRET), null);
+  });
+
+  it("rejects a token signed with a different secret", () => {
+    const token = signScanToken(payload, "other-secret");
+    assert.strictEqual(verifyScanToken(token, "u1", SECRET), null);
+  });
+
+  it("rejects a token presented by a different uid", () => {
+    const token = signScanToken(payload, SECRET);
+    assert.strictEqual(verifyScanToken(token, "u2", SECRET), null);
+  });
+
+  it("rejects garbage tokens without throwing", () => {
+    for (const junk of ["", "not-a-token", "a.b.c", "AA.BB"]) {
+      assert.strictEqual(verifyScanToken(junk, "u1", SECRET), null);
+    }
+  });
+});
+
+describe("offline config sanitisers (v1.5)", () => {
+  it("grace hours: in-band values pass, out-of-band fall back", () => {
+    assert.strictEqual(sanitiseGraceHours(48), 48);
+    assert.strictEqual(sanitiseGraceHours(0), DEFAULT_OFFLINE_GRACE_HOURS);
+    assert.strictEqual(sanitiseGraceHours(1000), DEFAULT_OFFLINE_GRACE_HOURS);
+    assert.strictEqual(sanitiseGraceHours(NaN), DEFAULT_OFFLINE_GRACE_HOURS);
+    assert.strictEqual(sanitiseGraceHours("36"), DEFAULT_OFFLINE_GRACE_HOURS);
+    assert.strictEqual(sanitiseGraceHours(undefined), DEFAULT_OFFLINE_GRACE_HOURS);
+  });
+  it("max offline claims/day: in-band passes, out-of-band falls back", () => {
+    assert.strictEqual(sanitiseMaxOfflinePerDay(50), 50);
+    assert.strictEqual(sanitiseMaxOfflinePerDay(0), DEFAULT_MAX_OFFLINE_CLAIMS_PER_DAY);
+    assert.strictEqual(sanitiseMaxOfflinePerDay(9999), DEFAULT_MAX_OFFLINE_CLAIMS_PER_DAY);
+    assert.strictEqual(sanitiseMaxOfflinePerDay(1.5), DEFAULT_MAX_OFFLINE_CLAIMS_PER_DAY);
+  });
+});
+
+describe("validateFlushBatch (v1.5 flush pre-checks, pure)", () => {
+  const SECRET = "flush-test-secret";
+  const NOW = 1_800_000_000_000;
+  const GRACE_MS = 36 * 3600_000;
+  const scanAt = (issuedAtMs: number, lat = 51.5, lng = -0.12) =>
+    signScanToken({ uid: "u1", lat, lng, issuedAtMs, nonce: "n1" }, SECRET);
+  const ctx = {
+    uid: "u1",
+    nowMs: NOW,
+    graceMs: GRACE_MS,
+    verifyToken: (t: string) => verifyScanToken(t, "u1", SECRET),
+  };
+
+  it("accepts a plausible in-window batch", () => {
+    const t = scanAt(NOW - 600_000);
+    const verdicts = validateFlushBatch([
+      { scanId: t, lat: 51.5, lng: -0.12, capturedAtMs: NOW - 500_000 },
+      { scanId: t, lat: 51.5005, lng: -0.12, capturedAtMs: NOW - 400_000 },
+    ], ctx);
+    assert.deepStrictEqual(verdicts.map((v) => v.ok), [true, true]);
+  });
+
+  it("rejects an invalid token", () => {
+    const verdicts = validateFlushBatch([
+      { scanId: "garbage", lat: 51.5, lng: -0.12, capturedAtMs: NOW - 500 },
+    ], ctx);
+    assert.strictEqual(verdicts[0].ok, false);
+    assert.strictEqual(verdicts[0].reason, "bad_token");
+  });
+
+  it("rejects a capture before the token was issued (timeline shift attack)", () => {
+    const t = scanAt(NOW - 600_000);
+    const verdicts = validateFlushBatch([
+      { scanId: t, lat: 51.5, lng: -0.12, capturedAtMs: NOW - 700_000 },
+    ], ctx);
+    assert.strictEqual(verdicts[0].reason, "before_scan");
+  });
+
+  it("rejects a capture from the future", () => {
+    const t = scanAt(NOW - 600_000);
+    const verdicts = validateFlushBatch([
+      { scanId: t, lat: 51.5, lng: -0.12, capturedAtMs: NOW + 60_000 },
+    ], ctx);
+    assert.strictEqual(verdicts[0].reason, "future_capture");
+  });
+
+  it("rejects a capture older than the grace window", () => {
+    const t = scanAt(NOW - GRACE_MS - 7_200_000);
+    const verdicts = validateFlushBatch([
+      { scanId: t, lat: 51.5, lng: -0.12, capturedAtMs: NOW - GRACE_MS - 3_600_000 },
+    ], ctx);
+    assert.strictEqual(verdicts[0].reason, "expired");
+  });
+
+  it("rejects a capture far from the scan position", () => {
+    const t = scanAt(NOW - 600_000, 51.5, -0.12);
+    const verdicts = validateFlushBatch([
+      // ~1.1 km north of the scan point.
+      { scanId: t, lat: 51.51, lng: -0.12, capturedAtMs: NOW - 500_000 },
+    ], ctx);
+    assert.strictEqual(verdicts[0].reason, "too_far_from_scan");
+  });
+
+  it("flags non-monotonic capture ordering", () => {
+    const t = scanAt(NOW - 600_000);
+    const verdicts = validateFlushBatch([
+      { scanId: t, lat: 51.5, lng: -0.12, capturedAtMs: NOW - 300_000 },
+      { scanId: t, lat: 51.5005, lng: -0.12, capturedAtMs: NOW - 400_000 },
+    ], ctx);
+    assert.strictEqual(verdicts[0].ok, true);
+    assert.strictEqual(verdicts[1].reason, "non_monotonic");
+  });
+});
+
+describe("nextQuotaStateBy (v1.5 flush quota, pure)", () => {
+  it("fresh day: grants up to the requested count", () => {
+    const r = nextQuotaStateBy(undefined, "2026-07-21", 30, 5);
+    assert.strictEqual(r.allowed, 5);
+    assert.deepStrictEqual(r.state, { date: "2026-07-21", count: 5 });
+  });
+
+  it("rolls the counter on a new day", () => {
+    const r = nextQuotaStateBy({ date: "2026-07-20", count: 29 }, "2026-07-21", 30, 3);
+    assert.strictEqual(r.allowed, 3);
+    assert.deepStrictEqual(r.state, { date: "2026-07-21", count: 3 });
+  });
+
+  it("grants partially when the batch would cross the cap", () => {
+    const r = nextQuotaStateBy({ date: "2026-07-21", count: 28 }, "2026-07-21", 30, 5);
+    assert.strictEqual(r.allowed, 2);
+    assert.deepStrictEqual(r.state, { date: "2026-07-21", count: 30 });
+  });
+
+  it("grants nothing at the cap and does not overrun the counter", () => {
+    const r = nextQuotaStateBy({ date: "2026-07-21", count: 30 }, "2026-07-21", 30, 4);
+    assert.strictEqual(r.allowed, 0);
+    assert.deepStrictEqual(r.state, { date: "2026-07-21", count: 30 });
+  });
+});
+
+describe("flushOfflineClaims callable shape (v1.5)", () => {
+  it("caps the batch size constant sensibly", () => {
+    assert.ok(MAX_FLUSH_BATCH >= 5 && MAX_FLUSH_BATCH <= 50);
+    assert.ok(MAX_SCAN_DISTANCE_M >= 100 && MAX_SCAN_DISTANCE_M <= 1000);
   });
 });
 

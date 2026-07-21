@@ -64,6 +64,27 @@
       },
       "description": "Per-cypher point overrides. Must start equal to the code default (RemoteConfigService.defaultPointsByMonarchJson). Values outside [1, 50] and unknown keys are ignored; omitted monarchs keep their hard-coded value. Publish to the SERVER template too.",
       "valueType": "JSON"
+    },
+    "kill_switch_offline_claims": {
+      "defaultValue": {
+        "value": "false"
+      },
+      "description": "v1.5 offline play: emergency kill switch for offline claim capture + flush. The server (functions/src/_config.ts) enforces its own copy on flushOfflineClaims; this hides the client affordances. Publish to the SERVER template too.",
+      "valueType": "BOOLEAN"
+    },
+    "offline_claim_grace_hours": {
+      "defaultValue": {
+        "value": "36"
+      },
+      "description": "v1.5 offline play: how long a banked offline capture stays flushable, in hours. Must start equal to the code default (36). Values outside the [1, 168] safety band are ignored; client and server fall back to 36. Publish to the SERVER template too.",
+      "valueType": "NUMBER"
+    },
+    "max_offline_claims_per_day": {
+      "defaultValue": {
+        "value": "30"
+      },
+      "description": "v1.5 offline play: per-user daily cap on flushed offline claims. Must start equal to the code default (30). Values outside the [1, 200] safety band are ignored; client and server fall back to 30. Publish to the SERVER template too.",
+      "valueType": "NUMBER"
     }
   },
   "version": {
