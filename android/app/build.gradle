@@ -50,7 +50,7 @@ android {
     defaultConfig {
         applicationId "com.code418.postbox_game"
         minSdkVersion flutter.minSdkVersion
-        targetSdk 35
+        targetSdk 36
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
         multiDexEnabled true
