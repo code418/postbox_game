@@ -1,3 +1,4 @@
+import 'dart:async' show TimeoutException;
 import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
@@ -96,7 +97,17 @@ Future<Position> getPosition({bool forceLocationManager = false}) async {
           accuracy: LocationAccuracy.high,
           timeLimit: Duration(seconds: 30),
         );
-  return Geolocator.getCurrentPosition(locationSettings: settings);
+  try {
+    return await Geolocator.getCurrentPosition(locationSettings: settings);
+  } on TimeoutException {
+    // v1.5 offline play: a stale fix beats no fix. Under tree cover or
+    // indoors-by-the-window the 30 s fresh fix can time out while the OS
+    // still holds a recent one; the claim radius is enforced server-side, so
+    // a slightly-stale position degrades accuracy, never integrity.
+    final last = await Geolocator.getLastKnownPosition();
+    if (last != null) return last;
+    rethrow;
+  }
 }
 
 /// Returns a continuous stream of GPS positions for live tracking.

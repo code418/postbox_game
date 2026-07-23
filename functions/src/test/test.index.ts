@@ -1,4 +1,5 @@
 import assert from "assert";
+import * as admin from "firebase-admin";
 import test from "firebase-functions-test";
 import * as myFunctions from "../index";
 import { filterToCorridor, filterToEllipse, beamSearchOrienteering, metresBetween } from "../_routePlanner";
@@ -12,6 +13,10 @@ import {
   getPointsForMonarch,
   setConfigLoaderForTest,
   DEFAULT_CLAIM_RADIUS_METERS,
+  sanitiseGraceHours,
+  sanitiseMaxOfflinePerDay,
+  DEFAULT_OFFLINE_GRACE_HOURS,
+  DEFAULT_MAX_OFFLINE_CLAIMS_PER_DAY,
   type GameConfig,
 } from "../_config";
 
@@ -20,12 +25,28 @@ import {
 // the whole run so startScoring / _recomputeScores paths resolve to the
 // hard-coded points+radius without a network call; the _config caching tests
 // override it per-test and restore this in afterEach.
+// Offline-tunable defaults for GameConfig stubs (fields added in v1.5).
+const offlineDefaults = {
+  offlineClaimsKilled: false,
+  offlineGraceHours: DEFAULT_OFFLINE_GRACE_HOURS,
+  maxOfflineClaimsPerDay: DEFAULT_MAX_OFFLINE_CLAIMS_PER_DAY,
+  maintenanceMode: false,
+} as const;
+
 const fallbackGameConfig = async (): Promise<GameConfig> => ({
   claimRadiusMeters: DEFAULT_CLAIM_RADIUS_METERS,
   pointsOverride: null,
+  ...offlineDefaults,
 });
 before(() => setConfigLoaderForTest(fallbackGameConfig));
-import { getTodayLondon, previousDay, getLondonHourMinute } from "../_dateUtils";
+import { getTodayLondon, previousDay, getLondonHourMinute, getLondonDayOf } from "../_dateUtils";
+import { signScanToken, verifyScanToken } from "../_scanToken";
+import {
+  validateFlushBatch,
+  nextQuotaStateBy,
+  MAX_FLUSH_BATCH,
+  MAX_SCAN_DISTANCE_M,
+} from "../flushOfflineClaims";
 import {
   decideFire,
   slotForLondonTime,
@@ -38,10 +59,23 @@ import {
 import { getWeekStart, getMonthStart, getPeriodKey, mergePeriodEntries, mergeLifetimeEntries, updateUserLeaderboards, countySlug } from "../_leaderboardUtils";
 import { setPrecision, getLatLng, MAX_GEOHASH_PRECISION } from "../_lookupPostboxes";
 import { applyUserClaims } from "../_nearbyUtils";
-import { computeNewStreak } from "../_streakUtils";
+import { computeNewStreak, streakFromClaimDays } from "../_streakUtils";
+import { checkNeighbourSpeeds } from "../_travelSpeed";
+import { buildClaimData } from "../_claimCore";
 import { containsProfanity } from "../_profanityFilter";
 import { sanitiseName } from "../onUserCreated";
 import { checkTravelSpeed, MAX_METRES_PER_MIN } from "../_travelSpeed";
+import { requireAppCheck, monitorAppCheck, BREAK_GLASS_ENV } from "../_appCheck";
+import {
+  decideAttempt,
+  beginAttempt,
+  completeAttempt,
+  failAttempt,
+  validateAttemptId,
+  ATTEMPT_IN_PROGRESS_STALE_MS,
+  ATTEMPT_TTL_MS,
+  type AttemptDoc,
+} from "../_attempts";
 import { aggregateClaimHistory, periodStartDate } from "../userClaimHistory";
 import { diffSnapshots, type MigrationSnapshot } from "../_migrationVerify";
 
@@ -100,6 +134,7 @@ describe("_config: resolvePointsForMonarch", () => {
   const cfg = (pointsOverride: Record<string, number> | null): GameConfig => ({
     claimRadiusMeters: 30,
     pointsOverride,
+    ...offlineDefaults,
   });
   it("uses the override when present for the monarch", () =>
     assert.strictEqual(resolvePointsForMonarch(cfg({ VR: 8 }), "VR"), 8));
@@ -120,7 +155,7 @@ describe("_config: getGameConfig caching", () => {
     let calls = 0;
     setConfigLoaderForTest(async () => {
       calls++;
-      return { claimRadiusMeters: 40 + calls, pointsOverride: null };
+      return { claimRadiusMeters: 40 + calls, pointsOverride: null, ...offlineDefaults };
     });
     const t0 = 1_000_000;
     const a = await getGameConfig(t0);
@@ -136,6 +171,7 @@ describe("_config: getGameConfig caching", () => {
     setConfigLoaderForTest(async () => ({
       claimRadiusMeters: 55,
       pointsOverride: { VR: 8 },
+      ...offlineDefaults,
     }));
     assert.strictEqual(await getClaimRadiusMeters(), 55);
     assert.strictEqual(await getPointsForMonarch("VR"), 8);
@@ -991,6 +1027,680 @@ describe("checkTravelSpeed", () => {
   });
 });
 
+describe("offline abuse signals (v1.5, shadow mode)", () => {
+  describe("queuedTooLongSignal", () => {
+    const GRACE = 36 * 3600_000;
+    it("does not flag a promptly-flushed capture", () => {
+      const r = queuedTooLongSignal(3600_000, GRACE);
+      assert.strictEqual(r.flagged, false);
+    });
+    it("flags a capture flushed near the grace ceiling", () => {
+      const r = queuedTooLongSignal(GRACE - 3600_000, GRACE);
+      assert.strictEqual(r.flagged, true);
+    });
+    it("is unflagged when inputs are absent/invalid", () => {
+      assert.strictEqual(queuedTooLongSignal(undefined, GRACE).flagged, false);
+      assert.strictEqual(queuedTooLongSignal(NaN, GRACE).flagged, false);
+    });
+  });
+
+  describe("computeBatchSpeedCv + constantBatchSpeedSignal", () => {
+    const mPerDegLat = 111_320;
+    const pt = (northM: number, tMs: number) =>
+      ({ lat: 51.5 + northM / mPerDegLat, lng: -0.1, tMs });
+
+    it("returns undefined for fewer than 3 points", () => {
+      assert.strictEqual(computeBatchSpeedCv([pt(0, 0), pt(100, 60_000)]), undefined);
+    });
+
+    it("a synthesised constant-speed trace has near-zero CV and flags", () => {
+      // 100 m per minute, four legs, metronome-regular.
+      const cv = computeBatchSpeedCv([
+        pt(0, 0), pt(100, 60_000), pt(200, 120_000), pt(300, 180_000), pt(400, 240_000),
+      ]);
+      assert.ok(cv !== undefined && cv < 0.05, `cv=${cv}`);
+      assert.strictEqual(constantBatchSpeedSignal(cv, 5).flagged, true);
+    });
+
+    it("a human-shaped trace (stops, varying pace) does not flag", () => {
+      // Walk, long pause at a box, brisk leg, dawdle.
+      const cv = computeBatchSpeedCv([
+        pt(0, 0), pt(80, 60_000), pt(90, 600_000), pt(400, 780_000), pt(430, 1_000_000),
+      ]);
+      assert.ok(cv !== undefined && cv > 0.3, `cv=${cv}`);
+      assert.strictEqual(constantBatchSpeedSignal(cv, 5).flagged, false);
+    });
+
+    it("a stationary batch (all captures at one spot) never flags", () => {
+      const cv = computeBatchSpeedCv([pt(0, 0), pt(1, 60_000), pt(0, 120_000), pt(1, 180_000)]);
+      // Zero-ish speeds: cv is undefined (mean too small) or the signal
+      // declines to flag.
+      if (cv !== undefined) {
+        assert.strictEqual(constantBatchSpeedSignal(cv, 4).flagged, false);
+      }
+    });
+
+    it("small batches never flag regardless of CV", () => {
+      assert.strictEqual(constantBatchSpeedSignal(0.0, 2).flagged, false);
+    });
+  });
+
+  describe("evaluateClaimSignals offline wiring", () => {
+    it("offline claims use flushClientTsMs for the out-of-window signal", () => {
+      const serverTs = 1_800_000_000_000;
+      // Capture-time clientTsMs is HOURS off serverTs (that's the point of
+      // offline) but the flush-time clock agrees — must NOT flag.
+      const r = evaluateClaimSignals({
+        travelSpeedMPerMin: 50,
+        serverTsMs: serverTs,
+        clientTsMs: serverTs - 10 * 3600_000,
+        offline: true,
+        flushClientTsMs: serverTs + 5_000,
+        coordRepeatCount: 0,
+        distinctDeviceAccounts: 0,
+      });
+      assert.ok(!r.reasons.includes("out_of_window"));
+    });
+
+    it("offline claims with a skewed flush clock DO flag out_of_window", () => {
+      const serverTs = 1_800_000_000_000;
+      const r = evaluateClaimSignals({
+        serverTsMs: serverTs,
+        offline: true,
+        flushClientTsMs: serverTs - 3 * 3600_000, // tampered device clock
+        coordRepeatCount: 0,
+        distinctDeviceAccounts: 0,
+      });
+      assert.ok(r.reasons.includes("out_of_window"));
+    });
+
+    it("new offline signals surface as reasons", () => {
+      const r = evaluateClaimSignals({
+        serverTsMs: 1_800_000_000_000,
+        offline: true,
+        queuedForMs: 35 * 3600_000,
+        graceMs: 36 * 3600_000,
+        batchSize: 5,
+        batchSpeedCv: 0.02,
+        coordRepeatCount: 0,
+        distinctDeviceAccounts: 0,
+      });
+      assert.ok(r.reasons.includes("queued_near_ceiling"), r.reasons.join(","));
+      assert.ok(r.reasons.includes("constant_batch_speed"), r.reasons.join(","));
+    });
+
+    it("live claims are untouched by the offline inputs", () => {
+      const serverTs = 1_800_000_000_000;
+      const r = evaluateClaimSignals({
+        serverTsMs: serverTs,
+        clientTsMs: serverTs + 1_000,
+        coordRepeatCount: 0,
+        distinctDeviceAccounts: 0,
+      });
+      assert.deepStrictEqual(r.reasons, []);
+    });
+  });
+});
+
+describe("getLondonDayOf (v1.5 backdated claim days)", () => {
+  it("formats an arbitrary instant as a London calendar day", () => {
+    // 2026-01-15 23:30 UTC in GMT (winter) is still Jan 15 in London.
+    assert.strictEqual(getLondonDayOf(new Date("2026-01-15T23:30:00Z")), "2026-01-15");
+  });
+  it("handles the BST offset (summer): 23:30 UTC is the NEXT London day", () => {
+    assert.strictEqual(getLondonDayOf(new Date("2026-07-15T23:30:00Z")), "2026-07-16");
+  });
+  it("agrees with getTodayLondon for now", () => {
+    assert.strictEqual(getLondonDayOf(new Date()), getTodayLondon());
+  });
+});
+
+describe("scan token sign/verify (v1.5 offline capture token)", () => {
+  const SECRET = "test-secret-0123456789abcdef";
+  const payload = {
+    uid: "u1",
+    lat: 51.5,
+    lng: -0.12,
+    issuedAtMs: 1_800_000_000_000,
+    nonce: "abc123",
+  };
+
+  it("round-trips a signed token back to its payload", () => {
+    const token = signScanToken(payload, SECRET);
+    assert.strictEqual(typeof token, "string");
+    const back = verifyScanToken(token, "u1", SECRET);
+    assert.deepStrictEqual(back, payload);
+  });
+
+  it("rejects a tampered token", () => {
+    const token = signScanToken(payload, SECRET);
+    // Flip a character in the body half.
+    const tampered = token.replace(/^./, token[0] === "A" ? "B" : "A");
+    assert.strictEqual(verifyScanToken(tampered, "u1", SECRET), null);
+  });
+
+  it("rejects a token signed with a different secret", () => {
+    const token = signScanToken(payload, "other-secret");
+    assert.strictEqual(verifyScanToken(token, "u1", SECRET), null);
+  });
+
+  it("rejects a token presented by a different uid", () => {
+    const token = signScanToken(payload, SECRET);
+    assert.strictEqual(verifyScanToken(token, "u2", SECRET), null);
+  });
+
+  it("rejects garbage tokens without throwing", () => {
+    for (const junk of ["", "not-a-token", "a.b.c", "AA.BB"]) {
+      assert.strictEqual(verifyScanToken(junk, "u1", SECRET), null);
+    }
+  });
+});
+
+describe("offline config sanitisers (v1.5)", () => {
+  it("grace hours: in-band values pass, out-of-band fall back", () => {
+    assert.strictEqual(sanitiseGraceHours(48), 48);
+    assert.strictEqual(sanitiseGraceHours(0), DEFAULT_OFFLINE_GRACE_HOURS);
+    assert.strictEqual(sanitiseGraceHours(1000), DEFAULT_OFFLINE_GRACE_HOURS);
+    assert.strictEqual(sanitiseGraceHours(NaN), DEFAULT_OFFLINE_GRACE_HOURS);
+    assert.strictEqual(sanitiseGraceHours("36"), DEFAULT_OFFLINE_GRACE_HOURS);
+    assert.strictEqual(sanitiseGraceHours(undefined), DEFAULT_OFFLINE_GRACE_HOURS);
+  });
+  it("max offline claims/day: in-band passes, out-of-band falls back", () => {
+    assert.strictEqual(sanitiseMaxOfflinePerDay(50), 50);
+    assert.strictEqual(sanitiseMaxOfflinePerDay(0), DEFAULT_MAX_OFFLINE_CLAIMS_PER_DAY);
+    assert.strictEqual(sanitiseMaxOfflinePerDay(9999), DEFAULT_MAX_OFFLINE_CLAIMS_PER_DAY);
+    assert.strictEqual(sanitiseMaxOfflinePerDay(1.5), DEFAULT_MAX_OFFLINE_CLAIMS_PER_DAY);
+  });
+});
+
+describe("validateFlushBatch (v1.5 flush pre-checks, pure)", () => {
+  const SECRET = "flush-test-secret";
+  const NOW = 1_800_000_000_000;
+  const GRACE_MS = 36 * 3600_000;
+  const scanAt = (issuedAtMs: number, lat = 51.5, lng = -0.12) =>
+    signScanToken({ uid: "u1", lat, lng, issuedAtMs, nonce: "n1" }, SECRET);
+  const ctx = {
+    uid: "u1",
+    nowMs: NOW,
+    graceMs: GRACE_MS,
+    verifyToken: (t: string) => verifyScanToken(t, "u1", SECRET),
+  };
+
+  it("accepts a plausible in-window batch", () => {
+    const t = scanAt(NOW - 600_000);
+    const verdicts = validateFlushBatch([
+      { scanId: t, lat: 51.5, lng: -0.12, capturedAtMs: NOW - 500_000 },
+      { scanId: t, lat: 51.5005, lng: -0.12, capturedAtMs: NOW - 400_000 },
+    ], ctx);
+    assert.deepStrictEqual(verdicts.map((v) => v.ok), [true, true]);
+  });
+
+  it("rejects an invalid token", () => {
+    const verdicts = validateFlushBatch([
+      { scanId: "garbage", lat: 51.5, lng: -0.12, capturedAtMs: NOW - 500 },
+    ], ctx);
+    assert.strictEqual(verdicts[0].ok, false);
+    assert.strictEqual(verdicts[0].reason, "bad_token");
+  });
+
+  it("rejects a capture before the token was issued (timeline shift attack)", () => {
+    const t = scanAt(NOW - 600_000);
+    const verdicts = validateFlushBatch([
+      { scanId: t, lat: 51.5, lng: -0.12, capturedAtMs: NOW - 700_000 },
+    ], ctx);
+    assert.strictEqual(verdicts[0].reason, "before_scan");
+  });
+
+  it("rejects a capture from the future", () => {
+    const t = scanAt(NOW - 600_000);
+    const verdicts = validateFlushBatch([
+      { scanId: t, lat: 51.5, lng: -0.12, capturedAtMs: NOW + 60_000 },
+    ], ctx);
+    assert.strictEqual(verdicts[0].reason, "future_capture");
+  });
+
+  it("rejects a capture older than the grace window", () => {
+    const t = scanAt(NOW - GRACE_MS - 7_200_000);
+    const verdicts = validateFlushBatch([
+      { scanId: t, lat: 51.5, lng: -0.12, capturedAtMs: NOW - GRACE_MS - 3_600_000 },
+    ], ctx);
+    assert.strictEqual(verdicts[0].reason, "expired");
+  });
+
+  it("rejects a capture far from the scan position", () => {
+    const t = scanAt(NOW - 600_000, 51.5, -0.12);
+    const verdicts = validateFlushBatch([
+      // ~1.1 km north of the scan point.
+      { scanId: t, lat: 51.51, lng: -0.12, capturedAtMs: NOW - 500_000 },
+    ], ctx);
+    assert.strictEqual(verdicts[0].reason, "too_far_from_scan");
+  });
+
+  it("flags non-monotonic capture ordering", () => {
+    const t = scanAt(NOW - 600_000);
+    const verdicts = validateFlushBatch([
+      { scanId: t, lat: 51.5, lng: -0.12, capturedAtMs: NOW - 300_000 },
+      { scanId: t, lat: 51.5005, lng: -0.12, capturedAtMs: NOW - 400_000 },
+    ], ctx);
+    assert.strictEqual(verdicts[0].ok, true);
+    assert.strictEqual(verdicts[1].reason, "non_monotonic");
+  });
+});
+
+describe("nextQuotaStateBy (v1.5 flush quota, pure)", () => {
+  it("fresh day: grants up to the requested count", () => {
+    const r = nextQuotaStateBy(undefined, "2026-07-21", 30, 5);
+    assert.strictEqual(r.allowed, 5);
+    assert.deepStrictEqual(r.state, { date: "2026-07-21", count: 5 });
+  });
+
+  it("rolls the counter on a new day", () => {
+    const r = nextQuotaStateBy({ date: "2026-07-20", count: 29 }, "2026-07-21", 30, 3);
+    assert.strictEqual(r.allowed, 3);
+    assert.deepStrictEqual(r.state, { date: "2026-07-21", count: 3 });
+  });
+
+  it("grants partially when the batch would cross the cap", () => {
+    const r = nextQuotaStateBy({ date: "2026-07-21", count: 28 }, "2026-07-21", 30, 5);
+    assert.strictEqual(r.allowed, 2);
+    assert.deepStrictEqual(r.state, { date: "2026-07-21", count: 30 });
+  });
+
+  it("grants nothing at the cap and does not overrun the counter", () => {
+    const r = nextQuotaStateBy({ date: "2026-07-21", count: 30 }, "2026-07-21", 30, 4);
+    assert.strictEqual(r.allowed, 0);
+    assert.deepStrictEqual(r.state, { date: "2026-07-21", count: 30 });
+  });
+});
+
+describe("flushOfflineClaims callable shape (v1.5)", () => {
+  it("caps the batch size constant sensibly", () => {
+    assert.ok(MAX_FLUSH_BATCH >= 5 && MAX_FLUSH_BATCH <= 50);
+    assert.ok(MAX_SCAN_DISTANCE_M >= 100 && MAX_SCAN_DISTANCE_M <= 1000);
+  });
+});
+
+describe("streakFromClaimDays (v1.5 offline flush streak repair)", () => {
+  // computeNewStreak is forward-only: a live claim on Wed landing BEFORE a
+  // Tue-dated flush resets the streak to 1 with no repair. The flush path
+  // recomputes from the user's distinct claim days instead.
+  it("returns zero state for no claim days", () => {
+    assert.deepStrictEqual(
+      streakFromClaimDays([], "2026-07-21"),
+      { lastClaimDate: undefined, streak: 0 });
+  });
+
+  it("single day yields a streak of 1", () => {
+    assert.deepStrictEqual(
+      streakFromClaimDays(["2026-07-20"], "2026-07-21"),
+      { lastClaimDate: "2026-07-20", streak: 1 });
+  });
+
+  it("counts a consecutive run ending at the most recent day", () => {
+    assert.deepStrictEqual(
+      streakFromClaimDays(["2026-07-18", "2026-07-19", "2026-07-20"], "2026-07-21"),
+      { lastClaimDate: "2026-07-20", streak: 3 });
+  });
+
+  it("a gap resets the run (only the trailing run counts)", () => {
+    assert.deepStrictEqual(
+      streakFromClaimDays(["2026-07-15", "2026-07-16", "2026-07-19", "2026-07-20"], "2026-07-21"),
+      { lastClaimDate: "2026-07-20", streak: 2 });
+  });
+
+  it("input order does not matter (out-of-order flush arrival)", () => {
+    assert.deepStrictEqual(
+      streakFromClaimDays(["2026-07-20", "2026-07-18", "2026-07-19"], "2026-07-21"),
+      { lastClaimDate: "2026-07-20", streak: 3 });
+  });
+
+  it("the backdated-fill scenario: a flush plugs the hole and SAVES the streak", () => {
+    // Live claims Mon+Wed, then a Tue-dated offline claim flushes late.
+    assert.deepStrictEqual(
+      streakFromClaimDays(["2026-07-20", "2026-07-22", "2026-07-21"], "2026-07-22"),
+      { lastClaimDate: "2026-07-22", streak: 3 });
+  });
+
+  it("deduplicates repeated days (multiple boxes claimed the same day)", () => {
+    assert.deepStrictEqual(
+      streakFromClaimDays(["2026-07-20", "2026-07-20", "2026-07-19"], "2026-07-21"),
+      { lastClaimDate: "2026-07-20", streak: 2 });
+  });
+
+  it("ignores days after today (defensive against bad data)", () => {
+    assert.deepStrictEqual(
+      streakFromClaimDays(["2026-07-20", "2026-07-25"], "2026-07-21"),
+      { lastClaimDate: "2026-07-20", streak: 1 });
+  });
+
+  it("crosses a month boundary correctly", () => {
+    assert.deepStrictEqual(
+      streakFromClaimDays(["2026-06-30", "2026-07-01"], "2026-07-02"),
+      { lastClaimDate: "2026-07-01", streak: 2 });
+  });
+});
+
+describe("checkNeighbourSpeeds (v1.5 two-sided travel check)", () => {
+  // ~degree of latitude in metres, matching the checkTravelSpeed suite.
+  const mPerDegLat = 111_320;
+  const at = (metresNorth: number, tMs: number) => ({
+    lat: 51.5 + metresNorth / mPerDegLat,
+    lng: -0.1,
+    tMs,
+  });
+
+  it("accepts with no neighbours (first claim)", () => {
+    const r = checkNeighbourSpeeds(at(0, 1_000_000));
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(r.speedPrev, undefined);
+    assert.strictEqual(r.speedNext, undefined);
+  });
+
+  it("accepts a plausible insert between two neighbours", () => {
+    // 80 m in 60 s on each side — walking pace.
+    const r = checkNeighbourSpeeds(
+      at(80, 1_060_000),
+      at(0, 1_000_000),
+      at(160, 1_120_000),
+    );
+    assert.strictEqual(r.ok, true);
+    assert.ok(r.speedPrev !== undefined && r.speedPrev < 100);
+    assert.ok(r.speedNext !== undefined && r.speedNext < 100);
+  });
+
+  it("rejects an implausible speed against the PREVIOUS neighbour", () => {
+    // 50 km in one minute from the previous claim.
+    const r = checkNeighbourSpeeds(at(50_000, 1_060_000), at(0, 1_000_000));
+    assert.strictEqual(r.ok, false);
+  });
+
+  it("rejects an implausible speed against the NEXT neighbour (backdating)", () => {
+    // Claim backdated to just before a known distant live claim: 50 km gap,
+    // one minute apart. One-sided checks miss exactly this.
+    const r = checkNeighbourSpeeds(
+      at(0, 1_000_000),
+      undefined,
+      at(50_000, 1_060_000),
+    );
+    assert.strictEqual(r.ok, false);
+  });
+
+  it("prev-only check still enforces (the live-claim shape)", () => {
+    const r = checkNeighbourSpeeds(at(80, 1_060_000), at(0, 1_000_000));
+    assert.strictEqual(r.ok, true);
+    assert.ok(r.speedPrev !== undefined);
+    assert.strictEqual(r.speedNext, undefined);
+  });
+});
+
+describe("buildClaimData (v1.5 claim doc construction)", () => {
+  const ts = admin.firestore.Timestamp.fromMillis(1_800_000_000_000);
+  const base = {
+    userid: "u1",
+    postboxKey: "osm_123",
+    points: 7,
+    claimDate: "2026-07-21",
+    lat: 51.5,
+    lng: -0.1,
+    timestamp: ts,
+    eventTime: ts,
+  };
+
+  it("live claim: eventTime equals the server timestamp, no offline fields", () => {
+    const d = buildClaimData(base);
+    assert.strictEqual(d.timestamp, ts);
+    assert.strictEqual(d.eventTime, ts);
+    assert.strictEqual(d.userid, "u1");
+    assert.strictEqual(d.postboxes, "/postbox/osm_123");
+    assert.strictEqual(d.points, 7);
+    assert.strictEqual(d.dailyDate, "2026-07-21");
+    assert.ok(!("offline" in d));
+    assert.ok(!("queuedForMs" in d));
+    assert.ok(!("monarch" in d), "absent monarch must be omitted");
+    assert.ok(!("clientTsMs" in d));
+    assert.ok(!("deviceIdHash" in d));
+    assert.ok(!("travelSpeed" in d));
+  });
+
+  it("includes optional shadow-signal fields only when provided", () => {
+    const d = buildClaimData({
+      ...base,
+      monarch: "VR",
+      clientTsMs: 123,
+      travelSpeed: 45.6,
+      deviceIdHash: "abc",
+    });
+    assert.strictEqual(d.monarch, "VR");
+    assert.strictEqual(d.clientTsMs, 123);
+    assert.strictEqual(d.travelSpeed, 45.6);
+    assert.strictEqual(d.deviceIdHash, "abc");
+  });
+
+  it("offline claim: server-derived offline flag + queue metadata", () => {
+    const evt = admin.firestore.Timestamp.fromMillis(1_799_990_000_000);
+    const d = buildClaimData({
+      ...base,
+      eventTime: evt,
+      offline: {
+        queuedForMs: 10_000_000,
+        batchSize: 3,
+        batchSpanMs: 600_000,
+        flushClientTsMs: 1_800_000_000_500,
+      },
+    });
+    assert.strictEqual(d.offline, true);
+    assert.strictEqual(d.eventTime, evt);
+    assert.strictEqual(d.queuedForMs, 10_000_000);
+    assert.strictEqual(d.batchSize, 3);
+    assert.strictEqual(d.batchSpanMs, 600_000);
+    assert.strictEqual(d.flushClientTsMs, 1_800_000_000_500);
+  });
+
+  it("writes the rounded coordKey6 for the clustering signal", () => {
+    const d = buildClaimData(base);
+    assert.strictEqual(d.coordKey6, "51.500000,-0.100000");
+  });
+});
+
+describe("requireAppCheck / monitorAppCheck (v1.5 App Check enforcement)", () => {
+  it("passes silently when the request carries a verified app", () => {
+    assert.doesNotThrow(() => requireAppCheck({ app: { appId: "1:2:android:abc" } }, {}));
+  });
+
+  it("throws failed-precondition when request.app is absent", () => {
+    try {
+      requireAppCheck({}, {});
+      assert.fail("expected failed-precondition");
+    } catch (e: unknown) {
+      assert.strictEqual((e as { code?: string }).code, "failed-precondition");
+    }
+  });
+
+  it("throws failed-precondition when request.app is null/undefined-ish", () => {
+    try {
+      requireAppCheck({ app: undefined }, {});
+      assert.fail("expected failed-precondition");
+    } catch (e: unknown) {
+      assert.strictEqual((e as { code?: string }).code, "failed-precondition");
+    }
+  });
+
+  it("break-glass env allows a tokenless request through", () => {
+    assert.doesNotThrow(() =>
+      requireAppCheck({}, { [BREAK_GLASS_ENV]: "1" }));
+  });
+
+  it("break-glass requires exactly '1' (not merely set)", () => {
+    try {
+      requireAppCheck({}, { [BREAK_GLASS_ENV]: "true" });
+      assert.fail("expected failed-precondition");
+    } catch (e: unknown) {
+      assert.strictEqual((e as { code?: string }).code, "failed-precondition");
+    }
+  });
+
+  it("monitorAppCheck never throws, with or without an app", () => {
+    assert.doesNotThrow(() => monitorAppCheck({}, "someCallable"));
+    assert.doesNotThrow(() => monitorAppCheck({ app: { appId: "x" } }, "someCallable"));
+  });
+});
+
+describe("attempts idempotency (v1.5 offline play, Phase 1)", () => {
+  const NOW = 1_800_000_000_000;
+
+  describe("validateAttemptId", () => {
+    it("accepts a UUID-ish id", () => {
+      assert.doesNotThrow(() => validateAttemptId("3f2a9c1e-77aa-4a0b-9c9f-1234567890ab"));
+    });
+    it("accepts undefined (legacy clients skip the mechanism)", () => {
+      assert.doesNotThrow(() => validateAttemptId(undefined));
+    });
+    it("rejects non-strings", () => {
+      try {
+        validateAttemptId(42);
+        assert.fail("expected invalid-argument");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+    it("rejects empty, over-long, and path-traversing ids", () => {
+      for (const bad of ["", "x".repeat(200), "a/b"]) {
+        try {
+          validateAttemptId(bad);
+          assert.fail(`expected invalid-argument for ${JSON.stringify(bad)}`);
+        } catch (e: unknown) {
+          assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+        }
+      }
+    });
+  });
+
+  describe("decideAttempt (pure)", () => {
+    it("proceeds when no attempt doc exists", () => {
+      assert.deepStrictEqual(decideAttempt(undefined, "u1", NOW), { kind: "proceed" });
+    });
+
+    it("replays the stored result verbatim when done", () => {
+      const doc: AttemptDoc = {
+        uid: "u1", status: "done",
+        result: { found: true, claimed: 2, points: 9, allClaimedToday: false, dailyDate: "2026-07-21" },
+        createdAtMs: NOW - 5000,
+      };
+      const d = decideAttempt(doc, "u1", NOW);
+      assert.strictEqual(d.kind, "replay");
+      assert.deepStrictEqual(
+        (d as { kind: string; result: unknown }).result,
+        doc.result,
+      );
+    });
+
+    it("reports in_progress for a fresh concurrent attempt", () => {
+      const doc: AttemptDoc = { uid: "u1", status: "in_progress", createdAtMs: NOW - 1000 };
+      assert.deepStrictEqual(decideAttempt(doc, "u1", NOW), { kind: "in_progress" });
+    });
+
+    it("proceeds (retakes) a stale in_progress attempt", () => {
+      const doc: AttemptDoc = {
+        uid: "u1", status: "in_progress",
+        createdAtMs: NOW - ATTEMPT_IN_PROGRESS_STALE_MS - 1,
+      };
+      assert.deepStrictEqual(decideAttempt(doc, "u1", NOW), { kind: "proceed" });
+    });
+
+    it("reports foreign when another uid owns the attempt id", () => {
+      const doc: AttemptDoc = { uid: "u2", status: "done", result: {}, createdAtMs: NOW };
+      assert.deepStrictEqual(decideAttempt(doc, "u1", NOW), { kind: "foreign" });
+    });
+  });
+
+  describe("beginAttempt / completeAttempt / failAttempt (mock Firestore)", () => {
+    interface StoredDoc { data: Record<string, unknown> }
+
+    function makeAttemptsMockDb() {
+      const store = new Map<string, StoredDoc>();
+      const db = {
+        collection(name: string) {
+          assert.strictEqual(name, "attempts");
+          return {
+            doc(id: string) {
+              return {
+                id,
+                async get() {
+                  const cur = store.get(id);
+                  return { exists: cur !== undefined, data: () => cur?.data };
+                },
+                async set(data: Record<string, unknown>) {
+                  store.set(id, { data });
+                },
+                async delete() {
+                  store.delete(id);
+                },
+              };
+            },
+          };
+        },
+        async runTransaction<T>(fn: (tx: unknown) => Promise<T>): Promise<T> {
+          const tx = {
+            async get(ref: { get: () => Promise<unknown> }) {
+              return ref.get();
+            },
+            set(ref: { id: string }, data: Record<string, unknown>) {
+              store.set(ref.id, { data });
+            },
+          };
+          return fn(tx);
+        },
+      };
+      return { db: db as never, store };
+    }
+
+    it("first begin proceeds and writes an in_progress marker", async () => {
+      const { db, store } = makeAttemptsMockDb();
+      const d = await beginAttempt(db, "att-1", "u1", NOW);
+      assert.deepStrictEqual(d, { kind: "proceed" });
+      const doc = store.get("att-1")!.data;
+      assert.strictEqual(doc.status, "in_progress");
+      assert.strictEqual(doc.uid, "u1");
+    });
+
+    it("begin after complete replays the stored result", async () => {
+      const { db } = makeAttemptsMockDb();
+      await beginAttempt(db, "att-1", "u1", NOW);
+      const result = { found: true, claimed: 1, points: 7, allClaimedToday: false, dailyDate: "2026-07-21" };
+      await completeAttempt(db, "att-1", "u1", result, NOW + 2000);
+      const d = await beginAttempt(db, "att-1", "u1", NOW + 5000);
+      assert.strictEqual(d.kind, "replay");
+      assert.deepStrictEqual((d as { kind: string; result: unknown }).result, result);
+    });
+
+    it("concurrent begin sees in_progress", async () => {
+      const { db } = makeAttemptsMockDb();
+      await beginAttempt(db, "att-1", "u1", NOW);
+      const d = await beginAttempt(db, "att-1", "u1", NOW + 1000);
+      assert.deepStrictEqual(d, { kind: "in_progress" });
+    });
+
+    it("failAttempt clears the marker so an immediate retry proceeds", async () => {
+      const { db, store } = makeAttemptsMockDb();
+      await beginAttempt(db, "att-1", "u1", NOW);
+      await failAttempt(db, "att-1");
+      assert.strictEqual(store.has("att-1"), false);
+      const d = await beginAttempt(db, "att-1", "u1", NOW + 1000);
+      assert.deepStrictEqual(d, { kind: "proceed" });
+    });
+
+    it("completeAttempt stamps a TTL expiry", async () => {
+      const { db, store } = makeAttemptsMockDb();
+      await beginAttempt(db, "att-1", "u1", NOW);
+      await completeAttempt(db, "att-1", "u1", { ok: true }, NOW);
+      const doc = store.get("att-1")!.data;
+      const expires = doc.expiresAt as { toMillis(): number };
+      assert.strictEqual(typeof expires.toMillis, "function");
+      assert.strictEqual(expires.toMillis(), NOW + ATTEMPT_TTL_MS);
+    });
+  });
+});
+
 // ── Cloud Function integration tests (require Firebase emulator) ─────────────
 
 const testEnv = test();
@@ -1055,9 +1765,22 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
   // argument is ignored for v2 functions.
 
   describe("nearbyPostboxes (onCall)", () => {
+    it("should reject a request without an App Check token (failed-precondition)", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      // Authenticated but unattested — in-code defence-in-depth must reject
+      // even where platform enforceAppCheck is bypassed (e.g. test wrappers).
+      const req = { data: { lat: 51.45, lng: -0.95, meters: 500 }, auth: { uid: "test-uid" } };
+      try {
+        await wrappedNearby(req);
+        assert.fail("Expected failed-precondition error");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "failed-precondition");
+      }
+    });
+
     it("should return an object with postboxes and counts when given lat, lng, meters", async function (this: Mocha.Context) {
       this.timeout(10000);
-      const req = { data: { lat: 51.45, lng: -0.95, meters: 500 }, auth: { uid: "test-uid" } };
+      const req = { data: { lat: 51.45, lng: -0.95, meters: 500 }, auth: { uid: "test-uid" }, app: { appId: "test-app" } };
       try {
         const result = (await wrappedNearby(req)) as Record<string, unknown>;
         assert.strictEqual(typeof result, "object");
@@ -1082,7 +1805,7 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
 
     it("should throw unauthenticated when no auth context", async function (this: Mocha.Context) {
       this.timeout(5000);
-      const req = { data: { lat: 51.45, lng: -0.95, meters: 500 } };
+      const req = { data: { lat: 51.45, lng: -0.95, meters: 500 }, app: { appId: "test-app" } };
       try {
         await wrappedNearby(req);
         assert.fail("Expected unauthenticated error");
@@ -1094,7 +1817,7 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
 
     it("should throw invalid-argument when lat/lng are missing", async function (this: Mocha.Context) {
       this.timeout(5000);
-      const req = { data: {}, auth: { uid: "test-uid" } };
+      const req = { data: {}, auth: { uid: "test-uid" }, app: { appId: "test-app" } };
       try {
         await wrappedNearby(req);
         assert.fail("Expected invalid-argument error");
@@ -1106,7 +1829,7 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
 
     it("should throw invalid-argument when lat is out of range", async function (this: Mocha.Context) {
       this.timeout(5000);
-      const req = { data: { lat: 999, lng: -0.95, meters: 500 }, auth: { uid: "test-uid" } };
+      const req = { data: { lat: 999, lng: -0.95, meters: 500 }, auth: { uid: "test-uid" }, app: { appId: "test-app" } };
       try {
         await wrappedNearby(req);
         assert.fail("Expected invalid-argument error");
@@ -1118,7 +1841,7 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
 
     it("should throw invalid-argument when lng is out of range", async function (this: Mocha.Context) {
       this.timeout(5000);
-      const req = { data: { lat: 51.45, lng: 999, meters: 500 }, auth: { uid: "test-uid" } };
+      const req = { data: { lat: 51.45, lng: 999, meters: 500 }, auth: { uid: "test-uid" }, app: { appId: "test-app" } };
       try {
         await wrappedNearby(req);
         assert.fail("Expected invalid-argument error");
@@ -1131,7 +1854,7 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
     it("should clamp meters to 2000 without error", async function (this: Mocha.Context) {
       this.timeout(10000);
       // This will still hit Firestore but at least validates the clamping path doesn't throw
-      const req = { data: { lat: 51.45, lng: -0.95, meters: 999999 }, auth: { uid: "test-uid" } };
+      const req = { data: { lat: 51.45, lng: -0.95, meters: 999999 }, auth: { uid: "test-uid" }, app: { appId: "test-app" } };
       try {
         await wrappedNearby(req);
         // If emulator is running, this succeeds. Without emulator, PERMISSION_DENIED is expected.
@@ -1144,7 +1867,7 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
 
     it("should throw invalid-argument when meters is zero", async function (this: Mocha.Context) {
       this.timeout(5000);
-      const req = { data: { lat: 51.45, lng: -0.95, meters: 0 }, auth: { uid: "test-uid" } };
+      const req = { data: { lat: 51.45, lng: -0.95, meters: 0 }, auth: { uid: "test-uid" }, app: { appId: "test-app" } };
       try {
         await wrappedNearby(req);
         assert.fail("Expected invalid-argument error");
@@ -1155,7 +1878,7 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
 
     it("should throw invalid-argument when meters is negative", async function (this: Mocha.Context) {
       this.timeout(5000);
-      const req = { data: { lat: 51.45, lng: -0.95, meters: -100 }, auth: { uid: "test-uid" } };
+      const req = { data: { lat: 51.45, lng: -0.95, meters: -100 }, auth: { uid: "test-uid" }, app: { appId: "test-app" } };
       try {
         await wrappedNearby(req);
         assert.fail("Expected invalid-argument error");
@@ -1166,9 +1889,20 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
   });
 
   describe("startScoring (onCall)", () => {
+    it("should reject a request without an App Check token (failed-precondition)", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      const req = { data: { lat: 51.45, lng: -0.95 }, auth: { uid: "test-uid" } };
+      try {
+        await wrappedStartScoring(req);
+        assert.fail("Expected failed-precondition error");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "failed-precondition");
+      }
+    });
+
     it("should return an object with found, claimed, points, allClaimedToday", async function (this: Mocha.Context) {
       this.timeout(10000);
-      const req = { data: { lat: 51.45, lng: -0.95 }, auth: { uid: "test-uid" } };
+      const req = { data: { lat: 51.45, lng: -0.95 }, auth: { uid: "test-uid" }, app: { appId: "test-app" } };
       try {
         const result = (await wrappedStartScoring(req)) as Record<string, unknown>;
         assert.strictEqual(typeof result, "object");
@@ -1193,7 +1927,7 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
 
     it("should throw unauthenticated when no auth context", async function (this: Mocha.Context) {
       this.timeout(5000);
-      const req = { data: { lat: 51.45, lng: -0.95 } };
+      const req = { data: { lat: 51.45, lng: -0.95 }, app: { appId: "test-app" } };
       try {
         await wrappedStartScoring(req);
         assert.fail("Expected unauthenticated error");
@@ -1205,7 +1939,7 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
 
     it("should throw invalid-argument when lat/lng are missing", async function (this: Mocha.Context) {
       this.timeout(5000);
-      const req = { data: {}, auth: { uid: "test-uid" } };
+      const req = { data: {}, auth: { uid: "test-uid" }, app: { appId: "test-app" } };
       try {
         await wrappedStartScoring(req);
         assert.fail("Expected invalid-argument error");
@@ -1217,7 +1951,18 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
 
     it("should throw invalid-argument when clientTsMs is not finite", async function (this: Mocha.Context) {
       this.timeout(5000);
-      const req = { data: { lat: 51.45, lng: -0.95, clientTsMs: "nope" }, auth: { uid: "test-uid" } };
+      const req = { data: { lat: 51.45, lng: -0.95, clientTsMs: "nope" }, auth: { uid: "test-uid" }, app: { appId: "test-app" } };
+      try {
+        await wrappedStartScoring(req);
+        assert.fail("Expected invalid-argument error");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("should throw invalid-argument for a malformed attemptId", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      const req = { data: { lat: 51.45, lng: -0.95, attemptId: 42 }, auth: { uid: "test-uid" }, app: { appId: "test-app" } };
       try {
         await wrappedStartScoring(req);
         assert.fail("Expected invalid-argument error");
@@ -1229,7 +1974,7 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
 
     it("should throw invalid-argument when lat is out of range", async function (this: Mocha.Context) {
       this.timeout(5000);
-      const req = { data: { lat: 999, lng: -0.95 }, auth: { uid: "test-uid" } };
+      const req = { data: { lat: 999, lng: -0.95 }, auth: { uid: "test-uid" }, app: { appId: "test-app" } };
       try {
         await wrappedStartScoring(req);
         assert.fail("Expected invalid-argument error");
@@ -1241,7 +1986,7 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
 
     it("should throw invalid-argument when lng is out of range", async function (this: Mocha.Context) {
       this.timeout(5000);
-      const req = { data: { lat: 51.45, lng: 999 }, auth: { uid: "test-uid" } };
+      const req = { data: { lat: 51.45, lng: 999 }, auth: { uid: "test-uid" }, app: { appId: "test-app" } };
       try {
         await wrappedStartScoring(req);
         assert.fail("Expected invalid-argument error");
@@ -1253,7 +1998,7 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
 
     it("should return dailyDate string on success", async function (this: Mocha.Context) {
       this.timeout(10000);
-      const req = { data: { lat: 51.45, lng: -0.95 }, auth: { uid: "test-uid" } };
+      const req = { data: { lat: 51.45, lng: -0.95 }, auth: { uid: "test-uid" }, app: { appId: "test-app" } };
       try {
         const result = (await wrappedStartScoring(req)) as Record<string, unknown>;
         // dailyDate is on every return path so callers don't have to special-case
@@ -3503,6 +4248,9 @@ import {
   outOfWindowSignal,
   coordClusterSignal,
   repeatedDeviceSignal,
+  queuedTooLongSignal,
+  computeBatchSpeedCv,
+  constantBatchSpeedSignal,
   evaluateClaimSignals,
   summariseFlags,
   applyTrustDecay,

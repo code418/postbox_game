@@ -14,6 +14,7 @@ import { routePostboxes } from "./routePostboxes";
 import { onClaimCreated, reviewFlag } from "./abuse";
 import { dataRetentionSweep } from "./dataRetention";
 import { exportMyData } from "./exportMyData";
+import { flushOfflineClaims } from "./flushOfflineClaims";
 
 export {
   nearbyPostboxes,
@@ -33,4 +34,5 @@ export {
   reviewFlag,
   dataRetentionSweep,
   exportMyData,
+  flushOfflineClaims,
 };

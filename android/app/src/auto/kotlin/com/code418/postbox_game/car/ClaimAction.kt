@@ -56,7 +56,11 @@ class ClaimAction(private val carContext: CarContext) {
                 "lat" to location.first,
                 "lng" to location.second,
             )
-            val result = FirebaseFunctions.getInstance()
+            // Region-pinned to match lib/firebase_functions_eu.dart — every
+            // function deploys to europe-west2 only; the no-arg getInstance()
+            // targets us-central1, where nothing is listening. Guarded by
+            // test/firebase_functions_region_test.dart (Kotlin scan).
+            val result = FirebaseFunctions.getInstance("europe-west2")
                 .getHttpsCallable("startScoring")
                 .call(payload)
                 .await()

@@ -432,6 +432,46 @@ void main() {
     });
   });
 
+  group('offline-claim tunables (v1.5)', () {
+    test('kill switch defaults off and reads the remote flag', () {
+      final off = RemoteConfigService(remoteConfig: _FakeRemoteConfig());
+      expect(off.killSwitchOfflineClaims, isFalse);
+      final on = RemoteConfigService(
+          remoteConfig: _FakeRemoteConfig(
+              remoteValues: {'kill_switch_offline_claims': true}));
+      expect(on.killSwitchOfflineClaims, isTrue);
+    });
+
+    test('grace hours: in-band remote value wins, out-of-band falls back', () {
+      final inBand = RemoteConfigService(
+          remoteConfig:
+              _FakeRemoteConfig(remoteValues: {'offline_claim_grace_hours': 48}));
+      expect(inBand.offlineClaimGraceHours, 48);
+      final tooBig = RemoteConfigService(
+          remoteConfig: _FakeRemoteConfig(
+              remoteValues: {'offline_claim_grace_hours': 9999}));
+      expect(tooBig.offlineClaimGraceHours,
+          RemoteConfigService.defaultOfflineClaimGraceHours);
+      final zero = RemoteConfigService(
+          remoteConfig:
+              _FakeRemoteConfig(remoteValues: {'offline_claim_grace_hours': 0}));
+      expect(zero.offlineClaimGraceHours,
+          RemoteConfigService.defaultOfflineClaimGraceHours);
+    });
+
+    test('max offline claims/day: in-band wins, out-of-band falls back', () {
+      final inBand = RemoteConfigService(
+          remoteConfig: _FakeRemoteConfig(
+              remoteValues: {'max_offline_claims_per_day': 50}));
+      expect(inBand.maxOfflineClaimsPerDay, 50);
+      final tooBig = RemoteConfigService(
+          remoteConfig: _FakeRemoteConfig(
+              remoteValues: {'max_offline_claims_per_day': 100000}));
+      expect(tooBig.maxOfflineClaimsPerDay,
+          RemoteConfigService.defaultMaxOfflineClaimsPerDay);
+    });
+  });
+
   group('RemoteConfigService.instance', () {
     test('setter swaps the singleton without invoking the default initializer',
         () {

@@ -4,11 +4,16 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // ── postbox collection ──────────────────────────────────────────────────
-    // Authenticated users may read postbox data. Only server-side (Cloud
-    // Functions admin SDK) may write postbox documents.
+    // Server-only (Cloud Functions admin SDK) in BOTH directions. Postbox docs
+    // carry exact geopoints; the game's fuzzy-compass privacy model promises
+    // clients only vague directions, and every read path goes through the
+    // callables (nearbyPostboxes/startScoring/routePostboxes strip coordinates
+    // via applyUserClaims). No Dart or Kotlin code reads this collection
+    // directly, so the old `read: if request.auth != null` only offered a
+    // scrape-the-whole-map hole. Closed in v1.5 as an offline-play
+    // prerequisite (ROADMAP v1.5).
     match /postbox/{postboxId} {
-      allow read: if request.auth != null;
-      allow write: if false;
+      allow read, write: if false;
     }
 
     // ── claims collection ───────────────────────────────────────────────────
@@ -141,6 +146,16 @@ service cloud.firestore {
     // onUserDeleted Cloud Function (Admin SDK). Server-only; clients have no
     // business reading or writing it.
     match /deletions/{docId} {
+      allow read, write: if false;
+    }
+
+    // ── attempts collection ──────────────────────────────────────────────────
+    // Idempotent claim-attempt markers (v1.5 offline play): the server stores
+    // each startScoring/flushOfflineClaims response under a client-generated
+    // attempt id so a dropped response can be replayed on retry. Server-only —
+    // replay happens inside the callables; results echo claim data clients
+    // must never read directly. Reaped by Firestore TTL on `expiresAt`.
+    match /attempts/{attemptId} {
       allow read, write: if false;
     }
 

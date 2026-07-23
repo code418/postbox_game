@@ -11,7 +11,7 @@ description: Find postboxes for megapoints
 # In iOS, build-name is used as CFBundleShortVersionString while build-number used as CFBundleVersion.
 # Read more about iOS versioning at
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
-version: 1.4.0+19
+version: 1.5.0+20
 
 environment:
   sdk: ">=3.0.0 <4.0.0"
@@ -31,7 +31,7 @@ dependencies:
   google_sign_in: ^7.2.0
   flutter_compass: ^0.8.1
   flutter_map: ^8.3.0
-  latlong2: ^0.9.1
+  latlong2: ">=0.9.1 <0.11.0"
   bloc: ^9.2.0
   flutter_bloc: ^9.1.1
   equatable: ^2.0.5
@@ -48,7 +48,7 @@ dependencies:
   flutter_staggered_animations: ^1.1.1
   intl: ^0.20.2
   firebase_messaging: ^16.1.3
-  flutter_local_notifications: ^21.0.0
+  flutter_local_notifications: ">=21.0.0 <23.0.0"
   home_widget: ^0.9.1
   firebase_storage: ^13.0.0
   image_picker: ^1.1.0
@@ -71,6 +71,7 @@ dependencies:
   # `^10.1.0` override below — both must move together if the desktop-only
   # transitive constraint is ever relaxed and the override can be dropped.
   package_info_plus: ^10.1.0
+  connectivity_plus: ^7.3.0
 
 dev_dependencies:
   flutter_test:

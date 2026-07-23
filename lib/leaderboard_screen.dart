@@ -10,6 +10,7 @@ import 'package:postbox_game/services/crashlytics_helper.dart';
 import 'package:postbox_game/services/perf_service.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/user_profile_page.dart';
+import 'package:postbox_game/widgets/stale_data_chip.dart';
 
 /// Leaderboard with Daily, Weekly, Monthly, Lifetime tabs.
 /// Reads from Firestore leaderboards/{period}; backend aggregates via Cloud Function.
@@ -276,8 +277,14 @@ class _LeaderboardListState extends State<_LeaderboardList>
         final showFooter = _currentUid != null && !currentUserInList;
         final rangeText = _periodRangeText(widget.period);
         final showRange = rangeText != null;
+        // v1.5 offline play: persistence serves this stream from the local
+        // cache while offline — right behaviour, but say so.
+        final fromCache = snapshot.data!.metadata.isFromCache;
 
-        return RefreshIndicator(
+        return Column(children: [
+          StaleDataChip(visible: fromCache),
+          Expanded(
+              child: RefreshIndicator(
           color: postalRed,
           onRefresh: () async {
             // Stream auto-refreshes; this gives user tactile feedback
@@ -356,7 +363,8 @@ class _LeaderboardListState extends State<_LeaderboardList>
               );
             },
           ),
-        );
+        )),
+        ]);
       },
     );
   }

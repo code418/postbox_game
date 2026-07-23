@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:postbox_game/admin/admin_abuse_screen.dart';
@@ -19,6 +21,8 @@ import 'package:postbox_game/services/crashlytics_helper.dart';
 import 'package:postbox_game/reports/my_reports_screen.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/widgets/maintenance_banner.dart';
+import 'package:postbox_game/widgets/offline_banner.dart';
+import 'package:postbox_game/services/outbox_sync.dart';
 
 class Home extends StatefulWidget {
   const Home({super.key, this.initialIndex = 0, this.autoScan = false});
@@ -35,7 +39,7 @@ class Home extends StatefulWidget {
   State<Home> createState() => _HomeState();
 }
 
-class _HomeState extends State<Home> {
+class _HomeState extends State<Home> with WidgetsBindingObserver {
   late int _selectedIndex = widget.initialIndex;
   late final JamesController _jamesController = JamesController();
   bool _isAdmin = false;
@@ -95,6 +99,10 @@ class _HomeState extends State<Home> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    // Narrate offline-outbox flushes through James (v1.5 offline play): the
+    // sync fires lastSummary whenever a flush settles banked captures.
+    OutboxSync.instance.lastSummary.addListener(_onFlushSummary);
     CrashlyticsHelper.setContext(
         CrashlyticsHelper.keyActiveTab, _tabName(_selectedIndex));
     // The "Admin · Reports" menu item only appears for users holding the
@@ -113,8 +121,30 @@ class _HomeState extends State<Home> {
 
   @override
   void dispose() {
+    OutboxSync.instance.lastSummary.removeListener(_onFlushSummary);
+    WidgetsBinding.instance.removeObserver(this);
     _jamesController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // App-resume is a natural "the link may be back" moment: flush any
+    // banked offline captures (no-op when the outbox is empty).
+    if (state == AppLifecycleState.resumed) {
+      unawaited(OutboxSync.instance.flushNow());
+    }
+  }
+
+  void _onFlushSummary() {
+    final summary = OutboxSync.instance.lastSummary.value;
+    if (summary == null || !mounted) return;
+    if (summary.claimed > 0) {
+      _jamesController
+          .show(JamesMessages.offlineFlushed(summary.claimed, summary.points));
+    } else if (summary.rejected > 0) {
+      _jamesController.show(JamesMessages.offlineFlushRejected.resolve());
+    }
   }
 
   @override
@@ -239,6 +269,7 @@ class _HomeState extends State<Home> {
         body: Column(
           children: [
             const MaintenanceBanner(),
+            const OfflineBanner(),
             Expanded(
               child: Stack(
                 children: [

@@ -1,9 +1,17 @@
 import "./adminInit";
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions";
+import { defineSecret } from "firebase-functions/params";
+import { randomBytes } from "crypto";
 import { getTodayLondon } from "./_dateUtils";
 import { applyUserClaims } from "./_nearbyUtils";
 import { lookupPostboxes } from "./_lookupPostboxes";
+import { requireAppCheck } from "./_appCheck";
+import { getScanSecret, signScanToken, SCAN_SECRET_ENV } from "./_scanToken";
+
+/** HMAC secret for the offline capture token (see _scanToken.ts). Declared so
+ *  the platform binds Secret Manager -> process.env at runtime. */
+const scanSecret = defineSecret(SCAN_SECRET_ENV);
 
 interface NearbyCallData {
   lat?: number;
@@ -11,7 +19,10 @@ interface NearbyCallData {
   meters?: number;
 }
 
-export const nearbyPostboxes = functions.https.onCall(async (request) => {
+export const nearbyPostboxes = functions.https.onCall({ enforceAppCheck: true, secrets: [scanSecret] }, async (request) => {
+  // Platform enforceAppCheck rejects unattested requests up front; this
+  // in-code check is the defence-in-depth + break-glass layer (see _appCheck).
+  requireAppCheck(request);
   if (!request.auth?.uid) {
     throw new functions.https.HttpsError("unauthenticated", "Must be signed in to scan for postboxes");
   }
@@ -55,6 +66,24 @@ export const nearbyPostboxes = functions.https.onCall(async (request) => {
   const { slimPostboxes, updatedCounts, updatedPoints, updatedCompass, claimedCompass } =
     applyUserClaims(full, userClaimedKeys);
 
+  // Offline capture token (v1.5): an HMAC-signed scanId binding this scan's
+  // uid + position + server time. The client caches it with the scan payload;
+  // an offline claim presents it to flushOfflineClaims, which enforces the
+  // capture window against the server-attested issue time (_scanToken.ts has
+  // the threat model). Fail-open: if the secret isn't configured the scan
+  // still works and offline capture is simply unavailable.
+  let scanId: string | undefined;
+  const secret = getScanSecret();
+  if (secret) {
+    scanId = signScanToken({
+      uid,
+      lat,
+      lng,
+      issuedAtMs: Date.now(),
+      nonce: randomBytes(8).toString("hex"),
+    }, secret);
+  }
+
   // Return only the intended fields — explicit rather than ...full spread
   // so future LookupResult fields (e.g. precise geopoints) are not accidentally
   // leaked to clients before they're deliberately included here.
@@ -64,5 +93,6 @@ export const nearbyPostboxes = functions.https.onCall(async (request) => {
     points: updatedPoints,
     compass: updatedCompass,
     claimedCompass,
+    ...(scanId !== undefined ? { scanId } : {}),
   };
 });

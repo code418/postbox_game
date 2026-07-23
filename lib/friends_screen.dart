@@ -12,6 +12,7 @@ import 'package:postbox_game/maintenance_guard.dart';
 import 'package:postbox_game/services/perf_service.dart';
 import 'package:postbox_game/services/user_properties_publisher.dart';
 import 'package:postbox_game/user_profile_page.dart';
+import 'package:postbox_game/widgets/stale_data_chip.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -486,7 +487,13 @@ class _FriendsScreenState extends State<FriendsScreen> {
                   ],
                 );
               }
-              return ListView.builder(
+              // v1.5 offline play: persistence serves this stream from the
+              // local cache while offline — right behaviour, but say so.
+              final fromCache = snapshot.data!.metadata.isFromCache;
+              return Column(children: [
+                StaleDataChip(visible: fromCache),
+                Expanded(
+                    child: ListView.builder(
                 itemCount: list.length,
                 padding: const EdgeInsets.only(
                     top: AppSpacing.sm, bottom: 100),
@@ -555,7 +562,8 @@ class _FriendsScreenState extends State<FriendsScreen> {
                     ),
                   );
                 },
-              );
+              )),
+              ]);
             },
           ),
         ),

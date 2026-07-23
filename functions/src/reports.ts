@@ -1,4 +1,5 @@
 import "./adminInit";
+import { monitorAppCheck } from "./_appCheck";
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions";
 import * as geohash from "ngeohash";
@@ -212,6 +213,7 @@ interface SubmitReportData {
 }
 
 export const submitReport = functions.https.onCall(async (request) => {
+  monitorAppCheck(request, "submitReport");
   const uid = request.auth?.uid;
   if (!uid) throw new functions.https.HttpsError("unauthenticated", "Must be signed in to report a problem");
 
@@ -306,6 +308,7 @@ interface ReviewReportData {
 }
 
 export const reviewReport = functions.https.onCall({ timeoutSeconds: 300 }, async (request) => {
+  monitorAppCheck(request, "reviewReport");
   if (request.auth?.token?.admin !== true) {
     throw new functions.https.HttpsError("permission-denied", "Admin access required");
   }

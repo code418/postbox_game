@@ -15,13 +15,16 @@ import 'package:postbox_game/services/crashlytics_helper.dart';
 /// typed getter per flag so call sites never see raw keys.
 ///
 /// Flags currently shipped:
-/// - [killSwitchRouteMode]    — hide Route Mode without a release.
-/// - [killSwitchReporting]    — hide problem-reporting entry points.
-/// - [jamesWelcomeVariant]    — A/B copy variant for James's first-launch line.
-/// - [maintenanceMode]        — flip the app into read-only mode (banner +
-///                              every write entry-point refuses with a toast).
-/// - [maintenanceMessage]     — admin-authored banner copy shown while
-///                              [maintenanceMode] is on.
+/// - [killSwitchRouteMode]      — hide Route Mode without a release.
+/// - [killSwitchReporting]      — hide problem-reporting entry points.
+/// - [jamesWelcomeVariant]      — A/B copy variant for James's first-launch line.
+/// - [maintenanceMode]          — flip the app into read-only mode (banner +
+///                                every write entry-point refuses with a toast).
+/// - [maintenanceMessage]       — admin-authored banner copy shown while
+///                                [maintenanceMode] is on.
+/// - [killSwitchOfflineClaims]  — disable offline claim capture/flush (v1.5).
+/// - [offlineClaimGraceHours]   — how long a banked capture stays flushable.
+/// - [maxOfflineClaimsPerDay]   — per-user daily cap on flushed claims.
 ///
 /// Defaults match today's shipped behaviour so the app degrades to the current
 /// experience if Remote Config never resolves.
@@ -60,6 +63,9 @@ class RemoteConfigService {
   static const String keyMaintenanceMessage = 'maintenance_message';
   static const String keyClaimRadiusMeters = 'claim_radius_meters';
   static const String keyPointsByMonarch = 'points_by_monarch';
+  static const String keyKillSwitchOfflineClaims = 'kill_switch_offline_claims';
+  static const String keyOfflineClaimGraceHours = 'offline_claim_grace_hours';
+  static const String keyMaxOfflineClaimsPerDay = 'max_offline_claims_per_day';
 
   static const String welcomeVariantClassic = 'classic';
   static const String welcomeVariantCheeky = 'cheeky';
@@ -73,6 +79,16 @@ class RemoteConfigService {
   /// Safety band for a Remote-Config-supplied per-monarch point value.
   static const int minMonarchPoints = 1;
   static const int maxMonarchPoints = 50;
+
+  /// Offline-claim tunables (v1.5). Defaults + bands mirror _config.ts on the
+  /// server; the server is authoritative (it re-validates every flush), these
+  /// only shape client behaviour (whether to bank captures, when to prune).
+  static const int defaultOfflineClaimGraceHours = 36;
+  static const int minOfflineClaimGraceHours = 1;
+  static const int maxOfflineClaimGraceHours = 168;
+  static const int defaultMaxOfflineClaimsPerDay = 30;
+  static const int minMaxOfflineClaimsPerDay = 1;
+  static const int maxMaxOfflineClaimsPerDay = 200;
 
   /// Default `points_by_monarch` JSON. MUST equal [MonarchInfo.points] — pinned
   /// by test/cross_language_sync_test.dart. Remote Config only overrides on top.
@@ -96,6 +112,9 @@ class RemoteConfigService {
     keyMaintenanceMessage: defaultMaintenanceMessage,
     keyClaimRadiusMeters: AppPreferences.claimRadiusMeters,
     keyPointsByMonarch: defaultPointsByMonarchJson,
+    keyKillSwitchOfflineClaims: false,
+    keyOfflineClaimGraceHours: defaultOfflineClaimGraceHours,
+    keyMaxOfflineClaimsPerDay: defaultMaxOfflineClaimsPerDay,
   };
 
   static const Duration _fetchTimeout = Duration(seconds: 10);
@@ -155,6 +174,30 @@ class RemoteConfigService {
   }
 
   bool get killSwitchRouteMode => _rc.getBool(keyKillSwitchRouteMode);
+
+  /// Emergency kill switch for offline claim capture + flush (v1.5). The
+  /// server enforces its own copy; this one hides the client affordances.
+  bool get killSwitchOfflineClaims => _rc.getBool(keyKillSwitchOfflineClaims);
+
+  /// How long a banked offline capture stays flushable (hours), bounds-checked
+  /// into [minOfflineClaimGraceHours]..[maxOfflineClaimGraceHours].
+  int get offlineClaimGraceHours {
+    final raw = _rc.getInt(keyOfflineClaimGraceHours);
+    if (raw < minOfflineClaimGraceHours || raw > maxOfflineClaimGraceHours) {
+      return defaultOfflineClaimGraceHours;
+    }
+    return raw;
+  }
+
+  /// Per-user daily cap on flushed offline claims, bounds-checked into
+  /// [minMaxOfflineClaimsPerDay]..[maxMaxOfflineClaimsPerDay].
+  int get maxOfflineClaimsPerDay {
+    final raw = _rc.getInt(keyMaxOfflineClaimsPerDay);
+    if (raw < minMaxOfflineClaimsPerDay || raw > maxMaxOfflineClaimsPerDay) {
+      return defaultMaxOfflineClaimsPerDay;
+    }
+    return raw;
+  }
   bool get killSwitchReporting => _rc.getBool(keyKillSwitchReporting);
   String get jamesWelcomeVariant => _rc.getString(keyJamesWelcomeVariant);
   bool get maintenanceMode => _rc.getBool(keyMaintenanceMode);

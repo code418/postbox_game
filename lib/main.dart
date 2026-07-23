@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:postbox_game/authentication_bloc/bloc.dart';
+import 'package:postbox_game/services/connectivity_service.dart';
+import 'package:postbox_game/services/outbox_sync.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/claim.dart';
 import 'package:postbox_game/claim_history_screen.dart';
@@ -102,6 +104,10 @@ void main() async {
   // never blocks on a Remote Config round-trip. Errors are logged and swallowed
   // inside init().
   unawaited(RemoteConfigService.instance.init());
+  // Offline play (v1.5): connectivity awareness + auto-flush of banked claims
+  // whenever the link returns. Both are best-effort and never block startup.
+  unawaited(ConnectivityService.instance.init());
+  OutboxSync.instance.start();
   runApp(const PostboxGame());
 }
 

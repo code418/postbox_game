@@ -15,7 +15,15 @@ export { MAX_GEOHASH_PRECISION, setPrecision, getLatLng };
 
 const database = admin.firestore();
 
-export async function lookupPostboxes(lat: number, lng: number, meters: number): Promise<LookupResult> {
+/**
+ * Look up postboxes within [meters] of ([lat], [lng]).
+ *
+ * [today] is the London day used for the `claimedToday` comparisons; it
+ * defaults to the real today (live scans). The offline flush path passes the
+ * claim's CAPTURE day so a backdated claim is adjudicated against the right
+ * day's dailyClaim markers (ROADMAP v1.5, offline play Phase 2).
+ */
+export async function lookupPostboxes(lat: number, lng: number, meters: number, today?: string): Promise<LookupResult> {
   const result: LookupResult = {
     postboxes: {},
     counts: { total: 0, claimedToday: 0 },
@@ -46,7 +54,7 @@ export async function lookupPostboxes(lat: number, lng: number, meters: number):
 
   const snapshots = await Promise.all(queries);
   const from = { latitude: lat, longitude: lng };
-  const todayLondon = getTodayLondon();
+  const todayLondon = today ?? getTodayLondon();
   const seen = new Set<string>();
 
   for (const snapshot of snapshots) {

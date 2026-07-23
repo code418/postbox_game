@@ -28,6 +28,33 @@ void main() {
         reason: '$helperPath must expose the `appFunctions` getter');
   });
 
+  test('Kotlin call sites pin the region on FirebaseFunctions.getInstance', () {
+    // The Dart scan below can't see native code: Android Auto (and any future
+    // Kotlin surface) calls Cloud Functions through the Kotlin SDK, where the
+    // unpinned form `FirebaseFunctions.getInstance()` silently targets
+    // us-central1 while every function deploys to europe-west2 — the claim
+    // button would fail against a decommissioned region. Kotlin must always
+    // pass the region string: `FirebaseFunctions.getInstance("europe-west2")`.
+    final offenderRe = RegExp(r'FirebaseFunctions\.getInstance\(\s*\)');
+    final offenders = <String>[];
+    final androidSrc = Directory('android');
+    expect(androidSrc.existsSync(), isTrue,
+        reason: 'android/ directory missing — run from the package root');
+    for (final entity in androidSrc.listSync(recursive: true)) {
+      if (entity is! File || !entity.path.endsWith('.kt')) continue;
+      final content = entity.readAsStringSync();
+      for (final m in offenderRe.allMatches(content)) {
+        final line = '\n'.allMatches(content.substring(0, m.start)).length + 1;
+        offenders.add('${entity.path}:$line');
+      }
+    }
+    expect(offenders, isEmpty,
+        reason: 'these Kotlin call sites use the US-default '
+            'FirebaseFunctions.getInstance() instead of '
+            'FirebaseFunctions.getInstance("europe-west2"):\n'
+            '${offenders.join('\n')}');
+  });
+
   test('no callable bypasses the helper via FirebaseFunctions.instance', () {
     // Matches `FirebaseFunctions.instance` (incl. multi-line `.httpsCallable`
     // call sites and doc-comment references) but not `instanceFor` or

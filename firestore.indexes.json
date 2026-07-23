@@ -42,6 +42,22 @@
       ]
     },
     {
+      "collectionGroup": "claims",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userid", "order": "ASCENDING" },
+        { "fieldPath": "eventTime", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "claims",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userid", "order": "ASCENDING" },
+        { "fieldPath": "eventTime", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "postbox",
       "queryScope": "COLLECTION",
       "fields": [

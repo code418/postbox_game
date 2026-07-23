@@ -1,4 +1,5 @@
 import "./adminInit";
+import { monitorAppCheck } from "./_appCheck";
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions";
 import * as geohash from "ngeohash";
@@ -34,6 +35,7 @@ interface RouteCallData {
 }
 
 export const routePostboxes = functions.https.onCall(async (request) => {
+  monitorAppCheck(request, "routePostboxes");
   if (!request.auth?.uid) {
     throw new functions.https.HttpsError("unauthenticated", "Must be signed in to plan a route");
   }
