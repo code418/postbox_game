@@ -448,6 +448,10 @@ void main() {
     expect(find.text('Retry'), findsOneWidget,
         reason: 'the network-error state must offer a Retry');
     expect(scanCalls, 3, reason: 'initial call + 2 automatic retries');
+    expect(find.textContaining('Tip: scan while you have signal'),
+        findsOneWidget,
+        reason: 'the scan-path dead end must explain that offline claiming '
+            'needs a scan taken while online (there is nothing to bank yet)');
 
     // Manual retry succeeds and lands on the results stage.
     await tester.tap(find.text('Retry'));
@@ -501,6 +505,10 @@ void main() {
     expect(find.text('Retry'), findsOneWidget,
         reason: 'a transport failure on claim must offer a Retry, '
             'not strand the user behind a SnackBar');
+    expect(find.textContaining('Tip: scan while you have signal'),
+        findsNothing,
+        reason: 'the scan-first tip is for the scan path only — a failed '
+            'claim already has its scan and its own guidance');
     expect(claimPayloads, hasLength(3),
         reason: 'initial claim + 2 automatic retries');
     final ids = claimPayloads.map((p) => p['attemptId']).toSet();

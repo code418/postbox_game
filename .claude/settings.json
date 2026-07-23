@@ -11,7 +11,14 @@
       "mcp__dart__hot_restart",
       "mcp__dart__flutter_driver_command",
       "Bash(adb shell *)",
-      "Bash(adb pull *)"
+      "Bash(adb pull *)",
+      "Bash(export JAVA_HOME=/snap/android-studio/current/jbr)",
+      "Bash(./gradlew -q :app:dependencies --configuration phoneDebugCompileClasspath)",
+      "Bash(./gradlew -q :app:dependencies --configuration autoDebugCompileClasspath)",
+      "Bash(env -u JAVA_HOME bash tools/release.sh)",
+      "Bash(GCLOUD_PROJECT=the-postbox-game node -e ' *)",
+      "mcp__plugin_firebase_firebase__developerknowledge_answer_query",
+      "mcp__plugin_firebase_firebase__firestore_list_collections"
     ]
   },
   "enabledPlugins": {

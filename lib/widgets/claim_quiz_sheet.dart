@@ -1487,6 +1487,21 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
                     color: Theme.of(context).colorScheme.onSurfaceVariant),
                 textAlign: TextAlign.center,
               ),
+              // A scan dead end means there was no fresh online scan to rescue
+              // (ScanCache empty, stale, or >250 m away) — explain that offline
+              // claiming exists but needs a scan taken while connected, so the
+              // Retry-only screen reads as designed behaviour, not a bug.
+              if (!_retryIsClaim) ...[
+                const SizedBox(height: AppSpacing.sm),
+                Text(
+                  'Tip: scan while you have signal — for a couple of hours '
+                  'afterwards, claims made near that spot are saved and '
+                  "posted automatically when you're back online.",
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant),
+                  textAlign: TextAlign.center,
+                ),
+              ],
               const SizedBox(height: AppSpacing.xl),
               FilledButton.icon(
                 onPressed: () {

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:postbox_game/services/connectivity_service.dart';
 import 'package:postbox_game/services/perf_service.dart';
 import 'package:postbox_game/theme.dart';
 
@@ -134,46 +135,70 @@ class _PostboxMapState extends State<PostboxMap> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final scheme = Theme.of(context).colorScheme;
 
-    return FlutterMap(
-      mapController: _effectiveController,
-      options: MapOptions(
-        initialCenter: widget.center,
-        initialZoom: widget.zoom,
-        // Hard cap: OSM tiles show postbox POI icons at zoom ≥ 18, which would
-        // reveal exact postbox locations. 17 is the maximum safe level.
-        maxZoom: 17,
-        onTap: widget.onTap,
-        interactionOptions: widget.interactionOptions ?? const InteractionOptions(),
-      ),
-      children: [
-        TileLayer(
-          urlTemplate: _defaultTileUrl,
-          tileProvider: _tileProvider,
-          // Must match the Android applicationId / iOS bundle id so OSM can
-          // attribute tile requests correctly per their tile-usage policy.
-          userAgentPackageName: 'com.code418.postbox_game',
-          // maxNativeZoom matches maxZoom so tiles are never upscaled past 17
-          // and no higher-zoom tile requests are ever made.
-          maxNativeZoom: 17,
+    // Offline, live OSM tile fetches can only fail, leaving a dead grey card
+    // (the built-in disk cache covers previously seen areas only). Drop the
+    // tile layer entirely and keep the geometry overlays (radius circles,
+    // markers, routes) legible on a flat themed background instead.
+    // ConnectivityService is optimistic (defaults online, fails open), so
+    // this only engages when the device definitely has no transport, and the
+    // ValueListenable rebuild restores tiles the moment the link returns.
+    return ValueListenableBuilder<bool>(
+      valueListenable: ConnectivityService.instance.online,
+      builder: (context, online, _) => FlutterMap(
+        mapController: _effectiveController,
+        options: MapOptions(
+          initialCenter: widget.center,
+          initialZoom: widget.zoom,
+          // Hard cap: OSM tiles show postbox POI icons at zoom ≥ 18, which would
+          // reveal exact postbox locations. 17 is the maximum safe level.
           maxZoom: 17,
-          tileBuilder: isDark ? _darkTileBuilder : null,
+          onTap: widget.onTap,
+          interactionOptions:
+              widget.interactionOptions ?? const InteractionOptions(),
+          backgroundColor: online
+              ? const Color(0xFFE0E0E0) // flutter_map's default canvas
+              : scheme.surfaceContainerHighest,
         ),
-        if (widget.polygons.isNotEmpty) PolygonLayer(polygons: widget.polygons),
-        if (widget.polylines.isNotEmpty) PolylineLayer(polylines: widget.polylines),
-        if (widget.circleMarkers.isNotEmpty)
-          CircleLayer(circles: widget.circleMarkers),
-        if (widget.markers.isNotEmpty) MarkerLayer(markers: widget.markers),
-        // Attribution kept above the JamesStrip clearance area.
-        Padding(
-          padding: EdgeInsets.only(bottom: widget.bottomPadding),
-          child: RichAttributionWidget(
-            attributions: [
-              TextSourceAttribution('OpenStreetMap contributors'),
-            ],
+        children: [
+          if (online)
+            TileLayer(
+              urlTemplate: _defaultTileUrl,
+              tileProvider: _tileProvider,
+              // Must match the Android applicationId / iOS bundle id so OSM can
+              // attribute tile requests correctly per their tile-usage policy.
+              userAgentPackageName: 'com.code418.postbox_game',
+              // maxNativeZoom matches maxZoom so tiles are never upscaled past 17
+              // and no higher-zoom tile requests are ever made.
+              maxNativeZoom: 17,
+              maxZoom: 17,
+              tileBuilder: isDark ? _darkTileBuilder : null,
+            ),
+          if (widget.polygons.isNotEmpty)
+            PolygonLayer(polygons: widget.polygons),
+          if (widget.polylines.isNotEmpty)
+            PolylineLayer(polylines: widget.polylines),
+          if (widget.circleMarkers.isNotEmpty)
+            CircleLayer(circles: widget.circleMarkers),
+          if (widget.markers.isNotEmpty) MarkerLayer(markers: widget.markers),
+          // Attribution (or its offline stand-in) kept above the JamesStrip
+          // clearance area. No tiles rendered → nothing to attribute.
+          Padding(
+            padding: EdgeInsets.only(bottom: widget.bottomPadding),
+            child: online
+                ? RichAttributionWidget(
+                    attributions: [
+                      TextSourceAttribution('OpenStreetMap contributors'),
+                    ],
+                  )
+                : const Align(
+                    alignment: Alignment.bottomCenter,
+                    child: _OfflineMapHint(),
+                  ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -192,6 +217,46 @@ class _PostboxMapState extends State<PostboxMap> {
          0,    0,    0,   1,   0,  // alpha
       ]),
       child: tileWidget,
+    );
+  }
+}
+
+/// Pill shown in the attribution slot while the map is tile-less offline.
+/// Mirrors the StaleDataChip visual language; IgnorePointer so it never
+/// swallows map taps.
+class _OfflineMapHint extends StatelessWidget {
+  const _OfflineMapHint();
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return IgnorePointer(
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          decoration: BoxDecoration(
+            color: scheme.surface,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: scheme.outlineVariant),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.cloud_off_outlined,
+                  size: 14, color: scheme.onSurfaceVariant),
+              const SizedBox(width: 6),
+              Text(
+                'Offline — map unavailable',
+                style: Theme.of(context)
+                    .textTheme
+                    .labelSmall
+                    ?.copyWith(color: scheme.onSurfaceVariant),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
