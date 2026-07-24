@@ -429,6 +429,81 @@ void main() {
       expect(find.byType(ClaimQuizSheet), findsOneWidget);
     });
 
+    // ── Arrival vs an OPEN claim sheet ─────────────────────────────────────
+    testWidgets(
+        'arriving while the claim sheet is open defers until it closes',
+        (tester) async {
+      // The claim radius (30 m) is LARGER than the arrival radius (25 m), so a
+      // postbox near the destination reliably opens the sheet a few paces
+      // before arrival fires. Navigating then would destroy the sheet mid-quiz
+      // and lose the claim with no explanation.
+      final posCtrl = StreamController<Position>.broadcast();
+      addTearDown(posCtrl.close);
+
+      const destLat = 51.5100;
+      const destLng = -0.1200;
+      final sess = RouteSession(
+        start: const LatLng(51.5074, -0.1278),
+        destination: const LatLng(destLat, destLng),
+        destinationLabel: 'Sheet vs Arrival',
+      );
+
+      Future<HttpsCallableResult<dynamic>> nearbyWithClaimable(
+              Map<String, dynamic> _) async =>
+          _FakeResult<dynamic>({
+            'compass': {'N': 1},
+            'claimedCompass': <String, dynamic>{},
+            'postboxes': {
+              'pb_near_dest': {
+                'distance': 15.0,
+                'claimedToday': false,
+                'monarch': 'EVIIR',
+              },
+            },
+            'counts': {'total': 1, 'claimedToday': 0},
+            'points': {'min': 9, 'max': 9},
+          });
+
+      await tester.pumpWidget(_buildScreen(
+        session: sess,
+        posCtrl: posCtrl,
+        nearbyCallable: nearbyWithClaimable,
+        nearbyCallableForSheet: _sheetNearbyStub,
+      ));
+      await tester.pump();
+
+      // 1. Still outside the arrival radius, but a claimable box is in range —
+      //    the sheet opens.
+      posCtrl.add(_pos(51.5074, -0.1278));
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      });
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.byType(ClaimQuizSheet), findsOneWidget,
+          reason: 'precondition: the sheet must be open before arriving');
+
+      // 2. Walk the last few paces INTO the arrival radius while it is open.
+      posCtrl.add(_pos(destLat + 0.0001, destLng)); // ~11 m north of dest
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      });
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // The journey must NOT have ended underneath the user.
+      expect(find.byType(RouteCompletionScreen), findsNothing,
+          reason: 'arrival must wait rather than destroy an open claim sheet');
+      expect(find.byType(ClaimQuizSheet), findsOneWidget);
+
+      // 3. Dismissing the sheet completes the deferred arrival.
+      Navigator.of(tester.element(find.byType(ClaimQuizSheet))).pop();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.byType(RouteCompletionScreen), findsOneWidget,
+          reason: 'the deferred arrival finishes once the sheet closes');
+    });
+
     // ── Arrival race: a scan that resolves after arrival must not open ─────
     testWidgets(
         'scan resolving after arrival does not open a claim sheet',

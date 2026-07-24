@@ -189,6 +189,10 @@ class _LiveRouteScreenState extends State<LiveRouteScreen> {
   // ── Claim sheet state ─────────────────────────────────────────────────────
   bool _claimSheetOpen = false;
 
+  /// Set when the user reached the destination while a claim sheet was open.
+  /// The journey finishes as soon as that sheet closes — see [_onPosition].
+  bool _arrivalPending = false;
+
   /// Postbox IDs dismissed within the last [_kClaimCooldownS] seconds.
   /// Maps postbox ID → dismissal time.
   final Map<String, DateTime> _recentDismissals = {};
@@ -319,6 +323,15 @@ class _LiveRouteScreenState extends State<LiveRouteScreen> {
 
     // Arrival detection — only navigate once.
     if (dist < _kArrivalRadiusM) {
+      // Never yank an open claim sheet away. The claim radius (30 m) is LARGER
+      // than the arrival radius (25 m), so a postbox near the destination
+      // reliably opens the sheet a few paces BEFORE arrival fires — and
+      // pushReplacement would then destroy it mid-quiz, losing the claim with
+      // no explanation. Defer; the sheet's whenComplete finishes the journey.
+      if (_claimSheetOpen) {
+        _arrivalPending = true;
+        return;
+      }
       _arrived = true;
       _navigateToCompletion();
       return;
@@ -492,6 +505,12 @@ class _LiveRouteScreenState extends State<LiveRouteScreen> {
       // Record dismissal to suppress re-prompting for this box.
       _recentDismissals[postboxId] = DateTime.now();
       // Totals + SnackBar are handled by _onSheetClaimRecorded above.
+      // If the destination was reached while this sheet was up, the arrival
+      // was deferred so the claim could finish. Complete the journey now.
+      if (_arrivalPending && mounted && !_arrived) {
+        _arrived = true;
+        _navigateToCompletion();
+      }
     });
   }
 
