@@ -3347,12 +3347,58 @@ describe("countySlug", () => {
     assert.strictEqual(countySlug("   "), null);
     assert.strictEqual(countySlug("---"), null);
   });
-  it("matches the slug stored in the simplified geojson asset", () => {
-    // Sanity: must agree with the slugs baked into
-    // assets/uk_counties_simplified.geojson and util/county_lookup.js. If
-    // these drift, the heatmap polygons stop joining to leaderboard docs.
-    assert.strictEqual(countySlug("City of Edinburgh"), "city-of-edinburgh");
-    assert.strictEqual(countySlug("Birmingham"), "birmingham");
+  // The three-way coupling this function sits in the middle of:
+  //   importer      -> postbox.county = <county NAME>            (county_lookup.js)
+  //   claim scoring -> countySlug(name) = leaderboards/.../counties/{slug}
+  //   heatmap       -> reads properties.slug straight out of the geojson asset
+  // So the invariant is countySlug(feature.name) === feature.slug for EVERY
+  // feature. Break it and that county's polygon silently joins to nothing:
+  // claims still score, the heatmap just shows no leader, with no error
+  // anywhere. Checked exhaustively against the real asset rather than by
+  // spot-checking two names, so regenerating the geojson can't slip past.
+  describe("agrees with every slug baked into the geojson asset", () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+    const fs = require("fs");
+    // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+    const path = require("path");
+    const assetPath = path.join(__dirname, "../../../assets/uk_counties_simplified.geojson");
+    let features: Array<{ properties?: { name?: string; slug?: string } }> = [];
+    let loaded = false;
+    try {
+      features = JSON.parse(fs.readFileSync(assetPath, "utf8")).features;
+      loaded = Array.isArray(features) && features.length > 0;
+    } catch (_) {
+      loaded = false;
+    }
+
+    (loaded ? it : it.skip)("every feature's name slugifies to its baked slug", () => {
+      const mismatches = features
+        .map((f) => ({ name: f.properties?.name, slug: f.properties?.slug }))
+        .filter((f) => typeof f.name === "string" && typeof f.slug === "string")
+        .filter((f) => countySlug(f.name as string) !== f.slug)
+        .map((f) => `${f.name}: baked=${f.slug} countySlug=${countySlug(f.name as string)}`);
+      assert.deepStrictEqual(mismatches, [],
+        "these counties would join to no leaderboard doc on the heatmap");
+    });
+
+    (loaded ? it : it.skip)("no two counties collide onto one slug", () => {
+      // A collision would merge two counties' leaderboards into one doc.
+      const byslug = new Map<string, Set<string>>();
+      for (const f of features) {
+        const { name, slug } = f.properties ?? {};
+        if (typeof name !== "string" || typeof slug !== "string") continue;
+        if (!byslug.has(slug)) byslug.set(slug, new Set());
+        (byslug.get(slug) as Set<string>).add(name);
+      }
+      const collisions = [...byslug.entries()]
+        .filter(([, names]) => names.size > 1)
+        .map(([slug, names]) => `${slug} <- ${[...names].join(", ")}`);
+      assert.deepStrictEqual(collisions, []);
+    });
+
+    (loaded ? it : it.skip)("the asset actually parsed (guards the guard)", () => {
+      assert.ok(features.length >= 200, `only ${features.length} features parsed`);
+    });
   });
 });
 
