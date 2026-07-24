@@ -13,6 +13,7 @@ import 'package:flutter/foundation.dart';
 
 import 'package:postbox_game/firebase_functions_eu.dart';
 import 'package:postbox_game/remote_config_service.dart';
+import 'package:postbox_game/services/claim_events.dart';
 import 'package:postbox_game/services/claim_outbox.dart';
 import 'package:postbox_game/services/connectivity_service.dart';
 
@@ -209,6 +210,9 @@ class OutboxSync {
         rejected: rejected,
         kept: (await _outbox.entries()).length,
       );
+      // A flush that credited anything is just as much a claim as a live one,
+      // so claim-derived screens need the same nudge.
+      if (claimed > 0) ClaimEvents.markClaimed();
       lastSummary.value = summary;
       return summary;
     } finally {

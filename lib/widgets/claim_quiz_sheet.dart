@@ -20,6 +20,7 @@ import 'package:postbox_game/maintenance_guard.dart';
 import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/remote_config_service.dart';
 import 'package:postbox_game/reports/report_missing_postbox_screen.dart';
+import 'package:postbox_game/services/claim_events.dart';
 import 'package:postbox_game/services/claim_outbox.dart';
 import 'package:postbox_game/services/crashlytics_helper.dart';
 import 'package:postbox_game/services/device_id_service.dart';
@@ -707,6 +708,11 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
         _stage = _QuizStage.claimed;
       });
       unawaited(_homeWidgetService.refresh());
+      // Tell claim-derived screens to refetch. ClaimHistoryScreen's tabs are
+      // keep-alive inside Home's IndexedStack, so without this they keep
+      // showing the answer they got at app start — i.e. "No claims today"
+      // moments after a successful claim.
+      ClaimEvents.markClaimed();
       _successController.forward(from: 0);
       _confettiController.play();
       if (mounted) {

@@ -8,6 +8,7 @@ import 'package:postbox_game/app_preferences.dart' show ViewMode;
 import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/remote_config_service.dart';
 import 'package:postbox_game/reports/report_cypher_screen.dart';
+import 'package:postbox_game/services/claim_events.dart';
 import 'package:postbox_game/services/crashlytics_helper.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/widgets/postbox_map.dart';
@@ -121,6 +122,28 @@ class _HistoryTabState extends State<_HistoryTab>
   void initState() {
     super.initState();
     _future = _fetch();
+    // These tabs are keep-alive inside Home's IndexedStack, so initState runs
+    // once at app start and the result sticks. Without this listener a claim
+    // made after launch never appears until the user pulls to refresh — the
+    // empty state actively told them "No claims today" seconds after claiming.
+    ClaimEvents.revision.addListener(_onClaimRecorded);
+  }
+
+  @override
+  void dispose() {
+    ClaimEvents.revision.removeListener(_onClaimRecorded);
+    super.dispose();
+  }
+
+  /// All four period tabs refetch on a claim. That is four cheap reads per
+  /// claim, which is the right trade against any of them showing a stale
+  /// answer: claims are infrequent, and there is no reliable way for an
+  /// offstage IndexedStack child to know whether it is the visible one.
+  void _onClaimRecorded() {
+    if (!mounted) return;
+    setState(() {
+      _future = _fetch();
+    });
   }
 
   Future<List<ClaimHistoryEntry>> _fetch() async {
