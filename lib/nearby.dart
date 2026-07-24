@@ -119,11 +119,14 @@ class _NearbyState extends State<Nearby> {
       final result = await PerfService.traceAsync(
         PerfTraces.callableNearbyPostboxes,
         (trace) async {
-          final r = await callable.call(<String, dynamic>{
+          // Scans are read-only, so a wholesale retry is safe — this is the
+          // case retryOnUnavailable's own doc names. Production hit
+          // `deadline-exceeded` here and gave up without retrying.
+          final r = await retryOnUnavailable(() => callable.call(<String, dynamic>{
             'lat': position.latitude,
             'lng': position.longitude,
             'meters': AppPreferences.nearbyRadiusMeters,
-          });
+          }));
           final total = ((Map<String, dynamic>.from(r.data as Map)['counts']
                   as Map?)?['total'] as num?)
               ?.toInt();
@@ -205,22 +208,33 @@ class _NearbyState extends State<Nearby> {
       if (mounted) JamesController.of(context)?.show(msg);
     } on FirebaseFunctionsException catch (e) {
       debugPrint('Firebase functions error: ${e.code} ${e.message}');
+      // Both transport codes are expected flakes on a walk, and the retries
+      // inside retryOnUnavailable are already exhausted by the time we get
+      // here, so dedupe them rather than filling Crashlytics with the same
+      // "user was in a signal notspot" event.
+      final isTransport = retryableCallableCodes.contains(e.code);
       CrashlyticsHelper.recordHandled(e, e.stackTrace,
           reason: 'nearbyPostboxes:${e.code}',
-          dedupeKey:
-              e.code == 'unavailable' ? 'nearbyPostboxes_unavailable' : null);
+          dedupeKey: isTransport ? 'nearbyPostboxes_${e.code}' : null);
       if (!mounted) return;
-      final isOffline = e.code == 'unavailable';
       JamesController.of(context)?.show(
-        isOffline
+        isTransport
             ? JamesMessages.errorOffline.resolve()
             : JamesMessages.nearbyErrorGeneral.resolve(),
       );
+      // `deadline-exceeded` is NOT "no internet" — the request got out and the
+      // reply never came back in time, which reads to the user as a hang, so
+      // it gets its own wording rather than a flat contradiction of the
+      // connection they can see working.
+      final String message = switch (e.code) {
+        'unavailable' => 'No internet connection. Please try again.',
+        'deadline-exceeded' =>
+          'That took too long. Check your signal and try again.',
+        _ => 'Could not fetch postboxes. Please try again.',
+      };
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(isOffline
-              ? 'No internet connection. Please try again.'
-              : 'Could not fetch postboxes. Please try again.'),
+          content: Text(message),
           backgroundColor: Colors.red.shade700,
         ),
       );

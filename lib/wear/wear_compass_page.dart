@@ -93,11 +93,13 @@ class _WearCompassPageState extends State<WearCompassPage> {
     Analytics.nearbyStarted();
     try {
       final position = await getPosition(forceLocationManager: true);
-      final result = await _callable.call(<String, dynamic>{
+      // Read-only scan: safe to retry wholesale on a transport flake, which a
+      // watch's tethered link produces readily.
+      final result = await retryOnUnavailable(() => _callable.call(<String, dynamic>{
         'lat': position.latitude,
         'lng': position.longitude,
         'meters': AppPreferences.nearbyRadiusMeters,
-      });
+      }));
       if (!mounted) return;
       final counts = result.data['counts'] ?? {};
       final points = (result.data['points'] as Map?) ?? const {};

@@ -230,11 +230,12 @@ class _LiveRouteScreenState extends State<LiveRouteScreen> {
   void initState() {
     super.initState();
 
+    // Read-only scan: safe to retry wholesale on a transport flake, which is
+    // the normal condition on a walk.
     _nearby = widget.nearbyCallable ??
-        (Map<String, dynamic> payload) =>
-            appFunctions
-                .httpsCallable('nearbyPostboxes')
-                .call(payload);
+        (Map<String, dynamic> payload) => retryOnUnavailable(() => appFunctions
+            .httpsCallable('nearbyPostboxes')
+            .call(payload));
 
     // Request notification permission once at screen mount.
     // Failure is silently ignored — the in-app arrival flow still works.

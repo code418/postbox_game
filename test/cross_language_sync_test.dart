@@ -526,4 +526,42 @@ void main() {
               '$overLong');
     });
   });
+
+  group('every startScoring call site sends an attemptId', () {
+    // startScoring is the app's only non-idempotent write, and it is made
+    // idempotent SOLELY by the client passing an attemptId whose stored
+    // response the server replays (functions/src/_attempts.ts). Without one, a
+    // dropped RESPONSE means the claim is recorded but the user is shown a
+    // failure, and the follow-up attempt lands in the already-claimed
+    // fast-path — so the points are earned and never seen.
+    //
+    // Wear shipped exactly that bug: it called startScoring with no attemptId
+    // while the phone sheet had carried one since v1.5. Both surfaces are
+    // checked from source here because the native edge has no widget tests
+    // (see the Wear/Car blind spot) and this is precisely where client/server
+    // contract drift has bitten before.
+    const callSites = <String>[
+      'lib/widgets/claim_quiz_sheet.dart',
+      'lib/wear/wear_claim_page.dart',
+    ];
+
+    for (final path in callSites) {
+      test('$path passes attemptId to startScoring', () {
+        final source = File(path).readAsStringSync();
+        expect(source, contains("httpsCallable('startScoring')"),
+            reason: '$path no longer calls startScoring; update this guard');
+        expect(source, contains("'attemptId'"),
+            reason: 'the startScoring call in $path must send an attemptId, '
+                'or a dropped response silently costs the user their claim');
+      });
+    }
+
+    test('the server still accepts and replays attemptId', () {
+      final attempts =
+          File('functions/src/_attempts.ts').readAsStringSync();
+      expect(attempts, contains('validateAttemptId'));
+      expect(attempts, contains('"replay"'),
+          reason: 'the replay path is what makes a client retry safe');
+    });
+  });
 }

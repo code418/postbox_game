@@ -124,9 +124,11 @@ class _HistoryTabState extends State<_HistoryTab>
   }
 
   Future<List<ClaimHistoryEntry>> _fetch() async {
-    final result = await appFunctions
+    // Read-only: safe to retry wholesale, and a failure here empties the
+    // whole history view rather than degrading it.
+    final result = await retryOnUnavailable(() => appFunctions
         .httpsCallable('userClaimHistory')
-        .call(<String, dynamic>{'period': widget.period});
+        .call(<String, dynamic>{'period': widget.period}));
     final data = Map<String, dynamic>.from(result.data as Map);
     final raw = data['entries'] as List<dynamic>? ?? const [];
     return raw

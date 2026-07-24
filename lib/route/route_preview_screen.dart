@@ -77,10 +77,11 @@ class _RoutePreviewScreenState extends State<RoutePreviewScreen> {
   @override
   void initState() {
     super.initState();
+    // Read-only planning call: safe to retry wholesale.
     _callableFn = widget.callableFn ??
-        (payload) => appFunctions
+        (payload) => retryOnUnavailable(() => appFunctions
             .httpsCallable('routePostboxes')
-            .call(payload);
+            .call(payload));
     // Fire the initial call immediately.
     _scheduleFetch(immediate: true);
   }

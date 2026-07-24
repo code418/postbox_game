@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/remote_config_service.dart';
+import 'package:postbox_game/services/claim_outbox.dart';
 import 'package:postbox_game/services/device_id_service.dart';
 import 'package:postbox_game/location_service.dart';
 import 'package:postbox_game/monarch_info.dart';
@@ -73,11 +74,13 @@ class _WearClaimPageState extends State<WearClaimPage> {
     Analytics.scanStarted();
     try {
       final position = await getPosition(forceLocationManager: true);
-      final result = await _nearbyCallable.call(<String, dynamic>{
-        'lat': position.latitude,
-        'lng': position.longitude,
-        'meters': RemoteConfigService.instance.claimRadiusMeters,
-      });
+      // Read-only scan: safe to retry wholesale on a transport flake.
+      final result =
+          await retryOnUnavailable(() => _nearbyCallable.call(<String, dynamic>{
+                'lat': position.latitude,
+                'lng': position.longitude,
+                'meters': RemoteConfigService.instance.claimRadiusMeters,
+              }));
       if (!mounted) return;
       final counts = result.data['counts'] ?? {};
       final points = (result.data['points'] as Map?) ?? const {};
@@ -191,15 +194,28 @@ class _WearClaimPageState extends State<WearClaimPage> {
     try {
       final position = await getPosition(forceLocationManager: true);
       final deviceIdHash = await DeviceIdService.get();
-      final result = await _claimCallable.call(<String, dynamic>{
-        'lat': position.latitude,
-        'lng': position.longitude,
-        // Client wall-clock for the shadow-mode out-of-window anomaly signal.
-        'clientTsMs': DateTime.now().millisecondsSinceEpoch,
-        // Stable per-install id for the shadow-mode repeated-device signal
-        // (omitted when unavailable so the server never sees a null).
-        if (deviceIdHash != null) 'deviceIdHash': deviceIdHash,
-      });
+      // One id per logical claim attempt, exactly as the phone claim sheet
+      // does. A watch's tethered link drops far more readily than a phone's,
+      // and without this a dropped RESPONSE meant the claim was recorded
+      // server-side while the watch showed "Claim failed" — and the rescan
+      // that follows hits startScoring's already-claimed fast path, so the
+      // user never saw the points they had earned. With the id the server
+      // replays the stored response instead (functions/src/_attempts.ts),
+      // which is also what makes the auto-retry below safe on a WRITE call.
+      final attemptId = newAttemptId();
+      final result =
+          await retryOnUnavailable(() => _claimCallable.call(<String, dynamic>{
+                'lat': position.latitude,
+                'lng': position.longitude,
+                // Client wall-clock for the shadow-mode out-of-window anomaly
+                // signal.
+                'clientTsMs': DateTime.now().millisecondsSinceEpoch,
+                // Stable per-install id for the shadow-mode repeated-device
+                // signal (omitted when unavailable so the server never sees a
+                // null).
+                if (deviceIdHash != null) 'deviceIdHash': deviceIdHash,
+                'attemptId': attemptId,
+              }));
       final found = result.data?['found'] == true;
       final allClaimedToday = result.data?['allClaimedToday'] == true;
       final rawClaimed = result.data?['claimed'] ?? 0;
