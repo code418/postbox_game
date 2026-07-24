@@ -1,8 +1,30 @@
 import * as geolib from "geolib";
 
 /** Maximum plausible travel speed between two successive claims.
- *  1900 metres per minute (~31.67 m/s, ~114 km/h) is a deliberately liberal
- *  upper bound — anything faster is almost certainly a spoofed GPS fix. */
+ *  1900 metres per minute (~31.67 m/s, ~114 km/h).
+ *
+ *  ⚠️ "Deliberately liberal" was optimistic: 114 km/h is BELOW UK intercity
+ *  train speed (125 mph / 201 km/h) and barely above a motorway drive. A player
+ *  who claims a box, travels, and claims again trips this on the journey alone.
+ *
+ *  Evidence from the rejections that led to enforcement being switched off on
+ *  2026-07-24 (see TRAVEL_SPEED_ENFORCEMENT_ENABLED in _claimCore.ts) — four
+ *  rejections, one account, 13:48–13:55, `speedPrev` 2281–2327 m/min. Solving
+ *  the two rejections 4 s apart (2327.4 then 2325.7) for a fixed distance gives
+ *  an elapsed gap of ~91 min and a separation of ~212 km, i.e. ~140 km/h
+ *  average. That is a train, not a teleport.
+ *
+ *  Two candidate causes, and they need separating before re-enabling:
+ *    1. The threshold is simply too low for a game played across a country
+ *       people travel around. Any bound below ~200 km/h rejects rail travel.
+ *    2. The comparison is per-ACCOUNT, not per-device: the previous claim can
+ *       come from a different device signed into the same account (a test
+ *       emulator alongside a real phone will do it), and the implied speed
+ *       between them is meaningless. This one is not fixed by any threshold.
+ *
+ *  Raising the bound weakens the serialisation tax described in _scanToken.ts,
+ *  so it is a product call rather than a mechanical one — hence documented here
+ *  rather than changed. */
 export const MAX_METRES_PER_MIN = 1900;
 
 export interface TravelSpeedCheckInput {
