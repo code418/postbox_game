@@ -579,6 +579,51 @@ void main() {
     });
   });
 
+  group('every backend collection has an explicit firestore.rules block', () {
+    // Firestore denies unmatched paths by default, so a missing block is not
+    // itself a hole — but this file deliberately names EVERY collection with
+    // the reasoning for its access level, and two (offlineFlushQuotas,
+    // retention) were added without one. That convention is what makes the
+    // rules reviewable, and it is the thing that stops a genuinely
+    // client-facing collection shipping with no considered rule at all.
+    //
+    // Parsed from the Cloud Functions source so a new collection fails here
+    // rather than at the next security review.
+    late final Set<String> backendCollections;
+    late final String rules;
+
+    setUpAll(() {
+      final dir = Directory('functions/src');
+      final pattern = RegExp(r'''\.collection\(\s*["']([A-Za-z_][A-Za-z0-9_]*)["']''');
+      backendCollections = {
+        for (final entity in dir.listSync())
+          if (entity is File && entity.path.endsWith('.ts'))
+            ...pattern
+                .allMatches(entity.readAsStringSync())
+                .map((m) => m.group(1)!),
+      };
+      rules = File('firestore.rules').readAsStringSync();
+    });
+
+    test('parsed at least the collections we know about', () {
+      // Guard the guard: if the regex ever stops matching, the loop below
+      // would vacuously pass.
+      expect(backendCollections, containsAll(<String>['claims', 'users', 'postbox']));
+      expect(backendCollections.length, greaterThanOrEqualTo(12));
+    });
+
+    test('each one appears in firestore.rules', () {
+      final missing = backendCollections
+          .where((c) => !rules.contains('/$c/'))
+          .toList()
+        ..sort();
+      expect(missing, isEmpty,
+          reason: 'these collections are written by Cloud Functions but have '
+              'no match block in firestore.rules, so nobody has decided '
+              'whether clients may read them: $missing');
+    });
+  });
+
   group('maintenance mode reaches every claim surface', () {
     // MaintenanceGuard's own doc: "Server-side enforcement is deliberately out
     // of scope — this is the only gate". startScoring has no server-side

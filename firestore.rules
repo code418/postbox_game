@@ -113,6 +113,23 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // ── offlineFlushQuotas collection ────────────────────────────────────────
+    // Per-user daily counter enforcing the flushOfflineClaims cap (v1.5), the
+    // exact analogue of reportQuotas above. Read and written only by that
+    // callable (Admin SDK). A client that could read it would learn its
+    // remaining budget; one that could write it would have none.
+    match /offlineFlushQuotas/{uid} {
+      allow read, write: if false;
+    }
+
+    // ── retention collection ─────────────────────────────────────────────────
+    // Resume state for the scheduled data-retention sweep (its paging cursor /
+    // watermark, so a crashed run continues rather than restarting). Purely
+    // server-side bookkeeping — Cloud Functions (Admin SDK) only.
+    match /retention/{docId} {
+      allow read, write: if false;
+    }
+
     // ── fcmTokens collection ─────────────────────────────────────────────────
     // Stores FCM device tokens separate from the world-readable users collection
     // so that tokens are not exposed to other authenticated users. Written
