@@ -360,6 +360,9 @@ class _LeaderboardListState extends State<_LeaderboardList>
                 isCurrentUser: isCurrentUser,
                 isLifetime: _isLifetime,
                 valueText: trailingText,
+                scored: _isLifetime
+                    ? (uniqueBoxes > 0 || totalPoints > 0)
+                    : points > 0,
               );
             },
           ),
@@ -761,6 +764,13 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList>
                     isCurrentUser: isCurrentUser,
                     isLifetime: isLifetime,
                     valueText: trailingText,
+                    // Unlike the global lists, this one shows every friend
+                    // whether or not they've claimed, so a medal has to be
+                    // earned rather than merely landed on.
+                    scored: isLifetime
+                        ? ((e['uniquePostboxesClaimed'] as int) > 0 ||
+                            (e['totalPoints'] as int) > 0)
+                        : (e['score'] as int) > 0,
                   );
                 },
               ),
@@ -775,10 +785,18 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList>
 
 /// Rank indicator shared by every leaderboard row: trophy icons for the top
 /// three, a numbered avatar otherwise.
-Widget _rankBadge(BuildContext context, int rank) {
+///
+/// [scored] guards the medals. The global lists never need it — the server's
+/// mergePeriodEntries omits zero-point entries entirely — but the friends-only
+/// list deliberately shows EVERY friend regardless of ranking, so on a quiet
+/// day the top three can all be on nothing. Handing a bronze trophy to someone
+/// who hasn't claimed is daft on its own, and worse than daft when several
+/// friends are tied on zero: the tie breaks on uid, so the medal goes to
+/// whoever happens to sort first.
+Widget _rankBadge(BuildContext context, int rank, {bool scored = true}) {
   final dark = Theme.of(context).brightness == Brightness.dark;
   final brandText = dark ? AppColors.brandTextDark : AppColors.brandTextLight;
-  switch (rank) {
+  switch (scored ? rank : 0) {
     case 1:
       return const Icon(Icons.emoji_events, color: postalGold, size: 32);
     case 2:
@@ -816,6 +834,7 @@ class _LeaderboardEntryTile extends StatelessWidget {
     required this.isCurrentUser,
     required this.isLifetime,
     required this.valueText,
+    this.scored = true,
   });
 
   final int rank;
@@ -826,6 +845,10 @@ class _LeaderboardEntryTile extends StatelessWidget {
 
   /// Lifetime: the full stats line (shown on row 2). Period: "X pts" (trailing).
   final String valueText;
+
+  /// False when this entry has nothing on the board yet — suppresses the
+  /// top-three medal. See [_rankBadge].
+  final bool scored;
 
   @override
   Widget build(BuildContext context) {
@@ -850,7 +873,7 @@ class _LeaderboardEntryTile extends StatelessWidget {
         onTap: entryUid != null
             ? () => Navigator.of(context).push(UserProfilePage.route(entryUid!))
             : null,
-        leading: _rankBadge(context, rank),
+        leading: _rankBadge(context, rank, scored: scored),
         title: Text(
           displayName,
           maxLines: 1,
