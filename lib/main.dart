@@ -141,6 +141,64 @@ bool isWidgetClaimDeepLink(Uri? uri) =>
     uri.host == 'claim' &&
     uri.queryParameters['source'] == 'widget';
 
+/// Swallow a named route the app doesn't own, instead of crashing.
+///
+/// The platform pushes intent URIs into the Navigator as named routes
+/// (`didPushRouteInformation` → `pushNamed`). The home-screen widget's
+/// `postbox://claim?source=widget` arrives that way as `/?source=widget`,
+/// which is in neither [routes] nor an `onGenerateRoute` — and with
+/// `onUnknownRoute` unset Flutter does `widget.onUnknownRoute!(settings)`,
+/// so tapping the widget WHILE THE APP WAS ALREADY OPEN hard-crashed it
+/// (Crashlytics `_WidgetsAppState._onUnknownRoute`, fatal, 1.4.0).
+///
+/// Swallowing is the right answer rather than landing somewhere: the widget
+/// tap is already handled properly by the `HomeWidget.widgetClicked` listener
+/// in [_PostboxGameState], which opens the Claim tab and auto-scans. This
+/// route is the engine's duplicate of that same tap. It must still return a
+/// real Route — returning null crashes on the `_routeNamed(...)!` in
+/// `pushNamed` — so it returns a transparent one that pops on the first frame.
+///
+/// Unknown routes are still reported (non-fatally, deduped) so a genuinely
+/// broken deep link doesn't just vanish.
+@visibleForTesting
+Route<void> unknownRoute(RouteSettings settings) {
+  unawaited(CrashlyticsHelper.recordHandled(
+    StateError('unknown route pushed: ${settings.name}'),
+    StackTrace.current,
+    reason: 'navigator_unknown_route',
+    dedupeKey: 'unknown_route_${settings.name}',
+  ));
+  return PageRouteBuilder<void>(
+    settings: settings,
+    opaque: false,
+    barrierColor: null,
+    transitionDuration: Duration.zero,
+    reverseTransitionDuration: Duration.zero,
+    pageBuilder: (_, __, ___) => const _SelfDismissingRoute(),
+  );
+}
+
+/// Renders nothing and pops itself once mounted. See [unknownRoute].
+class _SelfDismissingRoute extends StatefulWidget {
+  const _SelfDismissingRoute();
+
+  @override
+  State<_SelfDismissingRoute> createState() => _SelfDismissingRouteState();
+}
+
+class _SelfDismissingRouteState extends State<_SelfDismissingRoute> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) Navigator.of(context).maybePop();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
+}
+
 Future<void> _checkInitialWidgetLaunch() async {
   try {
     final uri = await HomeWidget.initiallyLaunchedFromHomeWidget();
@@ -317,7 +375,8 @@ class _PostboxGameState extends State<PostboxGame> with WidgetsBindingObserver {
                 _guardRoute(context, () => const SettingsScreen()),
             '/route': (context) =>
                 _guardRoute(context, () => const DestinationPickerScreen()),
-          }),
+          },
+          onUnknownRoute: unknownRoute),
     );
   }
 }

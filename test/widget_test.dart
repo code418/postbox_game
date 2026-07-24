@@ -113,6 +113,50 @@ void main() {
     });
   });
 
+  group('unknown deep-link routes', () {
+    // Regression for a FATAL production crash (Crashlytics
+    // _WidgetsAppState._onUnknownRoute, "Null check operator used on a null
+    // value", 1.4.0): tapping the home-screen widget WHILE THE APP WAS ALREADY
+    // OPEN made the engine push the intent URI as a named route. For
+    // postbox://claim?source=widget that arrives as "/?source=widget", which
+    // is in neither `routes` nor an onGenerateRoute — and with onUnknownRoute
+    // unset Flutter dereferences it with `!`.
+    testWidgets('pushing an unregistered route does not crash and self-pops',
+        (tester) async {
+      final navKey = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(MaterialApp(
+        navigatorKey: navKey,
+        home: const Scaffold(body: Text('root')),
+        routes: {'/known': (_) => const Scaffold(body: Text('known'))},
+        onUnknownRoute: unknownRoute,
+      ));
+
+      // The exact route string the engine derives from the widget's intent.
+      navKey.currentState!.pushNamed<void>('/?source=widget').ignore();
+      await tester.pump();
+      expect(tester.takeException(), isNull,
+          reason: 'an unowned deep link must never be fatal');
+
+      await tester.pumpAndSettle();
+      expect(find.text('root'), findsOneWidget,
+          reason: 'the swallowed route pops itself, leaving the user in place');
+    });
+
+    testWidgets('a registered route still resolves normally', (tester) async {
+      final navKey = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(MaterialApp(
+        navigatorKey: navKey,
+        home: const Scaffold(body: Text('root')),
+        routes: {'/known': (_) => const Scaffold(body: Text('known'))},
+        onUnknownRoute: unknownRoute,
+      ));
+
+      navKey.currentState!.pushNamed<void>('/known').ignore();
+      await tester.pumpAndSettle();
+      expect(find.text('known'), findsOneWidget);
+    });
+  });
+
   // ---------------------------------------------------------------------------
   // AppSpacing unit tests
   // ---------------------------------------------------------------------------
