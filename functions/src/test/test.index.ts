@@ -1779,6 +1779,27 @@ describe("region pinning", () => {
 describe("Cloud Functions", function (this: Mocha.Suite) {
   this.timeout(15000);
 
+  /** True when a Firestore emulator is configured for this run.
+   *
+   *  The "valid request" tests below reach Firestore. With no emulator (CI, a
+   *  fresh clone) they were written to swallow the resulting credential error
+   *  and pass — but swallowing happens only AFTER the Admin SDK has exhausted
+   *  its metadata-server credential lookups, which retry with backoff. On an
+   *  unlucky runner that overruns Mocha's timeout and the test fails instead of
+   *  skipping: `Timeout of 10000ms exceeded`, seen intermittently on CI
+   *  (run 30108830201 failed on a comment-only commit, having passed on the two
+   *  before it). Flaky red is worse than honest yellow — it teaches people to
+   *  ignore CI.
+   *
+   *  Gating explicitly loses no coverage: without an emulator these assertions
+   *  never ran anyway, they were just reached slowly and then discarded. With
+   *  one, they run exactly as before. Same `(cond ? it : it.skip)` idiom the
+   *  geojson and county_lookup suites already use. */
+  const hasFirestoreEmulator = Boolean(
+    process.env.FIRESTORE_EMULATOR_HOST ?? process.env.FIREBASE_EMULATOR_HUB
+  );
+  const itWithEmulator = hasFirestoreEmulator ? it : it.skip;
+
   const wrappedNearby = testEnv.wrap(myFunctions.nearbyPostboxes) as (data: unknown, context?: unknown) => Promise<unknown>;
   const wrappedStartScoring = testEnv.wrap(myFunctions.startScoring) as (data: unknown, context?: unknown) => Promise<unknown>;
   const wrappedUpdateDisplayName = testEnv.wrap(myFunctions.updateDisplayName) as (data: unknown, context?: unknown) => Promise<unknown>;
@@ -1808,7 +1829,7 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
       }
     });
 
-    it("should return an object with postboxes and counts when given lat, lng, meters", async function (this: Mocha.Context) {
+    itWithEmulator("should return an object with postboxes and counts when given lat, lng, meters", async function (this: Mocha.Context) {
       this.timeout(10000);
       const req = { data: { lat: 51.45, lng: -0.95, meters: 500 }, auth: { uid: "test-uid" }, app: { appId: "test-app" } };
       try {
@@ -1930,7 +1951,7 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
       }
     });
 
-    it("should return an object with found, claimed, points, allClaimedToday", async function (this: Mocha.Context) {
+    itWithEmulator("should return an object with found, claimed, points, allClaimedToday", async function (this: Mocha.Context) {
       this.timeout(10000);
       const req = { data: { lat: 51.45, lng: -0.95 }, auth: { uid: "test-uid" }, app: { appId: "test-app" } };
       try {
@@ -2026,7 +2047,7 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
       }
     });
 
-    it("should return dailyDate string on success", async function (this: Mocha.Context) {
+    itWithEmulator("should return dailyDate string on success", async function (this: Mocha.Context) {
       this.timeout(10000);
       const req = { data: { lat: 51.45, lng: -0.95 }, auth: { uid: "test-uid" }, app: { appId: "test-app" } };
       try {
@@ -2214,7 +2235,7 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
       }
     });
 
-    it("should return an object with entries and period for a valid request", async function (this: Mocha.Context) {
+    itWithEmulator("should return an object with entries and period for a valid request", async function (this: Mocha.Context) {
       this.timeout(10000);
       const req = { data: { period: "daily" }, auth: { uid: "test-uid" } };
       try {
@@ -2432,7 +2453,7 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
       }
     });
 
-    it("returns correct response shape and no per-postbox detail on valid corridor request", async function (this: Mocha.Context) {
+    itWithEmulator("returns correct response shape and no per-postbox detail on valid corridor request", async function (this: Mocha.Context) {
       this.timeout(10000);
       try {
         const result = (await wrappedRoutePostboxes(validCorridorReq)) as Record<string, unknown>;
@@ -2461,7 +2482,7 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
       }
     });
 
-    it("returns correct response shape on valid detour request", async function (this: Mocha.Context) {
+    itWithEmulator("returns correct response shape on valid detour request", async function (this: Mocha.Context) {
       this.timeout(10000);
       const req = {
         data: {
