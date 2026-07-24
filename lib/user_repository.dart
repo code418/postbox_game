@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:postbox_game/firebase_functions_eu.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:postbox_game/maintenance_guard.dart';
+import 'package:postbox_game/services/claim_outbox.dart';
 import 'package:postbox_game/services/crashlytics_helper.dart';
 import 'package:postbox_game/validators.dart';
 
@@ -224,6 +227,26 @@ class UserRepository {
     }
 
     await user.delete();
+
+    // Erase the local claim outbox too. `onUserDeleted` clears the server
+    // side, but banked offline captures live in SharedPreferences and hold
+    // this user's GPS positions and timestamps. They can never settle now the
+    // account is gone, so leaving them to age out of the 36 h grace window
+    // would keep the location data of someone who has just asked to be erased.
+    // Deliberately NOT done on sign-out, where entries must survive so the
+    // same user can flush them after signing back in.
+    //
+    // NOT awaited, and bounded. The account is already gone server-side by
+    // this line, so nothing here may delay the caller — and
+    // SharedPreferences.getInstance() HANGS rather than throwing when the
+    // platform channel is unavailable, so a try/catch alone would leave the
+    // user watching a spinner forever. Worst case the entries age out instead.
+    unawaited(
+      ClaimOutbox.instance
+          .clearAll()
+          .timeout(const Duration(seconds: 5))
+          .catchError((Object _) {}),
+    );
 
     // Best-effort: clear any lingering Google session so the next sign-in
     // shows the account chooser rather than silently re-using the deleted one.

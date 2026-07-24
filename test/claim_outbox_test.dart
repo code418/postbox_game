@@ -161,6 +161,42 @@ void main() {
       expect(await outboxFor('userB').entries(), hasLength(1));
     });
 
+    test('clearAll wipes every account, for deletion only', () async {
+      // Account deletion must erase the local outbox: a deleted account's
+      // captures can never settle, and they hold the GPS positions of someone
+      // who just asked to be erased. Sign-out must NOT — see the test below.
+      final a = outboxFor('userA');
+      await a.add(entry('a1'));
+      await outboxFor('userB').add(entry('b1'));
+      await a.setPendingFlushAttemptId('flush-1');
+
+      await a.clearAll();
+
+      expect(await outboxFor('userA').entries(), isEmpty);
+      expect(await outboxFor('userB').entries(), isEmpty,
+          reason: 'deletion wipes the store, not just the current owner');
+      expect(await outboxFor('userA').pendingFlushAttemptId(), isNull,
+          reason: 'a replay id for a deleted account is dead weight too');
+      expect(a.pendingCount.value, 0);
+    });
+
+    test('signing out leaves the captures alone', () async {
+      // The counterpart to clearAll: a user who signs out and back in must
+      // still be able to flush what they banked. Only the COUNT goes to zero
+      // while nobody owns them.
+      var uid = 'userA';
+      final outbox = ClaimOutbox(uidProvider: () => uid);
+      await outbox.add(entry('a1'));
+
+      uid = 'signed-out';
+      await outbox.refreshOwnership();
+      expect(outbox.pendingCount.value, 0);
+
+      uid = 'userA';
+      expect(await outbox.entries(), hasLength(1),
+          reason: 'sign-out must not destroy banked claims');
+    });
+
     test('refreshOwnership recounts after the signed-in user changes',
         () async {
       var uid = 'userA';

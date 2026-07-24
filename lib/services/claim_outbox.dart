@@ -273,6 +273,20 @@ class ClaimOutbox {
     }
   }
 
+  /// Wipe every banked capture and any pending flush id, for ALL accounts.
+  ///
+  /// For account deletion only — NOT sign-out, where entries must survive so
+  /// the same user can flush them after signing back in (see [OutboxEntry.uid]).
+  /// A deleted account's captures can never settle, and they hold the GPS
+  /// positions and timestamps of someone who has just asked to be erased;
+  /// leaving them on disk to age out of the grace window is the wrong answer to
+  /// that request.
+  Future<void> clearAll() async {
+    _cache = [];
+    await _save();
+    await setPendingFlushAttemptId(null);
+  }
+
   /// Drop entries older than the grace window (they can never flush
   /// successfully). Returns how many were dropped.
   Future<int> pruneExpired({required int graceHours}) async {
