@@ -140,6 +140,11 @@ dependencies {
     autoImplementation 'com.google.firebase:firebase-auth'
     autoImplementation 'com.google.firebase:firebase-functions'
     autoImplementation 'com.google.firebase:firebase-firestore'
+    // Read-only: ClaimAction checks the maintenance_mode flag before claiming.
+    // startScoring has no server-side maintenance check, so the client is the
+    // only gate — and the car runtime never loads the Dart engine, so it can't
+    // reach RemoteConfigService.
+    autoImplementation 'com.google.firebase:firebase-config'
     autoImplementation 'com.google.android.gms:play-services-location:21.3.0'
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'androidx.test:runner:1.4.0'

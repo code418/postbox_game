@@ -556,6 +556,20 @@ void main() {
       });
     }
 
+    test('the Android Auto (Kotlin) call site passes attemptId too', () {
+      // The car surface is Kotlin in the off-Play `auto` flavour and has no
+      // Dart tests at all, so it is checked from here like the region pin in
+      // firebase_functions_region_test.dart.
+      const path =
+          'android/app/src/auto/kotlin/com/code418/postbox_game/car/ClaimAction.kt';
+      final source = File(path).readAsStringSync();
+      expect(source, contains('getHttpsCallable("startScoring")'),
+          reason: '$path no longer calls startScoring; update this guard');
+      expect(source, contains('"attemptId"'),
+          reason: 'a car loses signal constantly, so a dropped response here '
+              'is the MOST likely place to lose a claim, not the least');
+    });
+
     test('the server still accepts and replays attemptId', () {
       final attempts =
           File('functions/src/_attempts.ts').readAsStringSync();
@@ -609,5 +623,19 @@ void main() {
                 'a database that is mid-migration');
       });
     }
+
+    test('the Android Auto claim path gates on maintenance too', () {
+      // The car can't reach MaintenanceGuard (no Dart engine in that runtime),
+      // so it reads the same Remote Config key directly. Assert the key string
+      // matches the Dart constant — a rename on either side would silently
+      // un-gate the car.
+      final source = File(
+        'android/app/src/auto/kotlin/com/code418/postbox_game/car/ClaimAction.kt',
+      ).readAsStringSync();
+      expect(source, contains('maintenanceModeOn()'));
+      expect(source, contains('"${RemoteConfigService.keyMaintenanceMode}"'),
+          reason: 'the car reads the maintenance flag by raw key; it must '
+              'match RemoteConfigService.keyMaintenanceMode');
+    });
   });
 }

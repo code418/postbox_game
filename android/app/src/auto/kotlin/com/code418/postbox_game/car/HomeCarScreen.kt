@@ -153,6 +153,10 @@ class HomeCarScreen(carContext: CarContext) : Screen(carContext) {
                     phase = Phase.SignedOut
                     message = "Sign in on your phone to start claiming postboxes."
                 }
+                is ClaimAction.Outcome.UnderMaintenance -> {
+                    phase = Phase.Error
+                    message = "Claiming is paused for maintenance. Try again shortly."
+                }
                 is ClaimAction.Outcome.Error -> {
                     phase = Phase.Error
                     message = outcome.display
