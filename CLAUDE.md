@@ -39,6 +39,17 @@ A player-facing flow ("Walk to a destination" on the Nearby tab) that lets the u
 - Backend callable `routePostboxes` (`functions/src/routePostboxes.ts`) takes start/dest + mode + corridor or detour params, fetches via the same 9-cell geohash prefix pattern as `_lookupPostboxes.ts`, filters out the user's claimed-today set, then either sums `pointsForMonarch` over the corridor (`filterToCorridor` in `_routePlanner.ts`) OR runs the orienteering `beamSearchOrienteering` over the time ellipse (`filterToEllipse`). Returns ONLY `{ count, points, directDistanceM, budgetDistanceM, warnings }` — never postbox IDs, coords, or per-monarch breakdowns. 30 km destination cap.
 - Shared algorithm module `functions/src/_routePlanner.ts` is reused by both the new callable and the internal CLI `functions/src/scripts/plan_route.ts` (single source of truth for the routing maths).
 
+## Offline play & resilience (v1.5)
+
+Claims can be captured without signal and settled later. The pieces, and the invariants that keep them honest:
+
+- **Scan token** (`functions/src/_scanToken.ts`): `nearbyPostboxes` returns a `scanId` — an HMAC over `{uid, scan position, issuedAtMs, nonce}`, signed with the `OFFLINE_SCAN_SECRET` Secret Manager value. Every offline capture carries it. Its purpose is NOT secrecy but a **serialisation tax**: the flush enforces `capturedAtMs >= token.issuedAtMs` and `<= serverNow`, both server-attested, so a saved outbox can't be replayed daily from an armchair. Fail-open on issue, **fail-closed on verify**.
+- **Outbox** (`lib/services/claim_outbox.dart`): SharedPreferences-backed queue, max 50. Each entry stores BOTH wall clock and a process-monotonic elapsed, so an NTP step mid-outing can't fabricate an impossible speed. **Entries are owner-stamped (`uid`)**: the outbox is device-global but its tokens are uid-bound, so another account must never flush them — the server would return `bad_token`, which is a PERMANENT reason, and the client would delete the original user's captures. `ScanCache` (process-lifetime only) is uid-matched and cleared on sign-out for the same reason.
+- **Flush** (`lib/services/outbox_sync.dart` → `functions/src/flushOfflineClaims.ts`): batches ≤20, adjudicated **sequentially** so each settled claim is visible to the next item's travel-speed check. Per-item verdicts come back so the client reconciles honestly — `OutboxSync.permanentReasons` leave the outbox, everything else stays banked. The flush `attemptId` is minted per logical attempt and reused ONLY when a response never arrived; it must not survive a response we did receive, or `quota_exceeded` items replay that verdict for the attempts envelope's 48 h TTL, which outlives the 36 h grace window.
+- **Attempts envelope** (`functions/src/_attempts.ts`): `attempts/{attemptId}` stores each response so a retry replays it rather than re-adjudicating. This is the ONLY thing making `startScoring` — the app's one non-idempotent write — safe to repeat, which is what licenses the client-side auto-retry. **Every claim surface must send one**: the Dart sheet, Wear, and the Kotlin car all do, pinned by `cross_language_sync_test.dart`.
+- **Maintenance mode**: a Remote Config flag. `startScoring` has **no server-side check** — `MaintenanceGuard` is the only gate, so every claim surface must consult it (`flushOfflineClaims` re-checks server-side precisely because it can't rely on a client being present). The car reads the raw `maintenance_mode` key directly, since its runtime never loads the Dart engine.
+- **Shadow-mode abuse signals** (`_abuseSignals.ts` / `abuse.ts`): `onClaimCreated` records `moderationFlags` and decays `trustScores`. Records only — it never blocks or voids a claim.
+
 ## Problem reporting, admin review & OSM corrections
 
 Fully implemented end-to-end.
@@ -74,8 +85,15 @@ Fully implemented end-to-end.
 
 ## Tests
 
-- `test/widget_test.dart` uses `firebase_auth_mocks` + `fake_cloud_firestore` and `setupFirebaseCoreMocks()` — tests run without real Firebase. 105 Dart tests passing.
-- `functions/src/test/test.index.ts` uses `firebase-functions-test`. 279 TypeScript tests passing (pure unit tests + auth/validation integration tests that gracefully skip when no emulator is running). Includes tests for `updateFcmTokens`, `diffFriends`, `shouldNotifyFirstClaim`, `shouldNotifyOvertake`, `buildOsmChange`, `parsePhotos`, `nextQuotaState`, `pointsForMonarch`, `maxDailyFromClaims`, `repointClaimsForPostbox` (mock Firestore), and `submitReport`/`reviewReport` auth & validation.
+- `test/widget_test.dart` uses `firebase_auth_mocks` + `fake_cloud_firestore` and `setupFirebaseCoreMocks()` — tests run without real Firebase. **562 Dart tests passing.**
+- `functions/src/test/test.index.ts` uses `firebase-functions-test`. **558 TypeScript tests passing** (pure unit tests + auth/validation integration tests that gracefully skip when no emulator is running). Includes tests for `updateFcmTokens`, `diffFriends`, `shouldNotifyFirstClaim`, `shouldNotifyOvertake`, `buildOsmChange`, `parsePhotos`, `nextQuotaState`, `pointsForMonarch`, `maxDailyFromClaims`, `repointClaimsForPostbox` (mock Firestore), and `submitReport`/`reviewReport` auth & validation.
+- `test/cross_language_sync_test.dart` is the drift guard for facts duplicated across languages/files. Beyond the constants listed under "Added features", it now also parses source to assert: every `startScoring` call site sends an `attemptId` (Dart sheet, Wear, **and the Kotlin car**); every claim surface consults `MaintenanceGuard` and every entry point initialises Remote Config; and every collection the Cloud Functions touch has a `match` block in `firestore.rules`. Each is verified to FAIL when the thing it guards is removed. `countySlug` is checked against all 218 features of the heatmap geojson (TS side, `test.index.ts`).
+
+### CI (`.github/workflows/`)
+
+`main.yml` (ubuntu): analyze → `flutter test` → `flutter build web` → **`flutter build apk --debug --flavor phone`** → **`./gradlew :app:testAutoDebugUnitTest`**. The APK step exists because a Gradle/AGP *configuration-time* error breaks every variant and task at once, and a web-only CI never invokes Gradle to notice. The car unit tests are the only automated coverage the Kotlin Android Auto surface has. Job takes ~11 min. `build-ios` (macOS, 10x cost) stays `workflow_dispatch`-only. `functions-ci.yml` runs lint + build + test in `functions/`.
+
+**Both workflows trigger on `pull_request` AND `push` to master** — work lands on master directly here as often as via a PR, and those pushes previously got no CI at all.
 
 ## Security / release
 
@@ -100,7 +118,7 @@ Web build succeeds (`flutter build web`). Android debug build fails with Java he
 - Display names stored in Firestore (`onUserCreated` + `updateDisplayName`)
 - Postman James SVG strip on all main screens with idle non-sequiturs
 - OSM→Firestore import script (`functions/import_postboxes.js`)
-- Firebase/Flutter test mocks (67 Dart tests, 198 TS tests, all passing)
+- Firebase/Flutter test mocks (see the Tests section for current counts)
 - iOS `firebase_options.dart` configured via FlutterFire CLI
 - Staggered animations, confetti, pull-to-refresh all implemented
 - FCM push notifications for social events: friend's first claim of the day, overtake, added as friend (`_notifications.ts`, `registerFcmToken`, `onFriendAdded`)
