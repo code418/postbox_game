@@ -2,6 +2,11 @@ name: Functions CI
 
 on:
   pull_request:
+  # Commits pushed straight to master skipped lint/build/test entirely — the
+  # workflow only ever saw proposed merges.
+  push:
+    branches:
+      - master
 
 jobs:
   lint-build-test:

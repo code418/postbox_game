@@ -4,6 +4,13 @@ on:
   pull_request:
     branches:
       - master
+  # Work lands on master directly as often as it arrives via a PR, and until
+  # now those commits were never built or tested by CI at all — the checks
+  # only ever ran against a proposed merge. Free for public repos, and the
+  # pricey macOS job stays workflow_dispatch-only regardless.
+  push:
+    branches:
+      - master
   # Allow running the (pricier) macOS iOS build on demand from the Actions tab
   # without opening a PR.
   workflow_dispatch:
