@@ -4,8 +4,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:postbox_game/authentication_bloc/bloc.dart';
+import 'package:postbox_game/services/claim_outbox.dart';
 import 'package:postbox_game/services/connectivity_service.dart';
 import 'package:postbox_game/services/outbox_sync.dart';
+import 'package:postbox_game/services/scan_cache.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/claim.dart';
 import 'package:postbox_game/claim_history_screen.dart';
@@ -248,6 +250,9 @@ class _PostboxGameState extends State<PostboxGame> with WidgetsBindingObserver {
                 unawaited(CrashlyticsHelper.setContext(
                     CrashlyticsHelper.keyAuthState, _authStateLabel(user)));
                 final uid = user?.uid;
+                // The outbox is device-global but user-bound: recount it
+                // against whoever just signed in.
+                unawaited(ClaimOutbox.instance.refreshOwnership());
                 if (uid != null) {
                   unawaited(Analytics.setUserId(uid));
                   unawaited(publishUserPropertiesFromFirestore(uid));
@@ -259,6 +264,11 @@ class _PostboxGameState extends State<PostboxGame> with WidgetsBindingObserver {
                 // uid so a non-admin signing in next on the same device
                 // doesn't briefly see the admin entry points.
                 AdminAccess.reset();
+                // Same reasoning for the offline caches: the scan cache holds
+                // the previous user's results and capture token, and the
+                // outbox's pending count is per-account.
+                ScanCache.clear();
+                unawaited(ClaimOutbox.instance.refreshOwnership());
                 unawaited(Analytics.setUserId(null));
                 unawaited(CrashlyticsHelper.setContext(
                     CrashlyticsHelper.keyAuthState, 'signed_out'));

@@ -20,7 +20,14 @@ class CachedScan {
     required this.scanId,
     required this.position,
     required this.fetchedAtMs,
+    this.uid,
   });
+
+  /// Who the scan (and its [scanId] token) belongs to. The cache is
+  /// process-global but a token is bound to one uid server-side, so serving it
+  /// to a different account would show them someone else's claimed/unclaimed
+  /// counts and bank a capture that can only come back `bad_token`.
+  final String? uid;
 
   /// The parsed nearbyPostboxes response (counts/points/postboxes/compass —
   /// coordinate-free by server contract).
@@ -47,10 +54,17 @@ class ScanCache {
 
   static void store(CachedScan scan) => _last = scan;
 
-  /// The cached scan if it is fresh enough, else null.
-  static CachedScan? fresh({DateTime? now}) {
+  /// Drop the cached scan. Called when the signed-in user changes so the next
+  /// account can't be served the previous one's results or capture token.
+  static void clear() => _last = null;
+
+  /// The cached scan if it is fresh enough AND belongs to [uid], else null.
+  /// A null [uid] on either side matches, which keeps the headless tests and
+  /// any pre-uid cache entry working.
+  static CachedScan? fresh({DateTime? now, String? uid}) {
     final last = _last;
     if (last == null) return null;
+    if (uid != null && last.uid != null && last.uid != uid) return null;
     final nowMs = (now ?? DateTime.now()).millisecondsSinceEpoch;
     if (nowMs - last.fetchedAtMs > maxAge.inMilliseconds) return null;
     return last;

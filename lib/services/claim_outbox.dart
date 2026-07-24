@@ -17,6 +17,7 @@
 import 'dart:convert';
 import 'dart:math';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -39,7 +40,18 @@ class OutboxEntry {
     required this.capturedWallMs,
     required this.capturedMonotonicMs,
     required this.attemptId,
+    this.uid,
   });
+
+  /// Who banked this capture. The outbox is device-global but its contents are
+  /// user-bound (the scan token embeds the uid), so a flush by a DIFFERENT
+  /// account would come back `bad_token` — a permanent reason, which would
+  /// silently delete the original user's captures. [ClaimOutbox.entries] hides
+  /// entries belonging to anyone but the current user for that reason.
+  ///
+  /// Null on entries written before this field existed; those stay visible to
+  /// everyone (nothing better is knowable) and age out within the grace window.
+  final String? uid;
 
   /// The HMAC scan token from the nearbyPostboxes response that authorised
   /// this capture (see functions/src/_scanToken.ts).
@@ -56,6 +68,17 @@ class OutboxEntry {
   /// Client-generated id for the server's idempotent replay; also this
   /// entry's identity within the outbox.
   final String attemptId;
+
+  /// A copy stamped with its owning account (see [uid]).
+  OutboxEntry ownedBy(String? owner) => OutboxEntry(
+        scanId: scanId,
+        lat: lat,
+        lng: lng,
+        capturedWallMs: capturedWallMs,
+        capturedMonotonicMs: capturedMonotonicMs,
+        attemptId: attemptId,
+        uid: owner,
+      );
 
   /// The capture time to send at flush: monotonic-anchored when this process
   /// took the capture (flush monotonic ≥ capture monotonic), else the stored
@@ -74,6 +97,7 @@ class OutboxEntry {
         'capturedWallMs': capturedWallMs,
         'capturedMonotonicMs': capturedMonotonicMs,
         'attemptId': attemptId,
+        if (uid != null) 'uid': uid!,
       };
 
   static OutboxEntry? fromJson(Object? raw) {
@@ -88,6 +112,7 @@ class OutboxEntry {
         lat is! num || lng is! num || wall is! num || mono is! num) {
       return null;
     }
+    final uid = raw['uid'];
     return OutboxEntry(
       scanId: scanId,
       lat: lat.toDouble(),
@@ -95,15 +120,30 @@ class OutboxEntry {
       capturedWallMs: wall.toInt(),
       capturedMonotonicMs: mono.toInt(),
       attemptId: attemptId,
+      uid: uid is String ? uid : null,
     );
   }
 }
 
 class ClaimOutbox {
-  ClaimOutbox({Future<SharedPreferences> Function()? prefsProvider})
-      : _prefsProvider = prefsProvider ?? SharedPreferences.getInstance;
+  ClaimOutbox({
+    Future<SharedPreferences> Function()? prefsProvider,
+    String? Function()? uidProvider,
+  })  : _prefsProvider = prefsProvider ?? SharedPreferences.getInstance,
+        _uidProvider = uidProvider ?? currentUid;
 
   final Future<SharedPreferences> Function() _prefsProvider;
+  final String? Function() _uidProvider;
+
+  /// The signed-in uid, or null when signed out (or Firebase is unavailable,
+  /// as in a headless test) — in which case only legacy unowned entries show.
+  static String? currentUid() {
+    try {
+      return FirebaseAuth.instance.currentUser?.uid;
+    } catch (_) {
+      return null;
+    }
+  }
 
   static const String storageKey = 'claim_outbox_v1';
 
@@ -131,11 +171,26 @@ class ClaimOutbox {
   @visibleForTesting
   static void resetForTest() => _instance = null;
 
-  /// Number of banked captures, for the OfflineBanner / badge surfaces.
-  /// Loaded lazily on first [entries]/[add]; 0 until then.
+  /// Number of the CURRENT USER's banked captures, for the OfflineBanner /
+  /// badge surfaces. Loaded lazily on first [entries]/[add]; 0 until then.
+  /// Call [refreshOwnership] when the signed-in user changes.
   final ValueNotifier<int> pendingCount = ValueNotifier<int>(0);
 
   List<OutboxEntry>? _cache;
+
+  /// Entries the current user may flush: their own, plus legacy entries
+  /// written before [OutboxEntry.uid] existed.
+  List<OutboxEntry> _owned(List<OutboxEntry> all) {
+    final uid = _uidProvider();
+    return all.where((e) => e.uid == null || e.uid == uid).toList();
+  }
+
+  /// Recompute [pendingCount] against the signed-in user. Call on sign-in and
+  /// sign-out: the outbox is device-global but its contents are user-bound, so
+  /// the count is meaningless until the owner is known.
+  Future<void> refreshOwnership() async {
+    pendingCount.value = _owned(await _load()).length;
+  }
 
   Future<List<OutboxEntry>> _load() async {
     if (_cache != null) return _cache!;
@@ -154,7 +209,7 @@ class ClaimOutbox {
       // Corrupt storage: an empty outbox beats a crash loop on every launch.
       _cache = [];
     }
-    pendingCount.value = _cache!.length;
+    pendingCount.value = _owned(_cache!).length;
     return _cache!;
   }
 
@@ -162,16 +217,20 @@ class ClaimOutbox {
     final prefs = await _prefsProvider();
     await prefs.setString(
         storageKey, jsonEncode(_cache!.map((e) => e.toJson()).toList()));
-    pendingCount.value = _cache!.length;
+    pendingCount.value = _owned(_cache!).length;
   }
 
-  /// The banked captures, oldest first.
+  /// The current user's banked captures, oldest first. Another account's
+  /// entries stay on disk (and stay theirs) but are never returned here — see
+  /// [OutboxEntry.uid].
   Future<List<OutboxEntry>> entries() async =>
-      List.unmodifiable(await _load());
+      List.unmodifiable(_owned(await _load()));
 
+  /// Bank a capture for the signed-in user. The owner is stamped here rather
+  /// than at the call site so no caller can forget it.
   Future<void> add(OutboxEntry entry) async {
     final list = await _load();
-    list.add(entry);
+    list.add(entry.uid == null ? entry.ownedBy(_uidProvider()) : entry);
     while (list.length > maxEntries) {
       list.removeAt(0);
     }

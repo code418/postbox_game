@@ -108,4 +108,73 @@ void main() {
         flushWallMs: 9000000, flushMonotonicMs: 20000);
     expect(anchored, 5000000);
   });
+
+  group('account scoping', () {
+    // The outbox is device-global but its contents are user-bound: the scan
+    // token embeds the uid, so a flush by a different account comes back
+    // `bad_token` — a PERMANENT reason, which would make OutboxSync delete the
+    // original user's captures. Entries are therefore owner-stamped and hidden
+    // from everyone else.
+    OutboxEntry entry(String id) => OutboxEntry(
+          scanId: 'tok-$id',
+          lat: 51.5,
+          lng: -0.12,
+          capturedWallMs: DateTime.now().millisecondsSinceEpoch,
+          capturedMonotonicMs: 0,
+          attemptId: id,
+        );
+
+    ClaimOutbox outboxFor(String? uid) =>
+        ClaimOutbox(uidProvider: () => uid);
+
+    test('add stamps the signed-in owner and it survives a reload', () async {
+      await outboxFor('userA').add(entry('a1'));
+      final reloaded = await outboxFor('userA').entries();
+      expect(reloaded.single.uid, 'userA');
+    });
+
+    test("another account never sees or counts the previous user's captures",
+        () async {
+      final a = outboxFor('userA');
+      await a.add(entry('a1'));
+      await a.add(entry('a2'));
+      expect(a.pendingCount.value, 2);
+
+      final b = outboxFor('userB');
+      expect(await b.entries(), isEmpty,
+          reason: "userB flushing userA's tokens would destroy them");
+      expect(b.pendingCount.value, 0);
+
+      // ...and they are still there when userA comes back.
+      expect(await outboxFor('userA').entries(), hasLength(2));
+    });
+
+    test('signed out, only legacy unowned entries are visible', () async {
+      await outboxFor('userA').add(entry('a1'));
+      expect(await outboxFor(null).entries(), isEmpty);
+    });
+
+    test('legacy entries with no owner stay visible to everyone', () async {
+      // Written before OutboxEntry.uid existed; nothing better is knowable and
+      // they age out of the grace window within a day and a half.
+      await outboxFor(null).add(entry('legacy'));
+      expect(await outboxFor('userB').entries(), hasLength(1));
+    });
+
+    test('refreshOwnership recounts after the signed-in user changes',
+        () async {
+      var uid = 'userA';
+      final outbox = ClaimOutbox(uidProvider: () => uid);
+      await outbox.add(entry('a1'));
+      expect(outbox.pendingCount.value, 1);
+
+      uid = 'userB';
+      await outbox.refreshOwnership();
+      expect(outbox.pendingCount.value, 0);
+
+      uid = 'userA';
+      await outbox.refreshOwnership();
+      expect(outbox.pendingCount.value, 1);
+    });
+  });
 }

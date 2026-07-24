@@ -44,8 +44,16 @@ class _FakeFunctionsException extends FirebaseFunctionsException {
 /// _claimPostbox) lets the claim proceed. Mirrors the stub in
 /// maintenance_guard_test.dart.
 class _StubRemoteConfig extends Fake implements FirebaseRemoteConfig {
+  _StubRemoteConfig({this.offlineKilled = false});
+
+  /// Flips `kill_switch_offline_claims` only; every other flag stays off.
+  final bool offlineKilled;
+
   @override
-  bool getBool(String key) => false;
+  bool getBool(String key) =>
+      key == RemoteConfigService.keyKillSwitchOfflineClaims
+          ? offlineKilled
+          : false;
   @override
   String getString(String key) => '';
   // No remote overrides set: 0.0 is out of the claim-radius safety band, so
@@ -657,6 +665,47 @@ void main() {
     expect(entries, hasLength(1));
     expect(entries.single.scanId, 'tok-cached');
     expect(find.textContaining('post it'), findsWidgets);
+  });
+
+  testWidgets('the offline kill switch suppresses the cached-scan rescue',
+      (tester) async {
+    // With offline claims killed the flush is refused server-side, so serving
+    // the cached scan would only invite captures that can never settle.
+    RemoteConfigService.instance = RemoteConfigService(
+        remoteConfig: _StubRemoteConfig(offlineKilled: true));
+    addTearDown(() => RemoteConfigService.instance =
+        RemoteConfigService(remoteConfig: _StubRemoteConfig()));
+    SharedPreferences.setMockInitialValues({});
+    ClaimOutbox.resetForTest();
+    ScanCache.resetForTest();
+    final base = await _nearbyUnknownCipher(<String, dynamic>{});
+    ScanCache.store(CachedScan(
+      data: Map<String, dynamic>.from(base.data as Map),
+      scanId: 'tok-killed',
+      position: const LatLng(51.5, -0.12),
+      fetchedAtMs: DateTime.now().millisecondsSinceEpoch - 60000,
+    ));
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ClaimQuizSheet(
+          scanPosition: const LatLng(51.5, -0.12),
+          nearbyCallable: (_) async => throw _FakeFunctionsException(
+              code: 'unavailable', message: 'transport down'),
+          onCompleted: (_) {},
+        ),
+      ),
+    ));
+
+    await _settle(tester);
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+
+    expect(find.text('Retry'), findsOneWidget,
+        reason: 'honest network-error state, not a false offline promise');
+    expect(find.text('Claim this postbox!'), findsNothing);
+    expect(await ClaimOutbox.instance.entries(), isEmpty);
   });
 
   testWidgets('a stale cached scan does not rescue an offline scan',

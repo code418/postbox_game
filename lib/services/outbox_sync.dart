@@ -131,6 +131,9 @@ class OutboxSync {
     _flushing = true;
     try {
       await _outbox.pruneExpired(graceHours: _graceHours());
+      // Only the signed-in user's captures — ClaimOutbox.entries already
+      // filters by owner, so another account's banked claims are neither sent
+      // (they'd come back `bad_token`) nor deleted by this user's flush.
       final entries = await _outbox.entries();
       if (entries.isEmpty) return null;
 

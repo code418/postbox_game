@@ -430,7 +430,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
     // server-side, so serving a cached scan would only invite the user to bank
     // captures that can never settle. Fall through to the honest error state.
     if (RemoteConfigService.instance.killSwitchOfflineClaims) return false;
-    final cached = ScanCache.fresh();
+    final cached = ScanCache.fresh(uid: ClaimOutbox.currentUid());
     if (cached == null) return false;
     final movedM = Geolocator.distanceBetween(
       cached.position.latitude,
@@ -491,6 +491,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
           scanId: freshScanId,
           position: scanPos,
           fetchedAtMs: DateTime.now().millisecondsSinceEpoch,
+          uid: ClaimOutbox.currentUid(),
         ));
       }
       _applyScanData(data, scanId: freshScanId, fromCache: false);
