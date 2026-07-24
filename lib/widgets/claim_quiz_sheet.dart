@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math';
 
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:postbox_game/firebase_functions_eu.dart';
@@ -584,16 +583,6 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
 
   // ── Claim ─────────────────────────────────────────────────────────────────
 
-  /// Generates a collision-safe id for one logical claim attempt (32 hex
-  /// chars). Kept across retries; the server replays the stored response for
-  /// a repeated id (functions/src/_attempts.ts).
-  static String _generateAttemptId() {
-    final rnd = Random.secure();
-    return List<int>.generate(16, (_) => rnd.nextInt(256))
-        .map((b) => b.toRadixString(16).padLeft(2, '0'))
-        .join();
-  }
-
   Future<void> _claimPostbox({bool isRetry = false}) async {
     if (_isClaiming) return;
     if (MaintenanceGuard.blocked(context, actionLabel: 'claim')) {
@@ -602,7 +591,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
     // A fresh attempt gets a fresh id; a Retry after a transport failure MUST
     // keep the old one so the server can replay the stored response instead
     // of falling into the already-claimed fast-path with zero points.
-    if (!isRetry || _attemptId == null) _attemptId = _generateAttemptId();
+    if (!isRetry || _attemptId == null) _attemptId = newAttemptId();
     final attemptId = _attemptId!;
     setState(() => _isClaiming = true);
     HapticFeedback.mediumImpact();
@@ -1511,8 +1500,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
                   onPressed: _isClaiming
                       ? null
                       : () {
-                          final attemptId =
-                              _attemptId ?? _generateAttemptId();
+                          final attemptId = _attemptId ?? newAttemptId();
                           unawaited(
                               _bankCapture(_lastClaimPosition!, attemptId));
                         },

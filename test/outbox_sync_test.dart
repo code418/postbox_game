@@ -155,6 +155,72 @@ void main() {
         reason: 'a retried flush must replay, not re-adjudicate + double-spend quota');
   });
 
+  test('a flush that got a response mints a fresh attemptId next time', () async {
+    // Regression: the attemptId used to be derived from the batch head, so a
+    // batch whose head came back `quota_exceeded` (kept banked by design —
+    // "tomorrow is another day") replayed the SAME id forever. The server's
+    // attempts envelope then returned the stored all-quota_exceeded response
+    // verbatim for its 48 h TTL, which outlives the 36 h offline grace window:
+    // the captures could never be re-adjudicated and silently expired.
+    final outbox = ClaimOutbox.instance;
+    await outbox.add(_entry('quota1'));
+    final ids = <String>[];
+    final sync = OutboxSync(
+      outbox: outbox,
+      callable: (p) async {
+        ids.add(p['attemptId'] as String);
+        return _FakeResult<dynamic>({
+          'results': [
+            {'ok': false, 'reason': 'quota_exceeded'},
+          ],
+        });
+      },
+      graceHoursProvider: () => 36,
+    );
+
+    await sync.flushNow();
+    await sync.flushNow();
+    expect(outbox.pendingCount.value, 1, reason: 'quota_exceeded stays banked');
+    expect(ids, hasLength(2));
+    expect(ids[0], isNot(ids[1]),
+        reason: 'the server answered, so the next flush must be re-adjudicated '
+            'once the quota resets, not replayed from the attempts envelope');
+  });
+
+  test('a transport failure reuses its attemptId across a restart', () async {
+    // The pending id is persisted, so a flush killed mid-call still replays
+    // rather than re-adjudicating (and double-spending quota) on next launch.
+    final outbox = ClaimOutbox.instance;
+    await outbox.add(_entry('a1'));
+    final ids = <String>[];
+    OutboxSync makeSync() => OutboxSync(
+          outbox: outbox,
+          callable: (p) async {
+            ids.add(p['attemptId'] as String);
+            throw _FakeFunctionsException(code: 'unavailable', message: 'down');
+          },
+          graceHoursProvider: () => 36,
+          maxAutoRetries: 0,
+        );
+
+    await makeSync().flushNow();
+    // Fresh OutboxSync + fresh ClaimOutbox == a new process.
+    ClaimOutbox.resetForTest();
+    final revived = ClaimOutbox.instance;
+    await OutboxSync(
+      outbox: revived,
+      callable: (p) async {
+        ids.add(p['attemptId'] as String);
+        throw _FakeFunctionsException(code: 'unavailable', message: 'down');
+      },
+      graceHoursProvider: () => 36,
+      maxAutoRetries: 0,
+    ).flushNow();
+
+    expect(ids, hasLength(2));
+    expect(ids[0], ids[1]);
+  });
+
   test('concurrent flushNow calls do not double-send', () async {
     final outbox = ClaimOutbox.instance;
     await outbox.add(_entry('a1'));

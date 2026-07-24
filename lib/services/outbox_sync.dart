@@ -127,12 +127,21 @@ class OutboxSync {
       final nowWall = DateTime.now().millisecondsSinceEpoch;
       final nowMono = ClaimOutbox.monotonicNowMs();
       final batch = entries.take(20).toList();
+      // One id per logical flush attempt. A retry after a DROPPED RESPONSE
+      // reuses it, so the server's attempts envelope replays the stored
+      // response instead of re-adjudicating (and double-spending quota).
+      //
+      // It must NOT survive a response we actually received: entries kept
+      // banked on purpose (`quota_exceeded` — tomorrow is another day) would
+      // otherwise replay that same verdict for the envelope's 48 h TTL, which
+      // outlives the 36 h grace window, so they could never be claimed. The id
+      // is therefore cleared the moment a response lands, below.
+      final attemptId =
+          await _outbox.pendingFlushAttemptId() ?? newAttemptId();
+      await _outbox.setPendingFlushAttemptId(attemptId);
       final payload = <String, dynamic>{
         'flushClientTsMs': nowWall,
-        // Stable while the batch head is unchanged: a retried flush replays
-        // the stored server response instead of re-adjudicating (and
-        // double-spending quota) via the attempts envelope.
-        'attemptId': 'flush-${batch.first.attemptId}',
+        'attemptId': attemptId,
         'claims': [
           for (final e in batch)
             {
@@ -156,6 +165,9 @@ class OutboxSync {
       } catch (_) {
         return null;
       }
+      // The server answered, so this logical attempt is settled: the next
+      // flush must be adjudicated afresh, not replayed.
+      await _outbox.setPendingFlushAttemptId(null);
 
       final data = Map<String, dynamic>.from(result.data as Map);
       final results = (data['results'] as List? ?? const [])

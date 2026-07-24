@@ -15,9 +15,20 @@
 // stored wall clock is the best available fallback.
 
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+/// A collision-safe id for one logical claim (or flush) attempt, 32 hex chars.
+/// Kept across transport retries so the server replays the stored response
+/// instead of re-adjudicating (functions/src/_attempts.ts).
+String newAttemptId() {
+  final rnd = Random.secure();
+  return List<int>.generate(16, (_) => rnd.nextInt(256))
+      .map((b) => b.toRadixString(16).padLeft(2, '0'))
+      .join();
+}
 
 /// One banked offline capture.
 class OutboxEntry {
@@ -96,6 +107,10 @@ class ClaimOutbox {
 
   static const String storageKey = 'claim_outbox_v1';
 
+  /// Where [pendingFlushAttemptId] is persisted. Separate from [storageKey] so
+  /// it survives outbox mutations (and a process restart) independently.
+  static const String flushAttemptKey = 'claim_outbox_flush_attempt_v1';
+
   /// Bounded queue: far above any honest outing (the server flush batch is 20
   /// and the daily quota 30), low enough that a runaway path can't bloat
   /// prefs. Oldest entries are dropped first.
@@ -168,6 +183,35 @@ class ClaimOutbox {
     final list = await _load();
     list.removeWhere((e) => attemptIds.contains(e.attemptId));
     await _save();
+  }
+
+  /// The attemptId of a flush whose response never arrived (transport
+  /// failure), so the next flush can replay it via the server's attempts
+  /// envelope instead of re-adjudicating and double-spending quota. Cleared
+  /// as soon as a response IS received — see [OutboxSync.flushNow].
+  ///
+  /// Persisted rather than held in memory so a flush interrupted by the app
+  /// being killed still replays on next launch.
+  Future<String?> pendingFlushAttemptId() async {
+    try {
+      final prefs = await _prefsProvider();
+      return prefs.getString(flushAttemptKey);
+    } catch (_) {
+      return null; // unreadable storage: a fresh id is the safe fallback
+    }
+  }
+
+  Future<void> setPendingFlushAttemptId(String? id) async {
+    try {
+      final prefs = await _prefsProvider();
+      if (id == null) {
+        await prefs.remove(flushAttemptKey);
+      } else {
+        await prefs.setString(flushAttemptKey, id);
+      }
+    } catch (_) {
+      // Best effort: losing the marker costs at most one re-adjudication.
+    }
   }
 
   /// Drop entries older than the grace window (they can never flush
