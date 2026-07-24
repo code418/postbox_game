@@ -564,4 +564,50 @@ void main() {
           reason: 'the replay path is what makes a client retry safe');
     });
   });
+
+  group('maintenance mode reaches every claim surface', () {
+    // MaintenanceGuard's own doc: "Server-side enforcement is deliberately out
+    // of scope — this is the only gate". startScoring has no server-side
+    // maintenance check (only flushOfflineClaims re-checks, precisely because
+    // it cannot rely on a client). So every client that can claim MUST both
+    // initialise Remote Config and consult the guard, or a maintenance window
+    // meant to stop writes doesn't.
+    test('startScoring still has no server-side maintenance check', () {
+      // If this ever gains one, the client-side gates below stop being the
+      // only defence and this group can be relaxed.
+      final core = File('functions/src/_claimCore.ts').readAsStringSync();
+      final scoring = File('functions/src/startScoring.ts').readAsStringSync();
+      expect(core.contains('maintenanceMode'), isFalse);
+      expect(scoring.contains('maintenanceMode'), isFalse);
+    });
+
+    test('flushOfflineClaims does re-check it server-side', () {
+      expect(File('functions/src/flushOfflineClaims.ts').readAsStringSync(),
+          contains('maintenanceMode'));
+    });
+
+    for (final entry in const {
+      'lib/main.dart': 'phone',
+      'lib/main_wear.dart': 'wear',
+    }.entries) {
+      test('${entry.value} entry point initialises Remote Config', () {
+        expect(File(entry.key).readAsStringSync(),
+            contains('RemoteConfigService.instance.init()'),
+            reason: 'without init() every flag reads its type-default, so '
+                'maintenance mode and the kill switches are inert on '
+                '${entry.value}');
+      });
+    }
+
+    for (final path in const [
+      'lib/widgets/claim_quiz_sheet.dart',
+      'lib/wear/wear_claim_page.dart',
+    ]) {
+      test('$path gates claiming on maintenance mode', () {
+        expect(File(path).readAsStringSync(), contains('MaintenanceGuard'),
+            reason: 'a claim surface with no maintenance gate can write into '
+                'a database that is mid-migration');
+      });
+    }
+  });
 }

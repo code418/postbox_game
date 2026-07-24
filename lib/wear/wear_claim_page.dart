@@ -9,6 +9,7 @@ import 'package:postbox_game/remote_config_service.dart';
 import 'package:postbox_game/services/claim_outbox.dart';
 import 'package:postbox_game/services/device_id_service.dart';
 import 'package:postbox_game/location_service.dart';
+import 'package:postbox_game/maintenance_guard.dart';
 import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/streak_service.dart';
 import 'package:postbox_game/theme.dart';
@@ -187,6 +188,22 @@ class _WearClaimPageState extends State<WearClaimPage> {
   }
 
   Future<void> _claimPostbox() async {
+    // Maintenance gate. The phone routes every write through
+    // MaintenanceGuard.blocked(), whose own doc notes it is the ONLY gate —
+    // `startScoring` has no server-side maintenance check (unlike
+    // flushOfflineClaims, which re-checks because it can't rely on a client).
+    // The watch had no gate at all, so a maintenance window meant to stop
+    // writes (e.g. a Firestore migration) did not stop claims from a watch.
+    // MaintenanceGuard.blocked() shows a SnackBar, which is wrong on a round
+    // watch face, so read the flag and use the watch's own error stage.
+    if (MaintenanceGuard.isOn) {
+      HapticFeedback.heavyImpact();
+      setState(() {
+        _stage = _ClaimStage.error;
+        _errorMessage = 'Paused for maintenance';
+      });
+      return;
+    }
     setState(() {
       _stage = _ClaimStage.claiming;
       _errorMessage = null;

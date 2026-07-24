@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:postbox_game/remote_config_service.dart';
 import 'package:postbox_game/wear/wear_app.dart';
 import 'firebase_options.dart';
 import 'oauth_client_ids.dart';
@@ -38,5 +41,13 @@ void main() async {
   await GoogleSignIn.instance.initialize(
     serverClientId: webClientId,
   );
+  // Remote Config, same as main.dart. Without this the watch never loaded the
+  // defaults OR fetched, so every flag read its type-default: the RC-driven
+  // claim radius silently fell back to the hard-coded 30 m, and — because
+  // MaintenanceGuard is a pure Remote Config read and `startScoring` has no
+  // server-side maintenance check — maintenance mode could not stop a watch
+  // from claiming into a mid-migration database. Fire-and-forget: defaults
+  // serve immediately and remote values activate when the fetch resolves.
+  unawaited(RemoteConfigService.instance.init());
   runApp(const WearPostboxGame());
 }
