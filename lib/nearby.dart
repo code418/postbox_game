@@ -230,6 +230,7 @@ class _NearbyState extends State<Nearby> {
         'unavailable' => 'No internet connection. Please try again.',
         'deadline-exceeded' =>
           'That took too long. Check your signal and try again.',
+        appVerificationFailedCode => appVerificationMessage,
         _ => 'Could not fetch postboxes. Please try again.',
       };
       ScaffoldMessenger.of(context).showSnackBar(

@@ -108,4 +108,39 @@ void main() {
     );
     expect(calls, 3); // initial + 2 retries
   });
+
+  group('App Check / sign-in verification failures', () {
+    // Callables declared `enforceAppCheck: true` (nearbyPostboxes,
+    // startScoring, flushOfflineClaims) are rejected by the PLATFORM before
+    // the handler runs, so the server's own requireAppCheck copy never
+    // reaches the client — it arrives as a bare `unauthenticated`. Every
+    // screen used to answer that with "Please try again", which cannot fix
+    // either a failed attestation or a stale sign-in.
+    test('the verification code is never retried', () {
+      expect(retryableCallableCodes, isNot(contains(appVerificationFailedCode)),
+          reason: 'retrying cannot mint a valid App Check token');
+    });
+
+    test('surfaces immediately rather than burning retries', () async {
+      var calls = 0;
+      await expectLater(
+        retryOnUnavailable(
+          () async {
+            calls++;
+            throw _ex(appVerificationFailedCode);
+          },
+          delay: (_) async {},
+        ),
+        throwsA(isA<FirebaseFunctionsException>()),
+      );
+      expect(calls, 1);
+    });
+
+    test('the message tells the user something they can act on', () {
+      expect(appVerificationMessage.toLowerCase(), isNot(contains('try again.')),
+          reason: 'retrying is exactly what does not work here');
+      expect(appVerificationMessage.toLowerCase(), contains('sign'));
+      expect(appVerificationMessage.toLowerCase(), contains('reinstall'));
+    });
+  });
 }

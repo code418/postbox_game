@@ -538,7 +538,9 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
         });
         return;
       }
-      _showErrorSnackBar('Could not scan for postboxes. Please try again.');
+      _showErrorSnackBar(e.code == appVerificationFailedCode
+          ? appVerificationMessage
+          : 'Could not scan for postboxes. Please try again.');
       _james?.show(JamesMessages.claimErrorGeneral.resolve());
       _cancel();
     } on TimeoutException {
@@ -759,6 +761,12 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
               ? e.message!
               : "You're travelling too fast to claim. Slow down and try again.";
           jamesMsg = JamesMessages.claimErrorTooFast.resolve();
+        case appVerificationFailedCode:
+          // App Check / stale sign-in. Retrying can't fix either, and the
+          // server's own attestation copy never reaches us — the platform
+          // rejects before requireAppCheck runs.
+          snackMsg = appVerificationMessage;
+          jamesMsg = JamesMessages.claimErrorGeneral.resolve();
         default:
           snackMsg = 'Could not claim postbox. Please try again.';
           jamesMsg = JamesMessages.claimErrorGeneral.resolve();

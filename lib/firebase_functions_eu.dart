@@ -18,6 +18,25 @@ FirebaseFunctions get appFunctions =>
 /// returned from) the server — the transport failed, not the function.
 const Set<String> retryableCallableCodes = {'unavailable', 'deadline-exceeded'};
 
+/// The code the Functions platform returns when a callable declared with
+/// `enforceAppCheck: true` rejects a request whose App Check token is missing
+/// or malformed — `nearbyPostboxes`, `startScoring`, `flushOfflineClaims`.
+///
+/// The server's own `requireAppCheck` has good copy for this ("App attestation
+/// failed. Please update the app..."), but it never runs: the platform layer
+/// rejects first, and its code is indistinguishable from a genuinely expired
+/// auth token. Both are covered by [appVerificationMessage], because retrying
+/// — which is what every one of these screens used to advise — cannot fix
+/// either.
+const String appVerificationFailedCode = 'unauthenticated';
+
+/// Actionable copy for [appVerificationFailedCode]. Covers both causes: a
+/// stale sign-in (fixed by signing in again) and a failed Play Integrity
+/// attestation (fixed by installing a genuine build from Play).
+const String appVerificationMessage =
+    "Couldn't verify your app. Try signing in again, or reinstall from Google "
+    'Play if this keeps happening.';
+
 Duration _defaultBackoff(int attempt) => Duration(
     milliseconds: 300 * (1 << attempt) + Random().nextInt(200));
 
