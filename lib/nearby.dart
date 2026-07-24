@@ -502,6 +502,17 @@ class _NearbyState extends State<Nearby> {
         .where((e) => e.value > 0)
         .toList();
 
+    // Postboxes the server counted in `total` but under no cypher key: the
+    // importer stores an unknown or multi-value royal_cypher with no monarch
+    // field (see MonarchInfo.plainKey). Without this row the breakdown quietly
+    // fails to account for them — "18 postboxes nearby" over a list summing to
+    // 16 — and the player has no idea those two are there or claimable.
+    // Listed last so the recognised cyphers keep their display order.
+    final plainTotal = MonarchInfo.plainCount(_count, _cipherTotals.values);
+    if (plainTotal > 0) {
+      monarchEntries.add(MapEntry(MonarchInfo.plainKey, plainTotal));
+    }
+
     return RefreshIndicator(
       color: postalRed,
       onRefresh: _startSearch,
@@ -661,7 +672,14 @@ class _NearbyState extends State<Nearby> {
               ...monarchEntries.asMap().entries.map((entry) {
                 final cipher = entry.value.key;
                 final total = entry.value.value;
-                final claimed = _cipherClaimed[cipher] ?? 0;
+                // Same derivation as plainTotal: the plain row's claimed count
+                // is whatever claimedToday is left over once every recognised
+                // cypher's claimed count is accounted for.
+                final claimed = cipher == MonarchInfo.plainKey
+                    ? MonarchInfo.plainCount(
+                            _claimedToday, _cipherClaimed.values)
+                        .clamp(0, total)
+                    : (_cipherClaimed[cipher] ?? 0);
                 return AnimationConfiguration.staggeredList(
                   position: entry.key,
                   duration: const Duration(milliseconds: 375),
@@ -737,6 +755,7 @@ class _NearbyState extends State<Nearby> {
     final label = MonarchInfo.labels[code] ?? code;
     final color = MonarchInfo.colors[code] ?? postalRed;
     final available = count - claimed;
+    final prefix = code == MonarchInfo.plainKey ? '' : '$code · ';
 
     Widget? trailing;
     if (MonarchInfo.rareCiphers.contains(code)) {
@@ -792,11 +811,13 @@ class _NearbyState extends State<Nearby> {
               : null,
         ),
         subtitle: Text(
+          // The plain row has no cypher code to show — `PLAIN` is an internal
+          // sentinel (MonarchInfo.plainKey), not something stamped on a box.
           allClaimed
-              ? '$code · claimed today'
+              ? '$prefix claimed today'
               : claimed > 0
-                  ? '$code · ${RemoteConfigService.instance.pointsForCipher(code)} pts · $available of $count available'
-                  : '$code · ${RemoteConfigService.instance.pointsForCipher(code)} pts each',
+                  ? '$prefix${RemoteConfigService.instance.pointsForCipher(code)} pts · $available of $count available'
+                  : '$prefix${RemoteConfigService.instance.pointsForCipher(code)} pts each',
           style: allClaimed
               ? TextStyle(
                   color: Theme.of(context)

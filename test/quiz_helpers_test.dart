@@ -8,6 +8,7 @@ import 'package:postbox_game/widgets/quiz_helpers.dart';
 /// silently regress the "valid cypher" filter or the option-pool shape.
 
 void main() {
+  _plainCountTests();
   group('collectValidQuizCiphers', () {
     test('empty values → empty set', () {
       expect(collectValidQuizCiphers(const []), isEmpty);
@@ -132,6 +133,46 @@ void main() {
         expect(opts.toSet(), hasLength(opts.length),
             reason: 'duplicate option produced for validCiphers=$valid');
       }
+    });
+  });
+}
+
+// ── Plain / no-cypher accounting (MonarchInfo.plainCount) ────────────────────
+//
+// Found on a live emulator scan: Nearby said "18 postboxes nearby" above a
+// type breakdown listing 15 + 1 = 16. `import_postboxes.js` deliberately
+// stores an unknown or multi-value royal_cypher (e.g. "VR;GR") with NO monarch
+// field, so the server counts those boxes in `total` but under no per-cypher
+// key — and a breakdown that only walks MonarchInfo.all drops them silently.
+void _plainCountTests() {
+  group('MonarchInfo.plainCount', () {
+    test('is the remainder the recognised cyphers do not account for', () {
+      // The exact shape observed on the emulator: 18 total, EIIR 15, EVIIR 1.
+      expect(MonarchInfo.plainCount(18, const [15, 1]), 2);
+    });
+
+    test('is zero when every box has a recognised cypher', () {
+      expect(MonarchInfo.plainCount(16, const [15, 1]), 0);
+    });
+
+    test('never goes negative on an inconsistent response', () {
+      // A partial/garbled payload must not render a negative row.
+      expect(MonarchInfo.plainCount(3, const [5, 2]), 0);
+      expect(MonarchInfo.plainCount(0, const []), 0);
+    });
+
+    test('handles an empty cypher set (all boxes plain)', () {
+      expect(MonarchInfo.plainCount(4, const []), 4);
+    });
+
+    test('PLAIN is not a quiz answer or a server-recognised cypher', () {
+      // MonarchInfo.all is the quiz answer pool AND is pinned against the
+      // server's KNOWN_MONARCHS / the importer's VALID_CIPHERS, so the display
+      // sentinel must never leak into it.
+      expect(MonarchInfo.all, isNot(contains(MonarchInfo.plainKey)));
+      expect(MonarchInfo.points.containsKey(MonarchInfo.plainKey), isFalse);
+      // It does need a label, or the row renders as the raw sentinel.
+      expect(MonarchInfo.labels[MonarchInfo.plainKey], isNotNull);
     });
   });
 }

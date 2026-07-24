@@ -5,8 +5,25 @@ import 'package:postbox_game/theme.dart';
 abstract final class MonarchInfo {
   MonarchInfo._();
 
+  /// Display-only key for postboxes carrying no recognised cypher.
+  ///
+  /// `import_postboxes.js` deliberately stores an unknown or multi-value
+  /// `royal_cypher` tag (e.g. "VR;GR") with NO monarch field, and the box
+  /// scores the default 2 points. The server counts it in `counts.total` but
+  /// under no per-cypher key, so any breakdown that only walks [all] drops it:
+  /// Nearby showed "18 postboxes nearby" above a list adding up to 16, with no
+  /// hint the other two existed or were claimable.
+  ///
+  /// Deliberately NOT a member of [all]. That list is the quiz answer pool and
+  /// is pinned against the server's `KNOWN_MONARCHS` and the importer's
+  /// `VALID_CIPHERS`; this key never travels to the server and must never
+  /// become a quiz answer. It exists purely so the numbers on screen add up.
+  static const String plainKey = 'PLAIN';
+
   /// Human-readable labels for each royal cipher.
   static const Map<String, String> labels = {
+    // Matches the CypherPicker wording in reports/report_form_widgets.dart.
+    plainKey: 'Plain / no cypher',
     'EIIR': 'Elizabeth II (1952–2022)',
     'CIIIR': 'Charles III (2022–)',
     'GVIR': 'George VI (1936–1952)',
@@ -20,6 +37,7 @@ abstract final class MonarchInfo {
 
   /// Display colours for each cipher.
   static const Map<String, Color> colors = {
+    plainKey: Colors.blueGrey,
     'EIIR': postalRed,
     'CIIIR': postalRed,
     'GVIR': Colors.indigo,
@@ -58,4 +76,17 @@ abstract final class MonarchInfo {
 
   /// Returns the point value for [cipher], or 2 if unknown (matches server default).
   static int getPoints(String cipher) => points[cipher] ?? 2;
+
+  /// How many of [total] scanned postboxes fall outside every recognised
+  /// cypher — the [plainKey] row's count.
+  ///
+  /// The server reports one `counts` key per cypher plus an overall `total`,
+  /// and a box with no monarch field contributes only to the latter. So the
+  /// plain count is whatever the recognised cyphers don't account for.
+  /// Clamped at zero so a partial or inconsistent response can never render a
+  /// negative row.
+  static int plainCount(int total, Iterable<int> knownCipherCounts) {
+    final known = knownCipherCounts.fold<int>(0, (a, b) => a + b);
+    return total > known ? total - known : 0;
+  }
 }
