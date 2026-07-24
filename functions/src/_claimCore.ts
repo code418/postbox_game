@@ -21,6 +21,20 @@ import { coordKey } from "./_abuseSignals";
 
 const database = admin.firestore();
 
+/**
+ * TEMPORARY (2026-07-24, requested by product): the hard travel-speed reject is
+ * disabled so we can observe the feature's real-world behaviour before deciding
+ * whether to re-enable enforcement. While disabled the speed is STILL computed,
+ * logged (as a "would-reject" warning), and returned to the shadow-mode anomaly
+ * detector (_abuseSignals), so the feature's effectiveness can be reviewed from
+ * the logs / flag docs without blocking any legitimate claims.
+ *
+ * To re-enable: set the TRAVEL_SPEED_ENFORCEMENT env var to "on" (no redeploy of
+ * this constant needed), or flip the default below back to "on".
+ */
+export const TRAVEL_SPEED_ENFORCEMENT_ENABLED =
+  (process.env.TRAVEL_SPEED_ENFORCEMENT ?? "off").toLowerCase() === "on";
+
 /** The patch merged onto a `postbox` doc when it's claimed: only the London
  *  date it was last claimed (a "someone found this today" display hint).
  *
@@ -668,15 +682,20 @@ async function enforceNeighbourSpeedLimit(
 
   const result = checkNeighbourSpeeds({ lat, lng, tMs: eventTimeMs }, prev, next);
   if (!result.ok) {
+    const verb = TRAVEL_SPEED_ENFORCEMENT_ENABLED
+      ? "rejected"
+      : "would-reject (enforcement disabled)";
     console.warn(
-      `travel-speed check rejected uid=${userid} ` +
+      `travel-speed check ${verb} uid=${userid} ` +
       `speedPrev=${result.speedPrev?.toFixed(1) ?? "-"} ` +
       `speedNext=${result.speedNext?.toFixed(1) ?? "-"} m/min`,
     );
-    throw new functions.https.HttpsError(
-      "failed-precondition",
-      "You're travelling too fast — slow down before your next postbox claim."
-    );
+    if (TRAVEL_SPEED_ENFORCEMENT_ENABLED) {
+      throw new functions.https.HttpsError(
+        "failed-precondition",
+        "You're travelling too fast — slow down before your next postbox claim."
+      );
+    }
   }
   return result.speedPrev;
 }
