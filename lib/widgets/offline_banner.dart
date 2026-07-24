@@ -11,6 +11,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../remote_config_service.dart';
 import '../services/claim_outbox.dart';
 import '../services/connectivity_service.dart';
 import '../services/outbox_sync.dart';
@@ -27,13 +28,27 @@ class OfflineBanner extends StatelessWidget {
         valueListenable: ClaimOutbox.instance.pendingCount,
         builder: (context, pending, _) {
           if (online && pending == 0) return const SizedBox.shrink();
+          // With offline claims killed the flush is refused server-side, so
+          // never promise that anything will post. Already-banked captures are
+          // held (they flush if the switch comes back before they expire) but
+          // the copy stops committing to it and "Send now" is withdrawn.
+          final killed =
+              RemoteConfigService.instance.killSwitchOfflineClaims;
           final String message;
           if (!online) {
-            message = pending > 0
-                ? "You're offline. ${_claims(pending)} saved to post later."
-                : "You're offline. Claims will be saved to post later.";
+            if (killed) {
+              message = pending > 0
+                  ? "You're offline. ${_claims(pending)} held, but posting is paused."
+                  : "You're offline. Claiming needs a connection right now.";
+            } else {
+              message = pending > 0
+                  ? "You're offline. ${_claims(pending)} saved to post later."
+                  : "You're offline. Claims will be saved to post later.";
+            }
           } else {
-            message = '${_claims(pending)} ready to post.';
+            message = killed
+                ? '${_claims(pending)} held. Posting is paused just now.'
+                : '${_claims(pending)} ready to post.';
           }
           return Material(
             color: AppColors.brandSurface,
@@ -48,9 +63,11 @@ class OfflineBanner extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     Icon(
-                      online
-                          ? Icons.schedule_send_outlined
-                          : Icons.wifi_off_rounded,
+                      !online
+                          ? Icons.wifi_off_rounded
+                          : killed
+                              ? Icons.pause_circle_outline
+                              : Icons.schedule_send_outlined,
                       color: Colors.white,
                       size: 20,
                     ),
@@ -66,7 +83,7 @@ class OfflineBanner extends StatelessWidget {
                         ),
                       ),
                     ),
-                    if (online && pending > 0)
+                    if (online && pending > 0 && !killed)
                       TextButton(
                         onPressed: () =>
                             unawaited(OutboxSync.instance.flushNow()),

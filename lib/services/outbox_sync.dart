@@ -46,6 +46,7 @@ class OutboxSync {
     ClaimOutbox? outbox,
     FlushCallable? callable,
     int Function()? graceHoursProvider,
+    bool Function()? killSwitchProvider,
     int maxAutoRetries = 2,
   })  : _outbox = outbox ?? ClaimOutbox.instance,
         _callable = callable ??
@@ -53,11 +54,14 @@ class OutboxSync {
                 appFunctions.httpsCallable('flushOfflineClaims').call(payload)),
         _graceHours = graceHoursProvider ??
             (() => RemoteConfigService.instance.offlineClaimGraceHours),
+        _killSwitch = killSwitchProvider ??
+            (() => RemoteConfigService.instance.killSwitchOfflineClaims),
         _maxAutoRetries = maxAutoRetries;
 
   final ClaimOutbox _outbox;
   final FlushCallable _callable;
   final int Function() _graceHours;
+  final bool Function() _killSwitch;
   final int _maxAutoRetries;
   bool _flushing = false;
   VoidCallback? _connectivityListener;
@@ -118,6 +122,12 @@ class OutboxSync {
   /// entries stay banked in that case. Re-entrant calls no-op.
   Future<FlushSummary?> flushNow() async {
     if (_flushing) return null;
+    // Kill switch: the server would refuse the whole call with
+    // failed-precondition, so don't spend the round trip. Entries stay banked
+    // and flush normally once the switch is turned back off (they still age
+    // out of the grace window in the meantime — that is the point of a kill
+    // switch). Checked before _flushing so a no-op can't wedge the flag.
+    if (_killSwitch()) return null;
     _flushing = true;
     try {
       await _outbox.pruneExpired(graceHours: _graceHours());

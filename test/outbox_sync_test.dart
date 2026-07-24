@@ -6,10 +6,19 @@
 // failure, quota exhausted today) stay banked for the next attempt.
 
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_remote_config/firebase_remote_config.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:postbox_game/remote_config_service.dart';
 import 'package:postbox_game/services/claim_outbox.dart';
 import 'package:postbox_game/services/outbox_sync.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+/// Minimal RC stand-in so the default killSwitchProvider (which reads
+/// RemoteConfigService.instance) resolves without Firebase.
+class _StubRemoteConfig extends Fake implements FirebaseRemoteConfig {
+  @override
+  bool getBool(String key) => false;
+}
 
 class _FakeResult<T> implements HttpsCallableResult<T> {
   _FakeResult(this.data);
@@ -36,7 +45,10 @@ void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
     ClaimOutbox.resetForTest();
+    RemoteConfigService.instance =
+        RemoteConfigService(remoteConfig: _StubRemoteConfig());
   });
+  tearDown(RemoteConfigService.resetForTest);
 
   test('a fully-successful flush empties the outbox and sums the outcome', () async {
     final outbox = ClaimOutbox.instance;
@@ -219,6 +231,37 @@ void main() {
 
     expect(ids, hasLength(2));
     expect(ids[0], ids[1]);
+  });
+
+  test('the kill switch skips the flush and keeps everything banked', () async {
+    final outbox = ClaimOutbox.instance;
+    await outbox.add(_entry('a1'));
+    var calls = 0;
+    var killed = true;
+    final sync = OutboxSync(
+      outbox: outbox,
+      callable: (_) async {
+        calls++;
+        return _FakeResult<dynamic>({
+          'results': [
+            {'ok': true, 'claimed': 1, 'points': 2, 'dailyDate': '2026-07-20'},
+          ],
+        });
+      },
+      graceHoursProvider: () => 36,
+      killSwitchProvider: () => killed,
+    );
+
+    expect(await sync.flushNow(), isNull);
+    expect(calls, 0, reason: 'the server would refuse: skip the round trip');
+    expect(outbox.pendingCount.value, 1);
+
+    // ...and flushes normally once the switch is turned back off.
+    killed = false;
+    final summary = await sync.flushNow();
+    expect(calls, 1);
+    expect(summary!.claimed, 1);
+    expect(outbox.pendingCount.value, 0);
   });
 
   test('concurrent flushNow calls do not double-send', () async {

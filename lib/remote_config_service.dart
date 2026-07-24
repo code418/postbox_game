@@ -176,7 +176,11 @@ class RemoteConfigService {
   bool get killSwitchRouteMode => _rc.getBool(keyKillSwitchRouteMode);
 
   /// Emergency kill switch for offline claim capture + flush (v1.5). The
-  /// server enforces its own copy; this one hides the client affordances.
+  /// server enforces its own copy (flushOfflineClaims refuses with
+  /// failed-precondition); this one hides the client affordances so the app
+  /// never promises to post something that will be refused — no offline scan
+  /// rescue, no "Save & post later", no flush round trip, and the
+  /// OfflineBanner drops its "will post later" wording and "Send now".
   bool get killSwitchOfflineClaims => _rc.getBool(keyKillSwitchOfflineClaims);
 
   /// How long a banked offline capture stays flushable (hours), bounds-checked
@@ -191,6 +195,12 @@ class RemoteConfigService {
 
   /// Per-user daily cap on flushed offline claims, bounds-checked into
   /// [minMaxOfflineClaimsPerDay]..[maxMaxOfflineClaimsPerDay].
+  ///
+  /// ENFORCED SERVER-SIDE ONLY (flushOfflineClaims' `offlineFlushQuotas`
+  /// transaction). Mirrored here so the client and server read the same key
+  /// with the same bounds if a surface ever needs to show the cap; no client
+  /// code reads it today, and it must not be used to pre-reject a capture —
+  /// the server grants quota partially and per-item.
   int get maxOfflineClaimsPerDay {
     final raw = _rc.getInt(keyMaxOfflineClaimsPerDay);
     if (raw < minMaxOfflineClaimsPerDay || raw > maxMaxOfflineClaimsPerDay) {

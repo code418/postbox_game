@@ -426,6 +426,10 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
   /// the last successful scan IF it's fresh and taken from (nearly) the same
   /// spot. Returns true when the rescue applied.
   bool _tryOfflineScanRescue(LatLng scanPos) {
+    // Kill switch: with offline claims disabled the flush would be refused
+    // server-side, so serving a cached scan would only invite the user to bank
+    // captures that can never settle. Fall through to the honest error state.
+    if (RemoteConfigService.instance.killSwitchOfflineClaims) return false;
     final cached = ScanCache.fresh();
     if (cached == null) return false;
     final movedM = Geolocator.distanceBetween(
@@ -800,6 +804,9 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
   Future<void> _bankCapture(Position position, String attemptId) async {
     final scanId = _scanId;
     if (scanId == null) return; // no token: banking is not available
+    // Belt and braces: both entry points are gated above, but never bank a
+    // capture the server has been told to refuse.
+    if (RemoteConfigService.instance.killSwitchOfflineClaims) return;
     await ClaimOutbox.instance.add(OutboxEntry(
       scanId: scanId,
       lat: position.latitude,
@@ -1493,8 +1500,12 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
               ),
               // Offline banking (v1.5 Phase 3): a claim that already passed
               // the quiz and holds a scan token can be saved to the outbox
-              // instead of retried live.
-              if (_retryIsClaim && _scanId != null && _lastClaimPosition != null) ...[
+              // instead of retried live. Hidden while the kill switch is on —
+              // the flush would be refused, so "post later" would be a lie.
+              if (_retryIsClaim &&
+                  _scanId != null &&
+                  _lastClaimPosition != null &&
+                  !RemoteConfigService.instance.killSwitchOfflineClaims) ...[
                 const SizedBox(height: AppSpacing.sm),
                 OutlinedButton.icon(
                   onPressed: _isClaiming
