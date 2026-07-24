@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:postbox_game/authentication_bloc/bloc.dart';
 import 'package:postbox_game/user_repository.dart';
 import 'package:postbox_game/theme.dart';
@@ -56,6 +57,16 @@ class _WearLoginScreenState extends State<WearLoginScreen> {
           'operation-not-allowed' => 'Sign-in not enabled',
           _ => 'Sign-in failed',
         };
+      });
+    } on GoogleSignInException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        // A watch with no Google account can't be fixed by retrying, and the
+        // fix is on the paired phone, so say so rather than "Sign-in failed".
+        _error = isNoGoogleAccountOnDevice(e)
+            ? 'No Google account on this watch'
+            : 'Sign-in failed';
       });
     } catch (e) {
       if (!mounted) return;

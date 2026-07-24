@@ -6,6 +6,47 @@ import 'package:postbox_game/maintenance_guard.dart';
 import 'package:postbox_game/services/crashlytics_helper.dart';
 import 'package:postbox_game/validators.dart';
 
+/// The description prefix `google_sign_in_android` puts on a Credential
+/// Manager `NoCredentialException` before collapsing it into the catch-all
+/// [GoogleSignInExceptionCode.unknownError].
+///
+/// Source: `google_sign_in_android/lib/google_sign_in_android.dart`,
+/// `_authenticate`, `case GetCredentialFailureType.noCredential` (checked
+/// against 7.2.15). The plugin exposes no distinct code for it, so the
+/// description is the only signal. `noGoogleAccountPrefixIsCurrent` in
+/// `test/google_signin_failure_test.dart` re-reads the resolved plugin source
+/// so a version bump that changes the wording fails a test rather than
+/// silently reverting users to the unhelpful generic message.
+const String kNoGoogleCredentialPrefix = 'No credential available';
+
+/// True when a Google sign-in failed because the DEVICE has no Google account
+/// to offer, rather than because anything went wrong.
+///
+/// Worth its own message: the generic "Sign in failed. Please try again."
+/// tells the user to do the one thing that cannot work, and Crashlytics showed
+/// exactly that — 86 non-fatals from 5 users over 13 sessions, i.e. ~17
+/// hopeless retries each.
+bool isNoGoogleAccountOnDevice(GoogleSignInException e) =>
+    e.code == GoogleSignInExceptionCode.unknownError &&
+    (e.description ?? '').startsWith(kNoGoogleCredentialPrefix);
+
+/// Advice for a Google sign-in failure, or null when there is none specific
+/// and the caller should use its own generic wording.
+String? googleSignInFailureMessage(GoogleSignInException e) {
+  if (isNoGoogleAccountOnDevice(e)) {
+    return 'No Google account on this device. Add one in your device '
+        'settings, or sign in with an email address.';
+  }
+  return switch (e.code) {
+    GoogleSignInExceptionCode.providerConfigurationError ||
+    GoogleSignInExceptionCode.clientConfigurationError =>
+      'Google sign-in is unavailable on this device. Try an email address.',
+    GoogleSignInExceptionCode.uiUnavailable =>
+      'Could not open the Google sign-in prompt. Please try again.',
+    _ => null,
+  };
+}
+
 class UserRepository {
   final FirebaseAuth _firebaseAuth;
   final GoogleSignIn _googleSignIn;
@@ -30,9 +71,12 @@ class UserRepository {
         return null;
       }
       // A genuine (non-cancellation) Google sign-in failure — record it before
-      // it propagates to the login UI's generic error message.
+      // it propagates to the login UI. Deduped per code: a user with no Google
+      // account on the device retries until they give up, and 17 identical
+      // non-fatals per session tell us nothing the first one didn't.
       CrashlyticsHelper.recordHandled(e, StackTrace.current,
-          reason: 'google_sign_in:${e.code}');
+          reason: 'google_sign_in:${e.code}',
+          dedupeKey: 'google_sign_in:${e.code}');
       rethrow;
     }
     final GoogleSignInAuthentication googleAuth = googleUser.authentication;

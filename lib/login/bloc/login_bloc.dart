@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:bloc/bloc.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/login/bloc/bloc.dart';
 import 'package:postbox_game/user_repository.dart';
@@ -54,6 +55,16 @@ class LoginBloc extends Bloc<LoginEvent, LoginState> {
     } on FirebaseAuthException catch (e) {
       unawaited(Analytics.loginFailed(method: 'google', errorCode: e.code.isNotEmpty ? e.code : 'unknown'));
       emit(LoginState.failure(message: _mapFirebaseError(e.code), code: e.code));
+    } on GoogleSignInException catch (e) {
+      // The plugin's own failures never reach _mapFirebaseError. Most matter
+      // little, but "no Google account on this device" must not be answered
+      // with "please try again" — retrying is the one thing that cannot work.
+      final code = e.code.name;
+      unawaited(Analytics.loginFailed(method: 'google', errorCode: code));
+      final message = googleSignInFailureMessage(e);
+      emit(message == null
+          ? LoginState.failure(code: code)
+          : LoginState.failure(message: message, code: code));
     } catch (_) {
       unawaited(Analytics.loginFailed(method: 'google', errorCode: 'unknown'));
       emit(LoginState.failure());
