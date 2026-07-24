@@ -13,10 +13,22 @@ import * as geolib from "geolib";
 import { MAX_METRES_PER_MIN } from "./_travelSpeed";
 
 /** Implied-travel speed (m/min) at or above which a claim is *flagged* in shadow
- *  mode. Deliberately BELOW the live hard reject (MAX_METRES_PER_MIN = 1900 in
- *  _travelSpeed.ts): claims above the hard limit never get created, so a flag
- *  threshold ≥ 1900 would be dead code. 1500 m/min (~90 km/h) surfaces the
- *  fast-but-not-rejected band for offline tuning. */
+ *  mode. Chosen BELOW the hard reject (MAX_METRES_PER_MIN = 1900 in
+ *  _travelSpeed.ts) so it surfaces the fast-but-not-rejected band (~90 km/h)
+ *  for offline tuning.
+ *
+ *  The original rationale — "claims above the hard limit never get created, so
+ *  a flag threshold ≥ 1900 would be dead code" — STOPPED HOLDING on 2026-07-24,
+ *  when the hard reject was gated behind TRAVEL_SPEED_ENFORCEMENT_ENABLED
+ *  (default off, see _claimCore.ts). With enforcement disabled, claims above
+ *  1900 m/min DO get created and this flag is the only thing that notices them.
+ *  1500 still works — everything over the old hard limit is over 1500 too — but
+ *  don't re-derive the threshold from the dead-code argument.
+ *
+ *  Note the blast radius: the gate is inside scoreClaimAt, so the offline flush
+ *  path stopped rejecting as well. flushOfflineClaims maps a failed-precondition
+ *  to the `too_fast` verdict, which is one of OutboxSync.permanentReasons — that
+ *  verdict simply no longer occurs while enforcement is off. */
 export const SHADOW_TRAVEL_FLAG_M_PER_MIN = 1500;
 
 /** Max tolerated gap between the server's claim timestamp and the client-supplied

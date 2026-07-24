@@ -61,7 +61,7 @@ import { setPrecision, getLatLng, MAX_GEOHASH_PRECISION } from "../_lookupPostbo
 import { applyUserClaims } from "../_nearbyUtils";
 import { computeNewStreak, streakFromClaimDays } from "../_streakUtils";
 import { checkNeighbourSpeeds } from "../_travelSpeed";
-import { buildClaimData } from "../_claimCore";
+import { buildClaimData, travelSpeedEnforcementEnabled, TRAVEL_SPEED_ENFORCEMENT_ENABLED } from "../_claimCore";
 import { containsProfanity } from "../_profanityFilter";
 import { sanitiseName } from "../onUserCreated";
 import { checkTravelSpeed, MAX_METRES_PER_MIN } from "../_travelSpeed";
@@ -1377,6 +1377,36 @@ describe("streakFromClaimDays (v1.5 offline flush streak repair)", () => {
     assert.deepStrictEqual(
       streakFromClaimDays(["2026-06-30", "2026-07-01"], "2026-07-02"),
       { lastClaimDate: "2026-07-01", streak: 2 });
+  });
+});
+
+describe("travelSpeedEnforcementEnabled (2026-07-24 kill switch)", () => {
+  // The hard travel-speed reject was gated behind this flag so its real-world
+  // behaviour could be observed before re-enabling. Only the pure
+  // checkNeighbourSpeeds helper had tests, which still pass whether the reject
+  // is wired up or not — so nothing pinned the flag itself. These do, in both
+  // directions, so that re-enabling is a deliberate and verified act rather
+  // than a hopeful one.
+  it("is OFF when the env var is absent — the shipped default", () => {
+    assert.strictEqual(travelSpeedEnforcementEnabled({}), false);
+  });
+
+  it('is ON only for "on", case-insensitively', () => {
+    for (const v of ["on", "ON", "On", "oN"]) {
+      assert.strictEqual(travelSpeedEnforcementEnabled({ TRAVEL_SPEED_ENFORCEMENT: v }), true, v);
+    }
+  });
+
+  it("treats anything else as off rather than guessing", () => {
+    // "true"/"1"/"yes" deliberately do NOT enable it: a half-recognised value
+    // silently enforcing would be worse than one that visibly does nothing.
+    for (const v of ["off", "", "true", "1", "yes", "enabled", " on "]) {
+      assert.strictEqual(travelSpeedEnforcementEnabled({ TRAVEL_SPEED_ENFORCEMENT: v }), false, v);
+    }
+  });
+
+  it("the module-level constant matches the resolved env at load time", () => {
+    assert.strictEqual(TRAVEL_SPEED_ENFORCEMENT_ENABLED, travelSpeedEnforcementEnabled(process.env));
   });
 });
 

@@ -32,8 +32,15 @@ const database = admin.firestore();
  * To re-enable: set the TRAVEL_SPEED_ENFORCEMENT env var to "on" (no redeploy of
  * this constant needed), or flip the default below back to "on".
  */
-export const TRAVEL_SPEED_ENFORCEMENT_ENABLED =
-  (process.env.TRAVEL_SPEED_ENFORCEMENT ?? "off").toLowerCase() === "on";
+export function travelSpeedEnforcementEnabled(
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  return (env.TRAVEL_SPEED_ENFORCEMENT ?? "off").toLowerCase() === "on";
+}
+
+/** Resolved once at module load, so a change to the env var takes effect on the
+ *  next cold start (which is how Cloud Functions env vars work anyway). */
+export const TRAVEL_SPEED_ENFORCEMENT_ENABLED = travelSpeedEnforcementEnabled();
 
 /** The patch merged onto a `postbox` doc when it's claimed: only the London
  *  date it was last claimed (a "someone found this today" display hint).
