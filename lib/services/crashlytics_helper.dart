@@ -86,6 +86,31 @@ class CrashlyticsHelper {
     }
   }
 
+  /// Routes an uncaught framework error to Crashlytics; wire to
+  /// [FlutterError.onError] in `main()`.
+  ///
+  /// Most framework errors are genuine and recorded FATAL. The exception is
+  /// image-resource failures: a map tile or network image whose HTTP fetch
+  /// fails (SocketException / ClientException) *after* its image-stream
+  /// listener was torn down. flutter_map removes a tile's listener on any
+  /// pan / zoom / rebuild / cache-eviction, so the instant a user loses signal
+  /// with the map open, in-flight tile fetches complete with no listener left
+  /// to catch them. Flutter then reports the error itself (image_stream.dart
+  /// `reportError`, `if (!handled)`) through [FlutterError.onError] tagged
+  /// `library: 'image resource service'`. These do NOT break the frame —
+  /// flutter_map just shows a blank tile — so recording them as fatal both
+  /// misreports the app as crashing and tanks crash-free-users (one offline
+  /// Pixel 8a produced 11 "fatal" reports on 1.5.0). Record those once per
+  /// session as a handled non-fatal instead; everything else stays fatal.
+  static void reportFlutterError(FlutterErrorDetails details) {
+    if (details.library == 'image resource service') {
+      recordHandled(details.exception, details.stack,
+          reason: 'image_load', dedupeKey: 'image_load');
+      return;
+    }
+    _fc.recordFlutterError(details, fatal: true);
+  }
+
   /// Toggle collection. Called once from `main()` with `!kDebugMode` so debug
   /// runs don't upload crash reports.
   static Future<void> setCollectionEnabled(bool enabled) async {

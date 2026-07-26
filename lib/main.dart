@@ -56,8 +56,11 @@ void main() async {
       options: DefaultFirebaseOptions.currentPlatform,
     );
   }
-  // Route uncaught framework + platform errors to Crashlytics as fatals.
-  FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
+  // Route uncaught framework + platform errors to Crashlytics as fatals —
+  // except image-resource failures (offline map tiles), which are downgraded to
+  // a deduped non-fatal so a blank tile doesn't read as a crash. See
+  // [CrashlyticsHelper.reportFlutterError].
+  FlutterError.onError = CrashlyticsHelper.reportFlutterError;
   WidgetsBinding.instance.platformDispatcher.onError = (error, stack) {
     FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
     return true;
