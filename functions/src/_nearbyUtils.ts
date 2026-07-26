@@ -1,4 +1,4 @@
-import { getPoints } from "./_getPoints";
+import { pointsForMonarch } from "./_getPoints";
 import { LookupResult } from "./types";
 
 export interface SlimPostbox {
@@ -34,10 +34,18 @@ export interface UserSpecificResult {
  * - Recomputes cipher `_claimed` counts and `claimedToday` total for this user.
  * - Recomputes `points` range and `compass` directions using only unclaimed
  *   postboxes so the UI reflects what this user can still claim.
+ *
+ * [pointsFor] resolves a monarch to its point value. It defaults to the
+ * hard-coded table ([pointsForMonarch]); callers pass a Remote-Config-driven
+ * resolver so the displayed "Worth X-Y pts" range matches what startScoring
+ * would actually AWARD (both use resolvePointsForMonarch). Without this, a
+ * Remote Config points rebalance would leave the range headline showing stale
+ * hard-coded values while the per-cipher breakdown and the award both moved.
  */
 export function applyUserClaims(
   full: LookupResult,
-  userClaimedKeys: Set<string>
+  userClaimedKeys: Set<string>,
+  pointsFor: (monarch: string | undefined) => number = pointsForMonarch
 ): UserSpecificResult {
   // Strip precise location fields; override claimedToday per-user. Distance is
   // carried over so the client can show range cues and so Route Mode can detect
@@ -76,7 +84,7 @@ export function applyUserClaims(
   let unclaimedMax = 0;
   for (const [id, pb] of Object.entries(full.postboxes)) {
     if (!userClaimedKeys.has(id)) {
-      const pts = pb.monarch !== undefined ? getPoints(pb.monarch) : 2;
+      const pts = pointsFor(pb.monarch);
       if (pts < unclaimedMin) unclaimedMin = pts;
       if (pts > unclaimedMax) unclaimedMax = pts;
     }

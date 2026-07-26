@@ -2794,6 +2794,27 @@ describe("applyUserClaims", () => {
     const { claimedCompass } = applyUserClaims(full, new Set(["noCompass"]));
     assert.strictEqual(Object.keys(claimedCompass).length, 0);
   });
+
+  it("points range uses the injected resolver, not the hard-coded table", () => {
+    // A Remote Config points rebalance must move the displayed "Worth X-Y pts"
+    // range in lockstep with what startScoring awards. nearbyPostboxes passes a
+    // resolvePointsForMonarch-bound resolver; here we simulate an RC override
+    // that doubles every value and assert the range follows it (EIIR 2->4,
+    // VR 7->14) rather than the hard-coded 2/7.
+    const doubled = (m: string | undefined) =>
+      m === "EIIR" ? 4 : m === "VR" ? 14 : 2;
+    const { updatedPoints } = applyUserClaims(makeFull(), new Set(), doubled);
+    assert.strictEqual(updatedPoints.min, 4);
+    assert.strictEqual(updatedPoints.max, 14);
+  });
+
+  it("default resolver preserves the hard-coded points range", () => {
+    // Omitting the resolver must be identical to the pre-RC behaviour so
+    // existing call sites (and the current RC==hard-coded state) are unchanged.
+    const { updatedPoints } = applyUserClaims(makeFull(), new Set());
+    assert.strictEqual(updatedPoints.min, 2);
+    assert.strictEqual(updatedPoints.max, 7);
+  });
 });
 
 import { rebuildPeriodLeaderboard } from "../newDayScoreboard";

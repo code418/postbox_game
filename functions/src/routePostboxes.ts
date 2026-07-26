@@ -5,7 +5,7 @@ import * as functions from "firebase-functions";
 import * as geohash from "ngeohash";
 import { getTodayLondon } from "./_dateUtils";
 import { setPrecision, getLatLng } from "./_lookupPostboxes";
-import { pointsForMonarch } from "./_getPoints";
+import { getGameConfig, resolvePointsForMonarch } from "./_config";
 import type { PostboxDoc } from "./types";
 import {
   metresBetween,
@@ -144,12 +144,15 @@ export const routePostboxes = functions.https.onCall(async (request) => {
     return postboxRef.orderBy("geohash").startAt(prefix).endAt(end).get();
   });
 
-  const [snapshots, userClaimsSnap] = await Promise.all([
+  const [snapshots, userClaimsSnap, gameConfig] = await Promise.all([
     Promise.all(queries),
     db.collection("claims")
       .where("userid", "==", uid)
       .where("dailyDate", "==", getTodayLondon())
       .get(),
+    // Remote-Config points so the "worth Y points" headline matches what
+    // startScoring would award (both via resolvePointsForMonarch).
+    getGameConfig(),
   ]);
 
   // Build claimed-today set
@@ -185,7 +188,7 @@ export const routePostboxes = functions.https.onCall(async (request) => {
         lat: pos.lat,
         lng: pos.lng,
         monarch: data2.monarch ?? null,
-        points: pointsForMonarch(data2.monarch),
+        points: resolvePointsForMonarch(gameConfig, data2.monarch),
         reference: data2.reference,
         county: data2.county,
       });

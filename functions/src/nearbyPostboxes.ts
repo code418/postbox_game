@@ -8,6 +8,7 @@ import { applyUserClaims } from "./_nearbyUtils";
 import { lookupPostboxes } from "./_lookupPostboxes";
 import { requireAppCheck } from "./_appCheck";
 import { getScanSecret, signScanToken, SCAN_SECRET_ENV } from "./_scanToken";
+import { getGameConfig, resolvePointsForMonarch } from "./_config";
 
 /** HMAC secret for the offline capture token (see _scanToken.ts). Declared so
  *  the platform binds Secret Manager -> process.env at runtime. */
@@ -45,13 +46,16 @@ export const nearbyPostboxes = functions.https.onCall({ enforceAppCheck: true, s
   const uid = request.auth!.uid;
   const todayLondon = getTodayLondon();
 
-  // Run postbox lookup and today's user-claims query in parallel.
-  const [full, userClaimsSnap] = await Promise.all([
+  // Run postbox lookup, today's user-claims query, and the game config in
+  // parallel. The config drives the Remote-Config points so the displayed
+  // range matches what startScoring would award (see applyUserClaims).
+  const [full, userClaimsSnap, gameConfig] = await Promise.all([
     lookupPostboxes(lat, lng, clampedMeters),
     admin.firestore().collection("claims")
       .where("userid", "==", uid)
       .where("dailyDate", "==", todayLondon)
       .get(),
+    getGameConfig(),
   ]);
 
   // Build the set of postbox IDs already claimed by THIS user today.
@@ -64,7 +68,7 @@ export const nearbyPostboxes = functions.https.onCall({ enforceAppCheck: true, s
   );
 
   const { slimPostboxes, updatedCounts, updatedPoints, updatedCompass, claimedCompass } =
-    applyUserClaims(full, userClaimedKeys);
+    applyUserClaims(full, userClaimedKeys, (m) => resolvePointsForMonarch(gameConfig, m));
 
   // Offline capture token (v1.5): an HMAC-signed scanId binding this scan's
   // uid + position + server time. The client caches it with the scan payload;
