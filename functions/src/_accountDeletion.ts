@@ -121,8 +121,9 @@ export async function removeUserFromFriends(db: Firestore, uid: string): Promise
 }
 
 /** Hard-delete [uid]'s own per-user documents: the profile doc and its
- *  `countyStats` subcollection, the FCM-token / report-quota / trust-score docs
- *  (all keyed by uid), and any moderation flags referencing the uid. */
+ *  `countyStats` subcollection, the FCM-token / report-quota / offline-flush-quota
+ *  / trust-score docs (all keyed by uid), and any moderation flags referencing
+ *  the uid. */
 export async function deleteUserDocs(db: Firestore, uid: string): Promise<void> {
   const userRef = db.collection("users").doc(uid);
 
@@ -136,6 +137,10 @@ export async function deleteUserDocs(db: Firestore, uid: string): Promise<void> 
     userRef,
     db.collection("fcmTokens").doc(uid),
     db.collection("reportQuotas").doc(uid),
+    // v1.5 offline play added this per-uid daily counter as the exact analogue
+    // of reportQuotas; it must be erased on deletion too or a deleted account
+    // leaves a residual per-user activity record behind.
+    db.collection("offlineFlushQuotas").doc(uid),
     db.collection("trustScores").doc(uid),
   ];
 

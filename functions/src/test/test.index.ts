@@ -4606,6 +4606,8 @@ describe("account deletion: deleteUserDocs (mock Firestore)", () => {
       "user's moderation flags deleted");
     assert.ok(deleted.includes("fcmTokens/u1"), "fcm token deleted");
     assert.ok(deleted.includes("reportQuotas/u1"), "report quota deleted");
+    assert.ok(deleted.includes("offlineFlushQuotas/u1"),
+      "offline-flush quota deleted (GDPR: analogue of reportQuotas)");
     assert.ok(deleted.includes("trustScores/u1"), "trust score deleted");
   });
 });
