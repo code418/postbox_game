@@ -5396,6 +5396,7 @@ describe("exportMyData: buildExportBundle", () => {
     moderationFlags: [{ id: "f1", severity: "low" }],
     trustScore: { score: 95 },
     reportQuota: null,
+    offlineFlushQuota: { id: "u1", date: "2026-07-17", count: 3 },
     fcmTokens: null,
     leaderboards: [{ board: "lifetime", entry: { uid: "u1", totalPoints: 12 } }],
   };
@@ -5407,6 +5408,9 @@ describe("exportMyData: buildExportBundle", () => {
     assert.strictEqual(bundle.uid, "u1");
     assert.deepStrictEqual(bundle.trustScore, { score: 95 });
     assert.strictEqual(bundle.reportQuota, null);
+    // GDPR access must mirror erasure: offlineFlushQuotas is erased on deletion
+    // (72d00ea), so it must also be exported.
+    assert.deepStrictEqual(bundle.offlineFlushQuota, { id: "u1", date: "2026-07-17", count: 3 });
     const claims = bundle.claims as Array<Record<string, unknown>>;
     assert.strictEqual(claims[0].timestamp, new Date(1_800_000_000_000).toISOString());
     assert.strictEqual(bundle.claimsTruncated, false);

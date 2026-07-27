@@ -5,8 +5,9 @@
 // erasure and access surfaces must never disagree about what exists):
 // users/{uid} + countyStats, claims, reports, moderationFlags (anti-abuse
 // profiling records are access-subject data too), fcmTokens, reportQuotas,
-// trustScores, leaderboard entries, and the Firebase Auth record (email lives
-// only in Auth). The client offers it as Settings → "Download my data".
+// offlineFlushQuotas, trustScores, leaderboard entries, and the Firebase Auth
+// record (email lives only in Auth). The client offers it as
+// Settings → "Download my data".
 
 import "./adminInit";
 import { monitorAppCheck } from "./_appCheck";
@@ -44,6 +45,7 @@ export interface ExportParts {
   moderationFlags: Array<Record<string, unknown>>;
   trustScore: Record<string, unknown> | null;
   reportQuota: Record<string, unknown> | null;
+  offlineFlushQuota: Record<string, unknown> | null;
   fcmTokens: Record<string, unknown> | null;
   leaderboards: Array<{ board: string; entry: Record<string, unknown> }>;
 }
@@ -64,6 +66,7 @@ export function buildExportBundle(parts: ExportParts): Record<string, unknown> {
     moderationFlags: serialiseForExport(parts.moderationFlags),
     trustScore: serialiseForExport(parts.trustScore),
     reportQuota: serialiseForExport(parts.reportQuota),
+    offlineFlushQuota: serialiseForExport(parts.offlineFlushQuota),
     fcmTokens: serialiseForExport(parts.fcmTokens),
     leaderboards: serialiseForExport(parts.leaderboards),
     notes: {
@@ -99,6 +102,7 @@ export const exportMyData = functions.https.onCall(async (request) => {
     flagsSnap,
     fcmSnap,
     quotaSnap,
+    offlineQuotaSnap,
     trustSnap,
     authUser,
   ] = await Promise.all([
@@ -111,6 +115,7 @@ export const exportMyData = functions.https.onCall(async (request) => {
     db.collection("moderationFlags").where("uid", "==", uid).get(),
     db.collection("fcmTokens").doc(uid).get(),
     db.collection("reportQuotas").doc(uid).get(),
+    db.collection("offlineFlushQuotas").doc(uid).get(),
     db.collection("trustScores").doc(uid).get(),
     admin.auth().getUser(uid).catch(() => null),
   ]);
@@ -163,6 +168,7 @@ export const exportMyData = functions.https.onCall(async (request) => {
     moderationFlags: flagsSnap.docs.map(withId),
     trustScore: trustSnap.exists ? withId(trustSnap) : null,
     reportQuota: quotaSnap.exists ? withId(quotaSnap) : null,
+    offlineFlushQuota: offlineQuotaSnap.exists ? withId(offlineQuotaSnap) : null,
     fcmTokens: fcmSnap.exists ? withId(fcmSnap) : null,
     leaderboards,
   });
