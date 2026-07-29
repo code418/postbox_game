@@ -87,26 +87,72 @@ void main() {
   });
 
   test('flushCaptureTimes anchors to the monotonic clock in-process', () {
-    // Captured at monotonic 10s with wall clock W. At flush, monotonic is 70s
-    // and the wall clock has been set BACK an hour: the anchored capture time
-    // must be flushWall - 60s, not the (now bogus) stored wall clock.
+    // Captured at monotonic 10s with wall clock W. At flush IN THE SAME PROCESS
+    // (matching boot id), monotonic is 70s and the wall clock has been set BACK
+    // an hour: the anchored capture time must be flushWall - 60s, not the (now
+    // bogus) stored wall clock.
     final entry = OutboxEntry(
         scanId: 't', lat: 1, lng: 2,
-        capturedWallMs: 5000000, capturedMonotonicMs: 10000, attemptId: 'a');
+        capturedWallMs: 5000000, capturedMonotonicMs: 10000, attemptId: 'a',
+        capturedBootId: 'boot-1');
     final anchored = entry.capturedAtForFlush(
-        flushWallMs: 2000000, flushMonotonicMs: 70000);
+        flushWallMs: 2000000, flushMonotonicMs: 70000, flushBootId: 'boot-1');
     expect(anchored, 2000000 - 60000);
   });
 
   test('flushCaptureTimes falls back to the stored wall clock across restarts', () {
-    // A restart resets the monotonic clock (flush monotonic < capture
-    // monotonic): fall back to the stored wall time.
+    // A restart mints a new boot id: even when the new process's monotonic
+    // clock happens to be smaller than the stored one, fall back to wall time.
     final entry = OutboxEntry(
         scanId: 't', lat: 1, lng: 2,
-        capturedWallMs: 5000000, capturedMonotonicMs: 90000, attemptId: 'a');
+        capturedWallMs: 5000000, capturedMonotonicMs: 90000, attemptId: 'a',
+        capturedBootId: 'boot-old');
     final anchored = entry.capturedAtForFlush(
-        flushWallMs: 9000000, flushMonotonicMs: 20000);
+        flushWallMs: 9000000, flushMonotonicMs: 20000, flushBootId: 'boot-new');
     expect(anchored, 5000000);
+  });
+
+  test('flushCaptureTimes does NOT anchor across a restart even when the new '
+      'process outran the old monotonic value', () {
+    // Regression: the bare `flushMonotonic >= capturedMonotonic` guard was a
+    // false same-process signal. A capture taken 10s into the OLD process
+    // (capturedMonotonic 10s), flushed 70s into a NEW process (different boot
+    // id) whose stopwatch has already passed 10s, must still use the stored
+    // wall clock — anchoring here would report the capture as ~now and mis-date
+    // an offline claim (and its streak) to the flush day.
+    final entry = OutboxEntry(
+        scanId: 't', lat: 1, lng: 2,
+        capturedWallMs: 5000000, capturedMonotonicMs: 10000, attemptId: 'a',
+        capturedBootId: 'boot-old');
+    final anchored = entry.capturedAtForFlush(
+        flushWallMs: 2000000, flushMonotonicMs: 70000, flushBootId: 'boot-new');
+    expect(anchored, 5000000,
+        reason: 'cross-process must never take the monotonic anchor');
+  });
+
+  test('flushCaptureTimes falls back to wall clock for legacy entries with no '
+      'boot id', () {
+    // Entries written before capturedBootId existed can never be proven
+    // same-process, so they always use the stored wall clock.
+    final entry = OutboxEntry(
+        scanId: 't', lat: 1, lng: 2,
+        capturedWallMs: 5000000, capturedMonotonicMs: 10000, attemptId: 'a');
+    final anchored = entry.capturedAtForFlush(
+        flushWallMs: 2000000, flushMonotonicMs: 70000, flushBootId: 'boot-x');
+    expect(anchored, 5000000);
+  });
+
+  test('add stamps the capturing process boot id and it round-trips', () async {
+    final outbox = ClaimOutbox.instance;
+    await outbox.add(OutboxEntry(
+        scanId: 't', lat: 1, lng: 2,
+        capturedWallMs: 1000, capturedMonotonicMs: 500, attemptId: 'a'));
+    // A fresh instance (simulated new process) reloads from storage; the static
+    // boot id persists, so the stamped id still matches the live one.
+    ClaimOutbox.resetForTest();
+    final reloaded = await ClaimOutbox.instance.entries();
+    expect(reloaded.single.capturedBootId, ClaimOutbox.bootId(),
+        reason: 'the boot id is stamped at add() and survives reload');
   });
 
   group('account scoping', () {
