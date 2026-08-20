@@ -1,7 +1,10 @@
-# Firebase iOS SDK 12.x (pinned by firebase_core) requires iOS 15.0 as the
-# minimum deployment target. Keep this in sync with IPHONEOS_DEPLOYMENT_TARGET
-# in Runner.xcodeproj and MinimumOSVersion in Flutter/AppFrameworkInfo.plist.
-platform :ios, '15.0'
+# Firebase iOS SDK 12.x (pinned by firebase_core) requires iOS 15.0, but the
+# app floor is 16.0: TestFlight itself needs iOS 16+, and TestFlight is the
+# only distribution channel we can test through (cloud builds, no Mac), so an
+# iOS 15 floor would be shippable but untestable. Keep this in sync with
+# IPHONEOS_DEPLOYMENT_TARGET in Runner.xcodeproj and MinimumOSVersion in
+# Flutter/AppFrameworkInfo.plist.
+platform :ios, '16.0'
 
 # CocoaPods analytics sends network stats synchronously affecting flutter build
 # latency; disabling it speeds up `pod install` in CI.
@@ -48,9 +51,9 @@ post_install do |installer|
   installer.pods_project.targets.each do |target|
     flutter_additional_ios_build_settings(target)
     target.build_configurations.each do |config|
-      # Force every pod to the Firebase-required minimum. Some transitive pods
-      # still default to iOS 12/13, which breaks the archive against Firebase 12.x.
-      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
+      # Force every pod to the app minimum. Some transitive pods still default
+      # to iOS 12/13, which breaks the archive against Firebase 12.x.
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.0'
     end
   end
 end

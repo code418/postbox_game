@@ -63,7 +63,7 @@ jobs:
         run: ./gradlew :app:testAutoDebugUnitTest --console=plain
 
   # Compiles the iOS app on a macOS runner. Proves the whole iOS toolchain is
-  # healthy — CocoaPods resolves the Firebase 12.x pods against the iOS 15
+  # healthy — CocoaPods resolves the Firebase 12.x pods against the iOS 16
   # deployment target, and Dart compiles/links to a native Runner.app — WITHOUT
   # needing a paid Apple Developer account or signing certificates. This is the
   # only way to build for iOS without a Mac of your own.
