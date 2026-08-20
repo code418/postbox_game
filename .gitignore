@@ -37,6 +37,7 @@ firebase-debug.log*
 lib/secrets.dart
 
 # Environment & secrets (never commit)
+/secretkey
 .env
 .env.*
 .env.local
