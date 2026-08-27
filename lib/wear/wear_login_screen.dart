@@ -12,6 +12,11 @@ import 'package:postbox_game/wear/wear_theme.dart';
 ///
 /// Email/password input is impractical on a watch, so only the Google
 /// sign-in flow is offered. Reuses [UserRepository.signInWithGoogle].
+///
+/// Not a login wall: this renders as the LAST page of the signed-out
+/// [WearHome] shell (where the Status page sits when signed in), so scanning
+/// stays available without an account. On success the dispatched [LoggedIn]
+/// makes the shell rebuild with the Status page in this slot.
 class WearLoginScreen extends StatefulWidget {
   const WearLoginScreen({super.key, required UserRepository userRepository})
       : _userRepository = userRepository;
@@ -99,6 +104,15 @@ class _WearLoginScreenState extends State<WearLoginScreen> {
               Text(
                 'Postbox Game',
                 style: Theme.of(context).textTheme.headlineSmall,
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: WearSpacing.sm),
+              // Scanning works signed out; say what signing in adds so the
+              // user reaching this page from "Sign in to claim" isn't left
+              // wondering why an account is needed.
+              Text(
+                'Sign in to claim & keep streaks',
+                style: Theme.of(context).textTheme.bodySmall,
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: WearSpacing.xl),

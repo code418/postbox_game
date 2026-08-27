@@ -266,4 +266,9 @@ class UserRepository {
     final currentUser = _firebaseAuth.currentUser;
     return currentUser != null;
   }
+
+  /// Uid of the signed-in user, or null when signed out. Used by the Wear
+  /// shell to key its widget tree so per-user streams and scan state are
+  /// remounted on any auth change (sign-in, sign-out, account switch).
+  String? get currentUid => _firebaseAuth.currentUser?.uid;
 }

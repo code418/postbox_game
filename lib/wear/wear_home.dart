@@ -3,18 +3,32 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:postbox_game/authentication_bloc/bloc.dart';
 import 'package:postbox_game/theme.dart';
+import 'package:postbox_game/user_repository.dart';
 import 'package:postbox_game/wear/wear_claim_page.dart';
 import 'package:postbox_game/wear/wear_compass_page.dart';
+import 'package:postbox_game/wear/wear_login_screen.dart';
 import 'package:postbox_game/wear/wear_status_page.dart';
 import 'package:postbox_game/wear/wear_theme.dart';
 
 /// Main Wear OS shell — a horizontal [PageView] with three swipeable pages:
-/// Compass, Claim, and Status.
+/// Compass, Claim, and Status (or Sign-in when signed out).
 ///
 /// A dot indicator at the bottom shows which page is active. The rotary crown
 /// (if available) can also be used to switch pages.
+///
+/// Signed out, the compass and claim-page scans still work (discovery is
+/// auth-free); the third page becomes the Google sign-in screen, and the claim
+/// page's CTA jumps there instead of claiming. The parent keys this widget by
+/// uid, so an auth change rebuilds the whole shell with fresh page state.
 class WearHome extends StatefulWidget {
-  const WearHome({super.key});
+  const WearHome({
+    super.key,
+    required this.signedIn,
+    required this.userRepository,
+  });
+
+  final bool signedIn;
+  final UserRepository userRepository;
 
   @override
   State<WearHome> createState() => _WearHomeState();
@@ -38,6 +52,16 @@ class _WearHomeState extends State<WearHome> {
 
   void _handleLogout() {
     context.read<AuthenticationBloc>().add(LoggedOut());
+  }
+
+  /// Swipes to the last page, which hosts the sign-in screen while signed
+  /// out. Used by the claim page's "Sign in to claim" CTA.
+  void _goToSignInPage() {
+    _pageController.animateToPage(
+      _pageCount - 1,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+    );
   }
 
   @override
@@ -69,8 +93,14 @@ class _WearHomeState extends State<WearHome> {
               onPageChanged: _onPageChanged,
               children: [
                 const WearCompassPage(),
-                const WearClaimPage(),
-                WearStatusPage(onLogout: _handleLogout),
+                WearClaimPage(
+                  signedIn: widget.signedIn,
+                  onSignInRequested: _goToSignInPage,
+                ),
+                if (widget.signedIn)
+                  WearStatusPage(onLogout: _handleLogout)
+                else
+                  WearLoginScreen(userRepository: widget.userRepository),
               ],
             ),
           ),

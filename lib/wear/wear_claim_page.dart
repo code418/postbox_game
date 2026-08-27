@@ -38,8 +38,20 @@ String wearClaimErrorMessage(String code) => switch (code) {
 ///
 /// Scan → quiz (2 options) → claim → success with haptic feedback.
 /// No confetti or complex animations — optimised for small screen and battery.
+///
+/// Scanning works signed out (discovery is auth-free server-side); claiming
+/// does not. When [signedIn] is false the claim CTA becomes "Sign in to
+/// claim" and fires [onSignInRequested] (the shell swipes to its sign-in
+/// page) instead of starting the quiz.
 class WearClaimPage extends StatefulWidget {
-  const WearClaimPage({super.key});
+  const WearClaimPage({
+    super.key,
+    required this.signedIn,
+    this.onSignInRequested,
+  });
+
+  final bool signedIn;
+  final VoidCallback? onSignInRequested;
 
   @override
   State<WearClaimPage> createState() => _WearClaimPageState();
@@ -64,7 +76,12 @@ class _WearClaimPageState extends State<WearClaimPage> {
   final HttpsCallable _claimCallable =
       appFunctions.httpsCallable('startScoring');
   final StreakService _streakService = StreakService();
-  late final Stream<int?> _streakStream = _streakService.streakStream();
+
+  /// Created on first claim success rather than at mount, so it binds to the
+  /// uid that actually claimed — this page can now be mounted signed-out.
+  /// (The shell also remounts on auth changes; this is defence-in-depth so
+  /// the stream's correctness doesn't silently depend on the parent's key.)
+  Stream<int?>? _streakStream;
 
   Future<void> _scan() async {
     if (_stage == _ClaimStage.scanning) return;
@@ -149,6 +166,12 @@ class _WearClaimPageState extends State<WearClaimPage> {
   bool _quizMissed = false;
 
   void _startQuiz() {
+    if (!widget.signedIn) {
+      // Claiming needs an account; the found-view CTA already says so — this
+      // guard is belt-and-braces for any other path into the quiz.
+      widget.onSignInRequested?.call();
+      return;
+    }
     final valid = collectValidQuizCiphers(_postboxes.values);
     if (valid.isEmpty) {
       _claimPostbox();
@@ -188,6 +211,10 @@ class _WearClaimPageState extends State<WearClaimPage> {
   }
 
   Future<void> _claimPostbox() async {
+    if (!widget.signedIn) {
+      widget.onSignInRequested?.call();
+      return;
+    }
     // Maintenance gate. The phone routes every write through
     // MaintenanceGuard.blocked(), whose own doc notes it is the ONLY gate —
     // `startScoring` has no server-side maintenance check (unlike
@@ -267,6 +294,8 @@ class _WearClaimPageState extends State<WearClaimPage> {
       Analytics.claimSuccess(
           pointsEarned: earnedPts, claimedCount: claimedCount);
       if (!mounted) return;
+      // Bind the streak stream to the uid that just claimed (see field doc).
+      _streakStream ??= _streakService.streakStream();
       // Success haptic — double tap.
       HapticFeedback.mediumImpact();
       Future.delayed(const Duration(milliseconds: 100), () {
@@ -445,9 +474,13 @@ class _WearClaimPageState extends State<WearClaimPage> {
             ),
           ] else ...[
             const SizedBox(height: WearSpacing.lg),
+            // Signed out the CTA routes to the sign-in page — the scan result
+            // stays visible so the user knows what signing in unlocks.
             FilledButton(
-              onPressed: _startQuiz,
-              child: const Text('Claim!'),
+              onPressed: widget.signedIn
+                  ? _startQuiz
+                  : () => widget.onSignInRequested?.call(),
+              child: Text(widget.signedIn ? 'Claim!' : 'Sign in to claim'),
             ),
           ],
           const SizedBox(height: WearSpacing.sm),

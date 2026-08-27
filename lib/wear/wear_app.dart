@@ -3,13 +3,17 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:postbox_game/authentication_bloc/bloc.dart';
 import 'package:postbox_game/user_repository.dart';
 import 'package:postbox_game/wear/wear_home.dart';
-import 'package:postbox_game/wear/wear_login_screen.dart';
 import 'package:postbox_game/wear/wear_theme.dart';
 
 /// Root widget for the Wear OS build.
 ///
 /// Mirrors the phone [PostboxGame] in `main.dart` but with a dark theme,
 /// no named routes, and no intro/onboarding flow.
+///
+/// Unlike the phone, the watch has NO login wall: signed-out users land
+/// straight in [WearHome], where the compass and nearby scans work (the
+/// `nearbyPostboxes` callable allows unauthenticated discovery scans).
+/// Sign-in lives on the last page of the shell and is only required to claim.
 class WearPostboxGame extends StatefulWidget {
   const WearPostboxGame({super.key});
 
@@ -31,11 +35,17 @@ class _WearPostboxGameState extends State<WearPostboxGame> {
         debugShowCheckedModeBanner: false,
         home: BlocBuilder<AuthenticationBloc, AuthenticationState?>(
           builder: (context, state) {
-            if (state is Authenticated) {
-              return const WearHome();
-            }
-            if (state is Unauthenticated) {
-              return WearLoginScreen(userRepository: _userRepository);
+            if (state is Authenticated || state is Unauthenticated) {
+              // Key by uid so ANY auth transition (sign-in, sign-out, account
+              // switch) remounts the shell: per-user streams (streak, user
+              // doc) and cached scan results must never survive into a
+              // different account's session.
+              return WearHome(
+                key: ValueKey<String>(
+                    _userRepository.currentUid ?? 'signed-out'),
+                signedIn: state is Authenticated,
+                userRepository: _userRepository,
+              );
             }
             // Uninitialized or null — show a minimal loading indicator.
             return const Scaffold(

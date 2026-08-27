@@ -1854,15 +1854,33 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
       }
     });
 
-    it("should throw unauthenticated when no auth context", async function (this: Mocha.Context) {
-      this.timeout(5000);
+    it("allows a signed-out discovery scan (no auth context)", async function (this: Mocha.Context) {
+      // The pre-login "find nearby postboxes" loop (watch and phone) scans
+      // without a uid; only claiming requires auth. App Check is still
+      // enforced (the request carries `app`).
+      this.timeout(10000);
       const req = { data: { lat: 51.45, lng: -0.95, meters: 500 }, app: { appId: "test-app" } };
       try {
-        await wrappedNearby(req);
-        assert.fail("Expected unauthenticated error");
+        const result = (await wrappedNearby(req)) as Record<string, unknown>;
+        assert.ok("postboxes" in result);
+        assert.ok("counts" in result);
+        // The offline-capture token is uid-bound — a signed-out scan must
+        // never mint one.
+        assert.ok(!("scanId" in result), "scanId must not be issued signed-out");
       } catch (e: unknown) {
-        const err = e as { code?: string };
-        assert.strictEqual(err.code, "unauthenticated");
+        const err = e as { code?: string; message?: string };
+        // Without the emulator the Firestore lookup fails with a credentials /
+        // permission error — acceptable here. What this test pins is that the
+        // rejection is never `unauthenticated`.
+        assert.notStrictEqual(err.code, "unauthenticated",
+          "signed-out scan must not be rejected as unauthenticated");
+        if (
+          !(err.message ?? "").includes("PERMISSION_DENIED") &&
+          !(err.message ?? "").includes("Could not load the default credentials") &&
+          err.code !== "permission-denied"
+        ) {
+          throw e;
+        }
       }
     });
 
