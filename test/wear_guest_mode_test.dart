@@ -83,14 +83,15 @@ void main() {
 
     // Page 2: claim page sits in its ready state — the scan itself is not
     // gated on sign-in (only the claim CTA is, once results arrive).
-    // fling, not drag: a positional drag under half the viewport width
-    // snaps back, so give the gesture velocity like a real swipe.
-    await tester.fling(find.byType(PageView), const Offset(-300, 0), 1500);
+    // fling, not drag: a positional drag under half the viewport extent
+    // snaps back, so give the gesture velocity like a real swipe. Upward,
+    // because the shell pages vertically (see wear_shell_paging_test.dart).
+    await tester.fling(find.byType(PageView), const Offset(0, -300), 1500);
     await tester.pumpAndSettle();
     expect(find.text('Scan & Claim'), findsOneWidget);
 
     // Page 3: the Google sign-in screen takes the status page's slot.
-    await tester.fling(find.byType(PageView), const Offset(-300, 0), 1500);
+    await tester.fling(find.byType(PageView), const Offset(0, -300), 1500);
     await tester.pumpAndSettle();
     expect(find.byType(WearLoginScreen), findsOneWidget);
     expect(find.text('Google Sign-In'), findsOneWidget);
@@ -105,9 +106,9 @@ void main() {
     ));
     await tester.pump();
 
-    await tester.fling(find.byType(PageView), const Offset(-300, 0), 1500);
+    await tester.fling(find.byType(PageView), const Offset(0, -300), 1500);
     await tester.pumpAndSettle();
-    await tester.fling(find.byType(PageView), const Offset(-300, 0), 1500);
+    await tester.fling(find.byType(PageView), const Offset(0, -300), 1500);
     await tester.pumpAndSettle();
 
     expect(find.byType(WearStatusPage), findsOneWidget);

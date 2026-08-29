@@ -10,11 +10,15 @@ import 'package:postbox_game/wear/wear_login_screen.dart';
 import 'package:postbox_game/wear/wear_status_page.dart';
 import 'package:postbox_game/wear/wear_theme.dart';
 
-/// Main Wear OS shell — a horizontal [PageView] with three swipeable pages:
+/// Main Wear OS shell — a vertical [PageView] with three swipeable pages:
 /// Compass, Claim, and Status (or Sign-in when signed out).
 ///
-/// A dot indicator at the bottom shows which page is active. The rotary crown
-/// (if available) can also be used to switch pages.
+/// Paging is vertical because Wear OS reserves the left-to-right swipe as
+/// the system dismiss gesture — with horizontal paging, swiping "back" threw
+/// the user out to the watchface.
+///
+/// A dot indicator on the right edge shows which page is active. The rotary
+/// crown (if available) can also be used to switch pages.
 ///
 /// Signed out, the compass and claim-page scans still work (discovery is
 /// auth-free); the third page becomes the Google sign-in screen, and the claim
@@ -64,60 +68,82 @@ class _WearHomeState extends State<WearHome> {
     );
   }
 
+  /// Rotary crown / bezel ticks navigate whole pages.
+  ///
+  /// Registered with the [PointerSignalResolver] from a [Listener] INSIDE
+  /// each page: pointer signals are resolved cooperatively (first registrant
+  /// on the hit-test path wins, deepest first), and the vertical [PageView]'s
+  /// own Scrollable also registers for vertical scroll deltas. Its raw
+  /// handling nudges the pager by the tick's pixel delta and snaps straight
+  /// back, so it must be preempted — which an outer Listener cannot do.
+  void _handleRotaryTick(PointerSignalEvent event) {
+    final delta = (event as PointerScrollEvent).scrollDelta.dy;
+    if (delta > 0 && _currentPage < _pageCount - 1) {
+      _pageController.nextPage(
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+    } else if (delta < 0 && _currentPage > 0) {
+      _pageController.previousPage(
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+    }
+  }
+
+  Widget _rotaryPage(Widget child) {
+    return Listener(
+      behavior: HitTestBehavior.opaque,
+      onPointerSignal: (event) {
+        if (event is PointerScrollEvent) {
+          GestureBinding.instance.pointerSignalResolver
+              .register(event, _handleRotaryTick);
+        }
+      },
+      child: child,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
       body: Stack(
         children: [
-          // Respond to rotary crown / bezel scroll events to navigate pages.
-          Listener(
-            onPointerSignal: (event) {
-              if (event is PointerScrollEvent) {
-                if (event.scrollDelta.dy > 0 &&
-                    _currentPage < _pageCount - 1) {
-                  _pageController.nextPage(
-                    duration: const Duration(milliseconds: 300),
-                    curve: Curves.easeInOut,
-                  );
-                } else if (event.scrollDelta.dy < 0 && _currentPage > 0) {
-                  _pageController.previousPage(
-                    duration: const Duration(milliseconds: 300),
-                    curve: Curves.easeInOut,
-                  );
-                }
-              }
-            },
-            child: PageView(
-              controller: _pageController,
-              onPageChanged: _onPageChanged,
-              children: [
-                const WearCompassPage(),
-                WearClaimPage(
-                  signedIn: widget.signedIn,
-                  onSignInRequested: _goToSignInPage,
-                ),
-                if (widget.signedIn)
-                  WearStatusPage(onLogout: _handleLogout)
-                else
-                  WearLoginScreen(userRepository: widget.userRepository),
-              ],
-            ),
+          PageView(
+            // Vertical: Wear OS owns the left-to-right swipe (system
+            // dismiss back to the watchface), so horizontal paging fights
+            // the OS and loses — a "previous page" swipe would exit the
+            // app instead.
+            scrollDirection: Axis.vertical,
+            controller: _pageController,
+            onPageChanged: _onPageChanged,
+            children: [
+              _rotaryPage(const WearCompassPage()),
+              _rotaryPage(WearClaimPage(
+                signedIn: widget.signedIn,
+                onSignInRequested: _goToSignInPage,
+              )),
+              _rotaryPage(widget.signedIn
+                  ? WearStatusPage(onLogout: _handleLogout)
+                  : WearLoginScreen(userRepository: widget.userRepository)),
+            ],
           ),
 
-          // Dot indicator
+          // Dot indicator — a vertical column on the right edge (the Wear
+          // position-indicator spot), matching the vertical paging axis.
           Positioned(
-            left: 0,
-            right: 0,
-            bottom: WearSpacing.lg,
-            child: Row(
+            top: 0,
+            bottom: 0,
+            right: WearSpacing.lg,
+            child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: List.generate(_pageCount, (i) {
                 final isActive = i == _currentPage;
                 return AnimatedContainer(
                   duration: const Duration(milliseconds: 200),
                   margin:
-                      const EdgeInsets.symmetric(horizontal: WearSpacing.xs),
+                      const EdgeInsets.symmetric(vertical: WearSpacing.xs),
                   width: isActive ? 8 : 6,
                   height: isActive ? 8 : 6,
                   decoration: BoxDecoration(
