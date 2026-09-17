@@ -795,7 +795,8 @@ void main() {
 
     test('has all three kinds we dispatch on in callers', () {
       // Callers (claim.dart, nearby.dart, claim_quiz_sheet.dart,
-      // destination_picker_screen.dart) use exhaustive switch on this enum —
+      // destination_picker_screen.dart, claim_history_screen.dart) use an
+      // exhaustive switch on this enum —
       // adding a kind here without updating callers is an analyzer error.
       // Pin the set so renames/removals trigger a test failure too.
       expect(LocationErrorKind.values.toSet(), equals({

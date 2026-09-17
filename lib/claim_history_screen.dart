@@ -1,10 +1,18 @@
+import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:postbox_game/firebase_functions_eu.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart' show MapController;
+import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/app_preferences.dart' show ViewMode;
+import 'package:postbox_game/james_controller.dart';
+import 'package:postbox_game/james_messages.dart';
+import 'package:postbox_game/location_service.dart';
 import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/remote_config_service.dart';
 import 'package:postbox_game/reports/report_cypher_screen.dart';
@@ -15,6 +23,10 @@ import 'package:postbox_game/widgets/postbox_map.dart';
 import 'package:postbox_game/widgets/postbox_marker.dart';
 import 'package:postbox_game/widgets/view_toggle.dart';
 
+/// Signature of the `userClaimHistory` callable, injectable for tests.
+typedef ClaimHistoryCallableFn = Future<HttpsCallableResult<dynamic>> Function(
+    Map<String, dynamic> payload);
+
 /// A per-period view of the signed-in user's past claims, as either a map of
 /// deduped postbox pins or a scrollable list. Tapping a pin/row opens a detail
 /// sheet (times claimed, dates, points) with a "report wrong cypher" action.
@@ -22,8 +34,27 @@ import 'package:postbox_game/widgets/view_toggle.dart';
 /// The four tabs — Today, This week, This month, Lifetime — call the
 /// `userClaimHistory` Cloud Function, which joins each claim against its
 /// `postbox/{id}` document server-side so the client gets geopoints directly.
+///
+/// The map view carries a "My location" control that fetches a one-off GPS fix,
+/// recentres the camera on it and draws the standard user dot.
 class ClaimHistoryScreen extends StatefulWidget {
-  const ClaimHistoryScreen({super.key});
+  const ClaimHistoryScreen({
+    super.key,
+    this.historyCallable,
+    this.positionProvider,
+  });
+
+  /// Injectable stand-in for the `userClaimHistory` callable. Null uses the
+  /// real one. Tests inject a stub so the map view renders without Firebase
+  /// (mirrors `ClaimQuizSheet.nearbyCallable`).
+  @visibleForTesting
+  final ClaimHistoryCallableFn? historyCallable;
+
+  /// Injectable provider for the "my location" fix. Null uses [getPosition].
+  /// Tests must inject: geolocator has no MethodChannel mock in `test/`, so an
+  /// unguarded call throws MissingPluginException.
+  @visibleForTesting
+  final Future<Position> Function()? positionProvider;
 
   @override
   State<ClaimHistoryScreen> createState() => _ClaimHistoryScreenState();
@@ -48,16 +79,111 @@ class _ClaimHistoryScreenState extends State<ClaimHistoryScreen>
   // where you've been; the list is the supporting detail view.
   ViewMode _view = ViewMode.map;
 
+  late final ClaimHistoryCallableFn _historyCallable;
+  late final Future<Position> Function() _positionProvider;
+
+  /// The user's last known position, shared by all four period tabs so that
+  /// locating on "Today" also shows the dot on "This week". Held here rather
+  /// than inside `_HistoryMap` because a refresh swaps `_future`, which flips
+  /// the FutureBuilder back to `waiting` and unmounts the map entirely — any
+  /// position stored down there would silently vanish on every claim.
+  LatLng? _userPosition;
+
+  /// In-flight locate, so a second tap (or a tap on another tab) joins the
+  /// existing fix instead of firing a second GPS read and permission prompt.
+  Future<LatLng?>? _locateInFlight;
+
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: _periods.length, vsync: this);
+    _historyCallable = widget.historyCallable ??
+        ((payload) =>
+            appFunctions.httpsCallable('userClaimHistory').call(payload));
+    _positionProvider = widget.positionProvider ?? getPosition;
   }
 
   @override
   void dispose() {
     _tabController.dispose();
     super.dispose();
+  }
+
+  Future<LatLng?> _locateUser() {
+    final inFlight = _locateInFlight;
+    if (inFlight != null) return inFlight;
+    final future = _acquireUserPosition();
+    _locateInFlight = future;
+    future.whenComplete(() => _locateInFlight = null);
+    return future;
+  }
+
+  /// Fetches a fix and records it. Never throws: every failure path explains
+  /// itself to the user and returns null, so the map just skips the move.
+  Future<LatLng?> _acquireUserPosition() async {
+    try {
+      final pos = await _positionProvider();
+      if (!mounted) return null;
+      final target = LatLng(pos.latitude, pos.longitude);
+      setState(() => _userPosition = target);
+      return target;
+    } on LocationServiceException catch (e) {
+      // Fire before the mounted check: the signal matters even if the user
+      // has navigated away.
+      if (e.kind == LocationErrorKind.permissionPermanentlyDenied) {
+        unawaited(Analytics.locationPermissionPermanentlyDenied());
+      }
+      if (!mounted) return null;
+      final isPermission = e.kind == LocationErrorKind.permissionDenied ||
+          e.kind == LocationErrorKind.permissionPermanentlyDenied;
+      JamesController.of(context)?.show(isPermission
+          ? JamesMessages.nearbyErrorPermission.resolve()
+          : JamesMessages.nearbyErrorGeneral.resolve());
+      SnackBarAction? action;
+      switch (e.kind) {
+        case LocationErrorKind.permissionPermanentlyDenied:
+          action = SnackBarAction(
+            label: 'Open Settings',
+            textColor: Colors.white,
+            onPressed: Geolocator.openAppSettings,
+          );
+        case LocationErrorKind.servicesDisabled:
+          action = SnackBarAction(
+            label: 'Open Settings',
+            textColor: Colors.white,
+            onPressed: Geolocator.openLocationSettings,
+          );
+        case LocationErrorKind.permissionDenied:
+          action = null;
+      }
+      // e.message, never e.toString(): the kind is the contract, the message
+      // is the human-readable half of it.
+      _showLocationError(e.message, action: action);
+      return null;
+    } on TimeoutException {
+      // getPosition only rethrows this when getLastKnownPosition had nothing
+      // either, i.e. there is genuinely no fix to be had.
+      if (!mounted) return null;
+      JamesController.of(context)?.show(JamesMessages.nearbyErrorGeneral.resolve());
+      _showLocationError(
+          'GPS signal timed out. Move to an open area and try again.');
+      return null;
+    } catch (_) {
+      // Never surface a raw PlatformException string to the player.
+      if (!mounted) return null;
+      JamesController.of(context)?.show(JamesMessages.nearbyErrorGeneral.resolve());
+      _showLocationError(
+          'Could not determine your location. Please try again.');
+      return null;
+    }
+  }
+
+  void _showLocationError(String message, {SnackBarAction? action}) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(message),
+      backgroundColor: Colors.red.shade700,
+      action: action,
+    ));
   }
 
   @override
@@ -91,7 +217,13 @@ class _ClaimHistoryScreenState extends State<ClaimHistoryScreen>
             controller: _tabController,
             children: _periods
                 .map((p) => _HistoryTab(
-                    key: ValueKey('history_$p'), period: p, view: _view))
+                      key: ValueKey('history_$p'),
+                      period: p,
+                      view: _view,
+                      callable: _historyCallable,
+                      userPosition: _userPosition,
+                      onLocateMe: _locateUser,
+                    ))
                 .toList(),
           ),
         ),
@@ -103,9 +235,24 @@ class _ClaimHistoryScreenState extends State<ClaimHistoryScreen>
 /// One tab per period. Kept alive by [AutomaticKeepAliveClientMixin] so swiping
 /// between tabs doesn't refetch on every change.
 class _HistoryTab extends StatefulWidget {
-  const _HistoryTab({super.key, required this.period, required this.view});
+  const _HistoryTab({
+    super.key,
+    required this.period,
+    required this.view,
+    required this.callable,
+    required this.userPosition,
+    required this.onLocateMe,
+  });
   final String period;
   final ViewMode view;
+  final ClaimHistoryCallableFn callable;
+
+  /// Shared across tabs; null until the user has located themselves once.
+  final LatLng? userPosition;
+
+  /// Returns the fix, or null when it could not be obtained (the screen has
+  /// already told the user why).
+  final Future<LatLng?> Function() onLocateMe;
 
   @override
   State<_HistoryTab> createState() => _HistoryTabState();
@@ -149,9 +296,8 @@ class _HistoryTabState extends State<_HistoryTab>
   Future<List<ClaimHistoryEntry>> _fetch() async {
     // Read-only: safe to retry wholesale, and a failure here empties the
     // whole history view rather than degrading it.
-    final result = await retryOnUnavailable(() => appFunctions
-        .httpsCallable('userClaimHistory')
-        .call(<String, dynamic>{'period': widget.period}));
+    final result = await retryOnUnavailable(
+        () => widget.callable(<String, dynamic>{'period': widget.period}));
     final data = Map<String, dynamic>.from(result.data as Map);
     final raw = data['entries'] as List<dynamic>? ?? const [];
     return raw
@@ -193,7 +339,10 @@ class _HistoryTabState extends State<_HistoryTab>
             : _HistoryMap(
                 entries: entries,
                 onRefresh: _refresh,
-                onTap: (e) => _showEntryDetails(context, e));
+                onTap: (e) => _showEntryDetails(context, e),
+                userPosition: widget.userPosition,
+                onLocateMe: widget.onLocateMe,
+              );
       },
     );
   }
@@ -213,43 +362,135 @@ class _HistoryTabState extends State<_HistoryTab>
   }
 }
 
-class _HistoryMap extends StatelessWidget {
-  const _HistoryMap(
-      {required this.entries, required this.onRefresh, required this.onTap});
+/// Zoom applied by "My location". PostboxMap hard-caps at 17 because OSM
+/// renders postbox POI icons at zoom >= 18, which would reveal exact postbox
+/// locations. 16 deliberately stops one step short: close enough to read the
+/// street you are standing on, while leaving pinch-in headroom under the cap.
+const double _kLocateZoom = 16.0;
+
+class _HistoryMap extends StatefulWidget {
+  const _HistoryMap({
+    required this.entries,
+    required this.onRefresh,
+    required this.onTap,
+    required this.userPosition,
+    required this.onLocateMe,
+  });
   final List<ClaimHistoryEntry> entries;
   final Future<void> Function() onRefresh;
   final void Function(ClaimHistoryEntry) onTap;
+  final LatLng? userPosition;
+  final Future<LatLng?> Function() onLocateMe;
+
+  @override
+  State<_HistoryMap> createState() => _HistoryMapState();
+}
+
+class _HistoryMapState extends State<_HistoryMap> {
+  // A caller-supplied controller is the CALLER's to dispose: PostboxMap.dispose
+  // only disposes the internal fallback it creates when mapController is null.
+  final MapController _mapController = MapController();
+  bool _locating = false;
+
+  @override
+  void dispose() {
+    _mapController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _locateMe() async {
+    setState(() => _locating = true);
+    try {
+      final target = await widget.onLocateMe();
+      // null means the screen has already surfaced the reason; stay put.
+      if (!mounted || target == null) return;
+      _mapController.move(target, _kLocateZoom);
+    } finally {
+      if (mounted) setState(() => _locating = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final points = entries.map((e) => LatLng(e.lat, e.lng)).toList();
+    final points = widget.entries.map((e) => LatLng(e.lat, e.lng)).toList();
+    final user = widget.userPosition;
     return Stack(
       children: [
         PostboxMap(
+          mapController: _mapController,
+          // _centroid is a pure fold over `entries`, so an unchanged claim set
+          // yields a bit-identical LatLng and PostboxMap.didUpdateWidget does
+          // NOT schedule a camera move over the top of a "My location" move.
+          // Keep this free of anything that varies per build.
           center: _centroid(points),
           zoom: _zoomForSpan(points),
-          markers: entries
-              .map((e) => postboxMarker(LatLng(e.lat, e.lng),
-                  cipher: e.monarch, onTap: () => onTap(e)))
-              .toList(),
+          markers: [
+            ...widget.entries.map((e) => postboxMarker(LatLng(e.lat, e.lng),
+                cipher: e.monarch, onTap: () => widget.onTap(e))),
+            // Last, so the dot paints above the postbox pins.
+            if (user != null) userPositionMarker(user),
+          ],
         ),
-        // Refresh overlay: keep-alive tabs fetch once in initState, so without
-        // this the map would show stale data until app restart after a claim.
+        // Map controls. Top-right rather than the usual bottom-right corner:
+        // PostboxMap puts the required OSM attribution there, and covering it
+        // is not an option.
         Positioned(
           top: AppSpacing.sm,
           right: AppSpacing.sm,
-          child: Material(
-            color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.9),
-            shape: const CircleBorder(),
-            elevation: 2,
-            child: IconButton(
-              icon: const Icon(Icons.refresh, color: postalRed),
-              tooltip: 'Refresh',
-              onPressed: onRefresh,
-            ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Keep-alive tabs fetch once in initState, so without this the
+              // map would show stale data until app restart after a claim.
+              _MapOverlayButton(
+                tooltip: 'Refresh',
+                onPressed: widget.onRefresh,
+                child: const Icon(Icons.refresh, color: postalRed),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              _MapOverlayButton(
+                tooltip: 'My location',
+                onPressed: _locating ? null : _locateMe,
+                child: _locating
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: postalRed),
+                      )
+                    : const Icon(Icons.my_location, color: postalRed),
+              ),
+            ],
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Circular translucent control floated over the map. Shared so the Refresh
+/// and My-location buttons cannot drift apart visually.
+class _MapOverlayButton extends StatelessWidget {
+  const _MapOverlayButton({
+    required this.tooltip,
+    required this.onPressed,
+    required this.child,
+  });
+  final String tooltip;
+  final VoidCallback? onPressed;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.9),
+      shape: const CircleBorder(),
+      elevation: 2,
+      child: IconButton(
+        icon: child,
+        tooltip: tooltip,
+        onPressed: onPressed,
+      ),
     );
   }
 }
