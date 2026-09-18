@@ -24,6 +24,12 @@
             <intent-filter>
                 <action android:name="androidx.wear.tiles.action.BIND_TILE_PROVIDER" />
             </intent-filter>
+            <!-- A real 384x384 screencap of the rendered tile, not a mockup:
+                 the tile picker shows this, and a placeholder here is itself a
+                 Wear quality failure. Recapture it if the layout changes. -->
+            <meta-data
+                android:name="androidx.wear.tiles.PREVIEW"
+                android:resource="@drawable/tile_preview" />
         </service>
 
         <service

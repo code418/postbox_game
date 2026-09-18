@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import androidx.wear.tiles.TileService
 import androidx.wear.watchface.complications.datasource.ComplicationDataSourceUpdateRequester
 
@@ -24,18 +25,37 @@ import androidx.wear.watchface.complications.datasource.ComplicationDataSourceUp
 class WearDataChangedReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent?) {
-        TileService.getUpdater(context)
-            .requestUpdate(PostboxTileService::class.java)
+        // applicationContext, NOT the receiver's context. TileService's updater
+        // binds to the SysUI tile service internally, and the Context handed to
+        // onReceive is a ReceiverRestrictedContext, which throws
+        // ReceiverCallNotAllowedException ("BroadcastReceiver components are
+        // not allowed to bind to services") on bindService. Unhandled on the
+        // main thread, that killed the whole app process — so every refresh,
+        // including the one right after a claim, took the app down with it.
+        val appContext = context.applicationContext
 
-        val requester = ComplicationDataSourceUpdateRequester.create(
-            context,
-            ComponentName(context, StreakComplicationService::class.java),
-        )
-        requester.requestUpdateAll()
+        // And belt-and-braces: this push is an optimisation, so no failure of
+        // it may ever reach the user. The tile's freshness interval and its
+        // re-read on enter are the real guarantees.
+        runCatching {
+            TileService.getUpdater(appContext)
+                .requestUpdate(PostboxTileService::class.java)
+        }.onFailure { Log.w(TAG, "tile update request failed", it) }
 
-        ComplicationDataSourceUpdateRequester.create(
-            context,
-            ComponentName(context, TodayPointsComplicationService::class.java),
-        ).requestUpdateAll()
+        for (service in listOf(
+            StreakComplicationService::class.java,
+            TodayPointsComplicationService::class.java,
+        )) {
+            runCatching {
+                ComplicationDataSourceUpdateRequester.create(
+                    appContext,
+                    ComponentName(appContext, service),
+                ).requestUpdateAll()
+            }.onFailure { Log.w(TAG, "complication update failed: $service", it) }
+        }
+    }
+
+    private companion object {
+        const val TAG = "WearDataChanged"
     }
 }
