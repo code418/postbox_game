@@ -1,6 +1,18 @@
 {
   "version": 1,
   "skills": {
+    "adaptive": {
+      "source": "android/skills",
+      "sourceType": "github",
+      "skillPath": "jetpack-compose/adaptive/SKILL.md",
+      "computedHash": "5bb2d0cbad1933944ac627b02eac5717e3bf3928b913f343687c9d73db6b7428"
+    },
+    "android-intent-security": {
+      "source": "android/skills",
+      "sourceType": "github",
+      "skillPath": "security/android-intent-security/SKILL.md",
+      "computedHash": "fc4d0fd2767b1ad00d9f1f1aa0898c3e04140717150876b3b97757a76cef30e2"
+    },
     "code-documenter": {
       "source": "jeffallan/claude-skills",
       "sourceType": "github",
@@ -72,6 +84,12 @@
       "sourceType": "github",
       "skillPath": "skills/debugging-wizard/SKILL.md",
       "computedHash": "9f39c248ae9588423cd12ea5197adf1530d7308eaf51a6d018ad08d52658a2ed"
+    },
+    "edge-to-edge": {
+      "source": "android/skills",
+      "sourceType": "github",
+      "skillPath": "system/edge-to-edge/SKILL.md",
+      "computedHash": "7db3c09f145f5bad71b09da526dad46cb8b2ace56e62e87aa2ca7e81a0b4790e"
     },
     "flutter-add-integration-test": {
       "source": "flutter/skills",
@@ -157,6 +175,18 @@
       "skillPath": "skills/kotlin-specialist/SKILL.md",
       "computedHash": "7119693c0ce1ebf7de447ccafef33cd319b9a8bfc057b6dfcb137caac2fea274"
     },
+    "migrate-xml-views-to-jetpack-compose": {
+      "source": "android/skills",
+      "sourceType": "github",
+      "skillPath": "jetpack-compose/migration/migrate-xml-views-to-jetpack-compose/SKILL.md",
+      "computedHash": "8b604e10d9e030a937e735bae4fd6598ec9eded6812dbda0f8aca90231e098ca"
+    },
+    "r8-analyzer": {
+      "source": "android/skills",
+      "sourceType": "github",
+      "skillPath": "performance/r8-analyzer/SKILL.md",
+      "computedHash": "992952bc5eb1b21d896c0e9d6a914820f01e22a378b4f7e01eba5e4fc96ac628"
+    },
     "secure-code-guardian": {
       "source": "jeffallan/claude-skills",
       "sourceType": "github",
@@ -168,6 +198,12 @@
       "sourceType": "github",
       "skillPath": "skills/security-reviewer/SKILL.md",
       "computedHash": "7a1ed4f4ca78a50b97e3e8c5725e494dc8aae0895bd1efde681a75ab22ff89d3"
+    },
+    "styles": {
+      "source": "android/skills",
+      "sourceType": "github",
+      "skillPath": "jetpack-compose/theming/styles/SKILL.md",
+      "computedHash": "8a48036f2673329dc4d2f419ab5473d25a741d550c817c707e3be42ae30517a2"
     },
     "swift-expert": {
       "source": "jeffallan/claude-skills",
@@ -181,11 +217,23 @@
       "skillPath": "skills/test-master/SKILL.md",
       "computedHash": "176d5be77c9fb4e64335a4ad9e38dfb82ccb029dc302c417db99a11e2d880180"
     },
+    "testing-setup": {
+      "source": "android/skills",
+      "sourceType": "github",
+      "skillPath": "testing/testing-setup/SKILL.md",
+      "computedHash": "76bfe8e0180767c7c1631066fd1c000ef21bd9145945d1e3192bb165b3d80d4d"
+    },
     "typescript-pro": {
       "source": "jeffallan/claude-skills",
       "sourceType": "github",
       "skillPath": "skills/typescript-pro/SKILL.md",
       "computedHash": "b53b57340243eab4b75acee9096f0444319bb1b9e8530fdab4d1d75e1568fa6c"
+    },
+    "wear-compose-m3": {
+      "source": "android/skills",
+      "sourceType": "github",
+      "skillPath": "wear/wear-compose-m3/SKILL.md",
+      "computedHash": "a28e7848eded7daa2ad45fc625c187d4d2fc4a1cc2d9b9b24ed956815a625822"
     }
   }
 }
