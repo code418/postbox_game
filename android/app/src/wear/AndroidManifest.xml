@@ -8,6 +8,76 @@
         <meta-data
             android:name="com.google.android.wearable.standalone"
             android:value="true" />
+
+        <!-- Glanceable surfaces. All three read the SharedPreferences snapshot
+             HomeWidgetService writes, so they need no permissions of their own:
+             the BIND_* attributes below are permissions the SYSTEM must hold to
+             bind us, not ones the app requests. That keeps the Play permissions
+             declaration and the Data Safety form unchanged. -->
+
+        <service
+            android:name=".wear.PostboxTileService"
+            android:exported="true"
+            android:label="@string/tile_label"
+            android:description="@string/tile_description"
+            android:permission="com.google.android.wearable.permission.BIND_TILE_PROVIDER">
+            <intent-filter>
+                <action android:name="androidx.wear.tiles.action.BIND_TILE_PROVIDER" />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".wear.StreakComplicationService"
+            android:exported="true"
+            android:label="@string/complication_streak_label"
+            android:icon="@mipmap/ic_launcher"
+            android:permission="com.google.android.wearable.permission.BIND_COMPLICATION_PROVIDER">
+            <intent-filter>
+                <action android:name="android.support.wearable.complications.ACTION_COMPLICATION_UPDATE_REQUEST" />
+            </intent-filter>
+            <meta-data
+                android:name="android.support.wearable.complications.SUPPORTED_TYPES"
+                android:value="SHORT_TEXT,RANGED_VALUE" />
+            <!-- The push from the app is best-effort (Wear has no launcher
+                 widgets, so HomeWidget.updateWidget may not reach us), so a
+                 half-hourly poll is the floor. -->
+            <meta-data
+                android:name="android.support.wearable.complications.UPDATE_PERIOD_SECONDS"
+                android:value="1800" />
+        </service>
+
+        <service
+            android:name=".wear.TodayPointsComplicationService"
+            android:exported="true"
+            android:label="@string/complication_points_label"
+            android:icon="@mipmap/ic_launcher"
+            android:permission="com.google.android.wearable.permission.BIND_COMPLICATION_PROVIDER">
+            <intent-filter>
+                <action android:name="android.support.wearable.complications.ACTION_COMPLICATION_UPDATE_REQUEST" />
+            </intent-filter>
+            <meta-data
+                android:name="android.support.wearable.complications.SUPPORTED_TYPES"
+                android:value="SHORT_TEXT" />
+            <meta-data
+                android:name="android.support.wearable.complications.UPDATE_PERIOD_SECONDS"
+                android:value="1800" />
+        </service>
+
+        <!-- Explicit broadcast only; no intent-filter, never exported. -->
+        <receiver
+            android:name=".wear.WearDataChangedReceiver"
+            android:exported="false" />
+
+        <!-- Invisible trampoline: a protolayout Clickable cannot carry a data
+             URI, so the tile launches this and it rebuilds the real deep link.
+             noHistory + excludeFromRecents so it never appears to the user. -->
+        <activity
+            android:name=".wear.WearTileLaunchActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity="" />
     </application>
 
     <!-- Watches have touchscreens but the manifest declaration must be

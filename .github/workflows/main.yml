@@ -62,6 +62,22 @@ jobs:
         working-directory: android
         run: ./gradlew :app:testAutoDebugUnitTest --console=plain
 
+      # The wear flavour now has its own manifest merge (tile + complication
+      # services), its own Kotlin source set and flavour-scoped
+      # tiles/protolayout dependencies. The phone APK above cannot catch a
+      # wear-only manifest-merge or dependency-resolution failure — and unlike
+      # `auto`, this variant IS Play-bound, so a break here is a break in a
+      # shipping AAB.
+      - run: flutter build apk --debug --flavor wear -t lib/main_wear.dart
+
+      # Same reasoning as the Auto tests: the Wear tile and complications are
+      # Kotlin with no widget test reaching them. These pin the London-date
+      # freshness rules that stop the tile presenting yesterday's points as
+      # today's.
+      - name: Wear OS unit tests
+        working-directory: android
+        run: ./gradlew :app:testWearDebugUnitTest --console=plain
+
   # Compiles the iOS app on a macOS runner. Proves the whole iOS toolchain is
   # healthy — CocoaPods resolves the Firebase 12.x pods against the iOS 16
   # deployment target, and Dart compiles/links to a native Runner.app — WITHOUT

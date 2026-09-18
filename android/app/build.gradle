@@ -146,6 +146,39 @@ dependencies {
     // reach RemoteConfigService.
     autoImplementation 'com.google.firebase:firebase-config'
     autoImplementation 'com.google.android.gms:play-services-location:21.3.0'
+
+    // Wear OS glanceable surfaces: the Tile and the two watch-face
+    // complications. Like the car above, these are flavour-scoped, so neither
+    // the Play-bound `phone` AAB nor the off-Play `auto` AAB links them.
+    //
+    // No Firebase here on purpose. Both surfaces render from the
+    // SharedPreferences store HomeWidgetService already writes (read via
+    // HomeWidgetPlugin.getData), so they need no network, no auth, and no
+    // Flutter engine — the same reason the phone widget doesn't.
+    //
+    // Versions are pinned exactly, never `1.+`: home_widget's own
+    // `androidx.glance:glance-appwidget:1.+` is why the resolutionStrategy
+    // block above exists.
+    wearImplementation 'androidx.wear.tiles:tiles:1.6.2'
+    wearImplementation 'androidx.wear.protolayout:protolayout:1.4.2'
+    wearImplementation 'androidx.wear.protolayout:protolayout-material:1.4.2'
+    wearImplementation 'androidx.wear.protolayout:protolayout-expression:1.4.2'
+    wearImplementation 'androidx.wear.watchface:watchface-complications-data-source:1.3.0'
+    // TileService.onTileRequest returns a ListenableFuture; the prefs read is
+    // synchronous, so an immediate future is all that's needed.
+    wearImplementation 'androidx.concurrent:concurrent-futures:1.3.0'
+    // ...but the interface itself has to be on the COMPILE classpath, and it
+    // isn't: com.google.guava:listenablefuture resolves to the deliberately
+    // EMPTY 9999.0-empty-to-avoid-conflict-with-guava placeholder, because a
+    // Flutter plugin already puts full Guava on the RUNTIME classpath. So this
+    // is compileOnly — adding it for real would be a duplicate-class failure,
+    // and forcing listenablefuture:1.0 back would be the same collision.
+    // Version tracks whatever the plugins resolve at runtime.
+    wearCompileOnly 'com.google.guava:guava:32.1.3-android'
+    // No tiles-tooling / tiles-tooling-preview: those exist for @Preview
+    // rendering in Android Studio, and this tile is built with protolayout
+    // builders rather than Compose. Leaving them out keeps the AAB smaller.
+
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'androidx.test:runner:1.4.0'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.4.0'
