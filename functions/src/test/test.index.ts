@@ -5455,3 +5455,316 @@ describe("exportMyData callable (auth)", () => {
     }
   });
 });
+
+describe("plan_route CLI helpers", () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+  const cli = require("../scripts/plan_route") as typeof import("../scripts/plan_route");
+
+  describe("parseLatLng", () => {
+    it("parses plain lat,lng", () => {
+      assert.deepStrictEqual(cli.parseLatLng("51.5,-0.1", "--start"), { lat: 51.5, lng: -0.1 });
+    });
+
+    it("parses a Google Maps paste with a space after the comma", () => {
+      assert.deepStrictEqual(
+        cli.parseLatLng("51.54160849129697, -2.4235417532308885", "--start"),
+        { lat: 51.54160849129697, lng: -2.4235417532308885 },
+      );
+    });
+
+    it("parses space-separated lat lng", () => {
+      assert.deepStrictEqual(cli.parseLatLng("51.5 -0.1", "--end"), { lat: 51.5, lng: -0.1 });
+    });
+
+    it("rejects a trailing comma instead of reading lng as 0", () => {
+      assert.throws(() => cli.parseLatLng("51.5,", "--start"), /--start/);
+    });
+
+    it("rejects a single number", () => {
+      assert.throws(() => cli.parseLatLng("51.5", "--start"), /--start/);
+    });
+
+    it("rejects three numbers", () => {
+      assert.throws(() => cli.parseLatLng("51.5,-0.1,7", "--start"), /--start/);
+    });
+
+    it("rejects non-numeric parts", () => {
+      assert.throws(() => cli.parseLatLng("north,west", "--end"), /--end/);
+    });
+
+    it("rejects out-of-range coordinates", () => {
+      assert.throws(() => cli.parseLatLng("91,0", "--start"), /out of range/);
+      assert.throws(() => cli.parseLatLng("0,181", "--start"), /out of range/);
+    });
+  });
+
+  describe("parseArgs", () => {
+    const rest = ["--end", "51.5,-0.1", "--source", "file", "--input", "x.json"];
+
+    it("joins a shell-split 'lat, lng' pair into one coordinate", () => {
+      const o = cli.parseArgs(["--start", "51.54,", "-2.42", "--km", "5", ...rest]);
+      assert.deepStrictEqual(o.start, { lat: 51.54, lng: -2.42 });
+      assert.deepStrictEqual(o.end, { lat: 51.5, lng: -0.1 });
+    });
+
+    it("joins a three-token 'lat , lng' pair", () => {
+      const o = cli.parseArgs(["--start", "51.54", ",", "-2.42", "--km", "5", ...rest]);
+      assert.deepStrictEqual(o.start, { lat: 51.54, lng: -2.42 });
+    });
+
+    it("does not swallow the next flag when a coordinate is incomplete", () => {
+      assert.throws(() => cli.parseArgs(["--start", "51.54", "--end", "51.5,-0.1", "--km", "5"]), /--start/);
+    });
+
+    it("records a km budget", () => {
+      const o = cli.parseArgs(["--start", "51.5,-0.1", "--km", "5", ...rest]);
+      assert.deepStrictEqual(o.budget, { kind: "km", km: 5 });
+    });
+
+    it("records a minutes budget", () => {
+      const o = cli.parseArgs(["--start", "51.5,-0.1", "--minutes", "60", ...rest]);
+      assert.deepStrictEqual(o.budget, { kind: "minutes", minutes: 60 });
+    });
+
+    it("rejects --minutes together with --km", () => {
+      assert.throws(
+        () => cli.parseArgs(["--start", "51.5,-0.1", "--minutes", "60", "--km", "5", ...rest]),
+        /--minutes[\s\S]*--km|--km[\s\S]*--minutes/,
+      );
+    });
+
+    it("requires one of --minutes or --km", () => {
+      assert.throws(() => cli.parseArgs(["--start", "51.5,-0.1", ...rest]), /--minutes[\s\S]*--km|--km[\s\S]*--minutes/);
+    });
+
+    it("rejects a non-positive --km", () => {
+      assert.throws(() => cli.parseArgs(["--start", "51.5,-0.1", "--km", "0", ...rest]), /--km/);
+      assert.throws(() => cli.parseArgs(["--start", "51.5,-0.1", "--km", "-1", ...rest]), /--km/);
+    });
+  });
+
+  describe("resolveBudget", () => {
+    it("treats a km budget as pure walking distance with no dwell", () => {
+      const b = cli.resolveBudget({ kind: "km", km: 5 }, 4.5, 60);
+      assert.strictEqual(b.budgetMetres, 5000);
+      assert.strictEqual(b.budgetSeconds, 4000);
+      assert.strictEqual(b.searchPerClaimSeconds, 0);
+    });
+
+    it("converts a minutes budget to distance at pace and keeps dwell", () => {
+      const b = cli.resolveBudget({ kind: "minutes", minutes: 60 }, 4.5, 60);
+      assert.strictEqual(b.budgetSeconds, 3600);
+      assert.strictEqual(b.budgetMetres, 4500);
+      assert.strictEqual(b.searchPerClaimSeconds, 60);
+    });
+  });
+
+  describe("candidatesFromJson", () => {
+    const noWarn = (): void => undefined;
+    const overpass = {
+      version: 0.6,
+      elements: [
+        { type: "node", id: 271462, lat: 51.04, lon: -1.54, tags: { amenity: "post_box", royal_cypher: "scottish_crown", ref: "SO51 123" } },
+        { type: "node", id: 2, lat: 51.05, lon: -1.55, tags: { royal_cypher: "ER" } },
+        { type: "node", id: 3, lat: 51.06, lon: -1.56 },
+        { type: "way", id: 4, nodes: [1, 2] },
+      ],
+    };
+
+    it("maps Overpass nodes to candidates with osm_ ids and lng from lon", () => {
+      const out = cli.candidatesFromJson(overpass, noWarn);
+      assert.deepStrictEqual(out.map((c) => c.id), ["osm_271462", "osm_2", "osm_3"]);
+      assert.strictEqual(out[0].lat, 51.04);
+      assert.strictEqual(out[0].lng, -1.54);
+      assert.strictEqual(out[0].reference, "SO51 123");
+      assert.strictEqual(out[1].reference, undefined);
+    });
+
+    it("upper-cases and whitelists royal_cypher like the importer", () => {
+      const out = cli.candidatesFromJson(overpass, noWarn);
+      assert.strictEqual(out[0].monarch, "SCOTTISH_CROWN");
+      assert.strictEqual(out[0].points, 4);
+      assert.strictEqual(out[1].monarch, null);
+      assert.strictEqual(out[1].points, 2);
+      assert.strictEqual(out[2].monarch, null);
+    });
+
+    it("still accepts the flat array format", () => {
+      const out = cli.candidatesFromJson([{ id: "a", lat: 1, lng: 2, monarch: "VR" }], noWarn);
+      assert.deepStrictEqual(out.map((c) => [c.id, c.points]), [["a", 7]]);
+    });
+
+    it("rejects an unrecognised JSON shape", () => {
+      assert.throws(() => cli.candidatesFromJson({ foo: 1 }, noWarn), /elements|array/);
+    });
+  });
+
+  describe("parseArgs --avoid", () => {
+    const base = ["--start", "51.5,-0.1", "--end", "51.5,-0.2", "--km", "5", "--source", "file", "--input", "x.json"];
+
+    it("defaults to an empty avoid list", () => {
+      assert.deepStrictEqual(cli.parseArgs(base).avoid, []);
+    });
+
+    it("splits a comma-separated --avoid and accumulates repeats", () => {
+      const o = cli.parseArgs([...base, "--avoid", "BS37 614, osm_5", "--avoid", "BS37 250"]);
+      assert.deepStrictEqual(o.avoid, ["BS37 614", "osm_5", "BS37 250"]);
+    });
+  });
+
+  describe("applyAvoidList", () => {
+    const boxes = [
+      { id: "osm_1", lat: 0, lng: 0, monarch: null, points: 2, reference: "BS37 614" },
+      { id: "osm_2", lat: 0, lng: 0, monarch: null, points: 2, reference: "BS37 1022;BS37 1023" },
+      { id: "osm_3", lat: 0, lng: 0, monarch: null, points: 2 },
+    ];
+
+    it("removes a postbox by id", () => {
+      const r = cli.applyAvoidList(boxes, ["osm_3"]);
+      assert.deepStrictEqual(r.kept.map((b) => b.id), ["osm_1", "osm_2"]);
+      assert.deepStrictEqual(r.removed.map((b) => b.id), ["osm_3"]);
+    });
+
+    it("removes a postbox by reference, ignoring case and spacing", () => {
+      const r = cli.applyAvoidList(boxes, ["bs37   614"]);
+      assert.deepStrictEqual(r.removed.map((b) => b.id), ["osm_1"]);
+      assert.deepStrictEqual(r.unmatched, []);
+    });
+
+    it("matches one part of a semicolon-separated multi-reference", () => {
+      const r = cli.applyAvoidList(boxes, ["BS37 1023"]);
+      assert.deepStrictEqual(r.removed.map((b) => b.id), ["osm_2"]);
+    });
+
+    it("reports avoid entries that matched nothing", () => {
+      const r = cli.applyAvoidList(boxes, ["BS37 614", "BS99 1"]);
+      assert.deepStrictEqual(r.unmatched, ["BS99 1"]);
+      assert.strictEqual(r.kept.length, 2);
+    });
+
+    it("is a no-op for an empty avoid list", () => {
+      const r = cli.applyAvoidList(boxes, []);
+      assert.strictEqual(r.kept.length, 3);
+      assert.deepStrictEqual(r.unmatched, []);
+    });
+  });
+
+  describe("pad", () => {
+    it("keeps at least one separator space when a left-aligned cell overflows its column", () => {
+      assert.strictEqual(cli.pad("BS37 1022;BS37 1023", 16, "l"), "BS37 1022;BS37 1023 ");
+    });
+
+    it("pads short cells to the column width as before", () => {
+      assert.strictEqual(cli.pad("BS37 614", 16, "l"), "BS37 614        ");
+      assert.strictEqual(cli.pad("752", 8, "r"), "     752");
+    });
+  });
+
+  describe("parseArgs --alternatives", () => {
+    const base = ["--start", "51.5,-0.1", "--end", "51.5,-0.2", "--km", "5", "--source", "file", "--input", "x.json"];
+
+    it("defaults to a single route", () => {
+      assert.strictEqual(cli.parseArgs(base).alternatives, 1);
+    });
+
+    it("accepts a positive integer", () => {
+      assert.strictEqual(cli.parseArgs([...base, "--alternatives", "3"]).alternatives, 3);
+    });
+
+    it("rejects zero, negative, fractional and non-numeric values", () => {
+      for (const v of ["0", "-2", "2.5", "many"]) {
+        assert.throws(() => cli.parseArgs([...base, "--alternatives", v]), /--alternatives/, `value ${v}`);
+      }
+    });
+  });
+});
+
+describe("route alternatives (_routePlanner)", () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+  const planner = require("../_routePlanner") as typeof import("../_routePlanner");
+  type S = import("../_routePlanner").SearchState;
+  const state = (ids: string[], score: number, timeUsed = 0): S => ({
+    current: { lat: 0, lng: 0 },
+    currentId: ids[ids.length - 1] ?? "__START__",
+    visited: new Set(ids),
+    timeUsed,
+    score,
+    route: [],
+  });
+
+  describe("routeOverlap", () => {
+    it("is 1 for identical stop sets", () => {
+      assert.strictEqual(planner.routeOverlap(state(["a", "b"], 4), state(["b", "a"], 4)), 1);
+    });
+
+    it("is 0 for disjoint stop sets", () => {
+      assert.strictEqual(planner.routeOverlap(state(["a", "b"], 4), state(["c"], 2)), 0);
+    });
+
+    it("is the Jaccard similarity for partial overlap", () => {
+      const o = planner.routeOverlap(state(["a", "b"], 4), state(["b", "c"], 4));
+      assert.ok(Math.abs(o - 1 / 3) < 1e-9, `got ${o}`);
+    });
+
+    it("treats two empty routes as identical", () => {
+      assert.strictEqual(planner.routeOverlap(state([], 0), state([], 0)), 1);
+    });
+  });
+
+  describe("selectAlternatives", () => {
+    it("returns the best-scoring route first", () => {
+      const out = planner.selectAlternatives([state(["a"], 2), state(["b", "c"], 9), state(["d"], 4)], 1);
+      assert.deepStrictEqual(out.map((s) => s.score), [9]);
+    });
+
+    it("skips routes sharing more than maxOverlap with an already chosen route", () => {
+      const s1 = state(["a", "b", "c", "d"], 10);
+      const s2 = state(["a", "b", "c", "e"], 9); // overlap 3/5 = 0.6
+      const s3 = state(["x", "y"], 5);
+      const out = planner.selectAlternatives([s2, s1, s3], 2, 0.5);
+      assert.deepStrictEqual(out.map((s) => s.score), [10, 5]);
+    });
+
+    it("falls back to any distinct route when too few are different enough", () => {
+      const s1 = state(["a", "b", "c", "d"], 10);
+      const s2 = state(["a", "b", "c", "e"], 9);
+      const out = planner.selectAlternatives([s1, s2], 2, 0.5);
+      assert.deepStrictEqual(out.map((s) => s.score), [10, 9]);
+    });
+
+    it("never returns two routes with the same stop set", () => {
+      const out = planner.selectAlternatives([state(["a", "b"], 4, 100), state(["b", "a"], 4, 120)], 2);
+      assert.strictEqual(out.length, 1);
+    });
+
+    it("returns at most k routes", () => {
+      const out = planner.selectAlternatives([state(["a"], 1), state(["b"], 1), state(["c"], 1)], 2);
+      assert.strictEqual(out.length, 2);
+    });
+  });
+
+  describe("beamSearchOrienteering onExplored", () => {
+    const start = { lat: 51.5, lng: -0.1 };
+    const end = { lat: 51.5, lng: -0.09 };
+    const cands = [
+      { id: "p1", lat: 51.5, lng: -0.098, monarch: "VR", points: 7 },
+      { id: "p2", lat: 51.5, lng: -0.095, monarch: null, points: 2 },
+      { id: "p3", lat: 51.501, lng: -0.093, monarch: "GR", points: 4 },
+    ];
+
+    it("reports every explored state, including the returned best", () => {
+      const seen: S[] = [];
+      const best = planner.beamSearchOrienteering(start, end, cands, 3600, 1.25, 0, 50, (s) => seen.push(s));
+      assert.ok(seen.includes(best), "best state was handed to onExplored");
+      assert.ok(seen.length >= 3, `expected at least one state per candidate, got ${seen.length}`);
+      assert.ok(seen.every((s) => s.timeUsed <= 3600));
+    });
+
+    it("is optional and leaves the result unchanged", () => {
+      const withCb = planner.beamSearchOrienteering(start, end, cands, 3600, 1.25, 0, 50, () => undefined);
+      const without = planner.beamSearchOrienteering(start, end, cands, 3600, 1.25, 0, 50);
+      assert.strictEqual(withCb.score, without.score);
+      assert.deepStrictEqual([...withCb.visited].sort(), [...without.visited].sort());
+    });
+  });
+});

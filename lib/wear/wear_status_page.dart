@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:postbox_game/streak_service.dart';
 import 'package:postbox_game/theme.dart';
+import 'package:postbox_game/wear/wear_round_inset.dart';
 import 'package:postbox_game/wear/wear_theme.dart';
 
 /// Quick status glance for Wear OS — shows streak, lifetime stats, and logout.
@@ -33,45 +34,41 @@ class _WearStatusPageState extends State<WearStatusPage> {
 
   @override
   Widget build(BuildContext context) {
+    // Five rows inside the round display's inscribed square (~136 dp on a
+    // 192 dp watch), so the gaps are minimal and the streak is a stat row
+    // like the other two rather than a taller emoji line.
     return Container(
       color: Colors.black,
-      child: Center(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: WearSpacing.xl,
-            vertical: WearSpacing.lg,
-          ),
+      child: WearRoundInset(
+        child: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               // Display name
-              if (_displayName != null)
+              if (_displayName != null) ...[
                 Text(
                   _displayName!,
                   style: Theme.of(context).textTheme.titleMedium,
+                  maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
-              const SizedBox(height: WearSpacing.lg),
+                const SizedBox(height: WearSpacing.sm),
+              ],
 
               // Streak
               StreamBuilder<int?>(
                 stream: _streakStream,
                 builder: (context, snap) {
                   final streak = snap.data ?? 0;
-                  return Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Text('🔥', style: TextStyle(fontSize: 16)),
-                      const SizedBox(width: 4),
-                      Text(
-                        streak > 0 ? '$streak-day streak' : 'No streak',
-                        style: Theme.of(context).textTheme.bodyMedium,
-                      ),
-                    ],
+                  return _statRow(
+                    context,
+                    Icons.local_fire_department,
+                    streak > 0 ? '$streak-day streak' : 'No streak',
+                    color: Colors.deepOrange,
                   );
                 },
               ),
-              const SizedBox(height: WearSpacing.sm),
+              const SizedBox(height: WearSpacing.xs),
 
               // Lifetime points
               StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
@@ -93,7 +90,7 @@ class _WearStatusPageState extends State<WearStatusPage> {
                 },
               ),
 
-              const SizedBox(height: WearSpacing.lg),
+              const SizedBox(height: WearSpacing.sm),
               TextButton.icon(
                 onPressed: widget.onLogout,
                 icon: const Icon(Icons.logout, size: 14),
@@ -106,12 +103,13 @@ class _WearStatusPageState extends State<WearStatusPage> {
     );
   }
 
-  Widget _statRow(BuildContext context, IconData icon, String label) {
+  Widget _statRow(BuildContext context, IconData icon, String label,
+      {Color color = postalGold}) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, size: 14, color: postalGold),
+        Icon(icon, size: 14, color: color),
         const SizedBox(width: 4),
         Text(
           label,

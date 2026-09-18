@@ -15,6 +15,7 @@ import 'package:firebase_remote_config/firebase_remote_config.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:postbox_game/remote_config_service.dart';
 import 'package:postbox_game/user_repository.dart';
@@ -94,7 +95,8 @@ void main() {
     await tester.fling(find.byType(PageView), const Offset(0, -300), 1500);
     await tester.pumpAndSettle();
     expect(find.byType(WearLoginScreen), findsOneWidget);
-    expect(find.text('Google Sign-In'), findsOneWidget);
+    expect(find.text('Sign in'), findsOneWidget);
+    expect(find.byIcon(FontAwesomeIcons.google.data), findsOneWidget);
     expect(find.byType(WearStatusPage), findsNothing);
     expect(find.text('Sign out'), findsNothing);
   });

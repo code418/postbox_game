@@ -17,9 +17,17 @@ class WearSpacing {
 /// large touch targets. Uses the system font rather than Google Fonts to
 /// avoid network calls and save memory on constrained hardware.
 class WearTheme {
+  /// Named explicitly rather than left to the platform default, which on
+  /// Android resolves to Roboto anyway: with a family name, tests can load
+  /// the real face from the Flutter SDK cache and measure text as the watch
+  /// renders it (see test/wear_round_fit_test.dart). The unnamed default
+  /// measures with the ~2x-wider placeholder test font instead.
+  static const String fontFamily = 'Roboto';
+
   static ThemeData get dark {
     final base = ThemeData(
       useMaterial3: true,
+      fontFamily: fontFamily,
       colorScheme: ColorScheme.fromSeed(
         seedColor: postalRed,
         brightness: Brightness.dark,
@@ -42,6 +50,7 @@ class WearTheme {
           minimumSize: const Size(48, 48),
           shape: const StadiumBorder(),
           textStyle: const TextStyle(
+            fontFamily: fontFamily,
             fontSize: 14,
             fontWeight: FontWeight.w600,
           ),
@@ -54,6 +63,7 @@ class WearTheme {
           minimumSize: const Size(48, 48),
           shape: const StadiumBorder(),
           textStyle: const TextStyle(
+            fontFamily: fontFamily,
             fontSize: 14,
             fontWeight: FontWeight.w600,
           ),
@@ -63,6 +73,7 @@ class WearTheme {
         style: TextButton.styleFrom(
           foregroundColor: postalRed,
           textStyle: const TextStyle(
+            fontFamily: fontFamily,
             fontSize: 13,
             fontWeight: FontWeight.w500,
           ),
@@ -75,29 +86,35 @@ class WearTheme {
       ),
       textTheme: const TextTheme(
         headlineSmall: TextStyle(
+          fontFamily: fontFamily,
           fontSize: 16,
           fontWeight: FontWeight.bold,
           color: Colors.white,
         ),
         titleMedium: TextStyle(
+          fontFamily: fontFamily,
           fontSize: 14,
           fontWeight: FontWeight.w600,
           color: Colors.white,
         ),
         titleSmall: TextStyle(
+          fontFamily: fontFamily,
           fontSize: 12,
           fontWeight: FontWeight.w600,
           color: Colors.white,
         ),
         bodyMedium: TextStyle(
+          fontFamily: fontFamily,
           fontSize: 12,
           color: Colors.white70,
         ),
         bodySmall: TextStyle(
+          fontFamily: fontFamily,
           fontSize: 10,
           color: Colors.white70,
         ),
         labelLarge: TextStyle(
+          fontFamily: fontFamily,
           fontSize: 14,
           fontWeight: FontWeight.w600,
           color: Colors.white,

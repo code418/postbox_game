@@ -12,6 +12,7 @@ import 'package:postbox_game/fuzzy_compass.dart';
 import 'package:postbox_game/location_service.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/wear/wear_error_messages.dart';
+import 'package:postbox_game/wear/wear_round_inset.dart';
 import 'package:postbox_game/wear/wear_theme.dart';
 
 enum _CompassStage { initial, searching, results, error }
@@ -178,6 +179,16 @@ class _WearCompassPageState extends State<WearCompassPage> {
   }
 
   Widget _buildContent(BuildContext context) {
+    // The compass ring is the one Wear surface drawn to the bezel by design
+    // (it is a circle inscribed in the display); every text state sits
+    // inside the round display's inscribed square instead.
+    if (_stage == _CompassStage.results && _totalCount > 0) {
+      return _buildCompass(context);
+    }
+    return WearRoundInset(child: _buildTextState(context));
+  }
+
+  Widget _buildTextState(BuildContext context) {
     switch (_stage) {
       case _CompassStage.initial:
         return Center(
@@ -215,66 +226,64 @@ class _WearCompassPageState extends State<WearCompassPage> {
           ),
         );
 
-      case _CompassStage.results:
-        return _buildCompass(context);
-
       case _CompassStage.error:
         return Center(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: WearSpacing.lg),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.error_outline, size: 32, color: Colors.red),
-                const SizedBox(height: WearSpacing.md),
-                Text(
-                  _errorMessage ?? 'Scan failed',
-                  style: Theme.of(context).textTheme.titleMedium,
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: WearSpacing.sm),
-                Text(
-                  'Tap to retry',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
-            ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.error_outline, size: 32, color: Colors.red),
+              const SizedBox(height: WearSpacing.md),
+              Text(
+                _errorMessage ?? 'Scan failed',
+                style: Theme.of(context).textTheme.titleMedium,
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: WearSpacing.sm),
+              Text(
+                'Tap to retry',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
           ),
         );
+
+      case _CompassStage.results:
+        return _buildNoneToFind(context);
     }
   }
 
-  Widget _buildCompass(BuildContext context) {
-    if (_totalCount == 0) {
-      // Distinguish "all claimed" from "no postboxes nearby" so a watch user
-      // who's already collected every box in this area sees the right message
-      // rather than the misleading "None to find" (which implies no postboxes
-      // are around at all).
-      final allClaimed = _claimedToday > 0;
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              allClaimed ? Icons.lock_clock : Icons.location_off,
-              size: 32,
-              color: Colors.white.withValues(alpha: 0.7),
-            ),
-            const SizedBox(height: WearSpacing.md),
-            Text(
-              allClaimed ? 'All claimed' : 'None to find',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: WearSpacing.sm),
-            Text(
-              allClaimed ? 'Resets at midnight' : 'Tap to rescan',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
-        ),
-      );
-    }
+  /// Zero unclaimed boxes after a scan — a text state, not the ring.
+  Widget _buildNoneToFind(BuildContext context) {
+    // Distinguish "all claimed" from "no postboxes nearby" so a watch user
+    // who's already collected every box in this area sees the right message
+    // rather than the misleading "None to find" (which implies no postboxes
+    // are around at all).
+    final allClaimed = _claimedToday > 0;
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            allClaimed ? Icons.lock_clock : Icons.location_off,
+            size: 32,
+            color: Colors.white.withValues(alpha: 0.7),
+          ),
+          const SizedBox(height: WearSpacing.md),
+          Text(
+            allClaimed ? 'All claimed' : 'None to find',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: WearSpacing.sm),
+          Text(
+            allClaimed ? 'Resets at midnight' : 'Tap to rescan',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+      ),
+    );
+  }
 
+  Widget _buildCompass(BuildContext context) {
     final sectors = FuzzyCompass.to8Sectors(_compassCounts);
     final sectorValues = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
         .map((d) => sectors[d] ?? 0)

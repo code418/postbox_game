@@ -14,10 +14,11 @@ import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/streak_service.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/wear/wear_error_messages.dart';
+import 'package:postbox_game/wear/wear_round_inset.dart';
 import 'package:postbox_game/wear/wear_theme.dart';
 import 'package:postbox_game/widgets/quiz_helpers.dart';
 
-enum _ClaimStage { ready, scanning, found, empty, error, quiz, claiming, success }
+enum WearClaimStage { ready, scanning, found, empty, error, quiz, claiming, success }
 
 /// Maps a [FirebaseFunctionsException] code from the `startScoring` callable to
 /// a short, watch-appropriate error message.
@@ -58,7 +59,7 @@ class WearClaimPage extends StatefulWidget {
 }
 
 class _WearClaimPageState extends State<WearClaimPage> {
-  _ClaimStage _stage = _ClaimStage.ready;
+  WearClaimStage _stage = WearClaimStage.ready;
   int _count = 0;
   int _claimedToday = 0;
   Map<String, dynamic> _postboxes = {};
@@ -66,7 +67,7 @@ class _WearClaimPageState extends State<WearClaimPage> {
   List<String> _quizOptions = [];
   int _pointsEarned = 0;
   int _claimedCount = 0;
-  /// Short human-readable error message shown in the [_ClaimStage.error] view.
+  /// Short human-readable error message shown in the [WearClaimStage.error] view.
   /// Set whenever a scan or claim fails for a recoverable reason (location
   /// denied, services off, network down). Null when there's no active error.
   String? _errorMessage;
@@ -84,9 +85,9 @@ class _WearClaimPageState extends State<WearClaimPage> {
   Stream<int?>? _streakStream;
 
   Future<void> _scan() async {
-    if (_stage == _ClaimStage.scanning) return;
+    if (_stage == WearClaimStage.scanning) return;
     setState(() {
-      _stage = _ClaimStage.scanning;
+      _stage = WearClaimStage.scanning;
       _errorMessage = null;
     });
     Analytics.scanStarted();
@@ -111,7 +112,7 @@ class _WearClaimPageState extends State<WearClaimPage> {
       setState(() {
         _count = total;
         _claimedToday = claimed;
-        _stage = total > 0 ? _ClaimStage.found : _ClaimStage.empty;
+        _stage = total > 0 ? WearClaimStage.found : WearClaimStage.empty;
       });
       if (total > 0) {
         HapticFeedback.lightImpact();
@@ -136,7 +137,7 @@ class _WearClaimPageState extends State<WearClaimPage> {
       if (!mounted) return;
       HapticFeedback.heavyImpact();
       setState(() {
-        _stage = _ClaimStage.error;
+        _stage = WearClaimStage.error;
         _errorMessage = wearLocationErrorMessage(e.kind, action: 'scan');
       });
     } catch (e) {
@@ -144,14 +145,14 @@ class _WearClaimPageState extends State<WearClaimPage> {
       if (!mounted) return;
       HapticFeedback.heavyImpact();
       setState(() {
-        _stage = _ClaimStage.error;
+        _stage = WearClaimStage.error;
         _errorMessage = 'Scan failed';
       });
     } finally {
       // Safety net: ensure we never get permanently stuck on 'scanning' if
       // an unexpected Dart Error bypasses the catch block above.
-      if (mounted && _stage == _ClaimStage.scanning) {
-        setState(() => _stage = _ClaimStage.ready);
+      if (mounted && _stage == WearClaimStage.scanning) {
+        setState(() => _stage = WearClaimStage.ready);
       }
     }
   }
@@ -186,7 +187,7 @@ class _WearClaimPageState extends State<WearClaimPage> {
       // Watch screen is tiny — show only 2 options vs the phone's 4.
       _quizOptions = buildQuizOptions(valid, maxOptions: 2);
       _quizMissed = false;
-      _stage = _ClaimStage.quiz;
+      _stage = WearClaimStage.quiz;
     });
   }
 
@@ -226,13 +227,13 @@ class _WearClaimPageState extends State<WearClaimPage> {
     if (MaintenanceGuard.isOn) {
       HapticFeedback.heavyImpact();
       setState(() {
-        _stage = _ClaimStage.error;
+        _stage = WearClaimStage.error;
         _errorMessage = 'Paused for maintenance';
       });
       return;
     }
     setState(() {
-      _stage = _ClaimStage.claiming;
+      _stage = WearClaimStage.claiming;
       _errorMessage = null;
     });
     try {
@@ -276,7 +277,7 @@ class _WearClaimPageState extends State<WearClaimPage> {
         if (!mounted) return;
         HapticFeedback.heavyImpact();
         setState(() {
-          _stage = _ClaimStage.error;
+          _stage = WearClaimStage.error;
           _errorMessage = 'Too far. Move closer.';
         });
         return;
@@ -304,7 +305,7 @@ class _WearClaimPageState extends State<WearClaimPage> {
       setState(() {
         _pointsEarned = earnedPts;
         _claimedCount = claimedCount;
-        _stage = _ClaimStage.success;
+        _stage = WearClaimStage.success;
       });
     } on LocationServiceException catch (e) {
       debugPrint('Wear claim location error: $e');
@@ -315,7 +316,7 @@ class _WearClaimPageState extends State<WearClaimPage> {
       if (!mounted) return;
       HapticFeedback.heavyImpact();
       setState(() {
-        _stage = _ClaimStage.error;
+        _stage = WearClaimStage.error;
         _errorMessage = wearLocationErrorMessage(e.kind, action: 'claim');
       });
     } on FirebaseFunctionsException catch (e) {
@@ -327,7 +328,7 @@ class _WearClaimPageState extends State<WearClaimPage> {
       if (!mounted) return;
       HapticFeedback.heavyImpact();
       setState(() {
-        _stage = _ClaimStage.error;
+        _stage = WearClaimStage.error;
         _errorMessage = wearClaimErrorMessage(e.code);
       });
     } catch (e) {
@@ -336,14 +337,14 @@ class _WearClaimPageState extends State<WearClaimPage> {
       if (!mounted) return;
       HapticFeedback.heavyImpact();
       setState(() {
-        _stage = _ClaimStage.error;
+        _stage = WearClaimStage.error;
         _errorMessage = 'Claim failed';
       });
     } finally {
       // Safety net: ensure we never get permanently stuck on 'claiming' if
       // an unexpected Dart Error bypasses the catch block above.
-      if (mounted && _stage == _ClaimStage.claiming) {
-        setState(() => _stage = _ClaimStage.ready);
+      if (mounted && _stage == WearClaimStage.claiming) {
+        setState(() => _stage = WearClaimStage.ready);
       }
     }
   }
@@ -352,51 +353,116 @@ class _WearClaimPageState extends State<WearClaimPage> {
   Widget build(BuildContext context) {
     return Container(
       color: Colors.black,
-      child: _buildContent(context),
+      child: WearClaimView(
+        stage: _stage,
+        signedIn: widget.signedIn,
+        count: _count,
+        claimedToday: _claimedToday,
+        errorMessage: _errorMessage,
+        quizOptions: _quizOptions,
+        quizMissed: _quizMissed,
+        pointsEarned: _pointsEarned,
+        claimedCount: _claimedCount,
+        streakStream: _streakStream,
+        onScan: _scan,
+        // Signed out the CTA routes to the sign-in page — the scan result
+        // stays visible so the user knows what signing in unlocks.
+        onClaim: widget.signedIn
+            ? _startQuiz
+            : () => widget.onSignInRequested?.call(),
+        onQuizAnswer: _onQuizAnswer,
+        onDone: () => setState(() => _stage = WearClaimStage.ready),
+      ),
     );
+  }
+}
+
+/// The claim page's rendering, one layout per [WearClaimStage].
+///
+/// Split from the state machine so every stage can be laid out in a widget
+/// test without location, App Check or the callables — the round-screen fit
+/// test (test/wear_round_fit_test.dart) renders each one at watch size.
+class WearClaimView extends StatelessWidget {
+  const WearClaimView({
+    super.key,
+    required this.stage,
+    required this.signedIn,
+    this.count = 0,
+    this.claimedToday = 0,
+    this.errorMessage,
+    this.quizOptions = const [],
+    this.quizMissed = false,
+    this.pointsEarned = 0,
+    this.claimedCount = 0,
+    this.streakStream,
+    required this.onScan,
+    required this.onClaim,
+    required this.onQuizAnswer,
+    required this.onDone,
+  });
+
+  final WearClaimStage stage;
+  final bool signedIn;
+  final int count;
+  final int claimedToday;
+  final String? errorMessage;
+  final List<String> quizOptions;
+  final bool quizMissed;
+  final int pointsEarned;
+  final int claimedCount;
+  final Stream<int?>? streakStream;
+  final VoidCallback onScan;
+  final VoidCallback onClaim;
+  final ValueChanged<String> onQuizAnswer;
+  final VoidCallback onDone;
+
+  @override
+  Widget build(BuildContext context) {
+    // Every stage lays out inside the round display's inscribed square (~136
+    // dp on a 192 dp watch), so the taller stages put their icon on the same
+    // row as the headline rather than stacking a fifth row that would reach
+    // the bezel.
+    return WearRoundInset(child: _buildContent(context));
   }
 
   Widget _buildContent(BuildContext context) {
-    switch (_stage) {
-      case _ClaimStage.ready:
+    switch (stage) {
+      case WearClaimStage.ready:
         return _buildReady(context);
-      case _ClaimStage.scanning:
-      case _ClaimStage.claiming:
+      case WearClaimStage.scanning:
+      case WearClaimStage.claiming:
         return _buildLoading(context);
-      case _ClaimStage.found:
+      case WearClaimStage.found:
         return _buildFound(context);
-      case _ClaimStage.empty:
+      case WearClaimStage.empty:
         return _buildEmpty(context);
-      case _ClaimStage.error:
+      case WearClaimStage.error:
         return _buildError(context);
-      case _ClaimStage.quiz:
+      case WearClaimStage.quiz:
         return _buildQuiz(context);
-      case _ClaimStage.success:
+      case WearClaimStage.success:
         return _buildSuccess(context);
     }
   }
 
   Widget _buildError(BuildContext context) {
     return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: WearSpacing.lg),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.error_outline, size: 32, color: Colors.red),
-            const SizedBox(height: WearSpacing.md),
-            Text(
-              _errorMessage ?? 'Something went wrong',
-              style: Theme.of(context).textTheme.bodyMedium,
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: WearSpacing.lg),
-            FilledButton(
-              onPressed: _scan,
-              child: const Text('Try again'),
-            ),
-          ],
-        ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.error_outline, size: 24, color: Colors.red),
+          const SizedBox(height: WearSpacing.sm),
+          Text(
+            errorMessage ?? 'Something went wrong',
+            style: Theme.of(context).textTheme.bodyMedium,
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: WearSpacing.md),
+          FilledButton(
+            onPressed: onScan,
+            child: const Text('Try again'),
+          ),
+        ],
       ),
     );
   }
@@ -413,7 +479,7 @@ class _WearClaimPageState extends State<WearClaimPage> {
           ),
           const SizedBox(height: WearSpacing.md),
           FilledButton(
-            onPressed: _scan,
+            onPressed: onScan,
             child: const Text('Scan & Claim'),
           ),
           const SizedBox(height: WearSpacing.sm),
@@ -438,7 +504,7 @@ class _WearClaimPageState extends State<WearClaimPage> {
           ),
           const SizedBox(height: WearSpacing.md),
           Text(
-            _stage == _ClaimStage.claiming ? 'Claiming...' : 'Scanning...',
+            stage == WearClaimStage.claiming ? 'Claiming...' : 'Scanning...',
             style: Theme.of(context).textTheme.bodyMedium,
           ),
         ],
@@ -447,19 +513,19 @@ class _WearClaimPageState extends State<WearClaimPage> {
   }
 
   Widget _buildFound(BuildContext context) {
-    final available = _count - _claimedToday;
+    final available = count - claimedToday;
     final allClaimed = available <= 0;
     // When everything nearby is already claimed, show the total found count
     // rather than the available count: "0 postboxes" alongside "All claimed
     // today" reads as a contradiction (it implies nothing was found).
-    final headlineCount = allClaimed ? _count : available;
+    final headlineCount = allClaimed ? count : available;
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(Icons.location_on, size: 28, color: postalRed),
-          const SizedBox(height: WearSpacing.sm),
-          Text(
+          _headlineRow(
+            context,
+            const Icon(Icons.location_on, size: 20, color: postalRed),
             '$headlineCount postbox${headlineCount == 1 ? '' : 'es'}',
             style: Theme.of(context).textTheme.titleMedium,
           ),
@@ -473,23 +539,32 @@ class _WearClaimPageState extends State<WearClaimPage> {
                   ?.copyWith(color: Colors.orange),
             ),
           ] else ...[
-            const SizedBox(height: WearSpacing.lg),
-            // Signed out the CTA routes to the sign-in page — the scan result
-            // stays visible so the user knows what signing in unlocks.
+            const SizedBox(height: WearSpacing.md),
             FilledButton(
-              onPressed: widget.signedIn
-                  ? _startQuiz
-                  : () => widget.onSignInRequested?.call(),
-              child: Text(widget.signedIn ? 'Claim!' : 'Sign in to claim'),
+              onPressed: onClaim,
+              child: Text(signedIn ? 'Claim!' : 'Sign in to claim'),
             ),
           ],
-          const SizedBox(height: WearSpacing.sm),
           TextButton(
-            onPressed: _scan,
+            onPressed: onScan,
             child: const Text('Rescan'),
           ),
         ],
       ),
+    );
+  }
+
+  /// Icon and headline on one row: the tall stages can't afford a separate
+  /// icon row inside the inscribed square.
+  Widget _headlineRow(BuildContext context, Widget icon, String text,
+      {TextStyle? style}) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        icon,
+        const SizedBox(width: WearSpacing.sm),
+        Text(text, style: style),
+      ],
     );
   }
 
@@ -510,7 +585,7 @@ class _WearClaimPageState extends State<WearClaimPage> {
           ),
           const SizedBox(height: WearSpacing.lg),
           FilledButton(
-            onPressed: _scan,
+            onPressed: onScan,
             child: const Text('Try again'),
           ),
         ],
@@ -520,54 +595,57 @@ class _WearClaimPageState extends State<WearClaimPage> {
 
   Widget _buildQuiz(BuildContext context) {
     return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(WearSpacing.xl),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              _quizMissed ? 'Not quite!' : 'Which cipher?',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: _quizMissed ? Colors.red : null,
-                  ),
-            ),
-            if (_quizMissed) ...[
-              const SizedBox(height: WearSpacing.xs),
-              Text(
-                'Look again',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ],
-            const SizedBox(height: WearSpacing.lg),
-            for (final code in _quizOptions) ...[
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton(
-                  onPressed: () => _onQuizAnswer(code),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        code,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 14,
-                        ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          // A miss is signalled by the title alone (red + heavy haptic);
+          // there is no room for a second hint line under it.
+          Text(
+            quizMissed ? 'Not quite!' : 'Which cipher?',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: quizMissed ? Colors.red : null,
+                ),
+          ),
+          const SizedBox(height: WearSpacing.md),
+          for (final (i, code) in quizOptions.indexed) ...[
+            if (i > 0) const SizedBox(height: WearSpacing.sm),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                onPressed: () => onQuizAnswer(code),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      code,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
                       ),
-                      Text(
-                        MonarchInfo.labels[code] ?? code,
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ],
-                  ),
+                    ),
+                    Text(
+                      _watchLabel(code),
+                      style: Theme.of(context).textTheme.bodySmall,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: WearSpacing.sm),
-            ],
+            ),
           ],
-        ),
+        ],
       ),
     );
+  }
+
+  /// The phone's cipher label without its parenthetical (reign years /
+  /// "Scotland only"): "Elizabeth II (1952–2022)" wraps inside a watch-width
+  /// option button, and a two-line label makes the second option overrun the
+  /// inscribed square.
+  static String _watchLabel(String code) {
+    final label = MonarchInfo.labels[code] ?? code;
+    return label.replaceFirst(RegExp(r'\s*\([^)]*\)$'), '');
   }
 
   Widget _buildSuccess(BuildContext context) {
@@ -575,22 +653,20 @@ class _WearClaimPageState extends State<WearClaimPage> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(
-            Icons.check_circle,
-            size: 48,
-            color: Color(0xFF2E7D32),
-          ),
-          const SizedBox(height: WearSpacing.md),
-          Text(
-            _claimedCount > 1
-                ? '$_claimedCount claimed!'
-                : 'Claimed!',
+          _headlineRow(
+            context,
+            const Icon(
+              Icons.check_circle,
+              size: 24,
+              color: Color(0xFF2E7D32),
+            ),
+            claimedCount > 1 ? '$claimedCount claimed!' : 'Claimed!',
             style: Theme.of(context).textTheme.headlineSmall,
           ),
-          if (_pointsEarned > 0) ...[
+          if (pointsEarned > 0) ...[
             const SizedBox(height: WearSpacing.sm),
             Text(
-              '+$_pointsEarned pts',
+              '+$pointsEarned pts',
               style: const TextStyle(
                 color: postalGold,
                 fontWeight: FontWeight.bold,
@@ -600,7 +676,7 @@ class _WearClaimPageState extends State<WearClaimPage> {
           ],
           // Streak display
           StreamBuilder<int?>(
-            stream: _streakStream,
+            stream: streakStream,
             builder: (context, snap) {
               final streak = snap.data ?? 0;
               if (streak <= 0) return const SizedBox.shrink();
@@ -613,9 +689,9 @@ class _WearClaimPageState extends State<WearClaimPage> {
               );
             },
           ),
-          const SizedBox(height: WearSpacing.lg),
+          const SizedBox(height: WearSpacing.sm),
           TextButton(
-            onPressed: () => setState(() => _stage = _ClaimStage.ready),
+            onPressed: onDone,
             child: const Text('Done'),
           ),
         ],
