@@ -24,6 +24,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:postbox_game/remote_config_service.dart';
 import 'package:postbox_game/user_repository.dart';
 import 'package:postbox_game/wear/wear_home.dart';
+import 'package:postbox_game/wear/wear_login_screen.dart';
 
 class _StubRemoteConfig extends Fake implements FirebaseRemoteConfig {
   @override
@@ -62,11 +63,19 @@ void main() {
         firestore: FakeFirebaseFirestore(),
       );
 
-  Future<void> pumpShell(WidgetTester tester) async {
+  Future<void> pumpShell(WidgetTester tester, {bool signedIn = false}) async {
     await tester.pumpWidget(MaterialApp(
-      home: WearHome(signedIn: false, userRepository: buildRepo()),
+      home: WearHome(signedIn: signedIn, userRepository: buildRepo()),
     ));
     await tester.pump();
+  }
+
+  /// One fling per page. Used to walk to a known index.
+  Future<void> pageDown(WidgetTester tester, int times) async {
+    for (var i = 0; i < times; i++) {
+      await tester.fling(find.byType(PageView), const Offset(0, -300), 1500);
+      await tester.pumpAndSettle();
+    }
   }
 
   testWidgets('vertical swipes page through the shell, up = forward',
@@ -128,13 +137,14 @@ void main() {
       (tester) async {
     await pumpShell(tester);
 
-    // The three dots are the shell's only AnimatedContainers (the pages have
-    // none — verified when this test was written).
+    // The dots are the shell's only AnimatedContainers (the pages have none —
+    // re-verify this if a page ever adds one).
     final dots = find.byType(AnimatedContainer);
-    expect(dots, findsNWidgets(3));
+    // Signed out: compass, claim, sign-in, privacy.
+    expect(dots, findsNWidgets(4));
 
     final centers =
-        List.generate(3, (i) => tester.getCenter(dots.at(i)), growable: false);
+        List.generate(4, (i) => tester.getCenter(dots.at(i)), growable: false);
     final screenWidth = tester.getSize(find.byType(WearHome)).width;
 
     for (final c in centers) {
@@ -143,7 +153,28 @@ void main() {
       expect(c.dx, moreOrLessEquals(centers.first.dx, epsilon: 1));
     }
     // Stacked vertically, in page order.
-    expect(centers[0].dy, lessThan(centers[1].dy));
-    expect(centers[1].dy, lessThan(centers[2].dy));
+    for (var i = 1; i < centers.length; i++) {
+      expect(centers[i - 1].dy, lessThan(centers[i].dy));
+    }
+  });
+
+  testWidgets('signed in, the shell gains the two glance pages',
+      (tester) async {
+    await pumpShell(tester, signedIn: true);
+
+    // Compass, claim, status, scores, today, privacy. The glance pages need
+    // auth (leaderboards are readable only to signed-in users and
+    // userClaimHistory rejects anonymous calls), so a guest must not get them.
+    expect(find.byType(AnimatedContainer), findsNWidgets(6));
+  });
+
+  testWidgets('the sign-in CTA target index really hosts the login screen',
+      (tester) async {
+    // WearHome.signInPageIndex is where the claim page's "Sign in to claim"
+    // CTA jumps. Appending a page anywhere before it would silently send the
+    // CTA somewhere else, which is exactly what this pins.
+    await pumpShell(tester);
+    await pageDown(tester, WearHome.signInPageIndex);
+    expect(find.byType(WearLoginScreen), findsOneWidget);
   });
 }

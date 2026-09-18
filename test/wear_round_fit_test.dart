@@ -32,9 +32,13 @@ import 'package:postbox_game/remote_config_service.dart';
 import 'package:postbox_game/user_repository.dart';
 import 'package:postbox_game/wear/wear_claim_page.dart';
 import 'package:postbox_game/wear/wear_home.dart';
+import 'package:postbox_game/wear/wear_leaderboard_page.dart';
 import 'package:postbox_game/wear/wear_login_screen.dart';
+import 'package:postbox_game/wear/wear_privacy_page.dart';
 import 'package:postbox_game/wear/wear_round_inset.dart';
 import 'package:postbox_game/wear/wear_theme.dart';
+import 'package:postbox_game/wear/wear_today_page.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Pixel Watch / Wear "Small Round" emulator: 384 px at 2x = 192 dp.
 const double _diameter = 192;
@@ -97,6 +101,7 @@ void expectFitsRoundScreen(WidgetTester tester, {String? state}) {
       w is FaIcon ||
       w is ButtonStyleButton ||
       w is CircularProgressIndicator ||
+      w is Switch ||
       w is AnimatedContainer);
   expect(visible, findsWidgets, reason: 'nothing rendered for $state');
   final offenders = <String>[];
@@ -128,6 +133,10 @@ void main() {
   });
 
   setUp(() {
+    // The privacy page reads its toggles from SharedPreferences before it can
+    // render; without the mock the read never resolves and the page sits on a
+    // spinner, which pumpAndSettle waits on forever.
+    SharedPreferences.setMockInitialValues(<String, Object>{});
     RemoteConfigService.instance =
         RemoteConfigService(remoteConfig: _StubRemoteConfig());
     // Silent, open compass stream — see wear_guest_mode_test.dart.
@@ -161,13 +170,16 @@ void main() {
   test('WearRoundInset confines its child to the inscribed square', () {
     // (1 - 1/√2) / 2 of the diameter per side — androidx BoxInsetLayout's
     // FACTOR. For 192 dp that is ~28 dp, leaving a ~136 dp square.
-    expect(WearRoundInset.insetFactor, moreOrLessEquals(0.146447, epsilon: 1e-6));
+    expect(
+        WearRoundInset.insetFactor, moreOrLessEquals(0.146447, epsilon: 1e-6));
     expect(WearRoundInset.insetFor(const Size(192, 192)),
         moreOrLessEquals(28.1, epsilon: 0.1));
   });
 
-  testWidgets('signed-out shell: compass, claim and login pages fit',
+  testWidgets('signed-out shell: every page fits, dots included',
       (tester) async {
+    // Four pages, so four indicator dots — they are checked on every one of
+    // these assertions, since the indicator is painted over each page.
     await pumpWatch(tester, WearHome(signedIn: false, userRepository: repo()));
     expectFitsRoundScreen(tester, state: 'compass initial');
     await nextPage(tester);
@@ -175,6 +187,9 @@ void main() {
     await nextPage(tester);
     expect(find.byType(WearLoginScreen), findsOneWidget);
     expectFitsRoundScreen(tester, state: 'login');
+    await nextPage(tester);
+    expect(find.text('Privacy'), findsOneWidget);
+    expectFitsRoundScreen(tester, state: 'privacy');
   });
 
   testWidgets(
@@ -187,8 +202,15 @@ void main() {
     expectFitsRoundScreen(tester, state: 'login error');
   });
 
-  testWidgets('signed-in shell: status page fits', (tester) async {
+  testWidgets('signed-in shell: status page and the six-dot indicator fit',
+      (tester) async {
+    // The indicator renders all six dots from the first frame, so this also
+    // pins the taller signed-in column. The two glance pages are NOT paged
+    // into here — they would reach the real Firestore/Functions singletons —
+    // their layouts are covered by the prop-driven view cases below.
     await pumpWatch(tester, WearHome(signedIn: true, userRepository: repo()));
+    expect(find.byType(AnimatedContainer), findsNWidgets(6));
+    expectFitsRoundScreen(tester, state: 'signed-in compass + 6 dots');
     await nextPage(tester);
     await nextPage(tester);
     expect(find.text('Sign out'), findsOneWidget);
@@ -279,6 +301,134 @@ void main() {
         await pumpWatch(tester, Scaffold(body: entry.value));
         await tester.pump();
         expectFitsRoundScreen(tester, state: entry.key);
+      });
+    }
+  });
+
+  group('privacy page states fit', () {
+    final cases = <String, WearPrivacyView>{
+      'both on': WearPrivacyView(
+        analytics: true,
+        crashReports: true,
+        onAnalyticsChanged: (_) {},
+        onCrashReportsChanged: (_) {},
+      ),
+      'both off': WearPrivacyView(
+        analytics: false,
+        crashReports: false,
+        onAnalyticsChanged: (_) {},
+        onCrashReportsChanged: (_) {},
+      ),
+      'loading': WearPrivacyView(
+        analytics: null,
+        crashReports: null,
+        onAnalyticsChanged: (_) {},
+        onCrashReportsChanged: (_) {},
+      ),
+    };
+    for (final entry in cases.entries) {
+      testWidgets(entry.key, (tester) async {
+        await pumpWatch(tester, Scaffold(body: entry.value));
+        await tester.pump();
+        expectFitsRoundScreen(tester, state: 'privacy ${entry.key}');
+      });
+    }
+  });
+
+  group('leaderboard page states fit', () {
+    // Worst case is a full-width row: a long display name beside a four-digit
+    // score, with the rank column on the left. That is the tightest single
+    // line anywhere on the watch.
+    const longName = 'Bartholomew Longbottom-Smythe';
+    final cases = <String, WearLeaderboardView>{
+      'top three, long names, four-digit scores': WearLeaderboardView(
+        period: 'monthly',
+        entries: const [
+          WearLeaderboardEntry(
+              rank: 1, displayName: longName, points: 9999, isMe: false),
+          WearLeaderboardEntry(
+              rank: 2, displayName: longName, points: 8888, isMe: false),
+          WearLeaderboardEntry(
+              rank: 3, displayName: longName, points: 7777, isMe: false),
+        ],
+        onCyclePeriod: () {},
+      ),
+      'you outside the top three': WearLeaderboardView(
+        period: 'monthly',
+        entries: const [
+          WearLeaderboardEntry(
+              rank: 1, displayName: longName, points: 9999, isMe: false),
+          WearLeaderboardEntry(
+              rank: 2, displayName: longName, points: 8888, isMe: false),
+          WearLeaderboardEntry(
+              rank: 3, displayName: longName, points: 7777, isMe: false),
+          WearLeaderboardEntry(
+              rank: 999, displayName: longName, points: 1234, isMe: true),
+        ],
+        onCyclePeriod: () {},
+      ),
+      'empty': WearLeaderboardView(
+          period: 'weekly', entries: const [], onCyclePeriod: () {}),
+      'loading': WearLeaderboardView(
+          period: 'weekly', entries: null, onCyclePeriod: () {}),
+      'offline (muted title)': WearLeaderboardView(
+        period: 'monthly',
+        entries: const [
+          WearLeaderboardEntry(
+              rank: 1, displayName: longName, points: 9999, isMe: true),
+        ],
+        fromCache: true,
+        onCyclePeriod: () {},
+      ),
+    };
+    for (final entry in cases.entries) {
+      testWidgets(entry.key, (tester) async {
+        await pumpWatch(tester, Scaffold(body: entry.value));
+        await tester.pump();
+        expectFitsRoundScreen(tester, state: 'leaderboard ${entry.key}');
+      });
+    }
+  });
+
+  group('today page states fit', () {
+    // 'PLAIN' is the longest label the watch can show: 'Plain / no cypher' has
+    // no trailing parenthetical for watchMonarchLabel to strip.
+    const worstClaim = WearTodayClaim(monarch: 'PLAIN', points: 9);
+    final cases = <String, WearTodayView>{
+      'three claims plus an overflow count': WearTodayView(
+        summary: const WearTodaySummary(
+          claims: [worstClaim, worstClaim, worstClaim, worstClaim],
+          points: 9999,
+        ),
+        onRefresh: () {},
+      ),
+      'single claim': WearTodayView(
+        summary: const WearTodaySummary(claims: [worstClaim], points: 9),
+        onRefresh: () {},
+      ),
+      'unknown cypher': WearTodayView(
+        summary: const WearTodaySummary(
+          claims: [WearTodayClaim(monarch: null, points: 2)],
+          points: 2,
+        ),
+        onRefresh: () {},
+      ),
+      'empty': WearTodayView(
+        summary: const WearTodaySummary(claims: [], points: 0),
+        onRefresh: () {},
+      ),
+      'error longest message': WearTodayView(
+        summary: null,
+        error: wearTodayErrorMessage('unavailable'),
+        onRefresh: () {},
+      ),
+      'loading': WearTodayView(summary: null, loading: true, onRefresh: () {}),
+    };
+    for (final entry in cases.entries) {
+      testWidgets(entry.key, (tester) async {
+        await pumpWatch(tester, Scaffold(body: entry.value));
+        await tester.pump();
+        expectFitsRoundScreen(tester, state: 'today ${entry.key}');
       });
     }
   });

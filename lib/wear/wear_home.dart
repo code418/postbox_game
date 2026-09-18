@@ -6,12 +6,24 @@ import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/user_repository.dart';
 import 'package:postbox_game/wear/wear_claim_page.dart';
 import 'package:postbox_game/wear/wear_compass_page.dart';
+import 'package:postbox_game/wear/wear_leaderboard_page.dart';
 import 'package:postbox_game/wear/wear_login_screen.dart';
+import 'package:postbox_game/wear/wear_privacy_page.dart';
 import 'package:postbox_game/wear/wear_status_page.dart';
 import 'package:postbox_game/wear/wear_theme.dart';
+import 'package:postbox_game/wear/wear_today_page.dart';
 
-/// Main Wear OS shell — a vertical [PageView] with three swipeable pages:
-/// Compass, Claim, and Status (or Sign-in when signed out).
+/// Main Wear OS shell — a vertical [PageView] of swipeable pages.
+///
+/// Signed in:  Compass, Claim, Status, Scores, Today, Privacy.
+/// Signed out: Compass, Claim, Sign-in, Privacy.
+///
+/// The two glance pages are signed-in only because their data requires auth —
+/// `leaderboards/{period}` is readable only to signed-in users and
+/// `userClaimHistory` rejects anonymous calls — so showing them to a guest
+/// would mean two dead pages in a row. Privacy stays last in BOTH lists: the
+/// telemetry it controls runs while signed out too, so a guest must still be
+/// able to withdraw consent.
 ///
 /// Paging is vertical because Wear OS reserves the left-to-right swipe as
 /// the system dismiss gesture — with horizontal paging, swiping "back" threw
@@ -34,6 +46,15 @@ class WearHome extends StatefulWidget {
   final bool signedIn;
   final UserRepository userRepository;
 
+  /// Index of the page hosting the sign-in screen while signed out, and the
+  /// target of the claim page's "Sign in to claim" CTA.
+  ///
+  /// Deliberately a named constant rather than "the last page": pages have
+  /// been appended after it, and jumping to `_pageCount - 1` would silently
+  /// land on Privacy and break the CTA. Public so a test can assert that this
+  /// index really does host [WearLoginScreen].
+  static const int signInPageIndex = 2;
+
   @override
   State<WearHome> createState() => _WearHomeState();
 }
@@ -42,7 +63,7 @@ class _WearHomeState extends State<WearHome> {
   final PageController _pageController = PageController();
   int _currentPage = 0;
 
-  static const _pageCount = 3;
+  int get _pageCount => widget.signedIn ? 6 : 4;
 
   @override
   void dispose() {
@@ -58,11 +79,11 @@ class _WearHomeState extends State<WearHome> {
     context.read<AuthenticationBloc>().add(LoggedOut());
   }
 
-  /// Swipes to the last page, which hosts the sign-in screen while signed
-  /// out. Used by the claim page's "Sign in to claim" CTA.
+  /// Swipes to the page hosting the sign-in screen while signed out. Used by
+  /// the claim page's "Sign in to claim" CTA.
   void _goToSignInPage() {
     _pageController.animateToPage(
-      _pageCount - 1,
+      WearHome.signInPageIndex,
       duration: const Duration(milliseconds: 300),
       curve: Curves.easeInOut,
     );
@@ -104,8 +125,29 @@ class _WearHomeState extends State<WearHome> {
     );
   }
 
+  /// The shell's pages, in swipe order. [WearHome.signInPageIndex] must stay valid for
+  /// both auth states.
+  List<Widget> _buildPages() {
+    return <Widget>[
+      const WearCompassPage(),
+      WearClaimPage(
+        signedIn: widget.signedIn,
+        onSignInRequested: _goToSignInPage,
+      ),
+      widget.signedIn
+          ? WearStatusPage(onLogout: _handleLogout)
+          : WearLoginScreen(userRepository: widget.userRepository),
+      if (widget.signedIn) const WearLeaderboardPage(),
+      if (widget.signedIn) const WearTodayPage(),
+      const WearPrivacyPage(),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
+    final pages = _buildPages();
+    assert(pages.length == _pageCount,
+        'page list and _pageCount disagree (${pages.length} vs $_pageCount)');
     return Scaffold(
       backgroundColor: Colors.black,
       body: Stack(
@@ -118,16 +160,7 @@ class _WearHomeState extends State<WearHome> {
             scrollDirection: Axis.vertical,
             controller: _pageController,
             onPageChanged: _onPageChanged,
-            children: [
-              _rotaryPage(const WearCompassPage()),
-              _rotaryPage(WearClaimPage(
-                signedIn: widget.signedIn,
-                onSignInRequested: _goToSignInPage,
-              )),
-              _rotaryPage(widget.signedIn
-                  ? WearStatusPage(onLogout: _handleLogout)
-                  : WearLoginScreen(userRepository: widget.userRepository)),
-            ],
+            children: [for (final page in pages) _rotaryPage(page)],
           ),
 
           // Dot indicator — a vertical column on the right edge (the Wear
@@ -138,12 +171,11 @@ class _WearHomeState extends State<WearHome> {
             right: WearSpacing.lg,
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
-              children: List.generate(_pageCount, (i) {
+              children: List.generate(pages.length, (i) {
                 final isActive = i == _currentPage;
                 return AnimatedContainer(
                   duration: const Duration(milliseconds: 200),
-                  margin:
-                      const EdgeInsets.symmetric(vertical: WearSpacing.xs),
+                  margin: const EdgeInsets.symmetric(vertical: WearSpacing.xs),
                   width: isActive ? 8 : 6,
                   height: isActive ? 8 : 6,
                   decoration: BoxDecoration(

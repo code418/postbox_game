@@ -10,7 +10,7 @@ import 'package:postbox_game/services/claim_outbox.dart';
 import 'package:postbox_game/services/device_id_service.dart';
 import 'package:postbox_game/location_service.dart';
 import 'package:postbox_game/maintenance_guard.dart';
-import 'package:postbox_game/monarch_info.dart';
+import 'package:postbox_game/wear/wear_labels.dart';
 import 'package:postbox_game/streak_service.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/wear/wear_error_messages.dart';
@@ -18,7 +18,16 @@ import 'package:postbox_game/wear/wear_round_inset.dart';
 import 'package:postbox_game/wear/wear_theme.dart';
 import 'package:postbox_game/widgets/quiz_helpers.dart';
 
-enum WearClaimStage { ready, scanning, found, empty, error, quiz, claiming, success }
+enum WearClaimStage {
+  ready,
+  scanning,
+  found,
+  empty,
+  error,
+  quiz,
+  claiming,
+  success
+}
 
 /// Maps a [FirebaseFunctionsException] code from the `startScoring` callable to
 /// a short, watch-appropriate error message.
@@ -67,6 +76,7 @@ class _WearClaimPageState extends State<WearClaimPage> {
   List<String> _quizOptions = [];
   int _pointsEarned = 0;
   int _claimedCount = 0;
+
   /// Short human-readable error message shown in the [WearClaimStage.error] view.
   /// Set whenever a scan or claim fails for a recoverable reason (location
   /// denied, services off, network down). Null when there's no active error.
@@ -624,7 +634,7 @@ class WearClaimView extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      _watchLabel(code),
+                      watchMonarchLabel(code),
                       style: Theme.of(context).textTheme.bodySmall,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -637,15 +647,6 @@ class WearClaimView extends StatelessWidget {
         ],
       ),
     );
-  }
-
-  /// The phone's cipher label without its parenthetical (reign years /
-  /// "Scotland only"): "Elizabeth II (1952–2022)" wraps inside a watch-width
-  /// option button, and a two-line label makes the second option overrun the
-  /// inscribed square.
-  static String _watchLabel(String code) {
-    final label = MonarchInfo.labels[code] ?? code;
-    return label.replaceFirst(RegExp(r'\s*\([^)]*\)$'), '');
   }
 
   Widget _buildSuccess(BuildContext context) {

@@ -4,8 +4,11 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:postbox_game/remote_config_service.dart';
+import 'package:postbox_game/services/crashlytics_helper.dart';
+import 'package:postbox_game/services/telemetry_consent.dart';
 import 'package:postbox_game/wear/wear_app.dart';
 import 'firebase_options.dart';
 import 'oauth_client_ids.dart';
@@ -28,6 +31,23 @@ void main() async {
       options: DefaultFirebaseOptions.currentPlatform,
     );
   }
+  // Route uncaught framework + platform errors to Crashlytics, same as the
+  // phone. Without this the watch reported no Dart errors at all: a crash on
+  // the wrist was invisible except through store reviews.
+  FlutterError.onError = CrashlyticsHelper.reportFlutterError;
+  WidgetsBinding.instance.platformDispatcher.onError = (error, stack) {
+    FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+    return true;
+  };
+  // Apply the stored GDPR telemetry consent. The watch keeps its own
+  // SharedPreferences copy of the choice (consent is per-device SDK state) and
+  // exposes the opt-outs on its Privacy page. Until this ran, the manifest's
+  // `firebase_analytics_collection_enabled=false` left every Analytics.* call
+  // on the watch a silent no-op. Perf Monitoring stays off on the watch — see
+  // [applyStoredTelemetryPreferences].
+  unawaited(applyStoredTelemetryPreferences(includePerf: false));
+  unawaited(
+      CrashlyticsHelper.setContext(CrashlyticsHelper.keySurface, 'wear'));
   await FirebaseAppCheck.instance.activate(
     // Wear OS is Android-only — no web or Apple providers needed.
     providerAndroid: kDebugMode

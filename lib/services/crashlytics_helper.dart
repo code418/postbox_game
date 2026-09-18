@@ -42,6 +42,12 @@ class CrashlyticsHelper {
   static const String keyRemoteConfigFetchTs = 'remote_config_fetch_ts';
   static const String keyHasLocationPermission = 'has_location_permission';
 
+  /// Which app surface the crash came from: 'phone' or 'wear'. The wear
+  /// AAB already carries a `-wear` versionNameSuffix, but that only shows
+  /// up in the version string; an explicit key makes the Crashlytics
+  /// filter obvious and survives any future versioning change.
+  static const String keySurface = 'surface';
+
   /// Crashlytics truncates custom-key values at 1024 chars; guard so we never
   /// send something pathological.
   static const int _maxValueLength = 1024;

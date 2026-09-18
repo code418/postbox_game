@@ -69,6 +69,8 @@ void main() async {
   // one place (analytics is opt-in and starts manifest-disabled; crash/perf
   // are legitimate-interest with Settings opt-outs, still off in debug).
   unawaited(applyStoredTelemetryPreferences());
+  unawaited(
+      CrashlyticsHelper.setContext(CrashlyticsHelper.keySurface, 'phone'));
   try {
     await FirebaseAppCheck.instance.activate(
       providerWeb: ReCaptchaV3Provider(kRecaptchaSiteKey),

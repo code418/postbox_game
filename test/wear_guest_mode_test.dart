@@ -20,8 +20,12 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:postbox_game/remote_config_service.dart';
 import 'package:postbox_game/user_repository.dart';
 import 'package:postbox_game/wear/wear_home.dart';
+import 'package:postbox_game/wear/wear_leaderboard_page.dart';
 import 'package:postbox_game/wear/wear_login_screen.dart';
+import 'package:postbox_game/wear/wear_privacy_page.dart';
 import 'package:postbox_game/wear/wear_status_page.dart';
+import 'package:postbox_game/wear/wear_today_page.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Minimal RC stub — out-of-band values so every getter falls back to its
 /// hard-coded default (mirrors the stub in intro_test.dart).
@@ -66,13 +70,16 @@ void main() {
   });
   tearDown(RemoteConfigService.resetForTest);
 
+  setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
+
   UserRepository buildRepo() => UserRepository(
         firebaseAuth: MockFirebaseAuth(signedIn: false),
         googleSignin: _FakeGoogleSignIn(),
         firestore: FakeFirebaseFirestore(),
       );
 
-  testWidgets('signed-out shell: compass and claim scan pages are usable, '
+  testWidgets(
+      'signed-out shell: compass and claim scan pages are usable, '
       'sign-in replaces the status page', (tester) async {
     await tester.pumpWidget(MaterialApp(
       home: WearHome(signedIn: false, userRepository: buildRepo()),
@@ -101,7 +108,8 @@ void main() {
     expect(find.text('Sign out'), findsNothing);
   });
 
-  testWidgets('signed-in shell keeps the status page (with sign-out), '
+  testWidgets(
+      'signed-in shell keeps the status page (with sign-out), '
       'not the login screen', (tester) async {
     await tester.pumpWidget(MaterialApp(
       home: WearHome(signedIn: true, userRepository: buildRepo()),
@@ -116,5 +124,45 @@ void main() {
     expect(find.byType(WearStatusPage), findsOneWidget);
     expect(find.text('Sign out'), findsOneWidget);
     expect(find.byType(WearLoginScreen), findsNothing);
+  });
+
+  testWidgets('a guest can still reach and change the privacy toggles',
+      (tester) async {
+    // Telemetry runs while signed out too, so consent must be withdrawable
+    // without an account — otherwise the app collects from a user who has no
+    // way to object. Privacy is therefore the last page in BOTH auth states.
+    await tester.pumpWidget(MaterialApp(
+      home: WearHome(signedIn: false, userRepository: buildRepo()),
+    ));
+    await tester.pump();
+
+    for (var i = 0; i < 3; i++) {
+      await tester.fling(find.byType(PageView), const Offset(0, -300), 1500);
+      await tester.pumpAndSettle();
+    }
+
+    expect(find.byType(WearPrivacyPage), findsOneWidget);
+    expect(find.text('Privacy'), findsOneWidget);
+    expect(find.byType(Switch), findsNWidgets(2));
+  });
+
+  testWidgets('a guest is not shown the auth-only glance pages',
+      (tester) async {
+    // leaderboards/{period} is readable only to signed-in users and
+    // userClaimHistory rejects anonymous calls, so showing these to a guest
+    // would be two dead pages between the claim flow and sign-in.
+    await tester.pumpWidget(MaterialApp(
+      home: WearHome(signedIn: false, userRepository: buildRepo()),
+    ));
+    await tester.pump();
+
+    for (var i = 0; i < 3; i++) {
+      await tester.fling(find.byType(PageView), const Offset(0, -300), 1500);
+      await tester.pumpAndSettle();
+      expect(find.byType(WearLeaderboardPage), findsNothing);
+      expect(find.byType(WearTodayPage), findsNothing);
+    }
+    // And the shell really did stop at four pages.
+    expect(find.byType(AnimatedContainer), findsNWidgets(4));
   });
 }
