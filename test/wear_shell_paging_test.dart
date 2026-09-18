@@ -168,6 +168,23 @@ void main() {
     expect(find.byType(AnimatedContainer), findsNWidgets(6));
   });
 
+  testWidgets('a tile tap opens the shell straight on the claim page',
+      (tester) async {
+    // wear_app keys the shell on the tap epoch and passes initialPage, so a
+    // tile/complication tap lands on the scan page rather than the compass.
+    await tester.pumpWidget(MaterialApp(
+      home: WearHome(
+        signedIn: false,
+        userRepository: buildRepo(),
+        initialPage: WearHome.claimPageIndex,
+      ),
+    ));
+    await tester.pump();
+
+    expect(find.text('Scan & Claim'), findsOneWidget);
+    expect(find.text('Tap to scan'), findsNothing);
+  });
+
   testWidgets('the sign-in CTA target index really hosts the login screen',
       (tester) async {
     // WearHome.signInPageIndex is where the claim page's "Sign in to claim"

@@ -29,6 +29,22 @@ class HomeWidgetService {
   static const String keyBoxesFound = 'boxesFound';
   static const String keyLifetimePoints = 'lifetimePoints';
 
+  /// London dates the native side re-checks freshness against.
+  ///
+  /// [keyTodayPoints] is only date-checked HERE, at write time. The Wear tile
+  /// and complications render from these values whenever the system asks —
+  /// which, on a watch the app hasn't been opened on since yesterday, is long
+  /// after the last write. Without the dates they would present yesterday's
+  /// points as today's.
+  static const String keyDailyDate = 'dailyDate';
+  static const String keyLastClaimDate = 'lastClaimDate';
+
+  /// Receiver in the `wear` flavour that forwards a data change to the tile
+  /// and complication services. Absent from the phone and auto AABs, so the
+  /// push there is expected to be a no-op.
+  static const String wearReceiverName =
+      'com.code418.postbox_game.wear.WearDataChangedReceiver';
+
   /// Called once from `main()` before the first refresh. No-op on platforms
   /// where the `home_widget` plugin isn't registered (web, desktop).
   static Future<void> init() async {
@@ -54,6 +70,8 @@ class HomeWidgetService {
           weekPoints: 0,
           boxesFound: 0,
           lifetimePoints: 0,
+          dailyDate: '',
+          lastClaimDate: '',
         );
         await _pushUpdate();
         return;
@@ -63,8 +81,7 @@ class HomeWidgetService {
       final storedStreak = (data['streak'] as num?)?.toInt() ?? 0;
       final storedPoints = (data['dailyPoints'] as num?)?.toInt() ?? 0;
       final storedWeekPoints = (data['weeklyPoints'] as num?)?.toInt() ?? 0;
-      final boxesFound =
-          (data['uniquePostboxesClaimed'] as num?)?.toInt() ?? 0;
+      final boxesFound = (data['uniquePostboxesClaimed'] as num?)?.toInt() ?? 0;
       final lifetimePoints = (data['lifetimePoints'] as num?)?.toInt() ?? 0;
       final lastClaimDate = data['lastClaimDate'] as String?;
       final dailyDate = data['dailyDate'] as String?;
@@ -79,9 +96,8 @@ class HomeWidgetService {
       // transaction as `dailyPoints`; `lastClaimDate` comes from a separate
       // streak tx with a brief ordering window. Fall back to lastClaimDate for
       // users who claimed before the dailyDate field was introduced.
-      final pointsAreFresh = dailyDate != null
-          ? dailyDate == today
-          : lastClaimDate == today;
+      final pointsAreFresh =
+          dailyDate != null ? dailyDate == today : lastClaimDate == today;
       final todayPoints = pointsAreFresh ? storedPoints : 0;
       // `weeklyPoints` has the same stale-until-next-claim issue as
       // `dailyPoints` — the per-user sweep was removed for race-safety, so
@@ -107,6 +123,8 @@ class HomeWidgetService {
         weekPoints: weekPoints,
         boxesFound: boxesFound,
         lifetimePoints: lifetimePoints,
+        dailyDate: dailyDate ?? '',
+        lastClaimDate: lastClaimDate ?? '',
       );
       await _pushUpdate();
     } catch (e) {
@@ -122,6 +140,8 @@ class HomeWidgetService {
     required int weekPoints,
     required int boxesFound,
     required int lifetimePoints,
+    required String dailyDate,
+    required String lastClaimDate,
   }) async {
     await HomeWidget.saveWidgetData<bool>(keySignedIn, signedIn);
     await HomeWidget.saveWidgetData<int>(keyStreak, streak);
@@ -129,9 +149,28 @@ class HomeWidgetService {
     await HomeWidget.saveWidgetData<int>(keyWeekPoints, weekPoints);
     await HomeWidget.saveWidgetData<int>(keyBoxesFound, boxesFound);
     await HomeWidget.saveWidgetData<int>(keyLifetimePoints, lifetimePoints);
+    await HomeWidget.saveWidgetData<String>(keyDailyDate, dailyDate);
+    await HomeWidget.saveWidgetData<String>(keyLastClaimDate, lastClaimDate);
   }
 
   Future<void> _pushUpdate() async {
     await HomeWidget.updateWidget(androidName: androidProviderName);
+    await _pushWearUpdate();
+  }
+
+  /// Nudges the Wear tile and complications to re-read the store.
+  ///
+  /// Best-effort by design. `updateWidget` asks AppWidgetManager for the
+  /// component's widget ids first, and Wear OS has no launcher widgets — if
+  /// that path is unavailable this throws, so it gets its own try/catch rather
+  /// than aborting the phone widget's push above. The tile and complications
+  /// also carry freshness intervals and re-read on enter, so a missed push
+  /// costs latency, never correctness.
+  Future<void> _pushWearUpdate() async {
+    try {
+      await HomeWidget.updateWidget(qualifiedAndroidName: wearReceiverName);
+    } catch (e) {
+      debugPrint('HomeWidgetService wear push skipped: $e');
+    }
   }
 }

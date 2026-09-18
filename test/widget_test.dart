@@ -18,6 +18,7 @@ import 'package:postbox_game/fuzzy_compass.dart';
 import 'package:postbox_game/location_service.dart';
 import 'package:postbox_game/james_messages.dart';
 import 'package:postbox_game/london_date.dart';
+import 'package:postbox_game/deep_links.dart';
 import 'package:postbox_game/main.dart';
 import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/settings_screen.dart';
@@ -50,7 +51,8 @@ void main() {
   setUpAll(setupFirebaseMocks);
 
   group('App smoke tests', () {
-    testWidgets('PostboxGame widget tree renders without crashing', (tester) async {
+    testWidgets('PostboxGame widget tree renders without crashing',
+        (tester) async {
       await tester.pumpWidget(const PostboxGame());
       await tester.pump();
       expect(find.byType(MaterialApp), findsOneWidget);
@@ -110,6 +112,41 @@ void main() {
         isWidgetClaimDeepLink(Uri.parse('postbox://claim?source=push')),
         isFalse,
       );
+    });
+  });
+
+  group('isClaimDeepLink (every glanceable surface)', () {
+    // The Wear tile and watch-face complications reuse the widget's deep-link
+    // contract with their own `source`, so analytics can tell the entry points
+    // apart while they all mean "open the claim flow and scan".
+    test('accepts each declared source', () {
+      for (final source in kClaimDeepLinkSources) {
+        expect(isClaimDeepLink(Uri.parse('postbox://claim?source=$source')),
+            isTrue,
+            reason: 'source=$source should open the claim flow');
+      }
+    });
+
+    test('the widget link is a claim link too', () {
+      final uri = Uri.parse('postbox://claim?source=widget');
+      expect(isWidgetClaimDeepLink(uri), isTrue);
+      expect(isClaimDeepLink(uri), isTrue);
+    });
+
+    test('but a tile link is not mistaken for the widget', () {
+      // The phone consumes widget taps specifically; a watch source must not
+      // satisfy that narrower predicate.
+      final uri = Uri.parse('postbox://claim?source=tile');
+      expect(isClaimDeepLink(uri), isTrue);
+      expect(isWidgetClaimDeepLink(uri), isFalse);
+    });
+
+    test('rejects null, a different host, and an unknown source', () {
+      expect(isClaimDeepLink(null), isFalse);
+      expect(isClaimDeepLink(Uri.parse('postbox://home?source=tile')), isFalse);
+      expect(isClaimDeepLink(Uri.parse('postbox://claim')), isFalse);
+      expect(
+          isClaimDeepLink(Uri.parse('postbox://claim?source=push')), isFalse);
     });
   });
 
@@ -193,7 +230,8 @@ void main() {
       );
     });
 
-    test('signUp does not write to Firestore (handled by Cloud Function)', () async {
+    test('signUp does not write to Firestore (handled by Cloud Function)',
+        () async {
       // displayName and all profile fields are written by the onUserCreated
       // Cloud Function (server-side), not by the client. This prevents clients
       // from bypassing the profanity filter via direct Firestore writes.
@@ -214,7 +252,10 @@ void main() {
 
     test('getDisplayName returns stored name', () async {
       const uid = 'user-abc';
-      await fakeFirestore.collection('users').doc(uid).set({'displayName': 'Postbox Pete'});
+      await fakeFirestore
+          .collection('users')
+          .doc(uid)
+          .set({'displayName': 'Postbox Pete'});
 
       final name = await repo.getDisplayName(uid);
       expect(name, equals('Postbox Pete'));
@@ -232,21 +273,26 @@ void main() {
 
     test('isSignedIn returns true when a user is signed in', () async {
       final auth = MockFirebaseAuth(signedIn: true);
-      final signedInRepo = UserRepository(firebaseAuth: auth, firestore: fakeFirestore);
+      final signedInRepo =
+          UserRepository(firebaseAuth: auth, firestore: fakeFirestore);
       expect(await signedInRepo.isSignedIn(), isTrue);
     });
 
-    test('signUp uses Player_ fallback in Auth displayName for profane email prefix', () async {
+    test(
+        'signUp uses Player_ fallback in Auth displayName for profane email prefix',
+        () async {
       // Email prefix "cunt" fails the profanity filter; Auth displayName should
       // use the Player_<uid> fallback. No Firestore write occurs client-side.
       await repo.signUp(email: 'cunt@example.com', password: 'password123');
       final displayName = mockAuth.currentUser?.displayName;
       expect(displayName, isNotNull);
       expect(displayName!.startsWith('Player_'), isTrue,
-          reason: 'Profane email prefix should fall back to Player_<uid> in Auth profile');
+          reason:
+              'Profane email prefix should fall back to Player_<uid> in Auth profile');
     });
 
-    test('sendPasswordResetEmail completes without error for valid email', () async {
+    test('sendPasswordResetEmail completes without error for valid email',
+        () async {
       // The real Firebase sends an email; the mock just completes.
       // We verify the method chain reaches FirebaseAuth without throwing.
       await expectLater(
@@ -287,7 +333,9 @@ void main() {
       );
     });
 
-    test('deleteAccount throws wrong-password for a password user with no password', () async {
+    test(
+        'deleteAccount throws wrong-password for a password user with no password',
+        () async {
       // createUserWithEmailAndPassword gives the mock user a 'password' provider,
       // so deleteAccount takes the re-auth branch and requires a password.
       await repo.signUp(email: 'carol@example.com', password: 'password123');
@@ -298,7 +346,8 @@ void main() {
       );
     });
 
-    test('deleteAccount completes for a signed-in email user with a password', () async {
+    test('deleteAccount completes for a signed-in email user with a password',
+        () async {
       await repo.signUp(email: 'dave@example.com', password: 'password123');
       // The mock's reauthenticateWithCredential + delete both succeed, so this
       // verifies the password-provider re-auth → delete call chain.
@@ -479,7 +528,8 @@ void main() {
       // Service with a signed-out auth instance should return null immediately
       // rather than throwing or hanging.
       final signedOutAuth = MockFirebaseAuth();
-      final service = StreakService(firestore: fakeFirestore, auth: signedOutAuth);
+      final service =
+          StreakService(firestore: fakeFirestore, auth: signedOutAuth);
       final value = await service.streakStream().first;
       expect(value, isNull);
     });
@@ -525,10 +575,7 @@ void main() {
         () async {
       // Defensive: if streak is present without lastClaimDate we cannot verify
       // freshness so treat the streak as broken.
-      await fakeFirestore
-          .collection('users')
-          .doc(uid)
-          .set({'streak': 5});
+      await fakeFirestore.collection('users').doc(uid).set({'streak': 5});
 
       final value = await streakService.streakStream().first;
       expect(value, equals(0));
@@ -631,8 +678,7 @@ void main() {
 
     test('formats miles to 1 decimal place', () {
       // 1000m ≈ 0.621371 mi
-      final result =
-          AppPreferences.formatDistance(1000.0, DistanceUnit.miles);
+      final result = AppPreferences.formatDistance(1000.0, DistanceUnit.miles);
       expect(result, endsWith(' mi'));
       expect(result, contains('.'));
     });
@@ -668,7 +714,8 @@ void main() {
     });
 
     test('formatRouteDistance returns "..." for infinity', () {
-      expect(AppPreferences.formatRouteDistance(double.infinity), equals('...'));
+      expect(
+          AppPreferences.formatRouteDistance(double.infinity), equals('...'));
     });
 
     test('formatRouteDistance returns "..." for NaN', () {
@@ -677,7 +724,9 @@ void main() {
   });
 
   group('AppPreferences constants (cross-platform contract)', () {
-    test('claimRadiusMeters is 30.0 — must match functions/src/startScoring.ts CLAIM_RADIUS_METERS', () {
+    test(
+        'claimRadiusMeters is 30.0 — must match functions/src/startScoring.ts CLAIM_RADIUS_METERS',
+        () {
       // The claim cooldown radius is shared with the backend's startScoring
       // callable. If the values drift, the client thinks a box is claimable
       // while the server rejects it (or vice versa). Pin the Dart side here;
@@ -721,7 +770,8 @@ void main() {
       expect(ReportRepository.maxNoteChars, equals(280));
     });
 
-    test('maxReferenceChars is 40 — must match functions/src/reports.ts REFERENCE_MAX',
+    test(
+        'maxReferenceChars is 40 — must match functions/src/reports.ts REFERENCE_MAX',
         () {
       // Same drift hazard as maxNoteChars: TextField maxLength must match
       // what parseReference will accept server-side.
@@ -799,11 +849,13 @@ void main() {
       // exhaustive switch on this enum —
       // adding a kind here without updating callers is an analyzer error.
       // Pin the set so renames/removals trigger a test failure too.
-      expect(LocationErrorKind.values.toSet(), equals({
-        LocationErrorKind.servicesDisabled,
-        LocationErrorKind.permissionDenied,
-        LocationErrorKind.permissionPermanentlyDenied,
-      }));
+      expect(
+          LocationErrorKind.values.toSet(),
+          equals({
+            LocationErrorKind.servicesDisabled,
+            LocationErrorKind.permissionDenied,
+            LocationErrorKind.permissionPermanentlyDenied,
+          }));
     });
   });
 
@@ -870,7 +922,8 @@ void main() {
 
     test('unknown chosen key falls back to auto palette', () {
       final auto = mapColourFor(uid: 'x', isSelf: false);
-      final fallback = mapColourFor(uid: 'x', isSelf: false, chosenKey: 'no_such_colour');
+      final fallback =
+          mapColourFor(uid: 'x', isSelf: false, chosenKey: 'no_such_colour');
       expect(fallback, equals(auto));
     });
 
@@ -888,7 +941,11 @@ void main() {
   group('pickCountyLeaderEntry (heatmap friends-only toggle)', () {
     // Server-sorted entries: a non-friend leads, a friend is second.
     final entries = <dynamic>[
-      {'uid': 'stranger', 'displayName': 'Stranger', 'uniquePostboxesClaimed': 9},
+      {
+        'uid': 'stranger',
+        'displayName': 'Stranger',
+        'uniquePostboxesClaimed': 9
+      },
       {'uid': 'friend', 'displayName': 'Friend', 'uniquePostboxesClaimed': 5},
       {'uid': 'me', 'displayName': 'Me', 'uniquePostboxesClaimed': 2},
     ];
@@ -904,7 +961,8 @@ void main() {
       expect(e?['uid'], equals('stranger'));
     });
 
-    test('friends-only returns null when no candidate has claimed the county', () {
+    test('friends-only returns null when no candidate has claimed the county',
+        () {
       final e = pickCountyLeaderEntry(entries, {'nobody'}, true);
       expect(e, isNull);
     });
@@ -1033,7 +1091,8 @@ void main() {
     test('each 8-wind sector is present in output', () {
       final result = FuzzyCompass.to8Sectors({});
       for (final dir in ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']) {
-        expect(result.containsKey(dir), isTrue, reason: '$dir missing from output');
+        expect(result.containsKey(dir), isTrue,
+            reason: '$dir missing from output');
       }
     });
 
@@ -1046,14 +1105,22 @@ void main() {
 
     test('all 16 winds sum correctly into 8 sectors', () {
       final counts = {
-        'N': 1, 'NNE': 1,
-        'NE': 1, 'ENE': 1,
-        'E': 1, 'ESE': 1,
-        'SE': 1, 'SSE': 1,
-        'S': 1, 'SSW': 1,
-        'SW': 1, 'WSW': 1,
-        'W': 1, 'WNW': 1,
-        'NW': 1, 'NNW': 1,
+        'N': 1,
+        'NNE': 1,
+        'NE': 1,
+        'ENE': 1,
+        'E': 1,
+        'ESE': 1,
+        'SE': 1,
+        'SSE': 1,
+        'S': 1,
+        'SSW': 1,
+        'SW': 1,
+        'WSW': 1,
+        'W': 1,
+        'WNW': 1,
+        'NW': 1,
+        'NNW': 1,
       };
       final result = FuzzyCompass.to8Sectors(counts);
       for (final v in result.values) {
@@ -1063,7 +1130,8 @@ void main() {
   });
 
   group('FuzzyCompass.semanticLabel', () {
-    test('summarises unclaimed directions with vague words + rough bearings', () {
+    test('summarises unclaimed directions with vague words + rough bearings',
+        () {
       // 2 → "a few", 4 → "several" (per vagueLabel).
       final label = FuzzyCompass.semanticLabel({'NE': 2, 'S': 4});
       expect(label,
@@ -1185,10 +1253,11 @@ void main() {
       // so a cipher placed in both sets would render two stacked badges over
       // each other. Pin that the sets share no members so the UI invariant
       // (at most one badge per pin) holds.
-      final overlap = MonarchInfo.rareCiphers
-          .intersection(MonarchInfo.historicCiphers);
+      final overlap =
+          MonarchInfo.rareCiphers.intersection(MonarchInfo.historicCiphers);
       expect(overlap, isEmpty,
-          reason: 'Cipher(s) in both rareCiphers and historicCiphers: $overlap');
+          reason:
+              'Cipher(s) in both rareCiphers and historicCiphers: $overlap');
     });
 
     test('rareCiphers and historicCiphers are all in "all"', () {
@@ -1216,8 +1285,15 @@ void main() {
       expect(
         sorted,
         equals(<String>[
-          'CIIIR', 'EIIR', 'EVIIIR', 'EVIIR', 'GR',
-          'GVIR', 'GVR', 'SCOTTISH_CROWN', 'VR',
+          'CIIIR',
+          'EIIR',
+          'EVIIIR',
+          'EVIIR',
+          'GR',
+          'GVIR',
+          'GVR',
+          'SCOTTISH_CROWN',
+          'VR',
         ]),
       );
     });
@@ -1297,7 +1373,8 @@ void main() {
         JamesMessages.introStep3,
       ];
       for (final msg in messages) {
-        expect(msg.resolve(), isNotEmpty, reason: '${msg.key} must resolve to non-empty string');
+        expect(msg.resolve(), isNotEmpty,
+            reason: '${msg.key} must resolve to non-empty string');
       }
     });
 
@@ -1307,7 +1384,8 @@ void main() {
       for (var i = 0; i < 20; i++) {
         final line = JamesMessages.claimErrorTooFast.resolve();
         expect(line, isNotEmpty);
-        expect(line, isNot(contains('—')), reason: 'house style bans em-dashes');
+        expect(line, isNot(contains('—')),
+            reason: 'house style bans em-dashes');
         // James never refers to himself as "postie" (player-to-James term only).
         expect(line.toLowerCase(), isNot(contains('postie')));
       }
@@ -1582,8 +1660,12 @@ void main() {
 
     test('routeHint produces distinct lines for different directions', () {
       // Sample each direction many times and verify the pools are not identical.
-      final aheadSamples = {for (var i = 0; i < 30; i++) JamesMessages.routeHint('ahead')};
-      final leftSamples  = {for (var i = 0; i < 30; i++) JamesMessages.routeHint('left')};
+      final aheadSamples = {
+        for (var i = 0; i < 30; i++) JamesMessages.routeHint('ahead')
+      };
+      final leftSamples = {
+        for (var i = 0; i < 30; i++) JamesMessages.routeHint('left')
+      };
       // The union of both sample sets should be larger than either alone (pools differ).
       expect(aheadSamples.union(leftSamples).length,
           greaterThan(aheadSamples.length));
@@ -1606,7 +1688,8 @@ void main() {
       const emDash = '—';
       for (var i = 0; i < 20; i++) {
         expect(JamesMessages.routeStart.resolve(), isNot(contains(emDash)));
-        expect(JamesMessages.routePostboxNearby.resolve(), isNot(contains(emDash)));
+        expect(JamesMessages.routePostboxNearby.resolve(),
+            isNot(contains(emDash)));
         expect(JamesMessages.routeArrival.resolve(), isNot(contains(emDash)));
         for (final dir in ['ahead', 'left', 'right', 'behind']) {
           expect(JamesMessages.routeHint(dir), isNot(contains(emDash)));

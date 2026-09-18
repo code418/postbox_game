@@ -11,6 +11,8 @@ import 'package:postbox_game/services/device_id_service.dart';
 import 'package:postbox_game/location_service.dart';
 import 'package:postbox_game/maintenance_guard.dart';
 import 'package:postbox_game/wear/wear_labels.dart';
+import 'package:postbox_game/services/claim_events.dart';
+import 'package:postbox_game/services/home_widget_service.dart';
 import 'package:postbox_game/streak_service.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/wear/wear_error_messages.dart';
@@ -58,16 +60,35 @@ class WearClaimPage extends StatefulWidget {
     super.key,
     required this.signedIn,
     this.onSignInRequested,
+    this.autoScan = false,
   });
 
   final bool signedIn;
   final VoidCallback? onSignInRequested;
+
+  /// Start scanning as soon as this page mounts. Set when the app was opened
+  /// by a tile or complication tap, which is a request to scan rather than
+  /// just to open the app. The shell is keyed on the tap, so each tap gives a
+  /// fresh mount and therefore exactly one scan.
+  final bool autoScan;
 
   @override
   State<WearClaimPage> createState() => _WearClaimPageState();
 }
 
 class _WearClaimPageState extends State<WearClaimPage> {
+  @override
+  void initState() {
+    super.initState();
+    if (widget.autoScan) {
+      // Post-frame so the first build (and its round-fit layout) completes
+      // before the scan's setState lands.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_scan());
+      });
+    }
+  }
+
   WearClaimStage _stage = WearClaimStage.ready;
   int _count = 0;
   int _claimedToday = 0;
@@ -304,6 +325,13 @@ class _WearClaimPageState extends State<WearClaimPage> {
 
       Analytics.claimSuccess(
           pointsEarned: earnedPts, claimedCount: claimedCount);
+      // Push the new streak/points to the tile and complications. Mirrors the
+      // phone's post-claim refresh in claim_quiz_sheet.dart: a glanceable
+      // surface still showing the pre-claim total is the thing a player is
+      // most likely to look at next.
+      unawaited(HomeWidgetService().refresh());
+      // Anything showing claim-derived data (the Today glance) refetches.
+      ClaimEvents.markClaimed();
       if (!mounted) return;
       // Bind the streak stream to the uid that just claimed (see field doc).
       _streakStream ??= _streakService.streakStream();

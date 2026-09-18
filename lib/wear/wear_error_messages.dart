@@ -12,7 +12,8 @@ import 'package:postbox_game/location_service.dart';
 ///
 /// Exhaustive over [LocationErrorKind] so a new variant is a compile error
 /// rather than a silent fallthrough.
-String wearLocationErrorMessage(LocationErrorKind kind, {required String action}) =>
+String wearLocationErrorMessage(LocationErrorKind kind,
+        {required String action}) =>
     switch (kind) {
       LocationErrorKind.servicesDisabled => 'Turn on location',
       LocationErrorKind.permissionPermanentlyDenied =>

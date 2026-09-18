@@ -41,10 +41,22 @@ class WearHome extends StatefulWidget {
     super.key,
     required this.signedIn,
     required this.userRepository,
+    this.initialPage = 0,
+    this.autoScan = false,
   });
 
   final bool signedIn;
   final UserRepository userRepository;
+
+  /// Page to open on. A tile or complication tap starts on the claim page.
+  final int initialPage;
+
+  /// Fire a scan as soon as the claim page mounts. Set by a tile/complication
+  /// tap, which is a request to scan, not just to open the app.
+  final bool autoScan;
+
+  /// Index of the scan/claim page.
+  static const int claimPageIndex = 1;
 
   /// Index of the page hosting the sign-in screen while signed out, and the
   /// target of the claim page's "Sign in to claim" CTA.
@@ -60,8 +72,9 @@ class WearHome extends StatefulWidget {
 }
 
 class _WearHomeState extends State<WearHome> {
-  final PageController _pageController = PageController();
-  int _currentPage = 0;
+  late final PageController _pageController =
+      PageController(initialPage: widget.initialPage);
+  late int _currentPage = widget.initialPage;
 
   int get _pageCount => widget.signedIn ? 6 : 4;
 
@@ -133,6 +146,7 @@ class _WearHomeState extends State<WearHome> {
       WearClaimPage(
         signedIn: widget.signedIn,
         onSignInRequested: _goToSignInPage,
+        autoScan: widget.autoScan,
       ),
       widget.signedIn
           ? WearStatusPage(onLogout: _handleLogout)

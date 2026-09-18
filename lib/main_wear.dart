@@ -8,6 +8,7 @@ import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:postbox_game/remote_config_service.dart';
 import 'package:postbox_game/services/crashlytics_helper.dart';
+import 'package:postbox_game/services/home_widget_service.dart';
 import 'package:postbox_game/services/telemetry_consent.dart';
 import 'package:postbox_game/wear/wear_app.dart';
 import 'firebase_options.dart';
@@ -46,8 +47,7 @@ void main() async {
   // on the watch a silent no-op. Perf Monitoring stays off on the watch — see
   // [applyStoredTelemetryPreferences].
   unawaited(applyStoredTelemetryPreferences(includePerf: false));
-  unawaited(
-      CrashlyticsHelper.setContext(CrashlyticsHelper.keySurface, 'wear'));
+  unawaited(CrashlyticsHelper.setContext(CrashlyticsHelper.keySurface, 'wear'));
   await FirebaseAppCheck.instance.activate(
     // Wear OS is Android-only — no web or Apple providers needed.
     providerAndroid: kDebugMode
@@ -69,5 +69,14 @@ void main() async {
   // from claiming into a mid-migration database. Fire-and-forget: defaults
   // serve immediately and remote values activate when the fetch resolves.
   unawaited(RemoteConfigService.instance.init());
+  // Feeds the Wear tile and watch-face complications. They read the same
+  // SharedPreferences store the phone's home-screen widget uses, so this is
+  // the only Dart-side work the glanceable surfaces need — the Kotlin reads
+  // it directly, with no Firebase and no method channel.
+  await HomeWidgetService.init();
+  unawaited(HomeWidgetService().refresh());
+  // Did this launch come from a tile/complication tap? Must be resolved
+  // before runApp so the shell can open on the claim page and scan.
+  await checkInitialWearLaunch();
   runApp(const WearPostboxGame());
 }

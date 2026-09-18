@@ -333,18 +333,23 @@ void main() {
           .map((m) => m.group(1)!)
           .toSet();
 
-      // Sanity: extraction found the expected six keys on each side (guards
-      // against a future rename that makes this test vacuous).
-      expect(dartKeys.length, equals(6),
-          reason: 'expected 6 Dart widget keys, parsed $dartKeys');
+      // Sanity: extraction found keys on each side (guards against a future
+      // rename that makes this test vacuous). Dart writes eight — the six the
+      // phone widget renders plus the two London dates only the Wear tile and
+      // complications re-check freshness against, since they render long after
+      // the last write on a watch the app hasn't been opened on today.
+      expect(dartKeys.length, equals(8),
+          reason: 'expected 8 Dart widget keys, parsed $dartKeys');
       expect(ktKeys.length, equals(6),
           reason: 'expected 6 Kotlin widget keys, parsed $ktKeys');
 
-      expect(ktKeys, equals(dartKeys),
+      // Every key the phone widget reads must be one Dart actually writes.
+      // (The reverse is not required: the date keys are Wear-only. If the
+      // phone widget ever adopts them, raise the count above.)
+      expect(dartKeys.containsAll(ktKeys), isTrue,
           reason: 'widget key drift between '
               'lib/services/home_widget_service.dart and '
               'PostboxWidgetProvider.kt — '
-              'only-in-Dart=${dartKeys.difference(ktKeys)} '
               'only-in-Kotlin=${ktKeys.difference(dartKeys)}');
     });
   });

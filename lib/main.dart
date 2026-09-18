@@ -37,12 +37,19 @@ import 'package:postbox_game/admin/admin_access.dart';
 import 'package:postbox_game/analytics_user_properties.dart';
 import 'package:postbox_game/notification_service.dart';
 import 'package:postbox_game/remote_config_service.dart';
+import 'package:postbox_game/deep_links.dart';
 import 'package:postbox_game/services/crashlytics_helper.dart';
 import 'package:postbox_game/services/telemetry_consent.dart';
 import 'package:postbox_game/route/destination_picker_screen.dart';
 import 'package:postbox_game/route/route_notifications.dart';
 import 'package:postbox_game/services/user_properties_publisher.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+
+// Deep-link parsing and the unknown-route guard live in deep_links.dart so the
+// Wear entry point can share them. Re-exported so existing importers (and the
+// tests that pin the Kotlin DEEP_LINK contract) keep resolving them here.
+export 'package:postbox_game/deep_links.dart'
+    show isClaimDeepLink, isWidgetClaimDeepLink, unknownRoute;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -133,76 +140,6 @@ String _authStateLabel(User? user) {
 /// (postbox://claim?source=widget). Consumed once by [_PostboxGameState] to
 /// open the Claim tab and auto-scan, then cleared.
 bool _pendingWidgetAutoScan = false;
-
-/// Whether [uri] is the home-screen widget's claim deep link.
-///
-/// The Kotlin widget provider fires `postbox://claim?source=widget`
-/// (PostboxWidgetProvider.kt DEEP_LINK). Keeping the parsing in one place
-/// stops the two call sites below from drifting and gives a single thing
-/// to pin in tests against the Kotlin constant.
-@visibleForTesting
-bool isWidgetClaimDeepLink(Uri? uri) =>
-    uri != null &&
-    uri.host == 'claim' &&
-    uri.queryParameters['source'] == 'widget';
-
-/// Swallow a named route the app doesn't own, instead of crashing.
-///
-/// The platform pushes intent URIs into the Navigator as named routes
-/// (`didPushRouteInformation` → `pushNamed`). The home-screen widget's
-/// `postbox://claim?source=widget` arrives that way as `/?source=widget`,
-/// which is in neither [routes] nor an `onGenerateRoute` — and with
-/// `onUnknownRoute` unset Flutter does `widget.onUnknownRoute!(settings)`,
-/// so tapping the widget WHILE THE APP WAS ALREADY OPEN hard-crashed it
-/// (Crashlytics `_WidgetsAppState._onUnknownRoute`, fatal, 1.4.0).
-///
-/// Swallowing is the right answer rather than landing somewhere: the widget
-/// tap is already handled properly by the `HomeWidget.widgetClicked` listener
-/// in [_PostboxGameState], which opens the Claim tab and auto-scans. This
-/// route is the engine's duplicate of that same tap. It must still return a
-/// real Route — returning null crashes on the `_routeNamed(...)!` in
-/// `pushNamed` — so it returns a transparent one that pops on the first frame.
-///
-/// Unknown routes are still reported (non-fatally, deduped) so a genuinely
-/// broken deep link doesn't just vanish.
-@visibleForTesting
-Route<void> unknownRoute(RouteSettings settings) {
-  unawaited(CrashlyticsHelper.recordHandled(
-    StateError('unknown route pushed: ${settings.name}'),
-    StackTrace.current,
-    reason: 'navigator_unknown_route',
-    dedupeKey: 'unknown_route_${settings.name}',
-  ));
-  return PageRouteBuilder<void>(
-    settings: settings,
-    opaque: false,
-    barrierColor: null,
-    transitionDuration: Duration.zero,
-    reverseTransitionDuration: Duration.zero,
-    pageBuilder: (_, __, ___) => const _SelfDismissingRoute(),
-  );
-}
-
-/// Renders nothing and pops itself once mounted. See [unknownRoute].
-class _SelfDismissingRoute extends StatefulWidget {
-  const _SelfDismissingRoute();
-
-  @override
-  State<_SelfDismissingRoute> createState() => _SelfDismissingRouteState();
-}
-
-class _SelfDismissingRouteState extends State<_SelfDismissingRoute> {
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) Navigator.of(context).maybePop();
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) => const SizedBox.shrink();
-}
 
 Future<void> _checkInitialWidgetLaunch() async {
   try {
