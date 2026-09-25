@@ -54,16 +54,36 @@ void main() {
   test('pruneExpired drops entries older than the grace window', () async {
     final outbox = ClaimOutbox.instance;
     final now = DateTime.now().millisecondsSinceEpoch;
+    // Captured by an earlier process, so only the wall clock dates them.
     await outbox.add(OutboxEntry(
         scanId: 'old', lat: 1, lng: 2,
-        capturedWallMs: now - 48 * 3600000, capturedMonotonicMs: 0, attemptId: 'a1'));
+        capturedWallMs: now - 48 * 3600000, capturedMonotonicMs: 0,
+        attemptId: 'a1', capturedBootId: 'earlier-process'));
     await outbox.add(OutboxEntry(
         scanId: 'fresh', lat: 1, lng: 2,
-        capturedWallMs: now - 3600000, capturedMonotonicMs: 0, attemptId: 'a2'));
+        capturedWallMs: now - 3600000, capturedMonotonicMs: 0,
+        attemptId: 'a2', capturedBootId: 'earlier-process'));
     final dropped = await outbox.pruneExpired(graceHours: 36);
     expect(dropped, 1);
     final entries = await outbox.entries();
     expect(entries.single.scanId, 'fresh');
+  });
+
+  test('pruneExpired keeps a recent capture whose wall clock was far behind',
+      () async {
+    // Captured moments ago in THIS process while the device clock read two
+    // days slow (since corrected). The flush would send the monotonic-anchored
+    // time, which is recent, so pruning by the raw wall clock deleted a claim
+    // the server would have accepted.
+    final outbox = ClaimOutbox.instance;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await outbox.add(OutboxEntry(
+        scanId: 'skewed', lat: 1, lng: 2,
+        capturedWallMs: now - 48 * 3600000,
+        capturedMonotonicMs: ClaimOutbox.monotonicNowMs(),
+        attemptId: 'a1'));
+    expect(await outbox.pruneExpired(graceHours: 36), 0);
+    expect((await outbox.entries()).single.scanId, 'skewed');
   });
 
   test('caps the queue: adding beyond the cap drops the oldest', () async {

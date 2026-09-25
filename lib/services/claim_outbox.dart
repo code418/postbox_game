@@ -377,12 +377,24 @@ class ClaimOutbox {
 
   /// Drop entries older than the grace window (they can never flush
   /// successfully). Returns how many were dropped.
+  ///
+  /// Ages each entry by the capture time a flush would SEND (monotonic-
+  /// anchored within the capturing process), not the raw stored wall clock:
+  /// a device clock that was far behind at capture and has since corrected
+  /// would otherwise make a recent capture look expired, and delete it
+  /// before the flush that would have been accepted.
   Future<int> pruneExpired({required int graceHours}) async {
     final list = await _load();
-    final cutoff =
-        DateTime.now().millisecondsSinceEpoch - graceHours * 3600000;
+    final nowWall = DateTime.now().millisecondsSinceEpoch;
+    final nowMono = monotonicNowMs();
+    final cutoff = nowWall - graceHours * 3600000;
     final before = list.length;
-    list.removeWhere((e) => e.capturedWallMs < cutoff);
+    list.removeWhere((e) =>
+        e.capturedAtForFlush(
+            flushWallMs: nowWall,
+            flushMonotonicMs: nowMono,
+            flushBootId: _bootId) <
+        cutoff);
     if (list.length != before) await _save();
     return before - list.length;
   }
