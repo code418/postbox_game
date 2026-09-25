@@ -18,6 +18,7 @@ import 'package:postbox_game/remote_config_service.dart';
 import 'package:postbox_game/reports/report_cypher_screen.dart';
 import 'package:postbox_game/services/claim_events.dart';
 import 'package:postbox_game/services/crashlytics_helper.dart';
+import 'package:postbox_game/london_date.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/widgets/postbox_map.dart';
 import 'package:postbox_game/widgets/postbox_marker.dart';
@@ -42,7 +43,13 @@ class ClaimHistoryScreen extends StatefulWidget {
     super.key,
     this.historyCallable,
     this.positionProvider,
+    this.today,
   });
+
+  /// Injectable London "today" (`YYYY-MM-DD`). Null uses [todayLondon]; tests
+  /// inject one to cross midnight.
+  @visibleForTesting
+  final String Function()? today;
 
   /// Injectable stand-in for the `userClaimHistory` callable. Null uses the
   /// real one. Tests inject a stub so the map view renders without Firebase
@@ -223,6 +230,7 @@ class _ClaimHistoryScreenState extends State<ClaimHistoryScreen>
                       callable: _historyCallable,
                       userPosition: _userPosition,
                       onLocateMe: _locateUser,
+                      today: widget.today ?? todayLondon,
                     ))
                 .toList(),
           ),
@@ -242,8 +250,10 @@ class _HistoryTab extends StatefulWidget {
     required this.callable,
     required this.userPosition,
     required this.onLocateMe,
+    required this.today,
   });
   final String period;
+  final String Function() today;
   final ViewMode view;
   final ClaimHistoryCallableFn callable;
 
@@ -259,8 +269,12 @@ class _HistoryTab extends StatefulWidget {
 }
 
 class _HistoryTabState extends State<_HistoryTab>
-    with AutomaticKeepAliveClientMixin {
+    with AutomaticKeepAliveClientMixin, WidgetsBindingObserver {
   late Future<List<ClaimHistoryEntry>> _future;
+
+  /// The London day [_future] was fetched for. The period windows (Today,
+  /// This week, This month) are relative to it.
+  String? _fetchedDay;
 
   @override
   bool get wantKeepAlive => true;
@@ -274,12 +288,27 @@ class _HistoryTabState extends State<_HistoryTab>
     // made after launch never appears until the user pulls to refresh — the
     // empty state actively told them "No claims today" seconds after claiming.
     ClaimEvents.revision.addListener(_onClaimRecorded);
+    WidgetsBinding.instance.addObserver(this);
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     ClaimEvents.revision.removeListener(_onClaimRecorded);
     super.dispose();
+  }
+
+  /// Kept alive for the whole session, a tab fetched yesterday would keep
+  /// showing yesterday's claims under "Today" the next morning (a claim or a
+  /// pull-to-refresh were the only refetch triggers). Coming back to the app
+  /// on a new London day refetches.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed &&
+        _fetchedDay != null &&
+        _fetchedDay != widget.today()) {
+      _refresh();
+    }
   }
 
   /// All four period tabs refetch on a claim. That is four cheap reads per
@@ -294,6 +323,7 @@ class _HistoryTabState extends State<_HistoryTab>
   }
 
   Future<List<ClaimHistoryEntry>> _fetch() async {
+    _fetchedDay = widget.today();
     // Read-only: safe to retry wholesale, and a failure here empties the
     // whole history view rather than degrading it.
     final result = await retryOnUnavailable(

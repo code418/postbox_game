@@ -98,6 +98,42 @@ void main() {
     );
   });
 
+  testWidgets('coming back on a new London day refetches the history',
+      (tester) async {
+    // The tabs are kept alive all session; before this, "Today" kept showing
+    // yesterday's claims the next morning until a claim or a manual refresh.
+    var day = '2026-09-24';
+    final periods = <String>[];
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ClaimHistoryScreen(
+          historyCallable: (payload) {
+            periods.add(payload['period'] as String);
+            return _twoEntries(payload);
+          },
+          positionProvider: () async => _fakePos(),
+          today: () => day,
+        ),
+      ),
+    ));
+    await _settle(tester);
+    final initial = periods.length;
+    expect(initial, greaterThan(0));
+
+    // Same day: a resume changes nothing.
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await _settle(tester);
+    expect(periods.length, initial);
+
+    // Next morning: every mounted tab refetches.
+    day = '2026-09-25';
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await _settle(tester);
+    expect(periods.length, initial * 2);
+  });
+
   testWidgets('map view shows the control and no dot before it is tapped',
       (tester) async {
     var calls = 0;
