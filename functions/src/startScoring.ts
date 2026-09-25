@@ -4,7 +4,7 @@ import * as functions from "firebase-functions";
 import { DEFAULT_CLAIM_RADIUS_METERS } from "./_config";
 import { scoreClaimAt } from "./_claimCore";
 import { requireAppCheck } from "./_appCheck";
-import { validateAttemptId, beginAttempt, completeAttempt, failAttempt, attemptDecisionToAction } from "./_attempts";
+import { validateAttemptId, runInAttempt } from "./_attempts";
 
 // The scoring write path itself lives in _claimCore.ts (scoreClaimAt), shared
 // with the offline flushOfflineClaims callable — this module is the live
@@ -87,16 +87,8 @@ export const startScoring = functions.https.onCall({ enforceAppCheck: true }, as
   // already-claimed fast-path with zero points — the lost-claim bug. Legacy
   // clients omit attemptId and take the direct path unchanged.
   if (attemptId !== undefined) {
-    const action = attemptDecisionToAction(await beginAttempt(database, attemptId, userid));
-    if (action) return action.replay;
-    try {
-      const response = await scoreClaimAt(userid, lat, lng, { clientTsMs, deviceIdHash });
-      await completeAttempt(database, attemptId, userid, response);
-      return response;
-    } catch (e) {
-      await failAttempt(database, attemptId);
-      throw e;
-    }
+    return runInAttempt(database, attemptId, userid,
+      () => scoreClaimAt(userid, lat, lng, { clientTsMs, deviceIdHash }));
   }
   return scoreClaimAt(userid, lat, lng, { clientTsMs, deviceIdHash });
 });

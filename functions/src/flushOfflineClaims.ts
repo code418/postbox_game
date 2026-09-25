@@ -23,7 +23,7 @@ import { getGameConfig } from "./_config";
 import { getLondonDayOf, getTodayLondon } from "./_dateUtils";
 import { scoreClaimAt } from "./_claimCore";
 import { requireAppCheck } from "./_appCheck";
-import { validateAttemptId, beginAttempt, completeAttempt, failAttempt, attemptDecisionToAction } from "./_attempts";
+import { validateAttemptId, runInAttempt } from "./_attempts";
 import { defineSecret } from "firebase-functions/params";
 import { getScanSecret, verifyScanToken, ScanTokenPayload, SCAN_SECRET_ENV } from "./_scanToken";
 import { computeBatchSpeedCv } from "./_abuseSignals";
@@ -183,16 +183,8 @@ export const flushOfflineClaims = functions.https.onCall(
     // Idempotent envelope: a retried flush (same attemptId) replays the whole
     // stored response instead of re-adjudicating — quota is not double-spent.
     if (typeof attemptId === "string") {
-      const action = attemptDecisionToAction(await beginAttempt(database, attemptId, uid));
-      if (action) return action.replay;
-      try {
-        const response = await runFlush(uid, items, flushClientTsMs as number | undefined, secret, config.offlineGraceHours, config.maxOfflineClaimsPerDay);
-        await completeAttempt(database, attemptId, uid, response);
-        return response;
-      } catch (e) {
-        await failAttempt(database, attemptId);
-        throw e;
-      }
+      return runInAttempt(database, attemptId, uid,
+        () => runFlush(uid, items, flushClientTsMs as number | undefined, secret, config.offlineGraceHours, config.maxOfflineClaimsPerDay));
     }
     return runFlush(uid, items, flushClientTsMs as number | undefined, secret, config.offlineGraceHours, config.maxOfflineClaimsPerDay);
   },

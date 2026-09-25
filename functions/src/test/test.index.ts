@@ -71,6 +71,7 @@ import {
   beginAttempt,
   completeAttempt,
   failAttempt,
+  runInAttempt,
   validateAttemptId,
   ATTEMPT_IN_PROGRESS_STALE_MS,
   ATTEMPT_TTL_MS,
@@ -1717,6 +1718,53 @@ describe("attempts idempotency (v1.5 offline play, Phase 1)", () => {
       assert.strictEqual(store.has("att-1"), false);
       const d = await beginAttempt(db, "att-1", "u1", NOW + 1000);
       assert.deepStrictEqual(d, { kind: "proceed" });
+    });
+
+    it("runInAttempt stores the response and replays it without re-running", async () => {
+      const { db } = makeAttemptsMockDb();
+      let runs = 0;
+      const handler = async () => ({ claimed: 1, points: 7, run: ++runs });
+      const first = await runInAttempt(db, "att-1", "u1", handler);
+      const second = await runInAttempt(db, "att-1", "u1", handler);
+      assert.strictEqual(runs, 1);
+      assert.deepStrictEqual(second, first);
+    });
+
+    it("runInAttempt clears the marker and rethrows when the handler fails", async () => {
+      const { db, store } = makeAttemptsMockDb();
+      await assert.rejects(
+        runInAttempt(db, "att-1", "u1", async () => {
+          throw new Error("boom");
+        }),
+        /boom/,
+      );
+      assert.strictEqual(store.has("att-1"), false);
+    });
+
+    it("runInAttempt returns a committed response even if storing it fails", async () => {
+      // The claim is already written by then: reporting failure would show a
+      // successful claim as failed, and the retry would hit the already-claimed
+      // fast path and show nothing.
+      const { db, store } = makeAttemptsMockDb();
+      const docFn = (db as unknown as {
+        collection(n: string): { doc(id: string): { set(d: Record<string, unknown>): Promise<void> } };
+      }).collection("attempts").doc;
+      (db as unknown as { collection: (n: string) => unknown }).collection = () => ({
+        doc(id: string) {
+          const ref = docFn(id);
+          return {
+            ...ref,
+            async set(data: Record<string, unknown>) {
+              if (data.status === "done") throw new Error("unavailable");
+              return ref.set(data);
+            },
+          };
+        },
+      });
+      const response = { claimed: 1, points: 12 };
+      const got = await runInAttempt(db, "att-1", "u1", async () => response);
+      assert.deepStrictEqual(got, response);
+      assert.strictEqual(store.get("att-1")?.data.status, "in_progress");
     });
 
     it("completeAttempt stamps a TTL expiry", async () => {
