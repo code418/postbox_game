@@ -87,7 +87,7 @@ Fully implemented end-to-end.
 
 ## Tests
 
-- `test/widget_test.dart` uses `firebase_auth_mocks` + `fake_cloud_firestore` and `setupFirebaseCoreMocks()` — tests run without real Firebase. **684 Dart tests passing.**
+- `test/widget_test.dart` uses `firebase_auth_mocks` + `fake_cloud_firestore` and `setupFirebaseCoreMocks()` — tests run without real Firebase. **685 Dart tests passing.**
 - `functions/src/test/test.index.ts` uses `firebase-functions-test`. **606 TypeScript tests passing** (pure unit tests + auth/validation integration tests that gracefully skip when no emulator is running). Includes tests for `updateFcmTokens`, `diffFriends`, `shouldNotifyFirstClaim`, `shouldNotifyOvertake`, `buildOsmChange`, `parsePhotos`, `nextQuotaState`, `pointsForMonarch`, `maxDailyFromClaims`, `repointClaimsForPostbox` (mock Firestore), `submitReport`/`reviewReport` auth & validation, and the `plan_route` CLI helpers.
 - `test/cross_language_sync_test.dart` is the drift guard for facts duplicated across languages/files. Beyond the constants listed under "Added features", it now also parses source to assert: every `startScoring` call site sends an `attemptId` (Dart sheet, Wear, **and the Kotlin car**); every claim surface consults `MaintenanceGuard` and every entry point initialises Remote Config; and every collection the Cloud Functions touch has a `match` block in `firestore.rules`. Each is verified to FAIL when the thing it guards is removed. `countySlug` is checked against all 218 features of the heatmap geojson (TS side, `test.index.ts`).
 
