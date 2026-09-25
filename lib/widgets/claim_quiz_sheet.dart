@@ -1506,19 +1506,35 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: AppSpacing.xl),
+              // A claim retry stays on this screen while it runs, so it shows
+              // its progress here, and Back is locked until it settles (as in
+              // every other stage): leaving mid-retry unmounted the sheet, so
+              // a claim that then succeeded showed no confirmation and never
+              // refreshed History or the widget.
               FilledButton.icon(
-                onPressed: () {
-                  if (_retryIsClaim) {
-                    unawaited(_claimPostbox(isRetry: true));
-                  } else {
-                    unawaited(_runSearch(position: _scanCenter));
-                  }
-                },
+                onPressed: _isClaiming
+                    ? null
+                    : () {
+                        if (_retryIsClaim) {
+                          unawaited(_claimPostbox(isRetry: true));
+                        } else {
+                          unawaited(_runSearch(position: _scanCenter));
+                        }
+                      },
                 style: FilledButton.styleFrom(
                   minimumSize: Size(double.infinity, _buttonHeight),
                 ),
-                icon: const Icon(Icons.refresh),
-                label: const Text('Retry'),
+                icon: _isClaiming
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          color: Colors.white,
+                          strokeWidth: 2,
+                        ),
+                      )
+                    : const Icon(Icons.refresh),
+                label: Text(_isClaiming ? 'Claiming...' : 'Retry'),
               ),
               // Offline banking (v1.5 Phase 3): a claim that already passed
               // the quiz and holds a scan token can be saved to the outbox
@@ -1546,7 +1562,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
               ],
               const SizedBox(height: AppSpacing.sm),
               TextButton(
-                onPressed: _cancel,
+                onPressed: _isClaiming ? null : _cancel,
                 child: const Text('Back'),
               ),
             ],

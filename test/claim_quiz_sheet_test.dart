@@ -531,6 +531,59 @@ void main() {
     expect(recorded!.pointsEarned, 9);
   });
 
+  testWidgets('Back is locked while a claim retry is in flight',
+      (tester) async {
+    // The retry stays on the "No connection" screen while it runs. Leaving
+    // then unmounted the sheet, so a retry that succeeded showed no
+    // confirmation and never refreshed History or the widget.
+    var calls = 0;
+    final gate = Completer<HttpsCallableResult<dynamic>>();
+    var cancelled = false;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ClaimQuizSheet(
+          scanPosition: const LatLng(51.5, -0.12),
+          nearbyCallable: _nearbyUnknownCipher,
+          positionProvider: () async => _fakePos(),
+          startScoringCallable: (payload) {
+            if (++calls <= 3) {
+              throw _FakeFunctionsException(
+                  code: 'unavailable', message: 'transport down');
+            }
+            return gate.future;
+          },
+          onCancel: () => cancelled = true,
+          onCompleted: (_) {},
+        ),
+      ),
+    ));
+    await _settle(tester);
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.tap(find.text('Claim this postbox!'));
+    await _settle(tester);
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump();
+    expect(find.text('Retry'), findsOneWidget);
+
+    await tester.tap(find.text('Retry'));
+    await _settle(tester); // position resolves; the claim is now gated
+
+    expect(find.text('Claiming...'), findsOneWidget);
+    await tester.tap(find.text('Back'), warnIfMissed: false);
+    await tester.pump();
+    expect(cancelled, isFalse, reason: 'Back is disabled mid-retry');
+
+    gate.complete(_FakeResult<dynamic>(<String, dynamic>{
+      'found': true,
+      'claimed': 1,
+      'points': 9,
+      'allClaimedToday': false,
+    }));
+    await _settle(tester);
+    expect(find.text('Claiming...'), findsNothing);
+  });
+
   testWidgets('claim payload carries a fresh attemptId string', (tester) async {
     Map<String, dynamic>? claimPayload;
     await tester.pumpWidget(MaterialApp(
