@@ -1,6 +1,10 @@
 package com.code418.postbox_game.wear
 
 import android.content.Context
+import com.code418.postbox_game.freshStreak
+import com.code418.postbox_game.freshTodayPoints
+import com.code418.postbox_game.londonToday
+import com.code418.postbox_game.londonYesterday
 import es.antonborri.home_widget.HomeWidgetPlugin
 
 /**

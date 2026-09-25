@@ -75,6 +75,9 @@ void main() {
         HomeWidgetService.keyWeekPoints,
         HomeWidgetService.keyBoxesFound,
         HomeWidgetService.keyLifetimePoints,
+        HomeWidgetService.keyDailyDate,
+        HomeWidgetService.keyLastClaimDate,
+        HomeWidgetService.keyWeekStart,
       ]) {
         expect(kt, contains('"$key"'),
             reason: 'PostboxWidgetProvider.kt is missing the "$key" key '
@@ -159,6 +162,10 @@ void main() {
       expect(saved[HomeWidgetService.keyWeekPoints], 84);
       expect(saved[HomeWidgetService.keyBoxesFound], 12);
       expect(saved[HomeWidgetService.keyLifetimePoints], 360);
+      // The native widget re-checks weekPoints against this on its hourly
+      // redraw.
+      expect(saved[HomeWidgetService.keyWeekStart],
+          weekStartLondon(todayLondon()));
     });
 
     test('stale weekStart forces weekPoints to 0', () async {
@@ -179,6 +186,8 @@ void main() {
 
       final saved = _savedValues(calls);
       expect(saved[HomeWidgetService.keyWeekPoints], 0);
+      expect(saved[HomeWidgetService.keyWeekStart], '',
+          reason: 'blank so the native re-check reads 0 too');
       // Lifetime totals never reset, so they should still come through.
       expect(saved[HomeWidgetService.keyBoxesFound], 40);
       expect(saved[HomeWidgetService.keyLifetimePoints], 1200);

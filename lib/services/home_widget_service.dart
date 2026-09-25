@@ -39,6 +39,10 @@ class HomeWidgetService {
   static const String keyDailyDate = 'dailyDate';
   static const String keyLastClaimDate = 'lastClaimDate';
 
+  /// The Monday of the week [keyWeekPoints] belongs to, for the same native
+  /// re-check: the phone widget redraws hourly without the app running.
+  static const String keyWeekStart = 'weekStart';
+
   /// Receiver in the `wear` flavour that forwards a data change to the tile
   /// and complication services. Absent from the phone and auto AABs, so the
   /// push there is expected to be a no-op.
@@ -72,6 +76,7 @@ class HomeWidgetService {
           lifetimePoints: 0,
           dailyDate: '',
           lastClaimDate: '',
+          weekStart: '',
         );
         await _pushUpdate();
         return;
@@ -125,6 +130,9 @@ class HomeWidgetService {
         lifetimePoints: lifetimePoints,
         dailyDate: dailyDate ?? '',
         lastClaimDate: lastClaimDate ?? '',
+        // Blank when weekPoints was already zeroed as stale, so the native
+        // re-check also reads 0.
+        weekStart: weekPoints > 0 ? currentWeekStart : '',
       );
       await _pushUpdate();
     } catch (e) {
@@ -142,6 +150,7 @@ class HomeWidgetService {
     required int lifetimePoints,
     required String dailyDate,
     required String lastClaimDate,
+    required String weekStart,
   }) async {
     await HomeWidget.saveWidgetData<bool>(keySignedIn, signedIn);
     await HomeWidget.saveWidgetData<int>(keyStreak, streak);
@@ -151,6 +160,7 @@ class HomeWidgetService {
     await HomeWidget.saveWidgetData<int>(keyLifetimePoints, lifetimePoints);
     await HomeWidget.saveWidgetData<String>(keyDailyDate, dailyDate);
     await HomeWidget.saveWidgetData<String>(keyLastClaimDate, lastClaimDate);
+    await HomeWidget.saveWidgetData<String>(keyWeekStart, weekStart);
   }
 
   Future<void> _pushUpdate() async {

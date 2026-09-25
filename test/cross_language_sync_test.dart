@@ -337,29 +337,29 @@ void main() {
           .toSet();
 
       // Sanity: extraction found keys on each side (guards against a future
-      // rename that makes this test vacuous). Dart writes eight — the six the
-      // phone widget renders plus the two London dates only the Wear tile and
-      // complications re-check freshness against, since they render long after
-      // the last write on a watch the app hasn't been opened on today.
-      expect(dartKeys.length, equals(8),
-          reason: 'expected 8 Dart widget keys, parsed $dartKeys');
-      expect(ktKeys.length, equals(6),
-          reason: 'expected 6 Kotlin widget keys, parsed $ktKeys');
+      // rename that makes this test vacuous). Dart writes nine: the six stats
+      // plus the three London dates the native side re-checks freshness
+      // against, since the widget (hourly) and the Wear tile redraw long
+      // after the last write if the app hasn't been opened today.
+      expect(dartKeys.length, equals(9),
+          reason: 'expected 9 Dart widget keys, parsed $dartKeys');
+      expect(ktKeys.length, equals(9),
+          reason: 'expected 9 Kotlin widget keys, parsed $ktKeys');
 
-      // Every key the phone widget reads must be one Dart actually writes.
-      // (The reverse is not required: the date keys are Wear-only. If the
-      // phone widget ever adopts them, raise the count above.)
-      expect(dartKeys.containsAll(ktKeys), isTrue,
+      // The phone widget reads every key Dart writes, dates included: without
+      // them its hourly redraw would show yesterday's points as today's.
+      expect(ktKeys, equals(dartKeys),
           reason: 'widget key drift between '
               'lib/services/home_widget_service.dart and '
               'PostboxWidgetProvider.kt — '
-              'only-in-Kotlin=${ktKeys.difference(dartKeys)}');
+              'only-in-Kotlin=${ktKeys.difference(dartKeys)}, '
+              'only-in-Dart=${dartKeys.difference(ktKeys)}');
     });
 
     test('WearPrefs.kt reads exactly the keys HomeWidgetService writes', () {
       // The Wear tile and complications consume the SAME store through
-      // HomeWidgetPlugin.getData, including the two date keys the phone widget
-      // ignores. A drift here is invisible at build time and shows up as a
+      // HomeWidgetPlugin.getData, including the daily date keys (they show no
+      // weekly figure, so they skip weekStart). A drift here is invisible at build time and shows up as a
       // tile permanently reading "0 pts today / No streak".
       final dartKeys =
           RegExp(r'''static const String key\w+\s*=\s*['"]([^'"]+)['"]''')
