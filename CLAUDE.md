@@ -9,7 +9,7 @@ Cross-platform (Flutter) mobile app + Firebase (Auth, Firestore, Cloud Functions
 - **Role**: Onboarding (first launch) and in-app advisor throughout the app.
 - **Placement**: Introduces the concept on first launch; appears in a strip/panel at the **bottom of the screen** on other screens, commenting on what the user is doing.
 - **Tone**: Light, British humour (like the advisor in Theme Park).
-- **Current state**: James is rendered by `lib/postman_james_svg.dart` (`PostmanJamesSvg`) using the `assets/postman_james.svg` asset with animated overlays (head-bob, mouth open/close, blink, star-eyes). The persistent James strip (`lib/james_strip.dart`) slides up at the bottom of all main screens via `JamesController` / `JamesControllerScope` in `home.dart`. Messages are centralised in `lib/james_messages.dart`. Idle non-sequiturs fire every 2–5 minutes.
+- **Current state**: James is rendered by `lib/postman_james.dart` (`PostmanJames`) from the `assets/postman_james.png` raster artwork with head-bob and star-eyes animations (the mouth/blink animations went with the old SVG; `lib/postman_james_svg.dart` / `PostmanJamesSvg` is the unused legacy version). The persistent James strip (`lib/james_strip.dart`) slides up at the bottom of all main screens via `JamesController` / `JamesControllerScope` in `home.dart`. Messages are centralised in `lib/james_messages.dart`. Idle non-sequiturs fire every 2–5 minutes.
 
 ## Login before play
 
@@ -80,7 +80,7 @@ Fully implemented end-to-end.
 - **Android**: Root `android/build.gradle` uses **jcenter()** (deprecated/removed). **compileSdkVersion 33**, **targetSdkVersion 30** — Play Store may require higher target. Kotlin plugin version needs updating (Flutter now prompts: update `org.jetbrains.kotlin.android` in `android/settings.gradle`). Debug builds fail with Java heap space — use `--release` or increase Gradle JVM heap.
 - **iOS**: No `Podfile` in repo (Flutter regenerates on `pod install`). `firebase_options.dart` now has iOS config (FlutterFire CLI has been run). A `Podfile` will be needed when building for iOS. `Info.plist` has `NSLocation*`, `NSCameraUsageDescription`, and `NSPhotoLibraryUsageDescription` strings (the last two added for report photo attachments).
 - **firebase_dynamic_links**: Removed (Firebase deprecated Dynamic Links Aug 2025; was unused in lib).
-- **Intro / Postman James assets**: (Fixed) `flare_flutter` / `james.flr` removed. James is `PostmanJamesSvg` in `lib/postman_james_svg.dart` using `assets/postman_james.svg`. No custom font needed — `google_fonts` provides Plus Jakarta Sans and Playfair Display.
+- **Intro / Postman James assets**: (Fixed) `flare_flutter` / `james.flr` removed. James is `PostmanJames` in `lib/postman_james.dart` using `assets/postman_james.png`. No custom font needed — `google_fonts` provides Plus Jakarta Sans and Playfair Display.
 - **Claim screen**: (Fixed) Full `initial/searching/results/empty/quiz/quizFailed/claimed` state machine. `startScoring` Cloud Function implemented with per-user claim tracking, streak updates, and leaderboard aggregation.
 - **Theme**: (Fixed) Centralized in `lib/theme.dart` (`AppTheme.light/dark`, `AppSpacing`). Postal red `#C8102E` is primary; gold `#FFB400` is accent; royal navy `#0A1931` is dark. Light and dark themes both configured.
 - **`flutter_lints`**: Added to dev_dependencies (`flutter_lints: ^6.0.0`). `flutter analyze` reports no issues.
