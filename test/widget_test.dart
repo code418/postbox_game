@@ -150,6 +150,48 @@ void main() {
     });
   });
 
+  group('WidgetAutoScanRequests', () {
+    test('a sign-out drops a tap that a signed-in Home already used', () {
+      // Otherwise the next sign-in (maybe another account) opens on Claim
+      // and starts a GPS scan nobody asked for.
+      final r = WidgetAutoScanRequests()..signedIn();
+      expect(r.epoch, 0);
+      r.tapped();
+      expect(r.epoch, 1);
+      r.signedOut();
+      expect(r.epoch, 0);
+      r.signedIn();
+      expect(r.epoch, 0);
+    });
+
+    test('a cold start from the widget while signed out survives login', () {
+      final r = WidgetAutoScanRequests(launchedFromWidget: true);
+      expect(r.epoch, 1);
+      r.signedOut(); // the initial Unauthenticated state, not a sign-out
+      expect(r.epoch, 1);
+      r.signedIn();
+      expect(r.epoch, 1);
+    });
+
+    test('a tap made on the login screen survives login', () {
+      final r = WidgetAutoScanRequests()
+        ..signedIn()
+        ..signedOut()
+        ..tapped();
+      r.signedIn();
+      expect(r.epoch, 1);
+    });
+
+    test('every warm tap changes the epoch so Home remounts', () {
+      final r = WidgetAutoScanRequests()..signedIn();
+      final seen = <int>{};
+      for (var i = 0; i < 3; i++) {
+        r.tapped();
+        expect(seen.add(r.epoch), isTrue);
+      }
+    });
+  });
+
   group('unknown deep-link routes', () {
     // Regression for a FATAL production crash (Crashlytics
     // _WidgetsAppState._onUnknownRoute, "Null check operator used on a null

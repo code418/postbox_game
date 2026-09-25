@@ -32,6 +32,34 @@ bool isWidgetClaimDeepLink(Uri? uri) =>
     uri.host == 'claim' &&
     uri.queryParameters['source'] == 'widget';
 
+/// Counts home-screen-widget taps that should open Claim and auto-scan.
+///
+/// The app keys its Home on [epoch], so each bump remounts Home on the Claim
+/// tab with a scan running. A tap asks for ONE scan: once a signed-in Home
+/// has used it, signing out must drop it, or the next sign-in (possibly a
+/// different account) would land on Claim and start a GPS scan unasked. A
+/// tap made while signed out (including a cold start from the widget) still
+/// carries through the login, which is what the tap asked for.
+class WidgetAutoScanRequests {
+  WidgetAutoScanRequests({bool launchedFromWidget = false})
+      : _epoch = launchedFromWidget ? 1 : 0;
+
+  int _epoch;
+  bool _signedIn = false;
+
+  /// 0 when no scan is pending; otherwise changes on every tap.
+  int get epoch => _epoch;
+
+  void tapped() => _epoch++;
+
+  void signedIn() => _signedIn = true;
+
+  void signedOut() {
+    if (_signedIn) _epoch = 0;
+    _signedIn = false;
+  }
+}
+
 /// Whether [routeName] is the engine's named-route echo of one of the app's
 /// own claim deep links: `postbox://claim?source=widget` has no path, so it
 /// arrives as `/?source=widget`. See [unknownRoute].

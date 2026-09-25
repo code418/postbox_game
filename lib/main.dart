@@ -163,13 +163,14 @@ class _PostboxGameState extends State<PostboxGame> with WidgetsBindingObserver {
   final UserRepository _userRepository = UserRepository();
   final HomeWidgetService _homeWidgetService = HomeWidgetService();
   StreamSubscription<Uri?>? _widgetClickSub;
-  // Monotonic counter of widget-deep-link activations. Each increment is used
-  // as part of the Home widget's key so a widget tap while the app is warm
+  // Widget-deep-link activations. Each tap bumps the epoch, which is used as
+  // part of the Home widget's key so a widget tap while the app is warm
   // (already authenticated) forces a fresh Home + Claim mount rather than
   // re-using the existing _HomeState — the previous _pages/_selectedIndex
   // were initialised from `late final` fields and would otherwise ignore the
-  // new autoScan/initialIndex props.
-  int _autoScanEpoch = _pendingWidgetAutoScan ? 1 : 0;
+  // new autoScan/initialIndex props. Reset on sign-out (see the class).
+  final WidgetAutoScanRequests _autoScan =
+      WidgetAutoScanRequests(launchedFromWidget: _pendingWidgetAutoScan);
 
   @override
   void initState() {
@@ -182,7 +183,7 @@ class _PostboxGameState extends State<PostboxGame> with WidgetsBindingObserver {
     try {
       _widgetClickSub = HomeWidget.widgetClicked.listen((uri) {
         if (isWidgetClaimDeepLink(uri)) {
-          setState(() => _autoScanEpoch++);
+          setState(_autoScan.tapped);
         }
       });
     } catch (_) {
@@ -240,6 +241,7 @@ class _PostboxGameState extends State<PostboxGame> with WidgetsBindingObserver {
           home: BlocConsumer<AuthenticationBloc, AuthenticationState?>(
             listener: (context, state) {
               if (state is Authenticated) {
+                _autoScan.signedIn();
                 unawaited(NotificationService.init());
                 unawaited(_homeWidgetService.refresh());
                 // Force a fresh Remote Config fetch on login (bypassing the
@@ -258,6 +260,8 @@ class _PostboxGameState extends State<PostboxGame> with WidgetsBindingObserver {
                   unawaited(publishUserPropertiesFromFirestore(uid));
                 }
               } else if (state is Unauthenticated) {
+                // Read by the builder that runs right after this listener.
+                _autoScan.signedOut();
                 unawaited(NotificationService.reset());
                 unawaited(_homeWidgetService.refresh());
                 // Forget any admin-claim result cached against the previous
@@ -285,7 +289,8 @@ class _PostboxGameState extends State<PostboxGame> with WidgetsBindingObserver {
                 // ConsentGate is a pass-through for anyone who has made the
                 // analytics choice (new users decide in the intro); existing
                 // installs get a one-time consent prompt before Home.
-                if (_autoScanEpoch > 0) {
+                final autoScanEpoch = _autoScan.epoch;
+                if (autoScanEpoch > 0) {
                   // Keying on the epoch forces a fresh Home + Claim mount on
                   // each widget tap. Without the key, Flutter reconciles the
                   // existing _HomeState whose `late final _pages` was built
@@ -293,7 +298,7 @@ class _PostboxGameState extends State<PostboxGame> with WidgetsBindingObserver {
                   // scan fires.
                   return ConsentGate(
                     child: Home(
-                      key: ValueKey('claim-widget-$_autoScanEpoch'),
+                      key: ValueKey('claim-widget-$autoScanEpoch'),
                       initialIndex: 1,
                       autoScan: true,
                     ),
