@@ -185,10 +185,15 @@ class _LeaderboardListState extends State<_LeaderboardList>
     super.initState();
     _renderTrace = PerfService.start(PerfTraces.leaderboardRender,
         attributes: {PerfTraces.attrPeriod: widget.period});
+    // includeMetadataChanges: the "Offline — showing saved data" chip reads
+    // metadata.isFromCache. With persistence on, the first snapshot comes
+    // from the local cache; if the server then confirms IDENTICAL data, only
+    // the metadata changes, and a plain listener is never told. The chip then
+    // stayed up while online until the data itself next changed.
     _stream = FirebaseFirestore.instance
         .collection('leaderboards')
         .doc(widget.period)
-        .snapshots();
+        .snapshots(includeMetadataChanges: true);
     if (_isLifetime) _loadTotalPostboxes();
   }
 

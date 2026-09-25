@@ -90,7 +90,12 @@ class _FriendsScreenState extends State<FriendsScreen>
     super.initState();
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid != null) {
-      _friendsStream = _firestore.collection('users').doc(uid).snapshots();
+      // includeMetadataChanges so StaleDataChip learns when the cached copy
+      // is confirmed by the server (see leaderboard_screen.dart).
+      _friendsStream = _firestore
+          .collection('users')
+          .doc(uid)
+          .snapshots(includeMetadataChanges: true);
     }
     WidgetsBinding.instance.addObserver(this);
     ConnectivityService.instance.online.addListener(_onConnectivityChanged);

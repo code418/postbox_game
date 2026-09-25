@@ -81,8 +81,14 @@ class _WearLeaderboardPageState extends State<WearLeaderboardPage> {
 
   String get _period => kWearLeaderboardPeriods[_periodIndex];
 
+  // includeMetadataChanges so the cached-data dimming clears once the server
+  // confirms the cached copy, even when the data itself hasn't changed (see
+  // leaderboard_screen.dart).
   Stream<DocumentSnapshot<Map<String, dynamic>>> _streamFor(String period) =>
-      _firestore.collection('leaderboards').doc(period).snapshots();
+      _firestore
+          .collection('leaderboards')
+          .doc(period)
+          .snapshots(includeMetadataChanges: true);
 
   void _cyclePeriod() {
     setState(() {
