@@ -22,13 +22,23 @@ import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/widgets/postbox_map.dart';
 import 'package:postbox_game/widgets/postbox_marker.dart';
 import 'package:postbox_game/widgets/view_toggle.dart';
+import 'package:postbox_game/widgets/claim_quiz_sheet.dart'
+    show NearbyPostboxesCallableFn;
 
 import './fuzzy_compass.dart';
 
 enum NearbyStage { initial, searching, results }
 
 class Nearby extends StatefulWidget {
-  const Nearby({super.key});
+  const Nearby({
+    super.key,
+    @visibleForTesting this.nearbyCallable,
+    @visibleForTesting this.positionProvider,
+  });
+
+  /// Test seams, as on [ClaimQuizSheet]: default to the real callable and GPS.
+  final NearbyPostboxesCallableFn? nearbyCallable;
+  final Future<Position> Function()? positionProvider;
 
   @override
   State<Nearby> createState() => _NearbyState();
@@ -110,26 +120,33 @@ class _NearbyState extends State<Nearby> {
     if (unit != null && mounted) setState(() => _distanceUnit = unit);
   }
 
-  final HttpsCallable callable =
-      appFunctions.httpsCallable('nearbyPostboxes');
+  late final NearbyPostboxesCallableFn _callable = widget.nearbyCallable ??
+      (payload) => appFunctions.httpsCallable('nearbyPostboxes').call(payload);
 
   Future<void> _startSearch() async {
     // Guard against concurrent calls (e.g. pull-to-refresh + Refresh button
     // both firing before the next frame rebuilds the UI).
     if (currentStage == NearbyStage.searching) return;
+    // A failed REFRESH goes back to the results the player was looking at,
+    // not the pre-scan screen: a signal blip mid-refresh used to throw away a
+    // perfectly good result set. They keep their "Scanned at" time, so they
+    // read as the last good scan. The position is committed only with new
+    // results, so the map can never pair the old counts with a new spot.
+    final hadResults = currentStage == NearbyStage.results;
+    void endFailedSearch() => setState(() => currentStage =
+        hadResults ? NearbyStage.results : NearbyStage.initial);
     setState(() => currentStage = NearbyStage.searching);
     Analytics.nearbyStarted();
     try {
       _distanceUnit = await AppPreferences.getDistanceUnit();
-      final position = await getPosition();
-      if (mounted) setState(() => _scanPosition = position);
+      final position = await (widget.positionProvider ?? getPosition)();
       final result = await PerfService.traceAsync(
         PerfTraces.callableNearbyPostboxes,
         (trace) async {
           // Scans are read-only, so a wholesale retry is safe — this is the
           // case retryOnUnavailable's own doc names. Production hit
           // `deadline-exceeded` here and gave up without retrying.
-          final r = await retryOnUnavailable(() => callable.call(<String, dynamic>{
+          final r = await retryOnUnavailable(() => _callable(<String, dynamic>{
             'lat': position.latitude,
             'lng': position.longitude,
             'meters': AppPreferences.nearbyRadiusMeters,
@@ -161,6 +178,7 @@ class _NearbyState extends State<Nearby> {
       // a double to a typed int field throws, so normalise every count via num.
       int asInt(dynamic v) => (v as num?)?.toInt() ?? 0;
       setState(() {
+        _scanPosition = position;
         _count = asInt(counts['total']);
         _maxPoints = asInt(pts['max']);
         _minPoints = asInt(pts['min']);
@@ -246,7 +264,7 @@ class _NearbyState extends State<Nearby> {
           backgroundColor: Colors.red.shade700,
         ),
       );
-      setState(() => currentStage = NearbyStage.initial);
+      endFailedSearch();
     } on TimeoutException {
       if (!mounted) return;
       JamesController.of(context)
@@ -258,7 +276,7 @@ class _NearbyState extends State<Nearby> {
           backgroundColor: Colors.red.shade700,
         ),
       );
-      setState(() => currentStage = NearbyStage.initial);
+      endFailedSearch();
     } on LocationServiceException catch (e) {
       debugPrint('Location error: $e');
       if (!mounted) return;
@@ -302,7 +320,7 @@ class _NearbyState extends State<Nearby> {
             ),
           );
       }
-      setState(() => currentStage = NearbyStage.initial);
+      endFailedSearch();
     } catch (e) {
       // PlatformException and other types must not be forwarded to the user
       // as-is (raw 'PlatformException(...)' prefix would leak).
@@ -316,12 +334,12 @@ class _NearbyState extends State<Nearby> {
           backgroundColor: Colors.red.shade700,
         ),
       );
-      setState(() => currentStage = NearbyStage.initial);
+      endFailedSearch();
     } finally {
       // Safety net: ensure we never get permanently stuck in 'searching' state
       // if an unexpected Dart Error bypasses the catch blocks above.
       if (mounted && currentStage == NearbyStage.searching) {
-        setState(() => currentStage = NearbyStage.initial);
+        endFailedSearch();
       }
     }
   }
