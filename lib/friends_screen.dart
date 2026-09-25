@@ -13,6 +13,7 @@ import 'package:postbox_game/services/perf_service.dart';
 import 'package:postbox_game/services/user_properties_publisher.dart';
 import 'package:postbox_game/user_profile_page.dart';
 import 'package:postbox_game/widgets/stale_data_chip.dart';
+import 'package:postbox_game/services/connectivity_service.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -29,6 +30,28 @@ String buildInviteMessage(String uid) =>
     '$_playStoreUrl';
 
 /// Friends list and add-friend by UID.
+/// Display names learned from one batched `users` lookup of [batch], given
+/// the docs it returned ([found]: uid → displayName).
+///
+/// A uid the SERVER says has no user doc is a deleted account, and gets the
+/// empty-string marker that renders "Unknown player" rather than a loader
+/// forever. Only the server can say so: offline, the query answers from the
+/// local cache without throwing, so a friend who simply isn't cached yet was
+/// labelled deleted for the rest of the session. Those stay unresolved for a
+/// retry instead.
+@visibleForTesting
+Map<String, String> namesFromLookup(
+  List<String> batch,
+  Map<String, String?> found, {
+  required bool fromCache,
+}) =>
+    {
+      for (final e in found.entries) e.key: e.value ?? '',
+      if (!fromCache)
+        for (final uid in batch)
+          if (!found.containsKey(uid)) uid: '',
+    };
+
 class FriendsScreen extends StatefulWidget {
   const FriendsScreen({super.key});
 
@@ -41,7 +64,8 @@ class FriendsScreen extends StatefulWidget {
   State<FriendsScreen> createState() => _FriendsScreenState();
 }
 
-class _FriendsScreenState extends State<FriendsScreen> {
+class _FriendsScreenState extends State<FriendsScreen>
+    with WidgetsBindingObserver {
   final _formKey = GlobalKey<FormState>();
   final _uidController = TextEditingController();
   final _firestore = FirebaseFirestore.instance;
@@ -68,12 +92,37 @@ class _FriendsScreenState extends State<FriendsScreen> {
     if (uid != null) {
       _friendsStream = _firestore.collection('users').doc(uid).snapshots();
     }
+    WidgetsBinding.instance.addObserver(this);
+    ConnectivityService.instance.online.addListener(_onConnectivityChanged);
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    ConnectivityService.instance.online.removeListener(_onConnectivityChanged);
     _uidController.dispose();
     super.dispose();
+  }
+
+  // This screen stays mounted for the whole session (Home's IndexedStack), and
+  // names were otherwise fetched only when the friends list changed: a lookup
+  // that failed offline never retried, and a friend's rename never showed.
+  // Re-resolve on the two moments that can fix both.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _refreshNames();
+  }
+
+  void _onConnectivityChanged() {
+    if (ConnectivityService.instance.online.value) _refreshNames();
+  }
+
+  /// Re-fetch every current friend's name in place (no flash back to
+  /// "Loading..."): retries lookups that couldn't complete and picks up
+  /// renames.
+  void _refreshNames() {
+    if (_knownUids.isEmpty) return;
+    unawaited(_fetchNames(_knownUids.toList()));
   }
 
   Future<void> _addFriendByUid(String friendUid) async {
@@ -253,30 +302,29 @@ class _FriendsScreenState extends State<FriendsScreen> {
         trace.setMetric(PerfTraces.metricCount, uids.length);
         return Future.wait(batches.map((batch) async {
           try {
-            return await _firestore
+            final snap = await _firestore
                 .collection('users')
                 .where(FieldPath.documentId, whereIn: batch)
                 .get();
+            return (batch: batch, snap: snap);
           } catch (_) {
-            return null;
+            return (batch: batch, snap: null);
           }
         }));
       },
     );
     if (!mounted) return;
     setState(() {
-      for (final snap in results) {
-        if (snap == null) continue;
-        for (final doc in snap.docs) {
-          final name = (doc.data()['displayName'] as String?) ?? '';
-          _namesByUid[doc.id] = name;
-        }
-      }
-      // Any uid in `uids` that came back missing (deleted account) gets an
-      // empty-string marker so the list rendering shows "Unknown player"
-      // immediately instead of spinning a loader forever.
-      for (final u in uids) {
-        _namesByUid.putIfAbsent(u, () => '');
+      for (final (:batch, :snap) in results) {
+        if (snap == null) continue; // failed: leave unresolved for a retry
+        _namesByUid.addAll(namesFromLookup(
+          batch,
+          {
+            for (final doc in snap.docs)
+              doc.id: doc.data()['displayName'] as String?,
+          },
+          fromCache: snap.metadata.isFromCache,
+        ));
       }
     });
   }
