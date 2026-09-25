@@ -336,6 +336,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
     AppPreferences.getDistanceUnit().then((unit) {
       if (mounted) setState(() => _distanceUnit = unit);
     });
+    AppPreferences.distanceUnitChanged.addListener(_onDistanceUnitChanged);
 
     // Kick off the scan immediately on first build.
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -345,12 +346,18 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
 
   @override
   void dispose() {
+    AppPreferences.distanceUnitChanged.removeListener(_onDistanceUnitChanged);
     unawaited(_moveSub?.cancel());
     _successController.dispose();
     _pulseController.dispose();
     _confettiController.dispose();
     _ownJames?.dispose();
     super.dispose();
+  }
+
+  void _onDistanceUnitChanged() {
+    final unit = AppPreferences.distanceUnitChanged.value;
+    if (unit != null && mounted) setState(() => _distanceUnit = unit);
   }
 
   // ── Empty-state movement watch ──────────────────────────────────────────────

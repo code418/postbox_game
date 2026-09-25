@@ -91,6 +91,7 @@ class _NearbyState extends State<Nearby> {
     AppPreferences.getDistanceUnit().then((unit) {
       if (mounted) setState(() => _distanceUnit = unit);
     });
+    AppPreferences.distanceUnitChanged.addListener(_onDistanceUnitChanged);
     AppPreferences.getViewMode('nearby').then((mode) {
       if (mounted) setState(() => _viewMode = mode);
     });
@@ -98,9 +99,15 @@ class _NearbyState extends State<Nearby> {
 
   @override
   void dispose() {
+    AppPreferences.distanceUnitChanged.removeListener(_onDistanceUnitChanged);
     _compassSubscription?.cancel();
     _headingNotifier.dispose();
     super.dispose();
+  }
+
+  void _onDistanceUnitChanged() {
+    final unit = AppPreferences.distanceUnitChanged.value;
+    if (unit != null && mounted) setState(() => _distanceUnit = unit);
   }
 
   final HttpsCallable callable =

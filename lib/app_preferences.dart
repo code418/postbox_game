@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 const String _keyDistanceUnit = 'distance_unit';
@@ -27,9 +28,20 @@ class AppPreferences {
     return DistanceUnit.meters;
   }
 
+  /// The unit most recently chosen via [setDistanceUnit] in this process, or
+  /// null if it hasn't changed.
+  ///
+  /// Nearby and Claim stay mounted behind Settings (Home keeps its tabs alive
+  /// in an IndexedStack) and otherwise read the stored unit only when they
+  /// start and on each scan. Without this, choosing miles left them showing
+  /// "Stand within 30 m" and metre distances until the next scan.
+  static final ValueNotifier<DistanceUnit?> distanceUnitChanged =
+      ValueNotifier<DistanceUnit?>(null);
+
   static Future<void> setDistanceUnit(DistanceUnit unit) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keyDistanceUnit, unit == DistanceUnit.miles ? 'miles' : 'meters');
+    distanceUnitChanged.value = unit;
   }
 
   /// Converts meters to display value; callers use [AppPreferences.getDistanceUnit] for unit.
