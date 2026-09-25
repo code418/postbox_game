@@ -189,9 +189,21 @@ class ClaimOutbox {
 
   static const String storageKey = 'claim_outbox_v1';
 
-  /// Where [pendingFlushAttemptId] is persisted. Separate from [storageKey] so
-  /// it survives outbox mutations (and a process restart) independently.
+  /// Prefix of where [pendingFlushAttemptId] is persisted, one key per
+  /// account (see [flushAttemptKeyFor]). Separate from [storageKey] so it
+  /// survives outbox mutations (and a process restart) independently. The
+  /// bare key is where builds before per-account keys kept it.
   static const String flushAttemptKey = 'claim_outbox_flush_attempt_v1';
+
+  /// Per account, like [OutboxEntry.uid], because the server binds an attempt
+  /// id to the uid that first sent it. A single device-wide slot let the next
+  /// account on the device reuse the previous one's id after a lost response:
+  /// the server refused it (`permission-denied`) on every retry until its
+  /// 48 h attempts TTL, longer than the grace window, so that account's
+  /// banked captures aged out unflushed. Per-account keys also let each
+  /// account's lost-response replay survive the other's session.
+  static String flushAttemptKeyFor(String? uid) =>
+      '$flushAttemptKey:${uid ?? ''}';
 
   /// Bounded queue: far above any honest outing (the server flush batch is 20
   /// and the daily quota 30), low enough that a runaway path can't bloat
@@ -307,10 +319,12 @@ class ClaimOutbox {
   ///
   /// Persisted rather than held in memory so a flush interrupted by the app
   /// being killed still replays on next launch.
+  ///
+  /// Scoped to the signed-in account: see [flushAttemptKeyFor].
   Future<String?> pendingFlushAttemptId() async {
     try {
       final prefs = await _prefsProvider();
-      return prefs.getString(flushAttemptKey);
+      return prefs.getString(flushAttemptKeyFor(_uidProvider()));
     } catch (_) {
       return null; // unreadable storage: a fresh id is the safe fallback
     }
@@ -319,13 +333,31 @@ class ClaimOutbox {
   Future<void> setPendingFlushAttemptId(String? id) async {
     try {
       final prefs = await _prefsProvider();
+      final key = flushAttemptKeyFor(_uidProvider());
       if (id == null) {
-        await prefs.remove(flushAttemptKey);
+        await prefs.remove(key);
       } else {
-        await prefs.setString(flushAttemptKey, id);
+        await prefs.setString(key, id);
       }
+      // An id in the pre-per-account slot has no known owner, so it can't be
+      // safely replayed: drop it. Costs at most one re-adjudication.
+      if (prefs.containsKey(flushAttemptKey)) await prefs.remove(flushAttemptKey);
     } catch (_) {
       // Best effort: losing the marker costs at most one re-adjudication.
+    }
+  }
+
+  /// Forget every account's pending flush id (and the legacy one).
+  Future<void> _clearAllPendingFlushAttemptIds() async {
+    try {
+      final prefs = await _prefsProvider();
+      for (final key in prefs.getKeys().toList()) {
+        if (key == flushAttemptKey || key.startsWith('$flushAttemptKey:')) {
+          await prefs.remove(key);
+        }
+      }
+    } catch (_) {
+      // Best effort, as above.
     }
   }
 
@@ -340,7 +372,7 @@ class ClaimOutbox {
   Future<void> clearAll() async {
     _cache = [];
     await _save();
-    await setPendingFlushAttemptId(null);
+    await _clearAllPendingFlushAttemptIds();
   }
 
   /// Drop entries older than the grace window (they can never flush

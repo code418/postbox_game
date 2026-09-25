@@ -258,5 +258,42 @@ void main() {
       await outbox.refreshOwnership();
       expect(outbox.pendingCount.value, 1);
     });
+
+    test("a pending flush id is never handed to another account", () async {
+      // The server binds an attempt id to the uid that first sent it. With one
+      // device-wide slot, user B reused user A's id after A's flush response
+      // was lost, and got `permission-denied` on every flush for the 48 h
+      // attempts TTL, by which time B's own captures had aged out.
+      var uid = 'userA';
+      final outbox = ClaimOutbox(uidProvider: () => uid);
+      await outbox.setPendingFlushAttemptId('flush-A');
+
+      uid = 'userB';
+      expect(await outbox.pendingFlushAttemptId(), isNull);
+      await outbox.setPendingFlushAttemptId('flush-B');
+      await outbox.setPendingFlushAttemptId(null); // B's response arrived
+
+      uid = 'userA';
+      expect(await outbox.pendingFlushAttemptId(), 'flush-A',
+          reason: "A's lost-response replay survives B's session");
+    });
+
+    test('clearAll drops every account\'s pending flush id', () async {
+      await outboxFor('userB').setPendingFlushAttemptId('flush-B');
+      await outboxFor('userA').clearAll();
+      expect(await outboxFor('userB').pendingFlushAttemptId(), isNull);
+    });
+
+    test('an id from before per-account keys is never replayed', () async {
+      // Its owner is unknowable, so replaying it could be the bug above.
+      SharedPreferences.setMockInitialValues(
+          {ClaimOutbox.flushAttemptKey: 'legacy'});
+      final a = outboxFor('userA');
+      expect(await a.pendingFlushAttemptId(), isNull);
+      await a.setPendingFlushAttemptId('fresh');
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.containsKey(ClaimOutbox.flushAttemptKey), isFalse);
+      expect(await a.pendingFlushAttemptId(), 'fresh');
+    });
   });
 }
