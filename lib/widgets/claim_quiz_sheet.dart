@@ -440,6 +440,13 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
     if (RemoteConfigService.instance.killSwitchOfflineClaims) return false;
     final cached = ScanCache.fresh(uid: ClaimOutbox.currentUid());
     if (cached == null) return false;
+    // An empty scan can't be claimed from, so replaying one rescues nothing.
+    // It would only tell a player who may have walked up to 250 m that there
+    // are no postboxes here, hide that they have no signal, and leave them
+    // with no Retry once they reach a box.
+    final cachedTotal =
+        ((cached.data['counts'] as Map?)?['total'] as num?)?.toInt() ?? 0;
+    if (cachedTotal == 0) return false;
     final movedM = Geolocator.distanceBetween(
       cached.position.latitude,
       cached.position.longitude,
