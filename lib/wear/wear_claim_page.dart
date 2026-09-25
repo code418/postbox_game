@@ -4,6 +4,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:postbox_game/firebase_functions_eu.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:geolocator/geolocator.dart' show Position;
 import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/remote_config_service.dart';
 import 'package:postbox_game/services/claim_outbox.dart';
@@ -61,7 +62,18 @@ class WearClaimPage extends StatefulWidget {
     required this.signedIn,
     this.onSignInRequested,
     this.autoScan = false,
+    @visibleForTesting this.nearbyCallable,
+    @visibleForTesting this.claimCallable,
+    @visibleForTesting this.positionProvider,
   });
+
+  /// Test seams, as on the phone's ClaimQuizSheet: default to the real
+  /// `nearbyPostboxes` / `startScoring` callables and GPS.
+  final Future<HttpsCallableResult<dynamic>> Function(Map<String, dynamic>)?
+      nearbyCallable;
+  final Future<HttpsCallableResult<dynamic>> Function(Map<String, dynamic>)?
+      claimCallable;
+  final Future<Position> Function()? positionProvider;
 
   final bool signedIn;
   final VoidCallback? onSignInRequested;
@@ -103,10 +115,17 @@ class _WearClaimPageState extends State<WearClaimPage> {
   /// denied, services off, network down). Null when there's no active error.
   String? _errorMessage;
 
-  final HttpsCallable _nearbyCallable =
-      appFunctions.httpsCallable('nearbyPostboxes');
-  final HttpsCallable _claimCallable =
-      appFunctions.httpsCallable('startScoring');
+  late final Future<HttpsCallableResult<dynamic>> Function(
+          Map<String, dynamic>) _nearbyCallable =
+      widget.nearbyCallable ??
+          (p) => appFunctions.httpsCallable('nearbyPostboxes').call(p);
+  late final Future<HttpsCallableResult<dynamic>> Function(
+          Map<String, dynamic>) _claimCallable =
+      widget.claimCallable ??
+          (p) => appFunctions.httpsCallable('startScoring').call(p);
+
+  Future<Position> _position() => (widget.positionProvider ??
+      () => getPosition(forceLocationManager: true))();
   final StreakService _streakService = StreakService();
 
   /// Created on first claim success rather than at mount, so it binds to the
@@ -123,10 +142,10 @@ class _WearClaimPageState extends State<WearClaimPage> {
     });
     Analytics.scanStarted();
     try {
-      final position = await getPosition(forceLocationManager: true);
+      final position = await _position();
       // Read-only scan: safe to retry wholesale on a transport flake.
       final result =
-          await retryOnUnavailable(() => _nearbyCallable.call(<String, dynamic>{
+          await retryOnUnavailable(() => _nearbyCallable(<String, dynamic>{
                 'lat': position.latitude,
                 'lng': position.longitude,
                 'meters': RemoteConfigService.instance.claimRadiusMeters,
@@ -243,6 +262,11 @@ class _WearClaimPageState extends State<WearClaimPage> {
   }
 
   Future<void> _claimPostbox() async {
+    // Re-entry guard, as _scan has and the phone's claim path does. The CTA
+    // stays live until the next frame, so a double-tap ran two claims; only
+    // one scores, but if the loser's "already claimed" answer arrived second
+    // it replaced the "Claimed!" screen with a rescan.
+    if (_stage == WearClaimStage.claiming) return;
     if (!widget.signedIn) {
       widget.onSignInRequested?.call();
       return;
@@ -268,7 +292,7 @@ class _WearClaimPageState extends State<WearClaimPage> {
       _errorMessage = null;
     });
     try {
-      final position = await getPosition(forceLocationManager: true);
+      final position = await _position();
       final deviceIdHash = await DeviceIdService.get();
       // One id per logical claim attempt, exactly as the phone claim sheet
       // does. A watch's tethered link drops far more readily than a phone's,
@@ -280,7 +304,7 @@ class _WearClaimPageState extends State<WearClaimPage> {
       // which is also what makes the auto-retry below safe on a WRITE call.
       final attemptId = newAttemptId();
       final result =
-          await retryOnUnavailable(() => _claimCallable.call(<String, dynamic>{
+          await retryOnUnavailable(() => _claimCallable(<String, dynamic>{
                 'lat': position.latitude,
                 'lng': position.longitude,
                 // Client wall-clock for the shadow-mode out-of-window anomaly
