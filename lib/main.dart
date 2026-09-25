@@ -357,7 +357,15 @@ class _UnauthGateState extends State<_UnauthGate> {
       return Intro(
         replay: false,
         onDone: () async {
-          await IntroPreferences.setIntroSeen();
+          // Never let this write stand between the player and sign-in. The
+          // intro latches its final button, so a throw here (or a hang: the
+          // SharedPreferences channel hangs rather than throws when it's
+          // down) left them on the intro with a button that did nothing. The
+          // worst a failed write costs is seeing the intro again next launch.
+          try {
+            await IntroPreferences.setIntroSeen()
+                .timeout(const Duration(seconds: 3));
+          } catch (_) {}
           unawaited(Analytics.setUserProperty(
               AnalyticsUserProps.kHasSeenIntro, 'true'));
           if (mounted) setState(() => _introSeen = true);
