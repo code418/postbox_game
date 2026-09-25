@@ -458,6 +458,29 @@ void main() {
     });
   });
 
+  group('leaderboard size stays in sync', () {
+    // The client only says "outside the top N" when a board is full; below
+    // that, a missing player simply hasn't scored. A drift would mislabel one
+    // or the other.
+    test('kLeaderboardSize (Dart) == both merge limits (TS)', () {
+      final dart = File('lib/leaderboard_screen.dart').readAsStringSync();
+      final dartM =
+          RegExp(r'const int kLeaderboardSize\s*=\s*(\d+)').firstMatch(dart);
+      expect(dartM, isNotNull, reason: 'kLeaderboardSize not found');
+      final ts =
+          File('functions/src/_leaderboardUtils.ts').readAsStringSync();
+      final limits = RegExp(r'limit\s*=\s*(\d+)')
+          .allMatches(ts)
+          .map((m) => int.parse(m.group(1)!))
+          .toList();
+      expect(limits, hasLength(2),
+          reason: 'expected the period and lifetime merge limits');
+      for (final l in limits) {
+        expect(l, int.parse(dartM!.group(1)!));
+      }
+    });
+  });
+
   group('claim radius stays in sync', () {
     // The Dart side controls the nearby-scan + claim-distance UI; the TS side
     // controls the server-authoritative geohash lookup. A drift means the

@@ -12,6 +12,33 @@ import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/user_profile_page.dart';
 import 'package:postbox_game/widgets/stale_data_chip.dart';
 
+/// How many entries the server keeps on each board: mirrors the `limit = 100`
+/// default in functions/src/_leaderboardUtils.ts (pinned by
+/// test/cross_language_sync_test.dart).
+const int kLeaderboardSize = 100;
+
+/// The line under a board the signed-in player isn't on.
+///
+/// Boards leave out zero scores, so a player missing from a board that isn't
+/// full hasn't scored this period; only on a full board are they genuinely
+/// "outside the top N". Telling someone who hasn't claimed today that they're
+/// outside the top 4 of a 4-entry board was simply wrong.
+String notOnBoardText(String period, int shown) {
+  if (shown >= kLeaderboardSize) {
+    return period == 'lifetime'
+        ? 'You\'re outside the top $shown — keep exploring!'
+        : 'You\'re outside the top $shown — keep claiming to climb!';
+  }
+  return switch (period) {
+    'daily' => 'No points today yet — claim a postbox to get on the board!',
+    'weekly' =>
+      'No points this week yet — claim a postbox to get on the board!',
+    'monthly' =>
+      'No points this month yet — claim a postbox to get on the board!',
+    _ => 'Claim your first postbox to get on the board!',
+  };
+}
+
 /// Leaderboard with Daily, Weekly, Monthly, Lifetime tabs.
 /// Reads from Firestore leaderboards/{period}; backend aggregates via Cloud Function.
 class LeaderboardScreen extends StatefulWidget {
@@ -272,7 +299,7 @@ class _LeaderboardListState extends State<_LeaderboardList>
         final currentUserInList = _currentUid != null &&
             entries.any((e) =>
                 e is Map && e['uid'] == _currentUid);
-        // Only show the "outside the top N" footer when authenticated but not
+        // Only show the not-on-the-board footer when authenticated but not
         // in the list; omit it for unauthenticated viewers.
         final showFooter = _currentUid != null && !currentUserInList;
         final rangeText = _periodRangeText(widget.period);
@@ -308,9 +335,7 @@ class _LeaderboardListState extends State<_LeaderboardList>
                   padding: const EdgeInsets.fromLTRB(
                       AppSpacing.md, AppSpacing.sm, AppSpacing.md, AppSpacing.lg),
                   child: Text(
-                    _isLifetime
-                        ? 'You\'re outside the top ${entries.length} — keep exploring!'
-                        : 'You\'re outside the top ${entries.length} — keep claiming to climb!',
+                    notOnBoardText(widget.period, entries.length),
                     textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: Theme.of(context).colorScheme.onSurfaceVariant,
