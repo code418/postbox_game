@@ -610,8 +610,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     // 3. Delete + return to the auth gate.
     setState(() => _isSaving = true);
     try {
-      await _userRepository.deleteAccount(currentPassword: password);
-      if (!mounted) return;
+      final deleted =
+          await _userRepository.deleteAccount(currentPassword: password);
+      // False: a Google user backed out of re-authentication. Nothing was
+      // deleted and nothing went wrong, so just return to idle.
+      if (!deleted || !mounted) return;
       context.read<AuthenticationBloc>().add(LoggedOut());
       Navigator.of(context).popUntil((route) => route.isFirst);
     } on FirebaseAuthException catch (e) {
@@ -815,7 +818,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ListTile(
             leading: const Icon(Icons.play_circle_outline),
             title: const Text('Replay intro'),
-            subtitle: const Text('Watch the Postman James intro again'),
+            subtitle: const Text('Watch the introduction again'),
             onTap: () {
               Navigator.of(context).push(
                 MaterialPageRoute<void>(

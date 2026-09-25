@@ -201,7 +201,12 @@ class UserRepository {
   /// The `onUserDeleted` Cloud Function then erases / anonymises the user's
   /// Firestore + Storage data. Throws [FirebaseAuthException] on wrong password,
   /// `requires-recent-login`, or no current user.
-  Future<void> deleteAccount({String? currentPassword}) async {
+  ///
+  /// Returns false, having deleted nothing, when a Google user dismisses the
+  /// re-authentication chooser: backing out is not a failure, so the caller
+  /// should just return to idle (as [signInWithGoogle] does for the same
+  /// codes) rather than report that the deletion failed.
+  Future<bool> deleteAccount({String? currentPassword}) async {
     final user = _firebaseAuth.currentUser;
     if (user == null) {
       throw FirebaseAuthException(code: 'no-current-user');
@@ -220,7 +225,16 @@ class UserRepository {
       );
       await user.reauthenticateWithCredential(credential);
     } else if (providers.contains('google.com')) {
-      final googleUser = await _googleSignIn.authenticate();
+      final GoogleSignInAccount googleUser;
+      try {
+        googleUser = await _googleSignIn.authenticate();
+      } on GoogleSignInException catch (e) {
+        if (e.code == GoogleSignInExceptionCode.canceled ||
+            e.code == GoogleSignInExceptionCode.interrupted) {
+          return false;
+        }
+        rethrow;
+      }
       final googleAuth = googleUser.authentication;
       final credential = GoogleAuthProvider.credential(idToken: googleAuth.idToken);
       await user.reauthenticateWithCredential(credential);
@@ -253,6 +267,7 @@ class UserRepository {
     try {
       await _googleSignIn.signOut();
     } catch (_) {}
+    return true;
   }
 
   Future<void> signOut() async {

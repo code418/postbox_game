@@ -8,6 +8,7 @@ import 'package:firebase_core_platform_interface/test.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:postbox_game/app_preferences.dart';
 import 'package:postbox_game/authentication_bloc/bloc.dart';
 import 'package:postbox_game/claim_history_screen.dart';
@@ -36,6 +37,18 @@ import 'package:postbox_game/validators.dart';
 // ---------------------------------------------------------------------------
 // Firebase mock setup
 // ---------------------------------------------------------------------------
+
+/// Fails every Google authentication with [code].
+class _ThrowingGoogleSignIn extends Fake implements GoogleSignIn {
+  _ThrowingGoogleSignIn(this.code);
+  final GoogleSignInExceptionCode code;
+
+  @override
+  Future<GoogleSignInAccount> authenticate({
+    List<String> scopeHint = const [],
+  }) async =>
+      throw GoogleSignInException(code: code);
+}
 
 Future<void> setupFirebaseMocks() async {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -425,8 +438,39 @@ void main() {
       // verifies the password-provider re-auth → delete call chain.
       await expectLater(
         repo.deleteAccount(currentPassword: 'password123'),
-        completes,
+        completion(isTrue),
       );
+    });
+
+    Future<UserRepository> googleUserRepo(GoogleSignInExceptionCode code) async {
+      final auth = MockFirebaseAuth(
+          signedIn: true, mockUser: MockUser(uid: 'g1', email: 'g@x.com'));
+      await auth.currentUser!.linkWithProvider(GoogleAuthProvider());
+      return UserRepository(
+        firebaseAuth: auth,
+        firestore: fakeFirestore,
+        googleSignin: _ThrowingGoogleSignIn(code),
+      );
+    }
+
+    test('deleteAccount returns false, deleting nothing, when a Google user '
+        'cancels re-auth', () async {
+      // Backing out of the chooser is not a failure: Settings showed "Could
+      // not delete your account" for it.
+      for (final code in [
+        GoogleSignInExceptionCode.canceled,
+        GoogleSignInExceptionCode.interrupted,
+      ]) {
+        final r = await googleUserRepo(code);
+        expect(await r.deleteAccount(), isFalse, reason: '$code');
+        expect(r.currentUid, 'g1', reason: 'still signed in, not deleted');
+      }
+    });
+
+    test('deleteAccount still throws a real Google re-auth failure', () async {
+      final r = await googleUserRepo(GoogleSignInExceptionCode.unknownError);
+      await expectLater(
+          r.deleteAccount(), throwsA(isA<GoogleSignInException>()));
     });
   });
 
