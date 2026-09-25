@@ -58,6 +58,17 @@ class WidgetAutoScanRequests {
     if (_signedIn) _epoch = 0;
     _signedIn = false;
   }
+
+  String? _shownFor;
+
+  /// The watch's variant of [signedIn]/[signedOut]. Its shell is shown signed
+  /// out too (guest mode), so a tap is used the moment it's made and ANY
+  /// later change of account (sign-in, sign-out, switch) drops it. [account]
+  /// identifies who the shell is being built for.
+  void shownFor(String account) {
+    if (_shownFor != null && _shownFor != account) _epoch = 0;
+    _shownFor = account;
+  }
 }
 
 /// Whether [routeName] is the engine's named-route echo of one of the app's

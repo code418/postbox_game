@@ -182,6 +182,22 @@ void main() {
       expect(r.epoch, 1);
     });
 
+    test('watch: any account change after the shell showed a tap drops it',
+        () {
+      // The watch shell is shown signed out too (guest mode), so the tap is
+      // used at once; a later sign-in must not reopen on the claim page.
+      final r = WidgetAutoScanRequests(launchedFromWidget: true)
+        ..shownFor('signed-out');
+      expect(r.epoch, 1, reason: 'the first build is the tap itself');
+      r.shownFor('signed-out'); // a rebuild for the same account
+      expect(r.epoch, 1);
+      r.shownFor('uid-1');
+      expect(r.epoch, 0);
+      r.tapped();
+      r.shownFor('signed-out');
+      expect(r.epoch, 0);
+    });
+
     test('every warm tap changes the epoch so Home remounts', () {
       final r = WidgetAutoScanRequests()..signedIn();
       final seen = <int>{};

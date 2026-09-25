@@ -55,8 +55,11 @@ class _WearPostboxGameState extends State<WearPostboxGame> {
 
   /// Bumped on every tile/complication tap. Part of the shell's key, so each
   /// tap remounts [WearHome] with a fresh claim page rather than reconciling
-  /// the existing state (whose auto-scan has already fired).
-  int _autoScanEpoch = wearPendingAutoScan ? 1 : 0;
+  /// the existing state (whose auto-scan has already fired). Dropped on an
+  /// account change, or every later sign-in/out would open on the claim page
+  /// and scan unasked.
+  final WidgetAutoScanRequests _autoScan =
+      WidgetAutoScanRequests(launchedFromWidget: wearPendingAutoScan);
 
   @override
   void initState() {
@@ -66,7 +69,7 @@ class _WearPostboxGameState extends State<WearPostboxGame> {
     try {
       _clickSub = HomeWidget.widgetClicked.listen((uri) {
         if (isClaimDeepLink(uri)) {
-          setState(() => _autoScanEpoch++);
+          setState(_autoScan.tapped);
         }
       });
     } catch (_) {
@@ -97,6 +100,8 @@ class _WearPostboxGameState extends State<WearPostboxGame> {
         home: BlocConsumer<AuthenticationBloc, AuthenticationState?>(
           listener: (context, state) {
             if (state is Authenticated || state is Unauthenticated) {
+              // Read by the builder that runs right after this listener.
+              _autoScan.shownFor(_userRepository.currentUid ?? 'signed-out');
               // Keep the tile and complications honest across sign-in and
               // sign-out: signed out they must show their signed-out face
               // rather than the previous account's streak.
@@ -115,14 +120,15 @@ class _WearPostboxGameState extends State<WearPostboxGame> {
               // doc) and cached scan results must never survive into a
               // different account's session. The epoch is in the key for the
               // same reason a tap must not be reconciled away.
+              final epoch = _autoScan.epoch;
               return WearHome(
                 key: ValueKey<String>(
                     '${_userRepository.currentUid ?? 'signed-out'}'
-                    '-$_autoScanEpoch'),
+                    '-$epoch'),
                 signedIn: signedIn,
                 userRepository: _userRepository,
-                initialPage: _autoScanEpoch > 0 ? WearHome.claimPageIndex : 0,
-                autoScan: _autoScanEpoch > 0,
+                initialPage: epoch > 0 ? WearHome.claimPageIndex : 0,
+                autoScan: epoch > 0,
               );
             }
             // Uninitialized or null — show a minimal loading indicator.
