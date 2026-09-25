@@ -32,6 +32,17 @@ bool isWidgetClaimDeepLink(Uri? uri) =>
     uri.host == 'claim' &&
     uri.queryParameters['source'] == 'widget';
 
+/// Whether [routeName] is the engine's named-route echo of one of the app's
+/// own claim deep links: `postbox://claim?source=widget` has no path, so it
+/// arrives as `/?source=widget`. See [unknownRoute].
+bool isClaimDeepLinkEcho(String? routeName) {
+  final uri = routeName == null ? null : Uri.tryParse(routeName);
+  return uri != null &&
+      !uri.hasScheme &&
+      uri.path == '/' &&
+      kClaimDeepLinkSources.contains(uri.queryParameters['source']);
+}
+
 /// Swallow a named route the app doesn't own, instead of crashing.
 ///
 /// The platform pushes intent URIs into the Navigator as named routes
@@ -49,15 +60,19 @@ bool isWidgetClaimDeepLink(Uri? uri) =>
 /// the `_routeNamed(...)!` in `pushNamed` — so it returns a transparent one
 /// that pops on the first frame.
 ///
-/// Unknown routes are still reported (non-fatally, deduped) so a genuinely
-/// broken deep link doesn't just vanish.
+/// Other unknown routes are still reported (non-fatally, deduped) so a
+/// genuinely broken deep link doesn't just vanish. The claim-link echo is
+/// not: it is expected on every tap made while the app is open, and logging
+/// it buried any real broken link under a steady trickle of known noise.
 Route<void> unknownRoute(RouteSettings settings) {
-  unawaited(CrashlyticsHelper.recordHandled(
-    StateError('unknown route pushed: ${settings.name}'),
-    StackTrace.current,
-    reason: 'navigator_unknown_route',
-    dedupeKey: 'unknown_route_${settings.name}',
-  ));
+  if (!isClaimDeepLinkEcho(settings.name)) {
+    unawaited(CrashlyticsHelper.recordHandled(
+      StateError('unknown route pushed: ${settings.name}'),
+      StackTrace.current,
+      reason: 'navigator_unknown_route',
+      dedupeKey: 'unknown_route_${settings.name}',
+    ));
+  }
   return PageRouteBuilder<void>(
     settings: settings,
     opaque: false,

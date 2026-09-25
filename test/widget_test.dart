@@ -179,6 +179,20 @@ void main() {
           reason: 'the swallowed route pops itself, leaving the user in place');
     });
 
+    test('recognises the engine echo of every claim deep-link source', () {
+      // Expected on every widget/tile/complication tap made while the app is
+      // open, so unknownRoute must not report these to Crashlytics.
+      for (final source in kClaimDeepLinkSources) {
+        expect(isClaimDeepLinkEcho('/?source=$source'), isTrue,
+            reason: source);
+      }
+      expect(isClaimDeepLinkEcho(null), isFalse);
+      expect(isClaimDeepLinkEcho('/?source=push'), isFalse);
+      expect(isClaimDeepLinkEcho('/claim?source=widget'), isFalse);
+      expect(isClaimDeepLinkEcho('/'), isFalse);
+      expect(isClaimDeepLinkEcho('postbox://claim?source=widget'), isFalse);
+    });
+
     testWidgets('a registered route still resolves normally', (tester) async {
       final navKey = GlobalKey<NavigatorState>();
       await tester.pumpWidget(MaterialApp(
