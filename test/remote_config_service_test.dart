@@ -376,6 +376,22 @@ void main() {
           equals(RemoteConfigService.welcomeVariantClassic));
       expect(fake.fetchAndActivateCalls, equals(1));
     });
+
+    test('a failed launch fetch still listens for config pushes', () async {
+      // Launching without signal is exactly when the fetch throws. The
+      // process must still hear a maintenance flag pushed once signal
+      // returns: MaintenanceGuard is the only gate on claiming.
+      final fake = _FakeRemoteConfig(shouldThrowOnFetch: true);
+      final service = RemoteConfigService(remoteConfig: fake);
+      await service.init();
+      expect(service.maintenanceModeListenable.value, isFalse);
+
+      fake.pushRemoteUpdate({RemoteConfigService.keyMaintenanceMode: true});
+      await Future<void>.delayed(Duration.zero);
+
+      expect(service.maintenanceModeListenable.value, isTrue);
+      fake.disposeFake();
+    });
   });
 
   group('RemoteConfigService.forceRefresh', () {

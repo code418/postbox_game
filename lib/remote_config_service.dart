@@ -132,11 +132,18 @@ class RemoteConfigService {
       ));
       await _rc.setDefaults(defaults);
       await _rc.fetchAndActivate();
-      _syncMaintenanceMode();
-      _subscribeToConfigUpdates();
     } catch (e, st) {
+      // Typically a launch without signal once the cache is older than the
+      // fetch interval. The last activated values keep serving.
       debugPrint('RemoteConfigService.init failed: $e\n$st');
     }
+    // Deliberately outside the try. A launch without signal is exactly when
+    // the fetch throws (offline play), and skipping the subscription then
+    // left the whole process deaf to config pushes: a maintenance flag
+    // flipped once signal returned never arrived, and maintenance mode is
+    // the only gate on claiming (startScoring has no server-side check).
+    _syncMaintenanceMode();
+    _subscribeToConfigUpdates();
   }
 
   /// Push-channel subscription so a flag flipped on the Firebase console
