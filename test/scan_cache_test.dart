@@ -35,6 +35,27 @@ void main() {
     expect(ScanCache.fresh(), isNull);
   });
 
+  test('a scan from before London midnight is not served after it', () {
+    // Its claimedToday flags are yesterday's: replaying them would hide boxes
+    // that are claimable again. 22:30 UTC is 23:30 London (BST).
+    final taken = DateTime.utc(2026, 9, 24, 22, 30);
+    ScanCache.store(_scan(fetchedAtMs: taken.millisecondsSinceEpoch));
+    expect(
+        ScanCache.fresh(now: taken.add(const Duration(minutes: 20))), isNotNull,
+        reason: '23:50 London, same day');
+    expect(ScanCache.fresh(now: taken.add(const Duration(minutes: 40))), isNull,
+        reason: '00:10 London, the next day');
+  });
+
+  test('the day boundary is London midnight, not UTC midnight', () {
+    // 23:30 UTC is already 00:30 London in summer, and 00:10 UTC the next
+    // UTC day is still the same London day.
+    final taken = DateTime.utc(2026, 9, 24, 23, 30);
+    ScanCache.store(_scan(fetchedAtMs: taken.millisecondsSinceEpoch));
+    expect(ScanCache.fresh(now: taken.add(const Duration(minutes: 40))),
+        isNotNull);
+  });
+
   test('a scan is not served to a different account', () {
     ScanCache.store(_scan(uid: 'userA'));
     expect(ScanCache.fresh(uid: 'userB'), isNull,
