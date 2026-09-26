@@ -1,7 +1,7 @@
 # R8 app optimization — design
 
 **Date:** 2026-07-24
-**Status:** approved (design), pending implementation
+**Status:** implemented 2026-09-26 (cherry-picked from 351b7b6 onto master; see that commit for the verification results)
 **Scope:** Android build configuration only. No Dart, no app source, no Cloud Functions.
 
 ## Problem
