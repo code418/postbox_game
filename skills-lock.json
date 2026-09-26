@@ -5,13 +5,13 @@
       "source": "android/skills",
       "sourceType": "github",
       "skillPath": "jetpack-compose/adaptive/SKILL.md",
-      "computedHash": "5bb2d0cbad1933944ac627b02eac5717e3bf3928b913f343687c9d73db6b7428"
+      "computedHash": "acc4ca48c32c1cb6c2b511b7649856fa646b9db284efbc12130440eae1391e77"
     },
     "android-intent-security": {
       "source": "android/skills",
       "sourceType": "github",
       "skillPath": "security/android-intent-security/SKILL.md",
-      "computedHash": "fc4d0fd2767b1ad00d9f1f1aa0898c3e04140717150876b3b97757a76cef30e2"
+      "computedHash": "9f0e9b26ba6624d174f49225370ed3abcfdc2f8bff49b9b7cc997f81d5e08f6d"
     },
     "code-documenter": {
       "source": "jeffallan/claude-skills",
@@ -77,7 +77,7 @@
       "source": "dart-lang/skills",
       "sourceType": "github",
       "skillPath": "skills/dart-use-pattern-matching/SKILL.md",
-      "computedHash": "2693130f76375b8c81b160f2861d0354432dfb2a12040be887e82afaa61e2cbb"
+      "computedHash": "a727055e721da627f2eb0fc21292fb33bafbf3d84a617bf5b06f6895021b50b5"
     },
     "debugging-wizard": {
       "source": "jeffallan/claude-skills",
@@ -179,13 +179,13 @@
       "source": "android/skills",
       "sourceType": "github",
       "skillPath": "jetpack-compose/migration/migrate-xml-views-to-jetpack-compose/SKILL.md",
-      "computedHash": "8b604e10d9e030a937e735bae4fd6598ec9eded6812dbda0f8aca90231e098ca"
+      "computedHash": "c3d009ea327d0c56bf2a062a7b9e69801006af47700e71f7bac38401225df4e8"
     },
     "r8-analyzer": {
       "source": "android/skills",
       "sourceType": "github",
       "skillPath": "performance/r8-analyzer/SKILL.md",
-      "computedHash": "992952bc5eb1b21d896c0e9d6a914820f01e22a378b4f7e01eba5e4fc96ac628"
+      "computedHash": "69fdd394fe2b5658833a10a711511ac0ae422dfbbf1d981ce08a7fa9bbcf54df"
     },
     "secure-code-guardian": {
       "source": "jeffallan/claude-skills",
@@ -221,7 +221,7 @@
       "source": "android/skills",
       "sourceType": "github",
       "skillPath": "testing/testing-setup/SKILL.md",
-      "computedHash": "76bfe8e0180767c7c1631066fd1c000ef21bd9145945d1e3192bb165b3d80d4d"
+      "computedHash": "52e837051a86739d08e7e8601e891732e1008b9f6829851f441ebc841e4d6940"
     },
     "typescript-pro": {
       "source": "jeffallan/claude-skills",
@@ -233,7 +233,7 @@
       "source": "android/skills",
       "sourceType": "github",
       "skillPath": "wear/wear-compose-m3/SKILL.md",
-      "computedHash": "a28e7848eded7daa2ad45fc625c187d4d2fc4a1cc2d9b9b24ed956815a625822"
+      "computedHash": "ed437831884c3e1f24816453c348fb14079f16df4c738ae08c24933e735d0bfd"
     }
   }
 }
