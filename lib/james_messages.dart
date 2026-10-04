@@ -452,6 +452,61 @@ abstract final class JamesMessages {
     ],
   );
 
+  // ── Your Postboxes Unpacked (annual recap) ───────────────────────────────
+
+  /// One-time Home nudge when the recap becomes available.
+  static String unpackedNudge(int year) =>
+      "Psst... your $year Postboxes Unpacked is ready. Top-right menu, postie!";
+
+  static String unpackedIntro(int year) =>
+      "Right then. Kettle's on. Let's unpack your $year, shall we?";
+
+  static String unpackedTotals(int boxes) => boxes >= 100
+      ? "$boxes postboxes! Royal Mail ought to put you on the payroll."
+      : boxes >= 25
+          ? "$boxes postboxes. That's a proper round, that is."
+          : "$boxes postboxes. Every one a little red friend.";
+
+  static const unpackedRarest = JamesMessage(
+    'jamesUnpackedRarest',
+    [
+      "Now THAT one I'd have framed.",
+      "Ooh, a proper antique. Mind the paintwork.",
+      "Rare as a second-class stamp arriving on time.",
+    ],
+  );
+
+  static const unpackedMonarchs = JamesMessage(
+    'jamesUnpackedMonarchs',
+    [
+      "Quite the royal procession you've had.",
+      "A monarch for every mood, eh?",
+    ],
+  );
+
+  static String unpackedBusiestMonth(String month) =>
+      "$month, eh? Something in the air. Or the post.";
+
+  static String unpackedStreak(int days) => days >= 7
+      ? "$days days on the trot. I've had holidays shorter than that."
+      : "$days days running. Not bad... next year, a fortnight?";
+
+  static String unpackedCounty(String county) =>
+      "$county! You practically own the place now.";
+
+  static const unpackedCommunity = JamesMessage(
+    'jamesUnpackedCommunity',
+    ["Look at all you lot. Proper community, this."],
+  );
+
+  static const unpackedOutro = JamesMessage(
+    'jamesUnpackedOutro',
+    [
+      "Same time next year? I'll bring biscuits.",
+      "Go on, show it off. You've earned it.",
+    ],
+  );
+
   // ── Intro dialogue ───────────────────────────────────────────────────────
 
   static const _introStep2Classic = JamesMessage(

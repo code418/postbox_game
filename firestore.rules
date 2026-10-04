@@ -184,5 +184,20 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // ── unpacked collection ──────────────────────────────────────────────────
+    // "Your Postboxes Unpacked" annual recap, built by buildUnpacked /
+    // rebuildUnpacked. The per-year summary is community-wide aggregates only
+    // (no uids) so any signed-in player may read it; each player's snapshot is
+    // readable by that player alone. Server-write only.
+    match /unpacked/{year} {
+      allow read: if request.auth != null;
+      allow write: if false;
+
+      match /players/{uid} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+        allow write: if false;
+      }
+    }
+
   }
 }

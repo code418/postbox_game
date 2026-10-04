@@ -299,6 +299,14 @@ class Analytics {
     }
   }
 
+  /// The annual "Your Postboxes Unpacked" recap was opened.
+  static Future<void> unpackedOpened({required int year}) =>
+      _log('unpacked_opened', {'year': year});
+
+  /// The recap's summary image was handed to the share sheet.
+  static Future<void> unpackedShared({required int year}) =>
+      _log('unpacked_shared', {'year': year});
+
   // ---------------------------------------------------------------------------
   // Internal
   // ---------------------------------------------------------------------------

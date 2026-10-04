@@ -45,6 +45,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     'friendOvertakes': true,
     'addedAsFriend': true,
     'streakReminder': true,
+    'unpackedReady': true,
   };
   bool _notifPrefsLoaded = false;
   bool _analyticsConsent = true;
@@ -167,6 +168,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             'friendOvertakes': raw['friendOvertakes'] as bool? ?? true,
             'addedAsFriend': raw['addedAsFriend'] as bool? ?? true,
             'streakReminder': raw['streakReminder'] as bool? ?? true,
+            'unpackedReady': raw['unpackedReady'] as bool? ?? true,
           };
         }
         _notifPrefsLoaded = true;
@@ -877,6 +879,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   'An evening nudge to claim before you lose your daily streak'),
               value: _notifPrefs['streakReminder']!,
               onChanged: (v) => _setNotifPref('streakReminder', v),
+            ),
+            SwitchListTile(
+              secondary: const Icon(Icons.card_giftcard_outlined),
+              title: const Text('Your Postboxes Unpacked'),
+              subtitle: const Text(
+                  'Once a year, in December, when your annual recap is ready'),
+              value: _notifPrefs['unpackedReady']!,
+              onChanged: (v) => _setNotifPref('unpackedReady', v),
             ),
           ],
           const Divider(height: 24),

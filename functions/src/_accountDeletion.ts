@@ -122,9 +122,13 @@ export async function removeUserFromFriends(db: Firestore, uid: string): Promise
 
 /** Hard-delete [uid]'s own per-user documents: the profile doc and its
  *  `countyStats` subcollection, the FCM-token / report-quota / offline-flush-quota
- *  / trust-score docs (all keyed by uid), and any moderation flags referencing
- *  the uid. */
-export async function deleteUserDocs(db: Firestore, uid: string): Promise<void> {
+ *  / trust-score docs (all keyed by uid), any moderation flags referencing
+ *  the uid, and the uid's annual-recap snapshots for each of [unpackedYears]. */
+export async function deleteUserDocs(
+  db: Firestore,
+  uid: string,
+  unpackedYears: number[] = [],
+): Promise<void> {
   const userRef = db.collection("users").doc(uid);
 
   // countyStats subcollection.
@@ -142,6 +146,10 @@ export async function deleteUserDocs(db: Firestore, uid: string): Promise<void> 
     // leaves a residual per-user activity record behind.
     db.collection("offlineFlushQuotas").doc(uid),
     db.collection("trustScores").doc(uid),
+    // "Your Postboxes Unpacked" annual recap snapshots, one per year.
+    ...unpackedYears.map((y) =>
+      db.collection("unpacked").doc(String(y)).collection("players").doc(uid),
+    ),
   ];
 
   const batches: admin.firestore.WriteBatch[] = [];

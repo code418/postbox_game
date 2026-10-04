@@ -43,6 +43,7 @@ import 'package:postbox_game/services/telemetry_consent.dart';
 import 'package:postbox_game/route/destination_picker_screen.dart';
 import 'package:postbox_game/route/route_notifications.dart';
 import 'package:postbox_game/services/user_properties_publisher.dart';
+import 'package:postbox_game/unpacked/unpacked_screen.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 // Deep-link parsing and the unknown-route guard live in deep_links.dart so the
@@ -322,6 +323,8 @@ class _PostboxGameState extends State<PostboxGame> with WidgetsBindingObserver {
                 _guardRoute(context, () => const SettingsScreen()),
             '/route': (context) =>
                 _guardRoute(context, () => const DestinationPickerScreen()),
+            '/unpacked': (context) =>
+                _guardRoute(context, () => const UnpackedScreen()),
           },
           onUnknownRoute: unknownRoute),
     );

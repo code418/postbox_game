@@ -15,6 +15,7 @@ import { onClaimCreated, reviewFlag } from "./abuse";
 import { dataRetentionSweep } from "./dataRetention";
 import { exportMyData } from "./exportMyData";
 import { flushOfflineClaims } from "./flushOfflineClaims";
+import { buildUnpacked, rebuildUnpacked, unpackedLaunchNotify } from "./buildUnpacked";
 
 export {
   nearbyPostboxes,
@@ -35,4 +36,7 @@ export {
   dataRetentionSweep,
   exportMyData,
   flushOfflineClaims,
+  buildUnpacked,
+  rebuildUnpacked,
+  unpackedLaunchNotify,
 };
