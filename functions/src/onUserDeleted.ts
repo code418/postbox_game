@@ -3,6 +3,7 @@ import * as admin from "firebase-admin";
 import * as functions from "firebase-functions/v1";
 import { FUNCTION_REGION } from "./_region";
 import { getTodayLondon } from "./_dateUtils";
+import { unpackedYearsToErase } from "./_unpacked";
 import {
   anonymiseClaimsForUser,
   anonymiseReportsForUser,
@@ -60,7 +61,7 @@ export const onUserDeleted = functions
 
     // Delete the user's own docs last so countyStats stayed readable above.
     try {
-      await deleteUserDocs(db, uid);
+      await deleteUserDocs(db, uid, unpackedYearsToErase(getTodayLondon()));
     } catch (e) {
       console.error(`onUserDeleted: deleteUserDocs failed for ${uid} (non-fatal):`, e);
     }
