@@ -17,6 +17,7 @@ class LoginBloc extends Bloc<LoginEvent, LoginState> {
     on<EmailChanged>(_mapEmailChangedToState);
     on<PasswordChanged>(_mapPasswordChangedToState);
     on<LoginWithGooglePressed>(_mapLoginWithGooglePressedToState);
+    on<LoginWithApplePressed>(_mapLoginWithApplePressedToState);
     on<LoginWithCredentialsPressed>(_mapLoginWithCredentialsPressedToState);
   }
 
@@ -67,6 +68,29 @@ class LoginBloc extends Bloc<LoginEvent, LoginState> {
           : LoginState.failure(message: message, code: code));
     } catch (_) {
       unawaited(Analytics.loginFailed(method: 'google', errorCode: 'unknown'));
+      emit(LoginState.failure());
+    }
+  }
+
+  Future<void> _mapLoginWithApplePressedToState(
+    LoginWithApplePressed event,
+    Emitter<LoginState> emit,
+  ) async {
+    emit(LoginState.loading());
+    try {
+      final user = await _userRepository.signInWithApple();
+      if (user == null) {
+        // User dismissed the Apple sign-in sheet.
+        emit(LoginState.empty());
+        return;
+      }
+      unawaited(Analytics.login(method: 'apple'));
+      emit(LoginState.success());
+    } on FirebaseAuthException catch (e) {
+      unawaited(Analytics.loginFailed(method: 'apple', errorCode: e.code.isNotEmpty ? e.code : 'unknown'));
+      emit(LoginState.failure(message: _mapFirebaseError(e.code), code: e.code));
+    } catch (_) {
+      unawaited(Analytics.loginFailed(method: 'apple', errorCode: 'unknown'));
       emit(LoginState.failure());
     }
   }

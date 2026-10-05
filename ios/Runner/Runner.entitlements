@@ -5,6 +5,13 @@
 	<!-- FCM delivers through APNs; the App ID must have Push Notifications enabled. -->
 	<key>aps-environment</key>
 	<string>production</string>
+	<!-- Sign in with Apple (lib/login/apple_login_button.dart); the App ID must
+	     have the Sign in with Apple capability, and the App Store profile must be
+	     regenerated after enabling it. -->
+	<key>com.apple.developer.applesignin</key>
+	<array>
+		<string>Default</string>
+	</array>
 	<!-- Firebase App Check uses AppleAppAttestProvider (lib/main.dart); the App ID
 	     must have the App Attest capability enabled. -->
 	<key>com.apple.developer.devicecheck.appattest-environment</key>

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:postbox_game/firebase_functions_eu.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:postbox_game/maintenance_guard.dart';
 import 'package:postbox_game/services/claim_outbox.dart';
@@ -50,17 +51,63 @@ String? googleSignInFailureMessage(GoogleSignInException e) {
   };
 }
 
+/// True when a Firebase provider sign-in (Apple anywhere, Google on the web)
+/// failed only because the user backed out: the native Apple sheet on iOS
+/// (`canceled`), the Custom Tab on Android (`web-context-canceled`), or the
+/// browser popup on the web (`popup-closed-by-user`, `cancelled-popup-request`).
+/// Like a cancelled Google chooser, that is not an error and must not show
+/// "Sign in failed".
+bool isProviderSignInCancelled(FirebaseAuthException e) => const {
+      'canceled',
+      'web-context-canceled',
+      'web-context-cancelled',
+      'popup-closed-by-user',
+      'cancelled-popup-request',
+    }.contains(e.code);
+
+/// The Firebase provider for Sign in with Apple, asking for the name and email
+/// scopes. Apple only returns them on the user's FIRST authorisation, so the
+/// request must be made every time.
+AppleAuthProvider appleAuthProvider() => AppleAuthProvider()
+  ..addScope('email')
+  ..addScope('name');
+
 class UserRepository {
   final FirebaseAuth _firebaseAuth;
   final GoogleSignIn _googleSignIn;
   final FirebaseFirestore _firestore;
 
-  UserRepository({FirebaseAuth? firebaseAuth, GoogleSignIn? googleSignin, FirebaseFirestore? firestore})
+  /// Web uses Firebase's popup flow for Google and Apple: google_sign_in 7
+  /// cannot `authenticate()` on the web (it only renders its own button), and
+  /// a popup keeps both providers on one code path. Injectable for tests.
+  final bool _isWeb;
+
+  UserRepository(
+      {FirebaseAuth? firebaseAuth,
+      GoogleSignIn? googleSignin,
+      FirebaseFirestore? firestore,
+      bool? isWeb})
       : _firebaseAuth = firebaseAuth ?? FirebaseAuth.instance,
         _googleSignIn = googleSignin ?? GoogleSignIn.instance,
-        _firestore = firestore ?? FirebaseFirestore.instance;
+        _firestore = firestore ?? FirebaseFirestore.instance,
+        _isWeb = isWeb ?? kIsWeb;
+
+  /// Signs in with a Firebase OAuth [provider] in a browser popup (web only).
+  /// Returns null when the user closes the popup.
+  Future<User?> _signInWithPopup(AuthProvider provider, String label) async {
+    try {
+      return (await _firebaseAuth.signInWithPopup(provider)).user;
+    } on FirebaseAuthException catch (e) {
+      if (isProviderSignInCancelled(e)) return null;
+      CrashlyticsHelper.recordHandled(e, StackTrace.current,
+          reason: '${label}_sign_in:${e.code}',
+          dedupeKey: '${label}_sign_in:${e.code}');
+      rethrow;
+    }
+  }
 
   Future<User?> signInWithGoogle() async {
+    if (_isWeb) return _signInWithPopup(GoogleAuthProvider(), 'google');
     final GoogleSignInAccount googleUser;
     try {
       googleUser = await _googleSignIn.authenticate();
@@ -91,6 +138,30 @@ class UserRepository {
     // (displayName, createdAt) when a new Auth user is first created.
     // No client-side Firestore write is needed here.
     return userCredential.user;
+  }
+
+  /// Signs in with Apple through Firebase, with no extra plugin: the native
+  /// sheet (`ASAuthorizationController`) on iOS, a Custom Tab web flow on
+  /// Android, and a popup on the web. The last two need the Firebase Apple
+  /// provider's Services ID set up. Returns null when the user backs out.
+  ///
+  /// Apple shares the user's name only on their first authorisation, and may
+  /// hand over a private-relay email, so the Firestore display name can come
+  /// out as a random-looking prefix or `Player_xxxxxx`. `onUserCreated`
+  /// sanitises it and the user can change it in Settings.
+  Future<User?> signInWithApple() async {
+    if (_isWeb) return _signInWithPopup(appleAuthProvider(), 'apple');
+    try {
+      final userCredential =
+          await _firebaseAuth.signInWithProvider(appleAuthProvider());
+      return userCredential.user;
+    } on FirebaseAuthException catch (e) {
+      if (isProviderSignInCancelled(e)) return null;
+      CrashlyticsHelper.recordHandled(e, StackTrace.current,
+          reason: 'apple_sign_in:${e.code}',
+          dedupeKey: 'apple_sign_in:${e.code}');
+      rethrow;
+    }
   }
 
   Future<void> signInWithCredentials(String email, String password) {
@@ -195,17 +266,25 @@ class UserRepository {
 
   /// Permanently deletes the signed-in user's Firebase Auth account. Firebase
   /// requires a recent login for [User.delete], so this re-authenticates first:
-  /// password users supply [currentPassword]; Google users re-run the Google
-  /// sign-in to obtain a fresh credential.
+  /// password users supply [currentPassword]; Google and Apple users re-run
+  /// their provider's sign-in to obtain a fresh credential.
+  ///
+  /// Apple users additionally have their Apple tokens revoked, which App Store
+  /// guideline 5.1.1(v) requires of any app offering Sign in with Apple. This
+  /// needs the Apple provider's OAuth code-flow settings (Team ID, Key ID,
+  /// private key) in the Firebase console; if revocation fails the deletion
+  /// still goes ahead, because erasing the user's data matters more. Only the
+  /// native iOS flow returns the authorisation code revocation needs, so on
+  /// Android and the web the tokens simply lapse when the account is deleted.
   ///
   /// The `onUserDeleted` Cloud Function then erases / anonymises the user's
   /// Firestore + Storage data. Throws [FirebaseAuthException] on wrong password,
   /// `requires-recent-login`, or no current user.
   ///
-  /// Returns false, having deleted nothing, when a Google user dismisses the
-  /// re-authentication chooser: backing out is not a failure, so the caller
-  /// should just return to idle (as [signInWithGoogle] does for the same
-  /// codes) rather than report that the deletion failed.
+  /// Returns false, having deleted nothing, when a Google or Apple user
+  /// dismisses the re-authentication prompt: backing out is not a failure, so
+  /// the caller should just return to idle (as [signInWithGoogle] and
+  /// [signInWithApple] do) rather than report that the deletion failed.
   Future<bool> deleteAccount({String? currentPassword}) async {
     final user = _firebaseAuth.currentUser;
     if (user == null) {
@@ -224,6 +303,10 @@ class UserRepository {
         password: currentPassword,
       );
       await user.reauthenticateWithCredential(credential);
+    } else if (providers.contains('google.com') && _isWeb) {
+      if (!await _reauthenticateWithPopup(user, GoogleAuthProvider())) {
+        return false;
+      }
     } else if (providers.contains('google.com')) {
       final GoogleSignInAccount googleUser;
       try {
@@ -238,6 +321,25 @@ class UserRepository {
       final googleAuth = googleUser.authentication;
       final credential = GoogleAuthProvider.credential(idToken: googleAuth.idToken);
       await user.reauthenticateWithCredential(credential);
+    } else if (providers.contains('apple.com')) {
+      final UserCredential reauth;
+      try {
+        reauth = _isWeb
+            ? await user.reauthenticateWithPopup(appleAuthProvider())
+            : await user.reauthenticateWithProvider(appleAuthProvider());
+      } on FirebaseAuthException catch (e) {
+        if (isProviderSignInCancelled(e)) return false;
+        rethrow;
+      }
+      final authCode = reauth.additionalUserInfo?.authorizationCode;
+      if (authCode != null) {
+        try {
+          await _firebaseAuth.revokeTokenWithAuthorizationCode(authCode);
+        } catch (e, st) {
+          CrashlyticsHelper.recordHandled(e, st,
+              reason: 'apple_token_revoke', dedupeKey: 'apple_token_revoke');
+        }
+      }
     }
 
     await user.delete();
@@ -268,6 +370,19 @@ class UserRepository {
       await _googleSignIn.signOut();
     } catch (_) {}
     return true;
+  }
+
+  /// Re-authenticates [user] with [provider] in a popup (web). Returns false
+  /// when the user closes it.
+  Future<bool> _reauthenticateWithPopup(
+      User user, AuthProvider provider) async {
+    try {
+      await user.reauthenticateWithPopup(provider);
+      return true;
+    } on FirebaseAuthException catch (e) {
+      if (isProviderSignInCancelled(e)) return false;
+      rethrow;
+    }
   }
 
   Future<void> signOut() async {
