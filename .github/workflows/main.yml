@@ -89,9 +89,20 @@ jobs:
   build-ios:
     if: github.event_name == 'workflow_dispatch'
     runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      # Signed build + TestFlight upload runs only once all signing secrets are
+      # set (repo Settings -> Secrets and variables -> Actions); until then the
+      # job falls back to the unsigned compile check.
+      HAS_SIGNING: ${{ secrets.IOS_DIST_CERT_P12 != '' && secrets.IOS_DIST_CERT_PASSWORD != '' && secrets.ASC_KEY_ID != '' && secrets.ASC_ISSUER_ID != '' && secrets.ASC_KEY_P8 != '' }}
 
     steps:
       - uses: actions/checkout@v6
+
+      # App Store uploads must be built with a recent Xcode/iOS SDK.
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
 
       - uses: subosito/flutter-action@v2
         with:
@@ -107,31 +118,53 @@ jobs:
       - run: flutter pub get
 
       # Runs `pod install` then compiles & links an unsigned release Runner.app.
-      # --no-codesign skips the parts that would require certificates/profiles.
-      - run: flutter build ios --release --no-codesign
+      - name: Unsigned build (signing secrets not configured)
+        if: env.HAS_SIGNING != 'true'
+        run: flutter build ios --release --no-codesign
 
-      # ----------------------------------------------------------------------
-      # NEXT STEP — ship to a physical device / TestFlight (needs a paid Apple
-      # Developer account, $99/yr). Replace the step above with a signed archive
-      # and upload. Sketch of the extra steps:
-      #
-      #   - name: Import signing certificate
-      #     uses: apple-actions/import-codesign-certs@v3
-      #     with:
-      #       p12-file-base64: ${{ secrets.IOS_DIST_CERT_P12 }}
-      #       p12-password:    ${{ secrets.IOS_DIST_CERT_PASSWORD }}
-      #   - name: Install provisioning profile
-      #     uses: apple-actions/download-provisioning-profiles@v3
-      #     with:
-      #       bundle-id: com.code418.postboxGame
-      #       issuer-id: ${{ secrets.ASC_ISSUER_ID }}
-      #       api-key-id: ${{ secrets.ASC_KEY_ID }}
-      #       api-private-key: ${{ secrets.ASC_KEY_P8 }}
-      #   - run: flutter build ipa --release --export-options-plist=ios/ExportOptions.plist
-      #   - name: Upload to TestFlight
-      #     run: |
-      #       xcrun altool --upload-app -f build/ios/ipa/*.ipa -t ios \
-      #         --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
-      #
-      # Add the secrets under: repo Settings -> Secrets and variables -> Actions.
-      # ----------------------------------------------------------------------
+      # Manual signing with an Apple Distribution certificate + App Store
+      # profile: no Mac keychain and no registered devices needed. The Runner
+      # Release configs and ios/ExportOptions.plist name the profile
+      # "Postbox Game App Store" — the profile in the developer portal must use
+      # exactly that name.
+      - name: Import distribution certificate
+        if: env.HAS_SIGNING == 'true'
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.IOS_DIST_CERT_P12 }}
+          p12-password: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
+
+      - name: Install App Store provisioning profile
+        if: env.HAS_SIGNING == 'true'
+        uses: apple-actions/download-provisioning-profiles@v3
+        with:
+          bundle-id: com.code418.postboxGame
+          profile-type: IOS_APP_STORE
+          issuer-id: ${{ secrets.ASC_ISSUER_ID }}
+          api-key-id: ${{ secrets.ASC_KEY_ID }}
+          api-private-key: ${{ secrets.ASC_KEY_P8 }}
+
+      # CFBundleVersion must increase with every upload; the workflow run number
+      # is monotonic, so each dispatch gets a fresh build number. The marketing
+      # version (CFBundleShortVersionString) still comes from pubspec.yaml.
+      - name: Build signed IPA
+        if: env.HAS_SIGNING == 'true'
+        run: |
+          flutter build ipa --release \
+            --build-number=${{ github.run_number }} \
+            --export-options-plist=ios/ExportOptions.plist
+
+      - name: Upload to TestFlight
+        if: env.HAS_SIGNING == 'true'
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          # altool looks for the key at ~/private_keys/AuthKey_<id>.p8.
+          mkdir -p ~/private_keys
+          printf '%s\n' "$ASC_KEY_P8" > ~/private_keys/AuthKey_${ASC_KEY_ID}.p8
+          xcrun altool --upload-app --type ios \
+            --file build/ios/ipa/*.ipa \
+            --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
+          echo "Uploaded build ${{ github.run_number }}; it appears in TestFlight once Apple finishes processing." >> "$GITHUB_STEP_SUMMARY"
