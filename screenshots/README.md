@@ -23,6 +23,23 @@ The upload-ready copies also live in the fastlane layout:
 `fastlane/metadata/android/en-GB/images/{phoneScreenshots,wearScreenshots}/`
 (structure only — nothing is auto-uploaded).
 
+## App Store (iOS) set
+
+`marketing/appstore/iphone_6.9/{light,dark}/` holds the App Store Connect iPhone set:
+8 shots at **1320x2868** (the 6.9" size; App Store Connect scales smaller iPhones from
+it), RGB with no alpha, in the same narrative order and with the same captions as the
+Play set. Build with `./build_appstore.sh [light|dark]` (needs `fonts/`, see below);
+`frame.sh ios` does the compositing.
+
+For each shot the script prefers a genuine iPhone capture at
+`raw/ios/<theme>/<name>.png` (e.g. a TestFlight screenshot, PII redacted). Without
+one, it lifts the app screen out of the Play final and paints over the Android status
+bar and gesture handle, because App Review rejects listings that show another platform
+(guideline 2.3.10). The app is iPhone-only, so there is no iPad set.
+`test/app_store_metadata_test.dart` checks the dimensions and colour type.
+Listing copy and the submission checklist live in `fastlane/metadata/ios/` and
+`docs/app-store-submission.md`.
+
 ## The marquee set (order = narrative)
 
 1. Stand close. Tap. Claim.        (claim CTA + Postman James + streak)

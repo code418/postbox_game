@@ -1,6 +1,6 @@
 # The Postbox Game – Privacy Policy
 
-_Last updated: September 2026_
+_Last updated: October 2026_
 
 This Privacy Policy explains how The Postbox Game ("the App", "we", "us") collects, uses, and protects your personal data when you use our mobile application. We are committed to complying with the UK General Data Protection Regulation (UK GDPR) and the Data Protection Act 2018.
 
@@ -10,7 +10,7 @@ The Postbox Game is an independent mobile game. For data protection enquiries, c
 
 ## 2. Data We Collect
 
-- **Account information:** When you register or sign in with Google, we receive your email address and display name. When you register with email/password, we store your email address and chosen display name.
+- **Account information:** When you register or sign in with Google, we receive your email address and display name. When you sign in with Apple, we receive your email address (or an Apple private-relay address, if you choose to hide yours) and, the first time only, your name. When you register with email/password, we store your email address and chosen display name.
 - **Location data:** With your permission, we collect your precise GPS location to identify nearby postboxes and validate claims. The location you claimed from is stored with each claim for anti-cheat verification and is automatically removed after 90 days.
 - **Gameplay data:** Postbox claims you make (postbox ID, timestamp, points awarded), your running scores, streaks, and leaderboard entries (display name and points only).
 - **Device token:** A random per-install identifier sent with claims to detect multi-account abuse. It is not derived from your hardware and identifies only the app installation; it is removed from claims after 90 days.
@@ -42,6 +42,7 @@ We process your personal data on the following legal bases under UK GDPR:
 We do not sell your personal data. We share data only with the following service providers, who process it on our behalf:
 
 - **Google Firebase** (Authentication, Firestore database, Cloud Functions, Crashlytics, Performance Monitoring, Analytics) – processed within Google's infrastructure. See Google's Privacy Policy at policies.google.com/privacy.
+- **Apple** (Sign in with Apple) – only if you choose to sign in with Apple; Apple confirms your identity and shares the details above. Deleting your account also revokes the App's access to your Apple ID where your device supports it. See Apple's Privacy Policy at apple.com/legal/privacy.
 - **OpenStreetMap / Nominatim:** If you search for a destination in Route Mode, only the text you type is sent to the OpenStreetMap Nominatim search service – never your GPS position.
 
 Your display name and score are visible to other users on leaderboards and to friends you add in the App. Corrections we submit back to OpenStreetMap from accepted postbox reports contain only postbox data, never anything about you.
