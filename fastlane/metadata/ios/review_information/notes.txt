@@ -1,0 +1,20 @@
+The Postbox Game is a location-based game played at real postboxes in the United Kingdom. A player stands within about 30 m of a postbox, scans, and names the royal cypher shown on the box to claim it for points.
+
+SIGNING IN
+Use the demo account in the Sign-In Information fields (email and password on the login screen). Sign in with Apple and Google are also offered.
+
+TESTING OUTSIDE THE UK
+Claiming requires being physically at a UK postbox, so it cannot be completed from outside the UK. Everything else works anywhere:
+- Nearby tab: tap "Find nearby postboxes". Outside the UK it finds none and offers "Report a missing postbox".
+- Leaderboard, Friends and History tabs show the demo account's existing claims, friends and rankings.
+- Nearby tab > "Walk to a destination" (Route Mode) opens the destination picker. Route previews start from your current location and need a destination within 30 km, so they only show postboxes when used in the UK.
+- A screen recording of a complete claim at a London postbox is here: [ADD VIDEO LINK]
+
+LOCATION
+Location is used only while the app is in use, to find nearby postboxes and confirm the player is at a postbox when claiming. The app shows only rough directions to postboxes, never exact locations.
+
+ACCOUNT DELETION
+Settings (top-right menu) > Delete account. Sign in with Apple accounts also have their Apple tokens revoked.
+
+CONTENT
+Display names are profanity-filtered. Photos attached to postbox reports are visible only to the reporter and our moderators.

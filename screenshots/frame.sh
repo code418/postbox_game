@@ -4,6 +4,7 @@
 # Usage:
 #   frame.sh phone <raw.png> <out.png> "<caption>"      -> 1080x1920 (9:16, compliant)
 #   frame.sh wear  <raw.png> <out.png> "<caption>"      -> 1080x1080 (1:1, round-masked dial)
+#   frame.sh ios   <raw.png> <out.png> "<caption>"      -> 1320x2868 (App Store 6.9" iPhone)
 #
 # Brand: postal red #C8102E, royal navy #0A1931, gold #FFB400.
 set -euo pipefail
@@ -47,6 +48,30 @@ if [ "$KIND" = "phone" ]; then
     convert "$TMP/out.png" "$TMP/rule.png" -gravity north -geometry +0+250 -composite "$TMP/out.png"
   fi
   convert "$TMP/out.png" -background "$NAVY" -flatten -depth 8 "$OUT"
+
+elif [ "$KIND" = "ios" ]; then
+  # App Store Connect's required iPhone size (6.9" display, portrait). Smaller
+  # iPhone sizes are scaled down from this set automatically. No alpha allowed.
+  CW=1320; CH=2868
+  DEV_W=1000                      # device screenshot target width
+  read -r W H < <(identify -format '%w %h\n' "$RAW")
+  DEV_H=$(( DEV_W * H / W ))
+  convert "$RAW" -filter Lanczos -resize "${DEV_W}x${DEV_H}!" "$TMP/dev.png"
+  convert -size "${DEV_W}x${DEV_H}" xc:black -fill white -draw "roundrectangle 0,0,$((DEV_W-1)),$((DEV_H-1)),64,64" "$TMP/mask.png"
+  convert "$TMP/dev.png" "$TMP/mask.png" -alpha off -compose CopyOpacity -composite "$TMP/devr.png"
+  convert "$TMP/devr.png" \( +clone -background black -shadow 60x28+0+22 \) \
+    +swap -background none -layers merge +repage "$TMP/devsh.png"
+  convert -size "${CH}x${CW}" gradient:"$RED"-"$NAVY" -rotate 90 "$TMP/bg.png"
+  convert "$TMP/bg.png" -resize "${CW}x${CH}!" "$TMP/bg.png"
+  convert "$TMP/bg.png" "$TMP/devsh.png" -gravity north -geometry +0+560 -composite "$TMP/out.png"
+  if [ -n "$CAPTION" ]; then
+    convert -background none -fill white -font "$FONT_SANS" -weight 700 \
+      -pointsize 92 -size 1180x -gravity center caption:"$CAPTION" "$TMP/cap.png"
+    convert -size 240x8 xc:"$GOLD" "$TMP/rule.png"
+    convert "$TMP/out.png" "$TMP/cap.png" -gravity north -geometry +0+170 -composite "$TMP/out.png"
+    convert "$TMP/out.png" "$TMP/rule.png" -gravity north -geometry +0+430 -composite "$TMP/out.png"
+  fi
+  convert "$TMP/out.png" -background "$NAVY" -flatten -alpha off -depth 8 -type TrueColor "PNG24:$OUT"
 
 elif [ "$KIND" = "wear" ]; then
   CW=1080; CH=1080
