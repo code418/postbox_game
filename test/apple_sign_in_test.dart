@@ -19,9 +19,19 @@ class _AppleUser extends MockUser {
   final String? authorizationCode;
   bool deleted = false;
 
+  final reauthVia = <String>[];
+
   @override
   Future<UserCredential> reauthenticateWithProvider(
       AuthProvider provider) async {
+    reauthVia.add('provider');
+    if (reauthError != null) throw reauthError!;
+    return _ReauthCredential(authorizationCode);
+  }
+
+  @override
+  Future<UserCredential> reauthenticateWithPopup(AuthProvider provider) async {
+    reauthVia.add('popup');
     if (reauthError != null) throw reauthError!;
     return _ReauthCredential(authorizationCode);
   }
@@ -62,6 +72,24 @@ class _ThrowingProviderAuth extends MockFirebaseAuth {
       throw FirebaseAuthException(code: code);
 }
 
+/// Records which provider each web popup sign-in used; fails with [code] if set.
+class _PopupAuth extends MockFirebaseAuth {
+  _PopupAuth({this.code}) : super(mockUser: MockUser(uid: 'w1'));
+  final String? code;
+  final popups = <String>[];
+
+  @override
+  Future<UserCredential> signInWithPopup(AuthProvider provider) {
+    popups.add(provider.providerId);
+    if (code != null) throw FirebaseAuthException(code: code!);
+    return super.signInWithPopup(provider);
+  }
+
+  @override
+  Future<UserCredential> signInWithProvider(AuthProvider provider) =>
+      throw StateError('web must use the popup flow');
+}
+
 void main() {
   setUpAll(() async {
     TestWidgetsFlutterBinding.ensureInitialized();
@@ -69,14 +97,21 @@ void main() {
     await Firebase.initializeApp();
   });
 
-  test('isAppleSignInCancelled matches only cancellation codes', () {
-    for (final code in ['canceled', 'web-context-canceled']) {
-      expect(isAppleSignInCancelled(FirebaseAuthException(code: code)), isTrue,
+  test('isProviderSignInCancelled matches only cancellation codes', () {
+    for (final code in [
+      'canceled',
+      'web-context-canceled',
+      'popup-closed-by-user',
+      'cancelled-popup-request',
+    ]) {
+      expect(
+          isProviderSignInCancelled(FirebaseAuthException(code: code)), isTrue,
           reason: code);
     }
     // 'failed' / 'unknown' are real failures the user should hear about.
     for (final code in ['failed', 'unknown', 'invalid-credential']) {
-      expect(isAppleSignInCancelled(FirebaseAuthException(code: code)), isFalse,
+      expect(
+          isProviderSignInCancelled(FirebaseAuthException(code: code)), isFalse,
           reason: code);
     }
   });
@@ -178,6 +213,59 @@ void main() {
       expect(await repo.deleteAccount(), isTrue);
       expect(auth.revoked, ['apple-code']);
       expect(user.deleted, isTrue);
+    });
+  });
+
+  group('web (popup flow)', () {
+    test('Google and Apple sign in through Firebase popups', () async {
+      final auth = _PopupAuth();
+      final repo = UserRepository(
+          firebaseAuth: auth, firestore: FakeFirebaseFirestore(), isWeb: true);
+      expect((await repo.signInWithGoogle())?.uid, 'w1');
+      expect((await repo.signInWithApple())?.uid, 'w1');
+      expect(auth.popups, ['google.com', 'apple.com']);
+    });
+
+    test('closing the popup returns null, not an error', () async {
+      final repo = UserRepository(
+          firebaseAuth: _PopupAuth(code: 'popup-closed-by-user'),
+          firestore: FakeFirebaseFirestore(),
+          isWeb: true);
+      expect(await repo.signInWithGoogle(), isNull);
+      expect(await repo.signInWithApple(), isNull);
+    });
+
+    test('a blocked popup is a real failure', () async {
+      final repo = UserRepository(
+          firebaseAuth: _PopupAuth(code: 'popup-blocked'),
+          firestore: FakeFirebaseFirestore(),
+          isWeb: true);
+      await expectLater(
+          repo.signInWithApple(), throwsA(isA<FirebaseAuthException>()));
+    });
+
+    test('deleting an Apple account re-authenticates with a popup', () async {
+      final user = _AppleUser();
+      await user.linkWithProvider(AppleAuthProvider());
+      final repo = UserRepository(
+          firebaseAuth: MockFirebaseAuth(signedIn: true, mockUser: user),
+          firestore: FakeFirebaseFirestore(),
+          isWeb: true);
+      expect(await repo.deleteAccount(), isTrue);
+      expect(user.reauthVia, ['popup']);
+      expect(user.deleted, isTrue);
+    });
+
+    test('closing the Apple re-auth popup deletes nothing', () async {
+      final user = _AppleUser(
+          reauthError: FirebaseAuthException(code: 'popup-closed-by-user'));
+      await user.linkWithProvider(AppleAuthProvider());
+      final repo = UserRepository(
+          firebaseAuth: MockFirebaseAuth(signedIn: true, mockUser: user),
+          firestore: FakeFirebaseFirestore(),
+          isWeb: true);
+      expect(await repo.deleteAccount(), isFalse);
+      expect(user.deleted, isFalse);
     });
   });
 }

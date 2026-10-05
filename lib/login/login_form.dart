@@ -143,13 +143,14 @@ class _LoginFormState extends State<LoginForm> {
                           ? _onFormSubmitted
                           : null,
                     ),
-                    // Apple's native sheet only exists on Apple platforms;
-                    // the Android/web flow would need a Services ID.
-                    if (!kIsWeb && Platform.isIOS) ...[
+                    // Phone and web only (not desktop). Apple and Google on
+                    // the web use Firebase popups; Apple on Android uses a
+                    // Custom Tab. See UserRepository.signInWithApple.
+                    if (kIsWeb || Platform.isAndroid || Platform.isIOS) ...[
                       const SizedBox(height: AppSpacing.sm),
                       const AppleLoginButton(),
                     ],
-                    if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) ...[
+                    if (kIsWeb || Platform.isAndroid || Platform.isIOS) ...[
                       const SizedBox(height: AppSpacing.sm),
                       const GoogleLoginButton(),
                     ],
