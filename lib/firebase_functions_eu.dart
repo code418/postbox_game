@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:flutter/foundation.dart';
 
 /// Region-pinned [FirebaseFunctions] for the app's Cloud Functions.
 ///
@@ -30,12 +31,25 @@ const Set<String> retryableCallableCodes = {'unavailable', 'deadline-exceeded'};
 /// either.
 const String appVerificationFailedCode = 'unauthenticated';
 
-/// Actionable copy for [appVerificationFailedCode]. Covers both causes: a
-/// stale sign-in (fixed by signing in again) and a failed Play Integrity
-/// attestation (fixed by installing a genuine build from Play).
-const String appVerificationMessage =
-    "Couldn't verify your app. Try signing in again, or reinstall from Google "
-    'Play if this keeps happening.';
+/// Actionable copy for [appVerificationFailedCode] on the current platform.
+/// Covers both causes: a stale sign-in (fixed by signing in again) and a
+/// failed attestation — Play Integrity on Android, App Attest on iOS, or
+/// reCAPTCHA on the web, where there is nothing to reinstall.
+String get appVerificationMessage => appVerificationMessageFor(
+    isWeb: kIsWeb, platform: defaultTargetPlatform);
+
+/// [appVerificationMessage] for a given platform; pure, for tests.
+String appVerificationMessageFor(
+    {required bool isWeb, required TargetPlatform platform}) {
+  if (isWeb) {
+    return "Couldn't verify this browser. Try signing in again or reloading "
+        'the page, and turn off any ad or script blocker for this site.';
+  }
+  final store =
+      platform == TargetPlatform.iOS ? 'the App Store' : 'Google Play';
+  return "Couldn't verify your app. Try signing in again, or reinstall from "
+      '$store if this keeps happening.';
+}
 
 Duration _defaultBackoff(int attempt) => Duration(
     milliseconds: 300 * (1 << attempt) + Random().nextInt(200));

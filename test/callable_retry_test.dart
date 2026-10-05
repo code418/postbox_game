@@ -7,6 +7,7 @@
 // carries an attemptId the server replays (see functions/src/_attempts.ts).
 
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:postbox_game/firebase_functions_eu.dart';
 
@@ -137,10 +138,33 @@ void main() {
     });
 
     test('the message tells the user something they can act on', () {
-      expect(appVerificationMessage.toLowerCase(), isNot(contains('try again.')),
-          reason: 'retrying is exactly what does not work here');
-      expect(appVerificationMessage.toLowerCase(), contains('sign'));
-      expect(appVerificationMessage.toLowerCase(), contains('reinstall'));
+      for (final (isWeb, platform) in [
+        (false, TargetPlatform.android),
+        (false, TargetPlatform.iOS),
+        (true, TargetPlatform.android),
+      ]) {
+        final msg = appVerificationMessageFor(isWeb: isWeb, platform: platform)
+            .toLowerCase();
+        expect(msg, isNot(contains('try again.')),
+            reason: 'retrying is exactly what does not work here');
+        expect(msg, contains('sign'));
+      }
+    });
+
+    test('each platform is pointed at its own fix', () {
+      expect(
+          appVerificationMessageFor(
+              isWeb: false, platform: TargetPlatform.android),
+          contains('Google Play'));
+      expect(
+          appVerificationMessageFor(isWeb: false, platform: TargetPlatform.iOS),
+          contains('App Store'));
+      // A browser has nothing to reinstall, and must not be sent to Play.
+      final web = appVerificationMessageFor(
+          isWeb: true, platform: TargetPlatform.android);
+      expect(web, isNot(contains('reinstall')));
+      expect(web, isNot(contains('Google Play')));
+      expect(web, contains('reload'));
     });
   });
 }
