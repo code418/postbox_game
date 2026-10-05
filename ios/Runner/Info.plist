@@ -73,5 +73,14 @@
 			</array>
 		</dict>
 	</array>
+	<!-- Export compliance: the app only uses standard HTTPS/TLS, which is exempt.
+	     Saves answering the encryption question on every TestFlight upload. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<!-- Lets FCM wake the app for data messages (firebase_messaging). -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
 </dict>
 </plist>

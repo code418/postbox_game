@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- FCM delivers through APNs; the App ID must have Push Notifications enabled. -->
+	<key>aps-environment</key>
+	<string>production</string>
+	<!-- Firebase App Check uses AppleAppAttestProvider (lib/main.dart); the App ID
+	     must have the App Attest capability enabled. -->
+	<key>com.apple.developer.devicecheck.appattest-environment</key>
+	<string>production</string>
+</dict>
+</plist>
