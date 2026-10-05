@@ -50,6 +50,22 @@ String? googleSignInFailureMessage(GoogleSignInException e) {
   };
 }
 
+/// True when an Apple sign-in failed only because the user dismissed the
+/// system sheet. FlutterFire surfaces `ASAuthorizationErrorCanceled` (and the
+/// web-flow equivalents) as these codes; like a cancelled Google chooser,
+/// backing out is not an error and must not show "Sign in failed".
+bool isAppleSignInCancelled(FirebaseAuthException e) =>
+    const {'canceled', 'web-context-canceled', 'web-context-cancelled'}
+        .contains(e.code);
+
+/// The Firebase provider for Sign in with Apple, asking for the name and email
+/// scopes. Apple only returns them on the user's FIRST authorisation, so the
+/// request must be made every time.
+AppleAuthProvider appleAuthProvider() =>
+    AppleAuthProvider()
+      ..addScope('email')
+      ..addScope('name');
+
 class UserRepository {
   final FirebaseAuth _firebaseAuth;
   final GoogleSignIn _googleSignIn;
@@ -91,6 +107,28 @@ class UserRepository {
     // (displayName, createdAt) when a new Auth user is first created.
     // No client-side Firestore write is needed here.
     return userCredential.user;
+  }
+
+  /// Signs in with Apple through Firebase's native iOS flow
+  /// (`ASAuthorizationController`; no extra plugin). Returns null when the user
+  /// dismisses the Apple sheet.
+  ///
+  /// Apple shares the user's name only on their first authorisation, and may
+  /// hand over a private-relay email, so the Firestore display name can come
+  /// out as a random-looking prefix or `Player_xxxxxx`. `onUserCreated`
+  /// sanitises it and the user can change it in Settings.
+  Future<User?> signInWithApple() async {
+    try {
+      final userCredential =
+          await _firebaseAuth.signInWithProvider(appleAuthProvider());
+      return userCredential.user;
+    } on FirebaseAuthException catch (e) {
+      if (isAppleSignInCancelled(e)) return null;
+      CrashlyticsHelper.recordHandled(e, StackTrace.current,
+          reason: 'apple_sign_in:${e.code}',
+          dedupeKey: 'apple_sign_in:${e.code}');
+      rethrow;
+    }
   }
 
   Future<void> signInWithCredentials(String email, String password) {
@@ -195,17 +233,23 @@ class UserRepository {
 
   /// Permanently deletes the signed-in user's Firebase Auth account. Firebase
   /// requires a recent login for [User.delete], so this re-authenticates first:
-  /// password users supply [currentPassword]; Google users re-run the Google
-  /// sign-in to obtain a fresh credential.
+  /// password users supply [currentPassword]; Google and Apple users re-run
+  /// their provider's sign-in to obtain a fresh credential.
+  ///
+  /// Apple users additionally have their Apple tokens revoked, which App Store
+  /// guideline 5.1.1(v) requires of any app offering Sign in with Apple. This
+  /// needs the Apple provider's OAuth code-flow settings (Team ID, Key ID,
+  /// private key) in the Firebase console; if revocation fails the deletion
+  /// still goes ahead, because erasing the user's data matters more.
   ///
   /// The `onUserDeleted` Cloud Function then erases / anonymises the user's
   /// Firestore + Storage data. Throws [FirebaseAuthException] on wrong password,
   /// `requires-recent-login`, or no current user.
   ///
-  /// Returns false, having deleted nothing, when a Google user dismisses the
-  /// re-authentication chooser: backing out is not a failure, so the caller
-  /// should just return to idle (as [signInWithGoogle] does for the same
-  /// codes) rather than report that the deletion failed.
+  /// Returns false, having deleted nothing, when a Google or Apple user
+  /// dismisses the re-authentication prompt: backing out is not a failure, so
+  /// the caller should just return to idle (as [signInWithGoogle] and
+  /// [signInWithApple] do) rather than report that the deletion failed.
   Future<bool> deleteAccount({String? currentPassword}) async {
     final user = _firebaseAuth.currentUser;
     if (user == null) {
@@ -238,6 +282,23 @@ class UserRepository {
       final googleAuth = googleUser.authentication;
       final credential = GoogleAuthProvider.credential(idToken: googleAuth.idToken);
       await user.reauthenticateWithCredential(credential);
+    } else if (providers.contains('apple.com')) {
+      final UserCredential reauth;
+      try {
+        reauth = await user.reauthenticateWithProvider(appleAuthProvider());
+      } on FirebaseAuthException catch (e) {
+        if (isAppleSignInCancelled(e)) return false;
+        rethrow;
+      }
+      final authCode = reauth.additionalUserInfo?.authorizationCode;
+      if (authCode != null) {
+        try {
+          await _firebaseAuth.revokeTokenWithAuthorizationCode(authCode);
+        } catch (e, st) {
+          CrashlyticsHelper.recordHandled(e, st,
+              reason: 'apple_token_revoke', dedupeKey: 'apple_token_revoke');
+        }
+      }
     }
 
     await user.delete();

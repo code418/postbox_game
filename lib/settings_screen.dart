@@ -600,7 +600,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (confirmed != true || !mounted) return;
 
     // 2. Re-auth for password users (Firebase requires a recent login). Google
-    //    users re-auth inside deleteAccount via the Google sign-in flow.
+    //    and Apple users re-auth inside deleteAccount via their provider's flow.
     String? password;
     if (isPasswordUser) {
       password = await _promptPassword();

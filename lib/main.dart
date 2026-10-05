@@ -126,12 +126,13 @@ void main() async {
 }
 
 /// Coarse auth-provider label for the Crashlytics `auth_state` key. Never PII —
-/// just which sign-in method is active (`google` / `email` / `anon`).
+/// just which sign-in method is active (`google` / `apple` / `email` / `anon`).
 String _authStateLabel(User? user) {
   if (user == null) return 'signed_out';
   if (user.isAnonymous) return 'anon';
   final providers = user.providerData.map((p) => p.providerId).toSet();
   if (providers.contains('google.com')) return 'google';
+  if (providers.contains('apple.com')) return 'apple';
   if (providers.contains('password')) return 'email';
   return 'unknown';
 }

@@ -7,6 +7,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:postbox_game/authentication_bloc/bloc.dart';
 import 'package:postbox_game/login/bloc/bloc.dart';
 import 'package:postbox_game/login/create_account_button.dart';
+import 'package:postbox_game/login/apple_login_button.dart';
 import 'package:postbox_game/login/google_login_button.dart';
 import 'package:postbox_game/login/login_button.dart';
 import 'package:postbox_game/theme.dart';
@@ -142,6 +143,12 @@ class _LoginFormState extends State<LoginForm> {
                           ? _onFormSubmitted
                           : null,
                     ),
+                    // Apple's native sheet only exists on Apple platforms;
+                    // the Android/web flow would need a Services ID.
+                    if (!kIsWeb && Platform.isIOS) ...[
+                      const SizedBox(height: AppSpacing.sm),
+                      const AppleLoginButton(),
+                    ],
                     if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) ...[
                       const SizedBox(height: AppSpacing.sm),
                       const GoogleLoginButton(),
