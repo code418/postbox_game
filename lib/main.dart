@@ -80,7 +80,10 @@ void main() async {
       CrashlyticsHelper.setContext(CrashlyticsHelper.keySurface, 'phone'));
   try {
     await FirebaseAppCheck.instance.activate(
-      providerWeb: ReCaptchaV3Provider(kRecaptchaSiteKey),
+      // reCAPTCHA Enterprise (score-based website key). Only the site key is
+      // used client-side; App Check verifies tokens through the project's
+      // reCAPTCHA Enterprise API, so no secret key is involved.
+      providerWeb: ReCaptchaEnterpriseProvider(kRecaptchaSiteKey),
       // Debug provider is only safe for local development; release builds must use
       // Play Integrity to actually enforce App Check.
       providerAndroid: kDebugMode

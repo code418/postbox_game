@@ -112,7 +112,7 @@ Web build succeeds (`flutter build web`). Android debug build fails with Java he
 
 1. **Android build**: Update Kotlin plugin in `android/settings.gradle` to latest stable. Bump `compileSdkVersion`/`targetSdkVersion` to 34+ for Play Store. Debug builds fail with Java heap space — use `--release` or increase Gradle JVM heap.
 2. **iOS build**: A `Podfile` will be needed (`pod install` in the `ios/` directory). Firebase options are already configured.
-3. **Rate limiting / App Check enforcement**: App Check is configured with `AndroidPlayIntegrityProvider` for release builds — ensure it is enforced in the Firebase Console.
+3. **Rate limiting / App Check enforcement**: App Check is configured with `AndroidPlayIntegrityProvider` for Android release builds, `AppleAppAttestProvider` on iOS, and `ReCaptchaEnterpriseProvider` on the web (site key `kRecaptchaSiteKey` in the gitignored `lib/secrets.dart`; the web app must be registered under App Check → reCAPTCHA Enterprise with that site key, and the key must list the hosting domains) — ensure it is enforced in the Firebase Console.
 4. **Friend challenges / social features**: Friend profile pages (`UserProfilePage`) and friends-only leaderboard filtering are implemented. Friend challenges (e.g. direct head-to-head invites) are not yet implemented.
 5. **Push notifications (social)**: Friend-first-claim, overtake, and friend-added FCM notifications are implemented. The streak-loss reminder gameplay notification (`streakReminder`) is now implemented. Remaining gameplay notifications (daily reminder, rare postbox nearby) are not yet implemented.
 
