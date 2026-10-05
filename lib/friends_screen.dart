@@ -2,7 +2,8 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart' show setEquals;
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform, setEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:postbox_game/analytics_service.dart';
@@ -21,13 +22,24 @@ import 'package:share_plus/share_plus.dart';
 const String _playStoreUrl =
     'https://play.google.com/store/apps/details?id=com.code418.postbox_game';
 
+/// App Store listing, from the app's Apple ID in App Store Connect.
+const String _appStoreUrl = 'https://apps.apple.com/app/id6819213888';
+
 /// Builds the invite message shared via the OS share sheet. Includes the
 /// user's UID so the recipient can add them back as a friend.
-String buildInviteMessage(String uid) =>
-    "Join me on Postbox Game! Hunt down Britain's historic postboxes, "
-    'claim them for points and climb the leaderboards.\n\n'
-    'Add me as a friend with my UID: $uid\n\n'
-    '$_playStoreUrl';
+///
+/// The recipient's phone is unknown, so both store links are included,
+/// labelled. The sender's own store comes first ([platform], defaulting to
+/// this device), since friends tend to share a platform.
+String buildInviteMessage(String uid, {TargetPlatform? platform}) {
+  final ios = (platform ?? defaultTargetPlatform) == TargetPlatform.iOS;
+  const iphone = 'iPhone: $_appStoreUrl';
+  const android = 'Android: $_playStoreUrl';
+  return "Join me on Postbox Game! Hunt down Britain's historic postboxes, "
+      'claim them for points and climb the leaderboards.\n\n'
+      'Add me as a friend with my UID: $uid\n\n'
+      '${ios ? '$iphone\n$android' : '$android\n$iphone'}';
+}
 
 /// Friends list and add-friend by UID.
 /// Display names learned from one batched `users` lookup of [batch], given

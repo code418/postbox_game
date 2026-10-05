@@ -1012,6 +1012,23 @@ void main() {
     test('uses no em-dash, matching the app writing voice', () {
       expect(buildInviteMessage('abc123'), isNot(contains('—')));
     });
+
+    test('includes the App Store link too, whatever the sender uses', () {
+      for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+        expect(buildInviteMessage('abc123', platform: platform),
+            contains('https://apps.apple.com/app/id6819213888'),
+            reason: '$platform');
+      }
+    });
+
+    test("lists the sender's own store first", () {
+      int at(String msg, String s) => msg.indexOf(s);
+      final fromIos = buildInviteMessage('abc123', platform: TargetPlatform.iOS);
+      expect(at(fromIos, 'iPhone:'), lessThan(at(fromIos, 'Android:')));
+      final fromAndroid =
+          buildInviteMessage('abc123', platform: TargetPlatform.android);
+      expect(at(fromAndroid, 'Android:'), lessThan(at(fromAndroid, 'iPhone:')));
+    });
   });
 
   // ---------------------------------------------------------------------------
