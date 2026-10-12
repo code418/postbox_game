@@ -7,6 +7,12 @@ items inside it can be re-ordered freely.
 This file replaces the bulk-created draft PRs `#94`–`#112` (closed once this
 lands). Their original bodies are preserved below for diff archaeology.
 
+**Growth (Oct 2026):** the free launch marketing plan lives in
+[`docs/marketing-plan.md`](../marketing-plan.md). As part of it, the invite loop
+(invite codes + links, two-way friend add, "Added you"), share cards, the in-app
+review prompt and growth analytics were built ahead of v1.7/v2.0; it recommends
+the v1.7 order weekly recap → Postbox of the Day → friend challenges.
+
 ## Status legend
 
 - **In flight** — has an open PR or active branch.
