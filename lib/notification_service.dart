@@ -15,20 +15,51 @@ class NotificationService {
   static StreamSubscription<String>? _tokenRefreshSub;
   static StreamSubscription<dynamic>? _onMessageSub;
 
-  /// Initialise FCM and register the device token with the backend.
-  /// Safe to call multiple times — subscriptions are cancelled on [reset]
-  /// before re-registering to avoid duplicate listeners.
-  static Future<void> init() async {
+  /// Whether [status] lets notifications through.
+  static bool isGranted(AuthorizationStatus status) =>
+      status == AuthorizationStatus.authorized ||
+      status == AuthorizationStatus.provisional;
+
+  /// The current notification permission, or null if it can't be read.
+  static Future<AuthorizationStatus?> permissionStatus() async {
+    try {
+      final settings =
+          await FirebaseMessaging.instance.getNotificationSettings();
+      return settings.authorizationStatus;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Initialise FCM and register the device token with the backend, if
+  /// notification permission is ALREADY granted. Never prompts: the ask
+  /// comes after the player's first claim ([requestAndInit], behind the
+  /// guide's pre-prompt), because iOS allows one system prompt per install
+  /// and spending it straight after sign-up, before the player has seen
+  /// anything worth being notified about, wastes it.
+  ///
+  /// Called on sign-in, on resume (to pick up a grant made in system
+  /// settings) and after Route Mode's own permission request. Safe to call
+  /// multiple times: subscriptions are cancelled on [reset] before
+  /// re-registering to avoid duplicate listeners.
+  static Future<void> init() => _init(prompt: false);
+
+  /// Shows the system permission prompt, then initialises as [init] does.
+  static Future<void> requestAndInit() => _init(prompt: true);
+
+  static Future<void> _init({required bool prompt}) async {
     if (_initialized) return;
     _initialized = true;
 
     final messaging = FirebaseMessaging.instance;
 
     try {
-      final settings = await messaging.requestPermission();
-      if (settings.authorizationStatus == AuthorizationStatus.denied) {
-        // Reset guard so re-initialisation is attempted on next sign-in cycle,
-        // in case the user grants permission later via system settings.
+      final settings = prompt
+          ? await messaging.requestPermission()
+          : await messaging.getNotificationSettings();
+      if (!isGranted(settings.authorizationStatus)) {
+        // Reset guard so a later call (resume after a grant in system
+        // settings, the post-claim prompt, the next sign-in) can retry.
         _initialized = false;
         return;
       }

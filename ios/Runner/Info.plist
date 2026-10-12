@@ -72,7 +72,24 @@
 				<string>com.googleusercontent.apps.176793005702-rmq2h89o58g1lbe6bnqtg9rnllu8gv80</string>
 			</array>
 		</dict>
+		<!-- Invite page's "Open in the app" button (postboxgame://invite/CODE,
+		     web/invite.html). Safari never opens a Universal Link for a tap
+		     on the same domain, so the page needs a scheme of its own. -->
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.code418.postboxGame.invite</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>postboxgame</string>
+			</array>
+		</dict>
 	</array>
+	<!-- Invite links are handled by app_links (lib/main.dart); Flutter's own
+	     deep linking would also push them into the Navigator as routes. -->
+	<key>FlutterDeepLinkingEnabled</key>
+	<false/>
 	<!-- Export compliance: the app only uses standard HTTPS/TLS, which is exempt.
 	     Saves answering the encryption question on every TestFlight upload. -->
 	<key>ITSAppUsesNonExemptEncryption</key>

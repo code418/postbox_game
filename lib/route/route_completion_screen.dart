@@ -4,6 +4,7 @@ import 'package:postbox_game/james_controller.dart';
 import 'package:postbox_game/james_messages.dart';
 import 'package:postbox_game/james_strip.dart';
 import 'package:postbox_game/theme.dart';
+import 'package:postbox_game/widgets/share_card.dart';
 
 import 'route_session.dart';
 
@@ -195,6 +196,26 @@ class _RouteCompletionScreenState extends State<RouteCompletionScreen> {
                         Navigator.popUntil(context, (r) => r.isFirst),
                     child: const Text('Done'),
                   ),
+                  // Only worth sharing when the walk paid out.
+                  if (widget.claimedCount > 0) ...[
+                    const SizedBox(height: AppSpacing.sm),
+                    OutlinedButton.icon(
+                      onPressed: () => showShareCardSheet(
+                        context,
+                        data: ShareCardData(
+                          headline: widget.claimedCount == 1
+                              ? 'I claimed a postbox on my walk!'
+                              : 'I claimed ${widget.claimedCount} postboxes '
+                                  'on one walk!',
+                          points: widget.pointsEarned,
+                        ),
+                        contentType: 'route',
+                        itemId: '${widget.claimedCount}',
+                      ),
+                      icon: const Icon(Icons.ios_share),
+                      label: const Text('Share this walk'),
+                    ),
+                  ],
                   const SizedBox(height: AppSpacing.sm),
                   TextButton(
                     onPressed: () {

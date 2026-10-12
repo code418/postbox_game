@@ -16,5 +16,13 @@
 	     must have the App Attest capability enabled. -->
 	<key>com.apple.developer.devicecheck.appattest-environment</key>
 	<string>production</string>
+	<!-- Universal Links for invites (https://the-postbox-game.web.app/invite/CODE),
+	     verified against web/.well-known/apple-app-site-association. The App ID
+	     must have the Associated Domains capability, and the App Store profile
+	     must be regenerated after enabling it. -->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:the-postbox-game.web.app</string>
+	</array>
 </dict>
 </plist>

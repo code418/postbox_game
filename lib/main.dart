@@ -39,11 +39,13 @@ import 'package:postbox_game/notification_service.dart';
 import 'package:postbox_game/remote_config_service.dart';
 import 'package:postbox_game/deep_links.dart';
 import 'package:postbox_game/services/crashlytics_helper.dart';
+import 'package:postbox_game/services/pending_invite_store.dart';
 import 'package:postbox_game/services/telemetry_consent.dart';
 import 'package:postbox_game/route/destination_picker_screen.dart';
 import 'package:postbox_game/route/route_notifications.dart';
 import 'package:postbox_game/services/user_properties_publisher.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:app_links/app_links.dart';
 
 // Deep-link parsing and the unknown-route guard live in deep_links.dart so the
 // Wear entry point can share them. Re-exported so existing importers (and the
@@ -167,6 +169,7 @@ class _PostboxGameState extends State<PostboxGame> with WidgetsBindingObserver {
   final UserRepository _userRepository = UserRepository();
   final HomeWidgetService _homeWidgetService = HomeWidgetService();
   StreamSubscription<Uri?>? _widgetClickSub;
+  StreamSubscription<Uri>? _appLinkSub;
   // Widget-deep-link activations. Each tap bumps the epoch, which is used as
   // part of the Home widget's key so a widget tap while the app is warm
   // (already authenticated) forces a fresh Home + Claim mount rather than
@@ -193,12 +196,37 @@ class _PostboxGameState extends State<PostboxGame> with WidgetsBindingObserver {
     } catch (_) {
       // home_widget unsupported on this platform.
     }
+    // Invite links (App Links / Universal Links and the invite page's
+    // custom scheme). The stream also delivers the link that cold-started
+    // the app. The invite is parked rather than acted on here: the opener is
+    // usually not signed in yet, and Home takes it once it mounts. The
+    // web build is skipped: it has no app to open, and app_links only
+    // replays the page URL there.
+    if (!kIsWeb) {
+      try {
+        // onError: a missing plugin (tests, unsupported hosts) surfaces as
+        // a stream error, which would otherwise be an uncaught async error.
+        _appLinkSub =
+            AppLinks().uriLinkStream.listen(_onAppLink, onError: (_) {});
+      } catch (_) {
+        // app_links unsupported on this platform.
+      }
+    }
+  }
+
+  void _onAppLink(Uri uri) {
+    final code = parseInviteLink(uri);
+    if (code == null) return;
+    unawaited(Analytics.inviteLinkOpened(
+        source: uri.scheme == kInviteScheme ? 'scheme' : 'link'));
+    unawaited(PendingInviteStore.save(code));
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _widgetClickSub?.cancel();
+    _appLinkSub?.cancel();
     super.dispose();
   }
 
@@ -213,6 +241,11 @@ class _PostboxGameState extends State<PostboxGame> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       unawaited(_homeWidgetService.refresh());
+      // Pick up a notification grant made in system settings while away.
+      // Non-prompting, and a no-op once registered.
+      if (FirebaseAuth.instance.currentUser != null) {
+        unawaited(NotificationService.init());
+      }
     }
   }
 
@@ -372,6 +405,7 @@ class _UnauthGateState extends State<_UnauthGate> {
           } catch (_) {}
           unawaited(Analytics.setUserProperty(
               AnalyticsUserProps.kHasSeenIntro, 'true'));
+          unawaited(Analytics.tutorialComplete());
           if (mounted) setState(() => _introSeen = true);
         },
       );

@@ -11,6 +11,8 @@ import 'package:latlong2/latlong.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/app_preferences.dart';
+import 'package:postbox_game/services/notification_preprompt.dart';
+import 'package:postbox_game/services/review_prompt_service.dart';
 import 'package:postbox_game/services/user_properties_publisher.dart';
 import 'package:postbox_game/james_controller.dart';
 import 'package:postbox_game/james_messages.dart';
@@ -31,6 +33,7 @@ import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/widgets/postbox_map.dart';
 import 'package:postbox_game/widgets/postbox_marker.dart';
 import 'package:postbox_game/widgets/quiz_helpers.dart';
+import 'package:postbox_game/widgets/share_card.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Callable typedefs (injectable for testing)
@@ -236,6 +239,14 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
   int _claimedCount = 0;
   bool _isClaiming = false;
 
+  // ── After a claim: share, activation and permission asks ─────────────────
+  // Streak as the server left it after this claim (read back with the
+  // user-properties refresh); 0 until that read lands.
+  int _streakAfterClaim = 0;
+  // Delays the post-claim asks so the success moment lands first; cancelled
+  // on dispose so it can't fire on a dead sheet.
+  Timer? _postClaimTimer;
+
   // ── Network-error retry state ─────────────────────────────────────────────
   // Identifies the current logical claim attempt for the server's idempotent
   // replay (functions/src/_attempts.ts). Generated when a claim attempt
@@ -348,6 +359,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
   void dispose() {
     AppPreferences.distanceUnitChanged.removeListener(_onDistanceUnitChanged);
     unawaited(_moveSub?.cancel());
+    _postClaimTimer?.cancel();
     _successController.dispose();
     _pulseController.dispose();
     _confettiController.dispose();
@@ -713,9 +725,12 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
       // Fire-and-forget — analytics never blocks the UI.
       final uid = FirebaseAuth.instance.currentUser?.uid;
       if (uid != null) {
-        unawaited(publishUserPropertiesFromFirestore(uid));
+        unawaited(publishUserPropertiesFromFirestore(uid).then((data) =>
+            _afterClaimProfile(data,
+                claimedCount: claimedCount, earnedPts: earnedPts)));
       }
       setState(() {
+        _streakAfterClaim = 0;
         _pointsEarned = earnedPts;
         _claimedCount = claimedCount;
         _isClaiming = false;
@@ -1033,6 +1048,71 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
   }
 
   // ── All-claimed banner ─────────────────────────────────────────────────────
+
+  /// Follow-ups that need the post-claim `users/{uid}` read: the activation
+  /// event, the streak for the share card, and (after a beat, so the
+  /// success moment lands first) the notification pre-prompt or, failing
+  /// that, a rating ask. At most one dialog per claim.
+  void _afterClaimProfile(
+    Map<String, dynamic>? data, {
+    required int claimedCount,
+    required int earnedPts,
+  }) {
+    if (data == null || !mounted || _stage != _QuizStage.claimed) return;
+    final unique = (data['uniquePostboxesClaimed'] as num?)?.toInt();
+    final streak = (data['streak'] as num?)?.toInt() ?? 0;
+    // Lifetime unique boxes no more than this claim's count: this was the
+    // account's first ever claim.
+    if (unique != null && unique > 0 && unique <= claimedCount) {
+      unawaited(Analytics.firstClaim());
+    }
+    setState(() => _streakAfterClaim = streak);
+    final rare = claimedCount > 0 && earnedPts / claimedCount >= 7;
+    _postClaimTimer?.cancel();
+    _postClaimTimer = Timer(const Duration(seconds: 2), () async {
+      if (!mounted || _stage != _QuizStage.claimed) return;
+      if (kShareStreakMilestones.contains(streak)) {
+        _james?.show(JamesMessages.shareNudgeStreak(streak));
+      } else if (rare) {
+        _james?.show(JamesMessages.shareNudgeRare.resolve());
+      }
+      final shown = await NotificationPrePrompt.maybeShow(context);
+      if (!mounted) return;
+      unawaited(ReviewPromptService.maybeRequest(
+        rareClaim: rare,
+        streak: streak,
+        otherDialogShown: shown,
+      ));
+    });
+  }
+
+  bool get _streakMilestone => kShareStreakMilestones.contains(_streakAfterClaim);
+
+  void _shareClaim() {
+    // The quiz cypher is only the claimed box's own when one box was taken.
+    final cypher = _claimedCount == 1 ? _quizCipher : null;
+    final milestone = _streakMilestone;
+    unawaited(showShareCardSheet(
+      context,
+      data: milestone
+          ? ShareCardData(
+              headline: '$_streakAfterClaim-day streak!',
+              cypher: shareableCypher(cypher),
+              points: _pointsEarned,
+              streak: _streakAfterClaim,
+            )
+          : claimShareCard(
+              claimedCount: _claimedCount,
+              points: _pointsEarned,
+              cypher: cypher,
+              streak: _streakAfterClaim,
+            ),
+      contentType: milestone ? 'streak' : 'claim',
+      itemId: milestone
+          ? '$_streakAfterClaim'
+          : (shareableCypher(cypher) ?? 'multi'),
+    ));
+  }
 
   Widget _buildAllClaimedBanner(BuildContext context) {
     return Container(
@@ -1760,6 +1840,17 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
                     ),
                     icon: const Icon(Icons.explore),
                     label: const Text('Keep exploring'),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  OutlinedButton.icon(
+                    onPressed: _shareClaim,
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: Size(double.infinity, _buttonHeight),
+                    ),
+                    icon: const Icon(Icons.ios_share),
+                    label: Text(_streakMilestone
+                        ? 'Share your $_streakAfterClaim-day streak'
+                        : 'Share this find'),
                   ),
                 ],
               ),

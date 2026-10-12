@@ -8,6 +8,18 @@ import 'package:postbox_game/login/bloc/bloc.dart';
 import 'package:postbox_game/user_repository.dart';
 import 'package:postbox_game/validators.dart';
 
+/// Whether [user]'s sign-in just created the account. Google and Apple have
+/// no separate registration step, so a provider's first sign-in is the
+/// sign-up and must log `sign_up` like email registration does (otherwise
+/// the activation funnel undercounts new players). Auth stamps both times
+/// in the same request on creation; the slack covers clock rounding.
+bool isFirstSignIn(User user) {
+  final created = user.metadata.creationTime;
+  final lastSignIn = user.metadata.lastSignInTime;
+  if (created == null || lastSignIn == null) return false;
+  return lastSignIn.difference(created).abs() < const Duration(seconds: 10);
+}
+
 class LoginBloc extends Bloc<LoginEvent, LoginState> {
   final UserRepository _userRepository;
 
@@ -52,6 +64,7 @@ class LoginBloc extends Bloc<LoginEvent, LoginState> {
         return;
       }
       unawaited(Analytics.login(method: 'google'));
+      if (isFirstSignIn(user)) unawaited(Analytics.signUp(method: 'google'));
       emit(LoginState.success());
     } on FirebaseAuthException catch (e) {
       unawaited(Analytics.loginFailed(method: 'google', errorCode: e.code.isNotEmpty ? e.code : 'unknown'));
@@ -85,6 +98,7 @@ class LoginBloc extends Bloc<LoginEvent, LoginState> {
         return;
       }
       unawaited(Analytics.login(method: 'apple'));
+      if (isFirstSignIn(user)) unawaited(Analytics.signUp(method: 'apple'));
       emit(LoginState.success());
     } on FirebaseAuthException catch (e) {
       unawaited(Analytics.loginFailed(method: 'apple', errorCode: e.code.isNotEmpty ? e.code : 'unknown'));

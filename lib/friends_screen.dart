@@ -7,12 +7,15 @@ import 'package:flutter/foundation.dart'
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:postbox_game/analytics_service.dart';
-import 'package:postbox_game/analytics_user_properties.dart';
+import 'package:postbox_game/deep_links.dart';
 import 'package:postbox_game/display_name_utils.dart';
 import 'package:postbox_game/maintenance_guard.dart';
+import 'package:postbox_game/services/friends_repository.dart';
+import 'package:postbox_game/services/invite_service.dart';
 import 'package:postbox_game/services/perf_service.dart';
 import 'package:postbox_game/services/user_properties_publisher.dart';
 import 'package:postbox_game/user_profile_page.dart';
+import 'package:postbox_game/widgets/invite_accept_flow.dart';
 import 'package:postbox_game/widgets/stale_data_chip.dart';
 import 'package:postbox_game/services/connectivity_service.dart';
 import 'package:postbox_game/theme.dart';
@@ -25,13 +28,24 @@ const String _playStoreUrl =
 /// App Store listing, from the app's Apple ID in App Store Connect.
 const String _appStoreUrl = 'https://apps.apple.com/app/id6819213888';
 
-/// Builds the invite message shared via the OS share sheet. Includes the
-/// user's UID so the recipient can add them back as a friend.
+/// Builds the invite message shared via the OS share sheet.
 ///
-/// The recipient's phone is unknown, so both store links are included,
-/// labelled. The sender's own store comes first ([platform], defaulting to
+/// With the sender's invite [code] it is one link: tapping it opens the app
+/// (or the invite page, which picks the right store) and adds the two players
+/// as friends both ways. The code is spelled out too, for anyone who installs
+/// first and has to type it.
+///
+/// Without a code (offline, or the invite backend unreachable) it falls back
+/// to the [uid] plus both store links, labelled. The recipient's phone is
+/// unknown, so the sender's own store comes first ([platform], defaulting to
 /// this device), since friends tend to share a platform.
-String buildInviteMessage(String uid, {TargetPlatform? platform}) {
+String buildInviteMessage(String uid, {String? code, TargetPlatform? platform}) {
+  if (code != null) {
+    return "Join me on The Postbox Game! Hunt down Britain's historic "
+        'postboxes, claim them for points and climb the leaderboards.\n\n'
+        'Tap to add me as a friend: ${inviteUrlFor(code)}\n\n'
+        'Or enter my invite code in Friends: ${formatInviteCode(code)}';
+  }
   final ios = (platform ?? defaultTargetPlatform) == TargetPlatform.iOS;
   const iphone = 'iPhone: $_appStoreUrl';
   const android = 'Android: $_playStoreUrl';
@@ -68,9 +82,8 @@ class FriendsScreen extends StatefulWidget {
   const FriendsScreen({super.key});
 
   // Must match the `request.resource.data.friends.size() <= 200` check in
-  // firestore.rules — that is the server-enforced cap; this one is the
-  // client-side pre-check so users get a friendly error before the write.
-  static const int maxFriends = 200;
+  // firestore.rules (pinned by a test).
+  static const int maxFriends = FriendsRepository.maxFriends;
 
   @override
   State<FriendsScreen> createState() => _FriendsScreenState();
@@ -81,7 +94,12 @@ class _FriendsScreenState extends State<FriendsScreen>
   final _formKey = GlobalKey<FormState>();
   final _uidController = TextEditingController();
   final _firestore = FirebaseFirestore.instance;
+  final _friendsRepository = FriendsRepository();
   bool _isAdding = false;
+
+  /// This player's invite code; null until fetched, or if it can't be (the
+  /// banner and the invite message then fall back to the UID).
+  String? _inviteCode;
   final Set<String> _removingUids = {};
 
   // Batched display-name lookups: the StreamBuilder fires _ensureNames whenever
@@ -97,6 +115,15 @@ class _FriendsScreenState extends State<FriendsScreen>
 
   Stream<DocumentSnapshot<Map<String, dynamic>>>? _friendsStream;
 
+  /// Players who have this player on THEIR list ("Added you"). Adding is
+  /// one-way, so these are the people to offer an add-back to. Listened to
+  /// once here rather than via StreamBuilder because the section appears in
+  /// both the empty and the populated list, and a Firestore query stream
+  /// shouldn't be re-subscribed on every switch between them.
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _addedYouSub;
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _addedYou = const [];
+  final Set<String> _addingBackUids = {};
+
   @override
   void initState() {
     super.initState();
@@ -108,6 +135,17 @@ class _FriendsScreenState extends State<FriendsScreen>
           .collection('users')
           .doc(uid)
           .snapshots(includeMetadataChanges: true);
+      _addedYouSub = _firestore
+          .collection('users')
+          .where('friends', arrayContains: uid)
+          .limit(50)
+          .snapshots()
+          .listen((snap) {
+        if (mounted) setState(() => _addedYou = snap.docs);
+      }, onError: (_) {
+        // Non-critical: the list simply doesn't appear.
+      });
+      unawaited(_loadInviteCode(uid));
     }
     WidgetsBinding.instance.addObserver(this);
     ConnectivityService.instance.online.addListener(_onConnectivityChanged);
@@ -117,6 +155,7 @@ class _FriendsScreenState extends State<FriendsScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     ConnectivityService.instance.online.removeListener(_onConnectivityChanged);
+    _addedYouSub?.cancel();
     _uidController.dispose();
     super.dispose();
   }
@@ -142,86 +181,48 @@ class _FriendsScreenState extends State<FriendsScreen>
     unawaited(_fetchNames(_knownUids.toList()));
   }
 
+  Future<void> _loadInviteCode(String uid) async {
+    final code = await InviteService.myCode(uid);
+    if (mounted && code != null) setState(() => _inviteCode = code);
+  }
+
+  /// The add field takes an invite code or link (a mutual add, via the
+  /// server) or, for codes shared before invites existed, a raw UID (a
+  /// one-way add, as before).
+  Future<void> _submitAddField() async {
+    final text = _uidController.text.trim();
+    final code = parseInviteInput(text);
+    if (code == null) return _addFriendByUid(text);
+    if (_isAdding) return;
+    setState(() => _isAdding = true);
+    unawaited(Analytics.inviteLinkOpened(source: 'typed'));
+    try {
+      final added = await runInviteAcceptFlow(context, code);
+      if (added && mounted) _uidController.clear();
+    } finally {
+      if (mounted) setState(() => _isAdding = false);
+    }
+  }
+
   Future<void> _addFriendByUid(String friendUid) async {
     if (_isAdding) return;
     if (MaintenanceGuard.blocked(context, actionLabel: 'add a friend')) {
       return;
     }
+    final uid = _currentUid;
+    if (uid == null) return;
     setState(() => _isAdding = true);
     try {
-      final uid = _currentUid;
-      if (uid == null) return;
-      if (uid == friendUid) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('You can\'t add yourself')),
-          );
-        }
-        return;
-      }
-      // Check the friend exists AND whether they're already in the list.
-      final results = await Future.wait([
-        _firestore.collection('users').doc(friendUid).get(),
-        _firestore.collection('users').doc(uid).get(),
-      ]);
-      final friendDoc = results[0];
-      final myDoc = results[1];
-      if (!friendDoc.exists) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('No player found with that UID')),
-          );
-        }
-        return;
-      }
-      final existingFriends = (myDoc.data()?['friends'] as List<dynamic>?) ?? [];
-      if (existingFriends.contains(friendUid)) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Already in your friends list')),
-          );
-        }
-        return;
-      }
-      if (existingFriends.length >= FriendsScreen.maxFriends) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                  'Friends list is full (${FriendsScreen.maxFriends} maximum)'),
-            ),
-          );
-        }
-        return;
-      }
-      await _firestore.collection('users').doc(uid).update({
-        'friends': FieldValue.arrayUnion([friendUid]),
-      });
-      Analytics.friendAdded();
-      // existingFriends pre-dates the just-written arrayUnion, so the new
-      // count is +1. Push the bucket directly rather than re-reading.
-      unawaited(Analytics.setUserProperty(AnalyticsUserProps.kFriendCountBucket,
-          friendCountBucket(existingFriends.length + 1)));
-      // Bust the name cache so a re-add shows fresh data.
-      _namesByUid.remove(friendUid);
-      _knownUids = _knownUids.where((u) => u != friendUid).toSet();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Friend added')),
-        );
+      final result = await _friendsRepository.addByUid(uid, friendUid);
+      if (result == AddFriendResult.added) {
+        // Bust the name cache so a re-add shows fresh data.
+        _namesByUid.remove(friendUid);
+        _knownUids = _knownUids.where((u) => u != friendUid).toSet();
         _uidController.clear();
       }
-    } on FirebaseException catch (e) {
-      if (!mounted) return;
-      final msg = e.code == 'permission-denied'
-          ? 'Friends list is full (${FriendsScreen.maxFriends} maximum)'
-          : 'Failed to add friend. Please try again.';
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(msg)));
-    } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to add friend. Please try again.')),
+          SnackBar(content: Text(addFriendMessage(result))),
         );
       }
     } finally {
@@ -244,7 +245,7 @@ class _FriendsScreenState extends State<FriendsScreen>
       builder: (_) => AlertDialog(
         title: const Text('Remove friend?'),
         content: Text(
-            'Remove $who from your friends list? You\'ll need their UID to add them again.'),
+            'Remove $who from your friends list? You\'ll need their invite code to add them again.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -346,18 +347,116 @@ class _FriendsScreenState extends State<FriendsScreen>
     });
   }
 
-  void _copyUid() {
-    final uid = _currentUid ?? '';
-    Clipboard.setData(ClipboardData(text: uid));
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('UID copied to clipboard')),
-    );
+  /// Copies the invite link (or, without a code, the UID) for pasting
+  /// into a chat.
+  void _copyInvite() {
+    final code = _inviteCode;
+    Clipboard.setData(ClipboardData(
+        text: code != null ? inviteUrlFor(code) : (_currentUid ?? '')));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(code != null
+            ? 'Invite link copied to clipboard'
+            : 'UID copied to clipboard')));
   }
 
   Future<void> _shareApp() async {
     final uid = _currentUid ?? '';
-    await SharePlus.instance.share(
-      ShareParams(text: buildInviteMessage(uid), subject: 'Postbox Game'),
+    final result = await SharePlus.instance.share(
+      ShareParams(
+          text: buildInviteMessage(uid, code: _inviteCode),
+          subject: 'The Postbox Game'),
+    );
+    if (result.status == ShareResultStatus.success ||
+        result.status == ShareResultStatus.unavailable) {
+      unawaited(Analytics.share(
+        contentType: 'invite',
+        itemId: _inviteCode != null ? 'invite_link' : 'uid',
+        method: result.raw.isNotEmpty ? result.raw : 'unknown',
+      ));
+    }
+  }
+
+  Future<void> _addBack(String friendUid) async {
+    final uid = _currentUid;
+    if (uid == null || _addingBackUids.contains(friendUid)) return;
+    if (MaintenanceGuard.blocked(context, actionLabel: 'add a friend')) {
+      return;
+    }
+    setState(() => _addingBackUids.add(friendUid));
+    try {
+      final result = await _friendsRepository.addByUid(uid, friendUid);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(addFriendMessage(result))),
+      );
+    } finally {
+      if (mounted) setState(() => _addingBackUids.remove(friendUid));
+    }
+  }
+
+  /// "Added you": players with this player on their list who aren't on
+  /// this player's yet, each with a one-tap add back. Empty when there are
+  /// none, so it costs nothing on screen.
+  Widget _addedYouSection(List<String> friends) {
+    final me = _currentUid;
+    final mine = friends.toSet();
+    final pending = _addedYou
+        .where((d) => d.id != me && !mine.contains(d.id))
+        .toList();
+    if (pending.isEmpty) return const SizedBox.shrink();
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+          AppSpacing.sm, AppSpacing.sm, AppSpacing.sm, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
+            child: Text('Added you',
+                style: theme.textTheme.titleSmall
+                    ?.copyWith(fontWeight: FontWeight.bold)),
+          ),
+          for (final doc in pending)
+            Card(
+              child: ListTile(
+                onTap: () =>
+                    Navigator.of(context).push(UserProfilePage.route(doc.id)),
+                leading: CircleAvatar(
+                  backgroundColor: postalGold,
+                  child: Text(
+                    initialsFor(
+                        (doc.data()['displayName'] as String?) ?? ''),
+                    style: const TextStyle(
+                      color: royalNavy,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+                title: Text(
+                  ((doc.data()['displayName'] as String?)?.trim().isNotEmpty ??
+                          false)
+                      ? (doc.data()['displayName'] as String).trim()
+                      : 'A player',
+                  overflow: TextOverflow.ellipsis,
+                ),
+                subtitle: const Text('Has you as a friend'),
+                // The theme gives filled buttons an infinite minimum width
+                // (page-level CTAs); inside a ListTile that is an unbounded
+                // layout, so pin a finite one.
+                trailing: FilledButton.tonal(
+                  style: FilledButton.styleFrom(minimumSize: const Size(0, 40)),
+                  onPressed: _addingBackUids.contains(doc.id)
+                      ? null
+                      : () => _addBack(doc.id),
+                  child: const Text('Add back'),
+                ),
+              ),
+            ),
+          const SizedBox(height: AppSpacing.sm),
+        ],
+      ),
     );
   }
 
@@ -370,7 +469,7 @@ class _FriendsScreenState extends State<FriendsScreen>
 
     return Column(
       children: [
-        // Your UID banner
+        // Your invite code (or UID) banner
         Container(
           color: postalRed.withValues(alpha:0.07),
           padding: const EdgeInsets.symmetric(
@@ -383,7 +482,9 @@ class _FriendsScreenState extends State<FriendsScreen>
               const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: Text(
-                  'Your UID: $uid',
+                  _inviteCode != null
+                      ? 'Your invite code: ${formatInviteCode(_inviteCode!)}'
+                      : 'Your UID: $uid',
                   style: Theme.of(context)
                       .textTheme
                       .bodySmall
@@ -393,8 +494,8 @@ class _FriendsScreenState extends State<FriendsScreen>
               ),
               IconButton(
                 icon: const Icon(Icons.copy, size: 16),
-                tooltip: 'Copy UID',
-                onPressed: _copyUid,
+                tooltip: _inviteCode != null ? 'Copy invite link' : 'Copy UID',
+                onPressed: _copyInvite,
                 visualDensity: VisualDensity.compact,
               ),
             ],
@@ -427,20 +528,21 @@ class _FriendsScreenState extends State<FriendsScreen>
                   child: TextFormField(
                     controller: _uidController,
                     decoration: const InputDecoration(
-                      labelText: 'Friend UID',
+                      labelText: 'Friend\'s invite code',
                       prefixIcon: Icon(Icons.person_add_outlined),
-                      hintText: 'Paste your friend\'s UID here',
+                      hintText: 'e.g. ABCD-2345, or paste their link',
                     ),
                     autocorrect: false,
                     enableSuggestions: false,
                     textInputAction: TextInputAction.done,
                     onFieldSubmitted: (_) {
                       if (_formKey.currentState?.validate() ?? false) {
-                        _addFriendByUid(_uidController.text.trim());
+                        _submitAddField();
                       }
                     },
-                    validator: (v) =>
-                        (v == null || v.trim().isEmpty) ? 'Enter a UID' : null,
+                    validator: (v) => (v == null || v.trim().isEmpty)
+                        ? 'Enter an invite code'
+                        : null,
                   ),
                 ),
                 const SizedBox(width: AppSpacing.sm),
@@ -451,7 +553,7 @@ class _FriendsScreenState extends State<FriendsScreen>
                         ? null
                         : () {
                             if (_formKey.currentState?.validate() ?? false) {
-                              _addFriendByUid(_uidController.text.trim());
+                              _submitAddField();
                             }
                           },
                     style: FilledButton.styleFrom(
@@ -522,6 +624,7 @@ class _FriendsScreenState extends State<FriendsScreen>
                 return ListView(
                   padding: const EdgeInsets.only(bottom: kJamesStripClearance),
                   children: [
+                    _addedYouSection(list),
                     Padding(
                       padding: const EdgeInsets.all(AppSpacing.xl),
                       child: Column(
@@ -539,7 +642,7 @@ class _FriendsScreenState extends State<FriendsScreen>
                           ),
                           const SizedBox(height: AppSpacing.xs),
                           Text(
-                            'Share your UID (tap copy above) and ask friends to add you.',
+                            'Tap "Invite friends to play" above and send your link. Anyone who joins with it is added both ways.',
                             style: Theme.of(context)
                                 .textTheme
                                 .bodySmall
@@ -559,10 +662,13 @@ class _FriendsScreenState extends State<FriendsScreen>
                 StaleDataChip(visible: fromCache),
                 Expanded(
                     child: ListView.builder(
-                itemCount: list.length,
+                // Item 0 is the "Added you" section (zero-height when empty).
+                itemCount: list.length + 1,
                 padding: const EdgeInsets.only(
                     top: AppSpacing.sm, bottom: 100),
-                itemBuilder: (context, index) {
+                itemBuilder: (context, i) {
+                  if (i == 0) return _addedYouSection(list);
+                  final index = i - 1;
                   final friendUid = list[index];
                   final resolved = _namesByUid[friendUid];
                   final isLoading = resolved == null;

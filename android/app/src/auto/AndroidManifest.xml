@@ -26,5 +26,29 @@
                 <category android:name="androidx.car.app.category.POI" />
             </intent-filter>
         </service>
+
+        <!-- Invite links (docs/marketing-plan.md, Referral). Phone-side
+             flavours only: the watch never receives a shared link. Merged
+             into MainActivity from src/main. The https filter is an App Link,
+             verified against web/.well-known/assetlinks.json; the custom
+             scheme is the invite page's "Open in the app" fallback. -->
+        <activity
+            android:name="com.code418.postbox_game.MainActivity"
+            android:exported="true">
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" />
+                <data android:host="the-postbox-game.web.app" />
+                <data android:pathPrefix="/invite/" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="postboxgame" android:host="invite" />
+            </intent-filter>
+        </activity>
     </application>
 </manifest>
