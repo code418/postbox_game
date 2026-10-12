@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>The Postbox Game · Hunt Britain's royal postboxes</title>
+  <meta name="description" content="Turn every walk into a treasure hunt. Spot Britain's royal postboxes, claim one a day for points and climb the leaderboards with friends. Free on iPhone and Android.">
+  <meta name="apple-itunes-app" content="app-id=6819213888">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="The Postbox Game">
+  <meta property="og:title" content="The Postbox Game · Hunt Britain's royal postboxes">
+  <meta property="og:description" content="Turn every walk into a treasure hunt. Spot Britain's royal postboxes, claim one a day for points and climb the leaderboards with friends.">
+  <meta property="og:image" content="https://the-postbox-game.web.app/og-image.png">
+  <meta property="og:image:width" content="1024">
+  <meta property="og:image:height" content="500">
+  <meta property="og:url" content="https://the-postbox-game.web.app/get">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="The Postbox Game · Hunt Britain's royal postboxes">
+  <meta name="twitter:description" content="Turn every walk into a treasure hunt. Spot Britain's royal postboxes, claim one a day for points and climb the leaderboards with friends.">
+  <meta name="twitter:image" content="https://the-postbox-game.web.app/og-image.png">
+  <link rel="canonical" href="https://the-postbox-game.web.app/get">
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <style>
+    :root {
+      --red: #C8102E;
+      --navy: #0A1931;
+      --gold: #FFB400;
+      --bg: #f9f7f4;
+      --surface: #ffffff;
+      --text: #1a1a1a;
+      --muted: #555;
+      --rule: #e0d8d0;
+      --accent-text: #C8102E;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0A1931;
+        --surface: #13264a;
+        --text: #f1ede6;
+        --muted: #aab4c8;
+        --rule: #24375c;
+        --accent-text: #FFB400;
+      }
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+    }
+    header {
+      background: var(--navy);
+      color: #fff;
+      padding: 2.5rem 1.25rem 2rem;
+      border-bottom: 4px solid var(--red);
+      text-align: center;
+    }
+    header h1 { font-size: 2rem; font-weight: 800; line-height: 1.2; }
+    header .tagline { color: var(--gold); font-weight: 700; margin-top: 0.35rem; }
+    header .pitch { color: #c4cad8; max-width: 560px; margin: 0.9rem auto 0; }
+    .badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem 1rem;
+      justify-content: center;
+      align-items: center;
+      margin-top: 1.25rem;
+    }
+    .badges a { display: inline-flex; align-items: center; }
+    .badge-apple img { height: 52px; width: auto; }
+    /* Google's badge PNG carries its own padding; scale it to match. */
+    .badge-google img { height: 76px; width: auto; margin: -12px; }
+    .hero-image {
+      display: block;
+      width: 100%;
+      max-width: 720px;
+      height: auto;
+      margin: 1.75rem auto 0;
+      border-radius: 12px;
+    }
+    main {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 2rem 1rem 3rem;
+    }
+    .features {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 1rem;
+    }
+    @media (min-width: 640px) {
+      .features { grid-template-columns: 1fr 1fr; }
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      padding: 1.25rem;
+    }
+    h2 { font-size: 1.1rem; color: var(--accent-text); margin-bottom: 0.4rem; }
+    table { width: 100%; border-collapse: collapse; margin-top: 0.4rem; font-size: 0.95rem; }
+    td { padding: 0.25rem 0; border-bottom: 1px solid var(--rule); }
+    td:last-child { text-align: right; font-weight: 700; white-space: nowrap; }
+    tr:last-child td { border-bottom: none; }
+    .fact {
+      margin-top: 1.25rem;
+      background: var(--gold);
+      color: var(--navy);
+      border-radius: 12px;
+      padding: 1.1rem 1.25rem;
+      font-weight: 600;
+      text-align: center;
+    }
+    .closing { text-align: center; margin-top: 2rem; }
+    .closing p { color: var(--muted); }
+    footer {
+      text-align: center;
+      padding: 1.5rem;
+      font-size: 0.8rem;
+      color: var(--muted);
+      border-top: 1px solid var(--rule);
+    }
+    footer a { color: inherit; }
+  </style>
+</head>
+<body>
+<header>
+  <h1>The Postbox Game</h1>
+  <p class="tagline">Hunt Britain's royal postboxes</p>
+  <p class="pitch">Turn every walk into a treasure hunt. Every red postbox carries the royal cypher of the monarch who reigned when it was installed. Spot them, claim one a day for points, and chase the rare ones up the leaderboards.</p>
+  <div class="badges" data-badges>
+    <a class="badge-apple" data-store="apple" href="https://apps.apple.com/app/id6819213888">
+      <img src="https://tools.applemarketingtools.com/api/badges/download-on-the-app-store/black/en-us?size=250x83" alt="Download on the App Store">
+    </a>
+    <a class="badge-google" data-store="google" href="https://play.google.com/store/apps/details?id=com.code418.postbox_game">
+      <img src="https://play.google.com/intl/en_gb/badges/static/images/badges/en_badge_web_generic.png" alt="Get it on Google Play">
+    </a>
+  </div>
+  <img class="hero-image" src="/og-image.png" alt="Find Britain's postboxes, collect the royal cyphers: Victoria 7 points, Edward VII 9 points, Edward VIII 12 points" width="1024" height="500">
+</header>
+<main>
+  <div class="features">
+    <section class="card">
+      <h2>Find and claim</h2>
+      <p>Walk up to any postbox in the UK, scan, and name its royal cypher to claim it. Each box can be claimed once a day, so there's always a reason to explore somewhere new.</p>
+    </section>
+    <section class="card">
+      <h2>Rarer boxes, more points</h2>
+      <table>
+        <tr><td>Edward VIII (EVIIIR)</td><td>12 pts</td></tr>
+        <tr><td>Edward VII (EVIIR) and Charles III (CIIIR)</td><td>9 pts</td></tr>
+        <tr><td>Victoria (VR)</td><td>7 pts</td></tr>
+        <tr><td>George V and VI (GR, GVR, GVIR), Scottish Crown</td><td>4 pts</td></tr>
+        <tr><td>Elizabeth II (EIIR)</td><td>2 pts</td></tr>
+      </table>
+    </section>
+    <section class="card">
+      <h2>Hints, not directions</h2>
+      <p>A fuzzy compass shows roughly which way unclaimed postboxes lie, never their exact spot. You still have to go and look, which is half the fun.</p>
+    </section>
+    <section class="card">
+      <h2>Play with friends</h2>
+      <p>Daily, weekly, monthly and all-time leaderboards. Add friends, filter the leaderboard to just them, and keep a daily streak going.</p>
+    </section>
+    <section class="card">
+      <h2>On your wrist</h2>
+      <p>On Android, a standalone Wear OS app scans, follows the compass and claims from your watch, with a tile and watch-face complications for your streak and today's points.</p>
+    </section>
+    <section class="card">
+      <h2>Help keep the map right</h2>
+      <p>Postbox data comes from OpenStreetMap. Report a missing postbox or a wrong cypher from the app, and accepted fixes update everyone's scores.</p>
+    </section>
+  </div>
+
+  <p class="fact">Only 143 Edward VIII postboxes are mapped in the UK. He reigned for less than a year. Can you find one?</p>
+
+  <div class="closing">
+    <div class="badges" data-badges>
+      <a class="badge-apple" data-store="apple" href="https://apps.apple.com/app/id6819213888">
+        <img src="https://tools.applemarketingtools.com/api/badges/download-on-the-app-store/black/en-us?size=250x83" alt="Download on the App Store">
+      </a>
+      <a class="badge-google" data-store="google" href="https://play.google.com/store/apps/details?id=com.code418.postbox_game">
+        <img src="https://play.google.com/intl/en_gb/badges/static/images/badges/en_badge_web_generic.png" alt="Get it on Google Play">
+      </a>
+    </div>
+    <p>Free, with no ads. Covers postboxes across the United Kingdom.</p>
+  </div>
+</main>
+<footer>
+  &copy; The Postbox Game · <a href="/support">Support</a> · <a href="/privacy-policy">Privacy Policy</a>
+</footer>
+<script>
+  // App Store campaign provider token (App Store Connect > Analytics > Campaigns).
+  // Leave empty until the owner creates one: see the owner checklist in
+  // docs/marketing-plan.md. Apple ignores campaign links without it.
+  const APPLE_PROVIDER_TOKEN = '';
+  const APP_STORE_ID = '6819213888';
+  const PLAY_PACKAGE = 'com.code418.postbox_game';
+
+  // Marketing links carry ?src=<channel> (e.g. /get?src=reddit_postboxes) so
+  // the store consoles can attribute installs to the channel.
+  function sourceParam() {
+    const raw = new URLSearchParams(location.search).get('src') || '';
+    const clean = raw.toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 40);
+    return clean || 'web';
+  }
+
+  function appStoreUrl(campaign) {
+    if (!APPLE_PROVIDER_TOKEN) return 'https://apps.apple.com/app/id' + APP_STORE_ID;
+    return 'https://apps.apple.com/app/apple-store/id' + APP_STORE_ID +
+      '?pt=' + encodeURIComponent(APPLE_PROVIDER_TOKEN) +
+      '&ct=' + encodeURIComponent(campaign) + '&mt=8';
+  }
+
+  function playUrl(referrer) {
+    return 'https://play.google.com/store/apps/details?id=' + PLAY_PACKAGE +
+      '&referrer=' + encodeURIComponent(referrer);
+  }
+
+  const source = sourceParam();
+  const apple = appStoreUrl(source);
+  const play = playUrl('utm_source=' + source + '&utm_medium=landing');
+  const isAndroid = /android/i.test(navigator.userAgent || '');
+
+  document.querySelectorAll('[data-badges]').forEach(function (group) {
+    const appleBadge = group.querySelector('[data-store="apple"]');
+    const googleBadge = group.querySelector('[data-store="google"]');
+    appleBadge.href = apple;
+    googleBadge.href = play;
+    // List the visitor's own store first.
+    if (isAndroid) group.insertBefore(googleBadge, appleBadge);
+  });
+</script>
+</body>
+</html>

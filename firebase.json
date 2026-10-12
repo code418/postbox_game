@@ -2,8 +2,21 @@
   "hosting": {
     "public": "build/web",
     "cleanUrls": true,
-    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
-    "rewrites": [{ "source": "**", "destination": "/index.html" }]
+    "ignore": ["firebase.json", "**/node_modules/**", "**/.last_build_id", "**/.DS_Store"],
+    "headers": [
+      {
+        "source": "/.well-known/apple-app-site-association",
+        "headers": [{ "key": "Content-Type", "value": "application/json" }]
+      },
+      {
+        "source": "/.well-known/assetlinks.json",
+        "headers": [{ "key": "Content-Type", "value": "application/json" }]
+      }
+    ],
+    "rewrites": [
+      { "source": "/invite/**", "destination": "/invite.html" },
+      { "source": "**", "destination": "/index.html" }
+    ]
   },
   "functions": {
     "source": "functions",

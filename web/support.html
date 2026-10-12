@@ -54,6 +54,17 @@
       border-radius: 4px;
       margin-bottom: 1.5rem;
     }
+    .badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem 1rem;
+      align-items: center;
+      margin: 0.4rem 0 0.9rem;
+    }
+    .badges a { display: inline-flex; align-items: center; }
+    .badge-apple img { height: 44px; width: auto; }
+    /* Google's badge PNG carries its own padding; scale it to match. */
+    .badge-google img { height: 64px; width: auto; margin: -10px; }
     footer {
       text-align: center;
       padding: 1.5rem;
@@ -69,6 +80,16 @@
   <p>Help with playing, your account and postbox data.</p>
 </header>
 <main>
+  <h2>Get the app</h2>
+  <div class="badges">
+    <a class="badge-apple" href="https://apps.apple.com/app/id6819213888">
+      <img src="https://tools.applemarketingtools.com/api/badges/download-on-the-app-store/black/en-us?size=250x83" alt="Download on the App Store">
+    </a>
+    <a class="badge-google" href="https://play.google.com/store/apps/details?id=com.code418.postbox_game&amp;referrer=utm_source%3Dsupport%26utm_medium%3Dweb">
+      <img src="https://play.google.com/intl/en_gb/badges/static/images/badges/en_badge_web_generic.png" alt="Get it on Google Play">
+    </a>
+  </div>
+
   <h2>Contact us</h2>
   <p>Email <a href="mailto:richard@agilepixel.io?subject=The%20Postbox%20Game%20support">richard@agilepixel.io</a>. Please include your device model and, if it's about your account, the UID shown on the Friends screen. We aim to reply within a few working days.</p>
 

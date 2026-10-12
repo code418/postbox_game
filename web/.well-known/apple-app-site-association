@@ -1,0 +1,10 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["M24Q4KZ737.com.code418.postboxGame"],
+        "components": [{ "/": "/invite/*" }]
+      }
+    ]
+  }
+}

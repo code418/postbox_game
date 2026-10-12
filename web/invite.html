@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>You're invited · The Postbox Game</title>
+  <meta name="description" content="A friend has invited you to The Postbox Game. Spot Britain's royal postboxes on your walks, claim one a day for points and climb the leaderboards together.">
+  <meta name="apple-itunes-app" content="app-id=6819213888">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="The Postbox Game">
+  <meta property="og:title" content="You've been invited to The Postbox Game">
+  <meta property="og:description" content="Turn every walk into a treasure hunt. Spot Britain's royal postboxes, claim them for points and climb the leaderboards with friends.">
+  <meta property="og:image" content="https://the-postbox-game.web.app/og-image.png">
+  <meta property="og:image:width" content="1024">
+  <meta property="og:image:height" content="500">
+  <meta property="og:url" content="https://the-postbox-game.web.app/get">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="You've been invited to The Postbox Game">
+  <meta name="twitter:description" content="Turn every walk into a treasure hunt. Spot Britain's royal postboxes, claim them for points and climb the leaderboards with friends.">
+  <meta name="twitter:image" content="https://the-postbox-game.web.app/og-image.png">
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <style>
+    :root {
+      --red: #C8102E;
+      --navy: #0A1931;
+      --gold: #FFB400;
+      --bg: #f9f7f4;
+      --surface: #ffffff;
+      --text: #1a1a1a;
+      --muted: #555;
+      --rule: #e0d8d0;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0A1931;
+        --surface: #13264a;
+        --text: #f1ede6;
+        --muted: #aab4c8;
+        --rule: #24375c;
+      }
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+    }
+    header {
+      background: var(--navy);
+      color: #fff;
+      padding: 2.25rem 1.25rem 1.75rem;
+      border-bottom: 4px solid var(--red);
+      text-align: center;
+    }
+    header .eyebrow {
+      display: inline-block;
+      background: var(--gold);
+      color: var(--navy);
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      padding: 0.2rem 0.7rem;
+      border-radius: 4px;
+      margin-bottom: 0.8rem;
+    }
+    header h1 { font-size: 1.6rem; font-weight: 800; line-height: 1.25; }
+    header p { color: #c4cad8; margin-top: 0.5rem; }
+    main {
+      max-width: 560px;
+      margin: 0 auto;
+      padding: 1.75rem 1rem 3rem;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--rule);
+      border-radius: 12px;
+      padding: 1.25rem;
+      margin-bottom: 1.25rem;
+    }
+    .pitch { color: var(--text); }
+    .code-card { text-align: center; }
+    .code-label { font-size: 0.85rem; color: var(--muted); }
+    .code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 2rem;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      color: var(--red);
+      margin: 0.35rem 0 0.75rem;
+      word-break: break-all;
+    }
+    button, .button {
+      display: inline-block;
+      font: inherit;
+      font-weight: 700;
+      border-radius: 999px;
+      padding: 0.7rem 1.4rem;
+      cursor: pointer;
+      text-decoration: none;
+      border: 2px solid var(--red);
+    }
+    .primary { background: var(--red); color: #fff; }
+    .secondary { background: transparent; color: var(--red); }
+    @media (prefers-color-scheme: dark) {
+      .secondary { color: #ff6b81; border-color: #ff6b81; }
+      .code { color: #ff6b81; }
+    }
+    .badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem 1rem;
+      justify-content: center;
+      align-items: center;
+      margin: 0.5rem 0 0.25rem;
+    }
+    .badges a { display: inline-flex; align-items: center; }
+    .badge-apple img { height: 52px; width: auto; }
+    /* Google's badge PNG carries its own padding; scale it to match. */
+    .badge-google img { height: 76px; width: auto; margin: -12px; }
+    .open-app { text-align: center; margin-top: 1rem; }
+    .hint { font-size: 0.9rem; color: var(--muted); text-align: center; margin-top: 0.75rem; }
+    ol { margin: 0.25rem 0 0 1.25rem; }
+    ol li { margin-bottom: 0.4rem; }
+    h2 { font-size: 1.05rem; color: var(--red); margin-bottom: 0.5rem; }
+    @media (prefers-color-scheme: dark) { h2 { color: var(--gold); } }
+    [hidden] { display: none !important; }
+    footer {
+      text-align: center;
+      padding: 1.5rem;
+      font-size: 0.8rem;
+      color: var(--muted);
+      border-top: 1px solid var(--rule);
+    }
+    footer a { color: inherit; }
+  </style>
+</head>
+<body>
+<header>
+  <span class="eyebrow">Invitation</span>
+  <h1 id="headline">You've been invited to The Postbox Game</h1>
+  <p id="subhead">A friend wants you on their leaderboard.</p>
+</header>
+<main>
+  <section class="card">
+    <p class="pitch">Turn every walk into a treasure hunt. Britain's red postboxes carry the royal cypher of the monarch who reigned when they were installed. Spot them on your walks, claim one a day for points, and chase the rare Victorian and Edward VII boxes up the leaderboards.</p>
+  </section>
+
+  <section class="card code-card" id="code-card" hidden>
+    <p class="code-label">Your friend's invite code</p>
+    <p class="code" id="code"></p>
+    <button type="button" class="secondary" id="copy">Copy code</button>
+  </section>
+
+  <section class="card">
+    <h2>Get the app</h2>
+    <div class="badges" id="badges">
+      <a class="badge-apple" id="apple-badge" href="https://apps.apple.com/app/id6819213888">
+        <img src="https://tools.applemarketingtools.com/api/badges/download-on-the-app-store/black/en-us?size=250x83" alt="Download on the App Store">
+      </a>
+      <a class="badge-google" id="google-badge" href="https://play.google.com/store/apps/details?id=com.code418.postbox_game">
+        <img src="https://play.google.com/intl/en_gb/badges/static/images/badges/en_badge_web_generic.png" alt="Get it on Google Play">
+      </a>
+    </div>
+    <div class="open-app" id="open-app-wrap" hidden>
+      <a class="button primary" id="open-app" href="#">Open in the app</a>
+    </div>
+    <p class="hint" id="installed-hint" hidden>Already installed? Tap your invite link again, or add the code in Friends.</p>
+  </section>
+
+  <section class="card" id="steps" hidden>
+    <h2>How to accept</h2>
+    <ol>
+      <li>Install The Postbox Game and sign in.</li>
+      <li>Tap your invite link again, or open Friends and enter the code above.</li>
+      <li>You're friends. Compare scores on the friends leaderboard.</li>
+    </ol>
+  </section>
+</main>
+<footer>
+  &copy; The Postbox Game · <a href="/support">Support</a> · <a href="/privacy-policy">Privacy Policy</a>
+</footer>
+<script>
+  // App Store campaign provider token (App Store Connect > Analytics > Campaigns).
+  // Leave empty until the owner creates one: see the owner checklist in
+  // docs/marketing-plan.md. Apple ignores campaign links without it.
+  const APPLE_PROVIDER_TOKEN = '';
+  const APP_STORE_ID = '6819213888';
+  const PLAY_PACKAGE = 'com.code418.postbox_game';
+  const CODE_PATTERN = /^[0-9A-HJKMNP-TV-Z]{8}$/;
+
+  // Must match the server's normaliseInviteCode: Crockford base32, 8 chars.
+  function normaliseCode(raw) {
+    if (typeof raw !== 'string') return null;
+    const code = raw.trim().toUpperCase()
+      .replace(/[\s-]/g, '')
+      .replace(/[IL]/g, '1')
+      .replace(/O/g, '0');
+    return CODE_PATTERN.test(code) ? code : null;
+  }
+
+  function codeFromPath() {
+    const match = location.pathname.match(/\/invite\/([^/?#]+)/);
+    if (!match) return null;
+    try {
+      return normaliseCode(decodeURIComponent(match[1]));
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function appStoreUrl(campaign) {
+    if (!APPLE_PROVIDER_TOKEN) return 'https://apps.apple.com/app/id' + APP_STORE_ID;
+    return 'https://apps.apple.com/app/apple-store/id' + APP_STORE_ID +
+      '?pt=' + encodeURIComponent(APPLE_PROVIDER_TOKEN) +
+      '&ct=' + encodeURIComponent(campaign) + '&mt=8';
+  }
+
+  function playUrl(referrer) {
+    return 'https://play.google.com/store/apps/details?id=' + PLAY_PACKAGE +
+      '&referrer=' + encodeURIComponent(referrer);
+  }
+
+  function platform() {
+    const ua = navigator.userAgent || '';
+    if (/android/i.test(ua)) return 'android';
+    const iPadOs = navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+    if (/iphone|ipad|ipod/i.test(ua) || iPadOs) return 'ios';
+    return 'other';
+  }
+
+  const code = codeFromPath();
+  const os = platform();
+  const referrer = code
+    ? 'utm_source=invite&utm_medium=referral&invite_code=' + code
+    : 'utm_source=invite&utm_medium=referral';
+  const play = playUrl(referrer);
+
+  document.getElementById('apple-badge').href = appStoreUrl('invite');
+  document.getElementById('google-badge').href = play;
+
+  // List the visitor's own store first.
+  if (os === 'android') {
+    const badges = document.getElementById('badges');
+    badges.insertBefore(document.getElementById('google-badge'), badges.firstChild);
+  }
+
+  if (code) {
+    document.getElementById('code').textContent = code;
+    document.getElementById('code-card').hidden = false;
+    document.getElementById('steps').hidden = false;
+    document.getElementById('installed-hint').hidden = false;
+
+    const openApp = document.getElementById('open-app');
+    if (os === 'ios') {
+      openApp.href = 'postboxgame://invite/' + code;
+      document.getElementById('open-app-wrap').hidden = false;
+    } else if (os === 'android') {
+      openApp.href = 'intent://invite/' + code +
+        '#Intent;scheme=postboxgame;package=' + PLAY_PACKAGE +
+        ';S.browser_fallback_url=' + encodeURIComponent(play) + ';end';
+      document.getElementById('open-app-wrap').hidden = false;
+    }
+
+    const copyButton = document.getElementById('copy');
+    copyButton.addEventListener('click', function () {
+      const done = function () {
+        copyButton.textContent = 'Copied';
+        setTimeout(function () { copyButton.textContent = 'Copy code'; }, 2000);
+      };
+      const fallback = function () {
+        const area = document.createElement('textarea');
+        area.value = code;
+        area.setAttribute('readonly', '');
+        area.style.position = 'absolute';
+        area.style.left = '-9999px';
+        document.body.appendChild(area);
+        area.select();
+        try { document.execCommand('copy'); done(); } catch (e) { /* ignore */ }
+        document.body.removeChild(area);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(code).then(done, fallback);
+      } else {
+        fallback();
+      }
+    });
+  } else {
+    document.getElementById('headline').textContent = 'Get The Postbox Game';
+    document.getElementById('subhead').textContent = "Hunt Britain's royal postboxes.";
+  }
+</script>
+</body>
+</html>

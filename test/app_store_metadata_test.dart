@@ -61,6 +61,28 @@ void main() {
     }
   });
 
+  test('no store listing or web page names the guide character', () {
+    // The guide is deliberately unnamed in anything a user reads; his name is
+    // an internal reference only. Scans whichever listing files exist, so
+    // untracked drafts are checked locally without CI depending on them.
+    final files = [
+      ...Directory('fastlane/metadata')
+          .listSync(recursive: true)
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.txt')),
+      ...Directory('web')
+          .listSync()
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.html')),
+    ];
+    expect(files, isNotEmpty);
+    for (final file in files) {
+      expect(file.readAsStringSync(),
+          isNot(matches(RegExp('james', caseSensitive: false))),
+          reason: file.path);
+    }
+  });
+
   test('support and privacy URLs are https and served by the web build', () {
     for (final (name, page) in [
       ('support_url', 'web/support.html'),
