@@ -4632,6 +4632,8 @@ describe("account deletion: deleteUserDocs (mock Firestore)", () => {
     });
     const countyDocs = [makeCollDoc("users/u1/countyStats/avon")];
     const flagDocs = [makeCollDoc("moderationFlags/f1"), makeCollDoc("moderationFlags/f2")];
+    const inviteDocs = [makeCollDoc("invites/ABCD2345")];
+    const referralsMadeDocs = [makeCollDoc("referrals/invitee1")];
 
     const userRef = {
       _path: "users/u1",
@@ -4651,6 +4653,23 @@ describe("account deletion: deleteUserDocs (mock Firestore)", () => {
               assert.strictEqual(val, "u1");
               return { async get() { return { docs: flagDocs.map((d) => ({ ref: d })) }; } };
             },
+          };
+        }
+        if (name === "invites") {
+          return {
+            where(field: string, op: string, val: unknown) {
+              assert.deepStrictEqual([field, op, val], ["uid", "==", "u1"]);
+              return { async get() { return { docs: inviteDocs.map((d) => ({ ref: d })) }; } };
+            },
+          };
+        }
+        if (name === "referrals") {
+          return {
+            where(field: string, op: string, val: unknown) {
+              assert.deepStrictEqual([field, op, val], ["inviterUid", "==", "u1"]);
+              return { async get() { return { docs: referralsMadeDocs.map((d) => ({ ref: d })) }; } };
+            },
+            doc: () => makeCollDoc("referrals/u1"),
           };
         }
         // fcmTokens / reportQuotas / trustScores
@@ -4675,6 +4694,10 @@ describe("account deletion: deleteUserDocs (mock Firestore)", () => {
     assert.ok(deleted.includes("offlineFlushQuotas/u1"),
       "offline-flush quota deleted (GDPR: analogue of reportQuotas)");
     assert.ok(deleted.includes("trustScores/u1"), "trust score deleted");
+    assert.ok(deleted.includes("invites/ABCD2345"), "user's invite code deleted");
+    assert.ok(deleted.includes("referrals/u1"), "user's own referral record deleted");
+    assert.ok(deleted.includes("referrals/invitee1"),
+      "referral records naming the user as inviter deleted");
   });
 });
 
@@ -5465,6 +5488,8 @@ describe("exportMyData: buildExportBundle", () => {
     offlineFlushQuota: { id: "u1", date: "2026-07-17", count: 3 },
     fcmTokens: null,
     leaderboards: [{ board: "lifetime", entry: { uid: "u1", totalPoints: 12 } }],
+    invites: [{ id: "ABCD2345", uid: "u1", referralCount: 2 }],
+    referral: { id: "u1", inviterUid: "u9", code: "WXYZ6789" },
   };
 
   it("assembles the versioned bundle with Firestore types serialised", () => {
@@ -5483,6 +5508,10 @@ describe("exportMyData: buildExportBundle", () => {
     const boards = bundle.leaderboards as Array<Record<string, unknown>>;
     assert.strictEqual((boards[0].entry as Record<string, unknown>).totalPoints, 12);
     assert.ok(typeof bundle.notes === "object" && bundle.notes !== null, "explanatory notes present");
+    // GDPR access must mirror erasure: invites and referrals are erased on
+    // deletion, so they are exported too.
+    assert.deepStrictEqual(bundle.invites, [{ id: "ABCD2345", uid: "u1", referralCount: 2 }]);
+    assert.deepStrictEqual(bundle.referral, { id: "u1", inviterUid: "u9", code: "WXYZ6789" });
   });
 
   it("keeps a sane claims cap constant", () => {
@@ -5500,6 +5529,211 @@ describe("exportMyData callable (auth)", () => {
     } catch (e: unknown) {
       const err = e as { code?: string };
       assert.strictEqual(err.code, "unauthenticated");
+    }
+  });
+});
+
+// ── Friend invites (referral loop) ────────────────────────────────────────────
+import {
+  normaliseInviteCode,
+  generateInviteCode,
+  planAcceptInvite,
+  INVITE_CODE_ALPHABET,
+  INVITE_CODE_LENGTH,
+  MAX_FRIENDS,
+  REFERRAL_WINDOW_MS,
+  type AcceptInviteInput,
+} from "../invites";
+
+describe("invites: normaliseInviteCode", () => {
+  it("accepts a canonical code unchanged", () => {
+    assert.strictEqual(normaliseInviteCode("ABCD2345"), "ABCD2345");
+  });
+  it("uppercases and trims", () => {
+    assert.strictEqual(normaliseInviteCode("  abcd2345 \n"), "ABCD2345");
+  });
+  it("strips spaces and hyphens", () => {
+    assert.strictEqual(normaliseInviteCode("ABCD-2345"), "ABCD2345");
+    assert.strictEqual(normaliseInviteCode("ab cd 23 45"), "ABCD2345");
+  });
+  it("maps Crockford aliases I and L to 1, O to 0", () => {
+    assert.strictEqual(normaliseInviteCode("IL0O2345"), "11002345");
+    assert.strictEqual(normaliseInviteCode("il0o2345"), "11002345");
+  });
+  it("rejects U (not in the alphabet)", () => {
+    assert.strictEqual(normaliseInviteCode("ABCU2345"), null);
+  });
+  it("rejects the wrong length", () => {
+    assert.strictEqual(normaliseInviteCode("ABCD234"), null);
+    assert.strictEqual(normaliseInviteCode("ABCD23456"), null);
+    assert.strictEqual(normaliseInviteCode(""), null);
+  });
+  it("rejects punctuation and non-strings", () => {
+    assert.strictEqual(normaliseInviteCode("ABCD!345"), null);
+    assert.strictEqual(normaliseInviteCode(null), null);
+    assert.strictEqual(normaliseInviteCode(undefined), null);
+    assert.strictEqual(normaliseInviteCode(12345678), null);
+  });
+});
+
+describe("invites: generateInviteCode", () => {
+  it("produces 8 symbols from the Crockford alphabet", () => {
+    for (let i = 0; i < 200; i++) {
+      const code = generateInviteCode();
+      assert.strictEqual(code.length, INVITE_CODE_LENGTH);
+      for (const ch of code) assert.ok(INVITE_CODE_ALPHABET.includes(ch), `bad symbol ${ch}`);
+      assert.strictEqual(normaliseInviteCode(code), code, "a generated code round-trips");
+    }
+  });
+  it("is deterministic for injected bytes, masking each byte to 5 bits", () => {
+    const bytes = Uint8Array.from([0, 1, 31, 32, 255, 10, 20, 30]);
+    // 32 & 31 = 0, 255 & 31 = 31.
+    assert.strictEqual(generateInviteCode(() => bytes), "01Z0ZAMY");
+  });
+  it("has a 32-symbol alphabet without I, L, O or U", () => {
+    assert.strictEqual(INVITE_CODE_ALPHABET.length, 32);
+    for (const ch of "ILOU") assert.ok(!INVITE_CODE_ALPHABET.includes(ch));
+  });
+});
+
+describe("invites: planAcceptInvite", () => {
+  const base: AcceptInviteInput = {
+    callerUid: "me",
+    inviterUid: "them",
+    callerFriends: [],
+    inviterFriends: [],
+    referralExists: false,
+    accountAgeMs: 60_000,
+  };
+  const full = (prefix: string) => Array.from({ length: MAX_FRIENDS }, (_, i) => `${prefix}${i}`);
+
+  it("rejects redeeming your own code", () => {
+    assert.deepStrictEqual(
+      planAcceptInvite({ ...base, inviterUid: "me" }),
+      { ok: false, error: "self_invite" },
+    );
+  });
+
+  it("adds both directions and records the referral for a new account", () => {
+    assert.deepStrictEqual(planAcceptInvite(base), {
+      ok: true,
+      alreadyFriends: false,
+      addInviterToCaller: true,
+      addCallerToInviter: true,
+      inviterListFull: false,
+      recordReferral: true,
+    });
+  });
+
+  it("skips the add the caller already has", () => {
+    const plan = planAcceptInvite({ ...base, callerFriends: ["them"] });
+    assert.ok(plan.ok);
+    if (!plan.ok) return;
+    assert.strictEqual(plan.alreadyFriends, true);
+    assert.strictEqual(plan.addInviterToCaller, false);
+    assert.strictEqual(plan.addCallerToInviter, true, "the reverse add still happens");
+  });
+
+  it("refuses when the caller's list is full", () => {
+    assert.deepStrictEqual(
+      planAcceptInvite({ ...base, callerFriends: full("f") }),
+      { ok: false, error: "friend_limit" },
+    );
+  });
+
+  it("allows a full caller who already has the inviter", () => {
+    const plan = planAcceptInvite({ ...base, callerFriends: [...full("f").slice(1), "them"] });
+    assert.ok(plan.ok);
+  });
+
+  it("still adds the inviter when the inviter's own list is full", () => {
+    const plan = planAcceptInvite({ ...base, inviterFriends: full("g") });
+    assert.ok(plan.ok);
+    if (!plan.ok) return;
+    assert.strictEqual(plan.addInviterToCaller, true);
+    assert.strictEqual(plan.addCallerToInviter, false);
+    assert.strictEqual(plan.inviterListFull, true);
+  });
+
+  it("doesn't call a full inviter list full when the caller is already on it", () => {
+    const plan = planAcceptInvite({ ...base, inviterFriends: [...full("g").slice(1), "me"] });
+    assert.ok(plan.ok);
+    if (!plan.ok) return;
+    assert.strictEqual(plan.inviterListFull, false);
+    assert.strictEqual(plan.addCallerToInviter, false);
+  });
+
+  it("records the referral only for accounts younger than the window", () => {
+    const old = planAcceptInvite({ ...base, accountAgeMs: REFERRAL_WINDOW_MS });
+    const fresh = planAcceptInvite({ ...base, accountAgeMs: REFERRAL_WINDOW_MS - 1 });
+    assert.ok(old.ok && fresh.ok);
+    if (!old.ok || !fresh.ok) return;
+    assert.strictEqual(old.recordReferral, false);
+    assert.strictEqual(fresh.recordReferral, true);
+  });
+
+  it("never records a referral when the account age is unknown", () => {
+    const plan = planAcceptInvite({ ...base, accountAgeMs: null });
+    assert.ok(plan.ok);
+    if (!plan.ok) return;
+    assert.strictEqual(plan.recordReferral, false);
+  });
+
+  it("records the referral at most once", () => {
+    const plan = planAcceptInvite({ ...base, referralExists: true });
+    assert.ok(plan.ok);
+    if (!plan.ok) return;
+    assert.strictEqual(plan.recordReferral, false);
+  });
+
+  it("writes nothing on a retry after a successful redeem", () => {
+    const plan = planAcceptInvite({
+      ...base,
+      callerFriends: ["them"],
+      inviterFriends: ["me"],
+      referralExists: true,
+    });
+    assert.deepStrictEqual(plan, {
+      ok: true,
+      alreadyFriends: true,
+      addInviterToCaller: false,
+      addCallerToInviter: false,
+      inviterListFull: false,
+      recordReferral: false,
+    });
+  });
+});
+
+describe("getInviteCode / acceptInvite (onCall) — auth & validation", function (this: Mocha.Suite) {
+  this.timeout(10000);
+  const wrappedGet = testEnv.wrap(myFunctions.getInviteCode) as (data: unknown) => Promise<unknown>;
+  const wrappedAccept = testEnv.wrap(myFunctions.acceptInvite) as (data: unknown) => Promise<unknown>;
+
+  it("getInviteCode throws unauthenticated with no auth", async () => {
+    try {
+      await wrappedGet({ data: {} });
+      assert.fail("expected unauthenticated");
+    } catch (e) {
+      assert.strictEqual((e as { code?: string }).code, "unauthenticated");
+    }
+  });
+  it("acceptInvite throws unauthenticated with no auth", async () => {
+    try {
+      await wrappedAccept({ data: { code: "ABCD2345" } });
+      assert.fail("expected unauthenticated");
+    } catch (e) {
+      assert.strictEqual((e as { code?: string }).code, "unauthenticated");
+    }
+  });
+  it("acceptInvite throws invalid-argument for a malformed code", async () => {
+    for (const code of ["nope", "ABCU2345", 12345678, undefined]) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        await wrappedAccept({ data: { code, confirm: true }, auth: { uid: "u1" } });
+        assert.fail(`expected invalid-argument for ${String(code)}`);
+      } catch (e) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
     }
   });
 });

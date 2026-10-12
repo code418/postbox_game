@@ -15,6 +15,7 @@ import { onClaimCreated, reviewFlag } from "./abuse";
 import { dataRetentionSweep } from "./dataRetention";
 import { exportMyData } from "./exportMyData";
 import { flushOfflineClaims } from "./flushOfflineClaims";
+import { getInviteCode, acceptInvite } from "./invites";
 
 export {
   nearbyPostboxes,
@@ -35,4 +36,6 @@ export {
   dataRetentionSweep,
   exportMyData,
   flushOfflineClaims,
+  getInviteCode,
+  acceptInvite,
 };
