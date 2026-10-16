@@ -18,3 +18,6 @@ Settings (top-right menu) > Delete account. Sign in with Apple accounts also hav
 
 CONTENT
 Display names are profanity-filtered. Photos attached to postbox reports are visible only to the reporter and our moderators.
+
+PRIVACY AND TRACKING
+The app does not track users. It shows no ads, contains no advertising SDKs, does not access the advertising identifier (IDFA) - Firebase Analytics is built without Ad ID support - and does not sell or share data with data brokers. Analytics is used only to understand and improve the app, and players can turn it off in Settings > Privacy. The App Privacy information has been corrected to show no data used to track you, so the app has no App Tracking Transparency prompt.

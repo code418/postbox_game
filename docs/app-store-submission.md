@@ -65,20 +65,59 @@ names first; `raw/` is gitignored.
 **Privacy Policy URL:** `…/privacy_url.txt`. **Tracking:** No. There are no ads, no
 IDFA and no data brokers, so no App Tracking Transparency prompt is needed.
 
-Data types to declare. All are collected; none are used for tracking.
+Data types to declare. All are collected; **none are used for tracking**.
 
-| Data type | Linked to user | Purposes |
-|---|---|---|
-| Contact Info → Email Address | Yes | App Functionality |
-| Contact Info → Name | Yes | App Functionality (Apple/Google sign-in name, display name) |
-| Location → Precise Location | Yes | App Functionality (finding postboxes, verifying claims) |
-| User Content → Photos or Videos | Yes | App Functionality (optional report photos) |
-| User Content → Other User Content | Yes | App Functionality (report notes) |
-| Identifiers → User ID | Yes | App Functionality, Analytics |
-| Identifiers → Device ID | Yes | App Functionality (per-install anti-abuse token) |
-| Usage Data → Product Interaction | Yes | Analytics (Firebase Analytics with user ID; opt-out in Settings) |
-| Diagnostics → Crash Data | No | App Functionality |
-| Diagnostics → Performance Data | No | App Functionality |
+| Data type | Linked to user | Used for tracking | Purposes |
+|---|---|---|---|
+| Contact Info → Email Address | Yes | **No** | App Functionality |
+| Contact Info → Name | Yes | **No** | App Functionality (Apple/Google sign-in name, display name) |
+| Location → Precise Location | Yes | **No** | App Functionality (finding postboxes, verifying claims) |
+| User Content → Photos or Videos | Yes | **No** | App Functionality (optional report photos) |
+| User Content → Other User Content | Yes | **No** | App Functionality (report notes) |
+| Identifiers → User ID | Yes | **No** | App Functionality, Analytics |
+| Identifiers → Device ID | Yes | **No** | App Functionality (per-install anti-abuse token) |
+| Usage Data → Product Interaction | Yes | **No** | Analytics (Firebase Analytics with user ID; opt-out in Settings) |
+| Diagnostics → Crash Data | No | **No** | App Functionality |
+| Diagnostics → Performance Data | No | **No** | App Functionality |
+
+App Store Connect asks the tracking question **separately for every data type**
+("Do you or your third-party partners use [data type] for tracking purposes?").
+Answer **No** every time. After saving, the summary must show **Data Used to Track
+You: none**. Then press **Publish**: label edits stay drafts until then. Editing
+needs the Account Holder or Admin role.
+
+**"Analytics" is not "Tracking".** Apple defines tracking as linking data from the
+app with other companies' data for targeted advertising or ad measurement, or
+sharing it with a data broker. First-party Firebase Analytics, even linked to the
+user ID, is the *Analytics* purpose. Answering Yes to tracking without an ATT prompt
+is an automatic rejection under guideline **5.1.2(i)**. The first submission was
+rejected this way, because User ID and Product Interaction had been ticked as tracking.
+
+What keeps "No" true, pinned by `test/ios_no_tracking_test.dart`:
+
+- `ios/Podfile` sets `$FirebaseAnalyticsWithoutAdIdSupport`. Firebase Analytics then
+  links as `FirebaseAnalytics/Core`, with no AdSupport and no IDFA.
+- `ios/Runner/Info.plist` turns off Analytics' advertising features:
+  `GOOGLE_ANALYTICS_ADID_COLLECTION_ENABLED`,
+  `GOOGLE_ANALYTICS_REGISTRATION_WITH_AD_NETWORK_ENABLED` and the
+  `GOOGLE_ANALYTICS_DEFAULT_ALLOW_AD_*` consent defaults. It has no
+  `NSUserTrackingUsageDescription`.
+- No advertising, ATT or attribution packages are in `pubspec.yaml`.
+- [ ] **Firebase console** (not in the repo, so check by hand): Project settings →
+      Integrations has **no Google Ads or AdMob link**, and in Google Analytics,
+      Admin → Data collection, **Google signals is off**. Either would feed ad
+      personalisation and make "No tracking" untrue.
+
+**If rejected under 5.1.2(i)** ("collects data in order to track the user… does not
+use App Tracking Transparency"):
+
+1. Correct the label as above and publish it.
+2. Reply in the rejection thread in App Store Connect: the app does not track, and
+   the App Privacy information has been updated.
+3. Resubmit. `review_information/notes.txt` already has a "Privacy and tracking"
+   paragraph.
+
+Do not add an ATT prompt to get past it. That would declare tracking the app doesn't do.
 
 ## 5. Age Rating questionnaire
 
