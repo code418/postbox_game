@@ -10,6 +10,17 @@ platform :ios, '16.0'
 # latency; disabling it speeds up `pod install` in CI.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
 
+# The app does not track (App Privacy: "Data Not Used to Track You"; no ads, no
+# App Tracking Transparency prompt), so it must not link AdSupport or read the
+# IDFA. Defining this makes the firebase_analytics podspec depend on
+# FirebaseAnalytics/Core instead of the default FirebaseAnalytics, which pulls
+# in the Ad ID (IdentitySupport) subspec. The podspec only checks that it is
+# defined, and it must be set before flutter_install_all_ios_pods evaluates the
+# plugin pods. (If the project ever moves to Swift Package Manager, the
+# equivalent is the FIREBASE_ANALYTICS_WITHOUT_ADID build environment variable.)
+# Pinned by test/ios_no_tracking_test.dart; see docs/app-store-submission.md §4.
+$FirebaseAnalyticsWithoutAdIdSupport = true
+
 # The app defines a `phone` flavor (mirroring the Android product flavours), so
 # the Xcode project carries Debug/Profile/Release-phone build configurations in
 # addition to the base ones. CocoaPods must know the build type of each, or it
