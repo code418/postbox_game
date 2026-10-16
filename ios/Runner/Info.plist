@@ -99,5 +99,24 @@
 	<array>
 		<string>remote-notification</string>
 	</array>
+	<!-- No tracking: App Privacy declares "Data Not Used to Track You" and the
+	     app has no ads and no App Tracking Transparency prompt (so no
+	     NSUserTrackingUsageDescription). Firebase Analytics is first-party
+	     only: the Podfile links it without Ad ID support, and these switch
+	     off its advertising features — IDFA collection (a backstop should
+	     AdSupport ever be linked again), SKAdNetwork registration, and the
+	     ad consent-mode signals. Analytics storage keeps its default, so
+	     first-party analytics still works. Pinned by
+	     test/ios_no_tracking_test.dart; see docs/app-store-submission.md §4. -->
+	<key>GOOGLE_ANALYTICS_ADID_COLLECTION_ENABLED</key>
+	<false/>
+	<key>GOOGLE_ANALYTICS_REGISTRATION_WITH_AD_NETWORK_ENABLED</key>
+	<false/>
+	<key>GOOGLE_ANALYTICS_DEFAULT_ALLOW_AD_STORAGE</key>
+	<false/>
+	<key>GOOGLE_ANALYTICS_DEFAULT_ALLOW_AD_USER_DATA</key>
+	<false/>
+	<key>GOOGLE_ANALYTICS_DEFAULT_ALLOW_AD_PERSONALIZATION_SIGNALS</key>
+	<false/>
 </dict>
 </plist>
