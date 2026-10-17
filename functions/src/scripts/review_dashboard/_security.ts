@@ -107,6 +107,8 @@ export const PAGE_CSP = [
   "script-src 'self'",
   "img-src 'self' blob: data: https://tile.openstreetmap.org",
   "style-src 'self' 'unsafe-inline'",
+  // Vite inlines small font files as data: URLs.
+  "font-src 'self' data:",
   "connect-src 'self'",
   "frame-ancestors 'none'",
   "base-uri 'none'",

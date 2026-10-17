@@ -9,14 +9,29 @@ import * as fs from "fs";
 import * as http from "http";
 import { URL } from "url";
 import { KNOWN_MONARCHS } from "../../_getPoints";
-import { getGameConfig, loadGameConfigFromRemoteConfig, resolvePointsForMonarch, setConfigLoader } from "../../_config";
+import {
+  KEY_MAINTENANCE_MODE,
+  clientTemplateFlag,
+  getGameConfig,
+  loadGameConfigFromRemoteConfig,
+  resolvePointsForMonarch,
+  setConfigLoader,
+} from "../../_config";
 import { performReview, REJECT_PRESETS, REVIEW_LIMITS, type ReviewReportInput } from "../../reports";
 import { previewCypherImpact } from "../../_cypherImpact";
 import { assessOsmNodes, buildMapContext, buildReporterContext, CONTEXT_RADIUS_M, toMs, type StoredReport } from "../../_reportContext";
 import { OverpassClient, clampOverpassRadius } from "../../_overpass";
 import { queryPostboxesNear } from "../../_postboxQuery";
 import { buildOsmChangeBatch, fetchOsmNodeResult, type OsmNodeResult } from "../../_osmChange";
-import { markOsmSkipped, markOsmUploaded, planOsmBatch, suggestedChangesetComment, type OsmBatchCandidate } from "../../_osmBatch";
+import {
+  OSM_CREATE_DUPLICATE_M,
+  markOsmSkipped,
+  markOsmUploaded,
+  planOsmBatch,
+  suggestedChangesetComment,
+  type CreateCheck,
+  type OsmBatchCandidate,
+} from "../../_osmBatch";
 import { metresBetween } from "../../_routePlanner";
 import { getLatLng } from "../../_geo";
 import type {
@@ -145,6 +160,32 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     throw new StartupError(`Couldn't reach Cloud Storage: ${(e as Error).message}`, CREDENTIALS_HINT);
   }
 
+  // The app's MaintenanceGuard reads maintenance_mode from the CLIENT template
+  // (the server template may not even be published), so mirror that too.
+  const CLIENT_RC_TTL_MS = 60_000;
+  const clientRc = { maintenance: false, at: 0 };
+  async function readClientMaintenance(): Promise<boolean> {
+    clientRc.maintenance = clientTemplateFlag(await admin.remoteConfig().getTemplate(), KEY_MAINTENANCE_MODE);
+    clientRc.at = Date.now();
+    return clientRc.maintenance;
+  }
+  async function clientMaintenance(): Promise<boolean> {
+    if (Date.now() - clientRc.at < CLIENT_RC_TTL_MS) return clientRc.maintenance;
+    try {
+      return await readClientMaintenance();
+    } catch (e) {
+      console.warn("[review-dashboard] client Remote Config read failed; keeping the last value:", (e as Error).message);
+      clientRc.at = Date.now();
+      return clientRc.maintenance;
+    }
+  }
+  try {
+    await readClientMaintenance();
+  } catch (e) {
+    throw new StartupError(`Couldn't read the client Remote Config template: ${(e as Error).message}`, CREDENTIALS_HINT);
+  }
+  const maintenanceOn = async () => (await getGameConfig()).maintenanceMode || (await clientMaintenance());
+
   const store = new ReportsStore(db);
   try {
     await store.start();
@@ -170,7 +211,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
 
   /** Mirrors the app's MaintenanceGuard, which gates in-app reviews. */
   async function assertNotMaintenance(): Promise<void> {
-    if ((await getGameConfig()).maintenanceMode && !opts.ignoreMaintenance) {
+    if ((await maintenanceOn()) && !opts.ignoreMaintenance) {
       throw new HttpError(503, "unavailable", "Maintenance mode is on, so reviews are paused. Restart with --ignore-maintenance to review anyway.");
     }
   }
@@ -219,7 +260,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
           monarchs: KNOWN_MONARCHS.map((key) => ({ key, points: resolvePointsForMonarch(cfg, key) })),
           plainPoints: resolvePointsForMonarch(cfg, null),
           pointsOverrideActive: cfg.pointsOverride !== null,
-          maintenanceMode: cfg.maintenanceMode,
+          maintenanceMode: cfg.maintenanceMode || (await clientMaintenance()),
           ignoreMaintenance: opts.ignoreMaintenance,
           noteMax: REVIEW_LIMITS.noteMax,
           referenceMax: REVIEW_LIMITS.referenceMax,
@@ -499,7 +540,26 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
         const nodeIds = [...new Set(candidates.filter((c) => c.type === "wrong_cypher" && c.overpassId !== undefined).map((c) => c.overpassId as number))];
         const lookups = await mapWithConcurrency(nodeIds, OSM_FETCH_CONCURRENCY, (id) => fetchOsmNodeResult(id));
         const fresh = new Map<number, OsmNodeResult>(nodeIds.map((id, i) => [id, lookups[i]]));
-        const plan = planOsmBatch(candidates, fresh);
+        // Has anyone mapped the new boxes since? One Overpass query for all of them.
+        const creates = candidates.filter((c) => c.type === "missing_postbox" && typeof c.lat === "number" && typeof c.lng === "number");
+        const createChecks = new Map<string, CreateCheck>();
+        if (creates.length > 0) {
+          try {
+            const near = await overpass.nodesAroundPoints(creates.map((c) => ({ lat: c.lat as number, lng: c.lng as number })), OSM_CREATE_DUPLICATE_M);
+            for (const c of creates) {
+              const here = { lat: c.lat as number, lng: c.lng as number };
+              const nearest = near.nodes
+                .filter((n) => n.lifecycle === "active")
+                .map((n) => ({ id: n.id, distanceM: metresBetween(here, { lat: n.lat, lng: n.lon }) }))
+                .sort((a, b) => a.distanceM - b.distanceM)[0];
+              createChecks.set(c.reportId, { ok: true, nearest: nearest ?? null });
+            }
+          } catch (e) {
+            console.warn("[review-dashboard] Overpass check for new boxes failed:", (e as Error).message);
+            for (const c of creates) createChecks.set(c.reportId, { ok: false });
+          }
+        }
+        const plan = planOsmBatch(candidates, fresh, createChecks);
         const osc = buildOsmChangeBatch(plan.inputs);
         const stamp = new Date().toISOString().replace(/[:.]/g, "-");
         let storagePath: string | null = null;
@@ -683,7 +743,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   return {
     reviewer,
     pointsOverrideActive: config.pointsOverride !== null,
-    maintenanceMode: config.maintenanceMode,
+    maintenanceMode: config.maintenanceMode || clientRc.maintenance,
     reportCount: store.all().length,
     close: () =>
       new Promise<void>((resolve) => {

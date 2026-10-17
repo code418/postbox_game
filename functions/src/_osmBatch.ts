@@ -26,6 +26,16 @@ export interface OsmBatchCandidate {
   finalReference?: string;
 }
 
+/** An OSM post box this close to a new box's reported spot is treated as the
+ *  same box: report GPS is often only good to 25-35 m, and a duplicate node
+ *  on OSM is worse than a missing one. */
+export const OSM_CREATE_DUPLICATE_M = 30;
+
+/** Whether OSM already has a post box near a create's spot. */
+export type CreateCheck =
+  | { ok: true; nearest: { id: number; distanceM: number } | null }
+  | { ok: false };
+
 export interface OsmBatchPlan {
   inputs: OsmChangeInput[];
   entries: OsmBatchEntryDto[];
@@ -49,7 +59,9 @@ function sameTags(a: Record<string, string>, b: Record<string, string>): boolean
 /**
  * Pure planner. `fresh` maps each overpassId among the candidates to its
  * current OSM API lookup.
- *  - missing_postbox → a create with ids -1, -2, … in review order;
+ *  - missing_postbox → a create with ids -1, -2, … in review order, unless
+ *    `createChecks` (when given) found an OSM post box within
+ *    OSM_CREATE_DUPLICATE_M (already_on_osm) or couldn't look (fetch_failed);
  *  - wrong_cypher on a `manual_<rid>` box whose create is in this batch →
  *    folded into that create's tags (merged_into_create);
  *  - wrong_cypher with an OSM node → one modify per node. Reports on the same
@@ -58,7 +70,11 @@ function sameTags(a: Record<string, string>, b: Record<string, string>): boolean
  *    lookup is fetch_failed (retry later);
  *  - anything else (no coordinates, a manual box with no node yet) → no_target.
  */
-export function planOsmBatch(candidates: ReadonlyArray<OsmBatchCandidate>, fresh: ReadonlyMap<number, OsmNodeResult>): OsmBatchPlan {
+export function planOsmBatch(
+  candidates: ReadonlyArray<OsmBatchCandidate>,
+  fresh: ReadonlyMap<number, OsmNodeResult>,
+  createChecks?: ReadonlyMap<string, CreateCheck>
+): OsmBatchPlan {
   const ordered = [...candidates].sort((a, b) => a.reviewedAtMs - b.reviewedAtMs || a.reportId.localeCompare(b.reportId));
   const entries = new Map<string, OsmBatchEntryDto>();
   const creates = new Map<string, OsmChangeInput>(); // reportId → create input
@@ -69,6 +85,21 @@ export function planOsmBatch(candidates: ReadonlyArray<OsmBatchCandidate>, fresh
     if (c.type !== "missing_postbox") continue;
     if (typeof c.lat !== "number" || typeof c.lng !== "number") {
       entries.set(c.reportId, { reportId: c.reportId, action: null, nodeId: null, status: "no_target", detail: "Report has no coordinates." });
+      continue;
+    }
+    const check = createChecks?.get(c.reportId);
+    if (createChecks && (!check || !check.ok)) {
+      entries.set(c.reportId, { reportId: c.reportId, action: "create", nodeId: null, status: "fetch_failed", detail: "Couldn't check OSM for a box already mapped here. Try again." });
+      continue;
+    }
+    if (check?.ok && check.nearest && check.nearest.distanceM <= OSM_CREATE_DUPLICATE_M) {
+      entries.set(c.reportId, {
+        reportId: c.reportId,
+        action: "create",
+        nodeId: check.nearest.id,
+        status: "already_on_osm",
+        detail: `OSM node ${check.nearest.id} is ${check.nearest.distanceM} m away. If it's a different box, add this one by hand in iD.`,
+      });
       continue;
     }
     const input: OsmChangeInput = {

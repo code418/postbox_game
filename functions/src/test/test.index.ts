@@ -13,6 +13,8 @@ import {
   getPointsForMonarch,
   setConfigLoaderForTest,
   setConfigLoader,
+  isMissingServerTemplate,
+  clientTemplateFlag,
   DEFAULT_CLAIM_RADIUS_METERS,
   sanitiseGraceHours,
   sanitiseMaxOfflinePerDay,
@@ -207,6 +209,24 @@ describe("_config: strict loader", () => {
     assert.strictEqual((await getGameConfig(5_000)).claimRadiusMeters, 31);
     setConfigLoader(async () => ({ claimRadiusMeters: 32, pointsOverride: null, ...offlineDefaults }));
     assert.strictEqual((await getGameConfig(5_001)).claimRadiusMeters, 32);
+  });
+});
+
+describe("_config: template helpers", () => {
+  it("isMissingServerTemplate matches only the not-found code", () => {
+    assert.strictEqual(isMissingServerTemplate({ code: "remote-config/not-found" }), true);
+    assert.strictEqual(isMissingServerTemplate({ code: "remote-config/permission-denied" }), false);
+    assert.strictEqual(isMissingServerTemplate(new Error("x")), false);
+    assert.strictEqual(isMissingServerTemplate(null), false);
+  });
+  it("clientTemplateFlag reads an explicit 'true' default only", () => {
+    const t = (defaultValue: unknown) => ({ parameters: { maintenance_mode: { defaultValue } } });
+    assert.strictEqual(clientTemplateFlag(t({ value: "true" }), "maintenance_mode"), true);
+    assert.strictEqual(clientTemplateFlag(t({ value: " TRUE " }), "maintenance_mode"), true);
+    assert.strictEqual(clientTemplateFlag(t({ value: "false" }), "maintenance_mode"), false);
+    assert.strictEqual(clientTemplateFlag(t({ useInAppDefault: true }), "maintenance_mode"), false);
+    assert.strictEqual(clientTemplateFlag({ parameters: {} }, "maintenance_mode"), false);
+    assert.strictEqual(clientTemplateFlag({}, "maintenance_mode"), false);
   });
 });
 
@@ -6443,6 +6463,7 @@ import * as ngeohash from "ngeohash";
 import { queryPostboxesNear } from "../_postboxQuery";
 import {
   buildOverpassAroundQuery,
+  buildOverpassMultiPointQuery,
   clampOverpassRadius,
   parseOverpassNodes,
   OverpassClient,
@@ -6566,6 +6587,11 @@ describe("_overpass", () => {
     assert.match(q, /\["was:amenity"=post_box\]/);
     assert.match(q, /out meta;$/);
   });
+  it("builds one union query for several points", () => {
+    const q = buildOverpassMultiPointQuery([{ lat: 1, lng: 2 }, { lat: 3.1234567, lng: -4 }], 30);
+    assert.strictEqual((q.match(/node\(around:30,/g) ?? []).length, 2);
+    assert.match(q, /around:30,3\.123457,-4\.000000\)\[amenity=post_box\]/);
+  });
   it("clamps the radius into 1..500 m", () => {
     assert.strictEqual(clampOverpassRadius(0), 1);
     assert.strictEqual(clampOverpassRadius(10_000), 500);
@@ -6611,14 +6637,49 @@ describe("_overpass", () => {
     await client.nodesAround(1, 1, 100);
     assert.strictEqual(calls, 3, "refetched after the TTL");
   });
+  it("bounds each request with a timeout signal and reports a timeout plainly", async () => {
+    let sawSignal = false;
+    const client = new OverpassClient(
+      async (_url, init) => {
+        sawSignal = init.signal instanceof AbortSignal;
+        const e = new Error("The operation was aborted due to timeout");
+        e.name = "TimeoutError";
+        throw e;
+      },
+      Date.now,
+      60_000,
+      async () => undefined,
+      45_000,
+    );
+    await assert.rejects(() => client.nodesAround(1, 1, 50), (e: unknown) => e instanceof OverpassError && e.status === "network" && /within 45 s/.test(e.message));
+    assert.ok(sawSignal);
+  });
+  it("retries a busy answer once after backing off", async () => {
+    const statuses = [502, 200];
+    const slept: number[] = [];
+    const client = new OverpassClient(
+      async () => {
+        const status = statuses.shift() ?? 200;
+        return { ok: status === 200, status, json: async () => ({ elements: [{ type: "node", id: 1, lat: 0, lon: 0, tags: { amenity: "post_box" } }] }) };
+      },
+      Date.now,
+      60_000,
+      async (ms) => { slept.push(ms); },
+    );
+    assert.strictEqual((await client.nodesAround(1, 1, 50)).nodes.length, 1);
+    assert.deepStrictEqual(slept, [3_000]);
+  });
   it("surfaces HTTP and network failures as OverpassError and keeps working afterwards", async () => {
     let fail: "http" | "net" | null = "http";
+    let calls = 0;
     const client = new OverpassClient(async () => {
+      calls++;
       if (fail === "net") throw new Error("down");
       if (fail === "http") return { ok: false, status: 429, json: async () => ({}) };
       return { ok: true, status: 200, json: async () => ({ elements: [] }) };
-    });
-    await assert.rejects(() => client.nodesAround(1, 1, 50), (e: unknown) => e instanceof OverpassError && e.status === 429);
+    }, Date.now, 60_000, async () => undefined);
+    await assert.rejects(() => client.nodesAround(1, 1, 50), (e: unknown) => e instanceof OverpassError && e.status === 429 && /busy/.test(e.message));
+    assert.strictEqual(calls, 2, "a busy answer is retried once, then reported");
     fail = "net";
     await assert.rejects(() => client.nodesAround(1, 1, 50), (e: unknown) => e instanceof OverpassError && e.status === "network");
     fail = null;
@@ -6936,6 +6997,27 @@ describe("planOsmBatch", () => {
     const plan = planOsmBatch([cand("fix", { postboxId: "manual_old", finalMonarch: "GR" })], new Map());
     assert.strictEqual(plan.entries[0].status, "no_target");
     assert.match(plan.entries[0].detail ?? "", /create first/);
+  });
+  it("holds back a create when OSM already has a post box within 30 m, or couldn't be checked", () => {
+    const creates = [
+      cand("near", { type: "missing_postbox", lat: 1, lng: 1, reviewedAtMs: 1 }),
+      cand("clear", { type: "missing_postbox", lat: 2, lng: 2, reviewedAtMs: 2 }),
+      cand("unchecked", { type: "missing_postbox", lat: 3, lng: 3, reviewedAtMs: 3 }),
+      cand("far", { type: "missing_postbox", lat: 4, lng: 4, reviewedAtMs: 4 }),
+    ];
+    const plan = planOsmBatch(creates, new Map(), new Map([
+      ["near", { ok: true as const, nearest: { id: 99, distanceM: 12 } }],
+      ["clear", { ok: true as const, nearest: null }],
+      ["unchecked", { ok: false as const }],
+      ["far", { ok: true as const, nearest: { id: 98, distanceM: 31 } }],
+    ]));
+    assert.deepStrictEqual(plan.entries.map((e) => [e.reportId, e.status, e.nodeId]), [
+      ["near", "already_on_osm", 99],
+      ["clear", "included", -1],
+      ["unchecked", "fetch_failed", null],
+      ["far", "included", -2],
+    ]);
+    assert.strictEqual(plan.inputs.length, 2);
   });
   it("suggests a changeset comment counting creates and fixes", () => {
     const plan = planOsmBatch([

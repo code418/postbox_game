@@ -257,6 +257,7 @@ export interface BatchItemResultDto {
 export type OsmBatchEntryStatus =
   | "included"
   | "already_applied"
+  | "already_on_osm"
   | "node_missing"
   | "fetch_failed"
   | "conflict"
