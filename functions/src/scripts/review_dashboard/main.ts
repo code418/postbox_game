@@ -28,6 +28,12 @@
  * `gcloud auth application-default login` (+ set-quota-project). Startup
  * refuses to run unless Auth, Remote Config and Storage are all reachable:
  * scoring must never fall back to hard-coded points silently.
+ *
+ * Street View: set GOOGLE_MAPS_API_KEY (a Maps Platform key allowed to use
+ * the Maps Embed API and the Street View Static API) to show it inside the
+ * dashboard. Without it, the Street View tab links out to Google Maps. It's
+ * an environment variable, not a flag, so the key stays out of `ps` and
+ * shell history.
  */
 
 import { spawn } from "child_process";
@@ -93,6 +99,12 @@ export function parseDashboardArgs(argv: ReadonlyArray<string>): DashboardArgs {
   return opts;
 }
 
+/** The optional Street View key from the environment; blank means none. */
+export function mapsKeyFromEnv(raw: string | undefined): string | null {
+  const key = raw?.trim() ?? "";
+  return key === "" ? null : key;
+}
+
 /** The per-launch API token. --dev may pin it via REVIEW_DASHBOARD_TOKEN so a
  *  server restart doesn't invalidate the open Vite tab. */
 export function chooseToken(dev: boolean, envToken: string | undefined): string {
@@ -130,6 +142,7 @@ async function main(): Promise<void> {
     process.exit(2);
   }
   const token = chooseToken(args.dev, process.env.REVIEW_DASHBOARD_TOKEN);
+  const mapsKey = mapsKeyFromEnv(process.env.GOOGLE_MAPS_API_KEY);
 
   // adminInit initialises the Admin SDK as soon as it's imported, without a
   // projectId, so the project has to be in the environment first.
@@ -146,6 +159,7 @@ async function main(): Promise<void> {
       ignoreMaintenance: args.ignoreMaintenance,
       token,
       staticDir: args.staticDir,
+      mapsKey,
     });
     const url = `http://127.0.0.1:${args.dev ? args.devPort : args.port}/#t=${token}`;
     process.stdout.write(
@@ -156,6 +170,7 @@ async function main(): Promise<void> {
         `  reviewer  ${running.reviewer.displayName ?? "(no display name)"} (${running.reviewer.uid})`,
         `  points    ${running.pointsOverrideActive ? "Remote Config override active" : "defaults (no Remote Config override)"}`,
         `  reports   ${running.reportCount} loaded`,
+        `  street    ${mapsKey ? "Street View embedded (GOOGLE_MAPS_API_KEY)" : "links to Google Maps (set GOOGLE_MAPS_API_KEY to embed)"}`,
         ...(running.maintenanceMode ? [`  NOTE      maintenance mode is ON${args.ignoreMaintenance ? " (ignored: reviews allowed)" : ", so reviews are blocked"}`] : []),
         "",
         `  open      ${url}`,

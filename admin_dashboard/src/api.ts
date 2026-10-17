@@ -13,6 +13,7 @@ import type {
   ReviewReportResult,
   ReviewRequestDto,
   SessionDto,
+  StreetViewDto,
 } from "../../functions/src/_reviewTypes";
 
 const TOKEN_KEY = "postbox-review-token";
@@ -100,6 +101,7 @@ export const api = {
   detail: (id: string) => json<ReportDetailDto>("GET", r(id)),
   context: (id: string) => json<ReportContextDto>("GET", `${r(id)}/context`),
   osmNearby: (id: string, radius = 150) => json<OsmNearbyDto>("GET", `${r(id)}/osm-nearby?radius=${radius}`),
+  streetView: (id: string) => json<StreetViewDto>("GET", `${r(id)}/streetview`),
   impact: (id: string, finalMonarch: string) => json<CypherImpactDto>("GET", `${r(id)}/impact?finalMonarch=${encodeURIComponent(finalMonarch)}`),
   review: (id: string, body: ReviewRequestDto) => json<ReviewReportResult>("POST", `${r(id)}/review`, body),
   batchReject: (reportIds: string[], reviewNote: string) =>

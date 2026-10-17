@@ -40,6 +40,25 @@ export function percent(fraction: number | null): string {
   return fraction === null ? "no decisions yet" : `${Math.round(fraction * 100)}%`;
 }
 
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+/** Street View capture month "2023-06" → "June 2023". */
+export function monthYear(yyyyMm: string | null): string | null {
+  const m = yyyyMm === null ? null : /^(\d{4})-(\d{2})$/.exec(yyyyMm);
+  const month = m ? MONTHS[Number(m[2]) - 1] : undefined;
+  return m && month ? `${month} ${m[1]}` : null;
+}
+
+/** Whole years from a capture month ("YYYY-MM") to a later moment; null if
+ *  either is unknown. */
+export function yearsBefore(yyyyMm: string | null, ms: number | null): number | null {
+  const m = yyyyMm === null ? null : /^(\d{4})-(\d{2})$/.exec(yyyyMm);
+  if (!m || ms === null) return null;
+  const at = new Date(ms);
+  const months = (at.getUTCFullYear() - Number(m[1])) * 12 + (at.getUTCMonth() + 1 - Number(m[2]));
+  return Math.max(0, Math.floor(months / 12));
+}
+
 export function idEditorUrl(opts: { overpassId?: number | null; lat?: number | null; lng?: number | null }): string | null {
   if (typeof opts.overpassId === "number") return `https://www.openstreetmap.org/edit?editor=id&node=${opts.overpassId}`;
   if (typeof opts.lat === "number" && typeof opts.lng === "number") return `https://www.openstreetmap.org/edit#map=19/${opts.lat}/${opts.lng}`;

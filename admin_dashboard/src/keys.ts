@@ -21,6 +21,8 @@ export type Command =
   | { type: "focusReference" }
   | { type: "photos" }
   | { type: "osmLayer" }
+  /** Switch the centre pane between the map and Street View. */
+  | { type: "streetView" }
   | { type: "openEditor" }
   | { type: "goPrefix" }
   | { type: "view"; view: View }
@@ -76,6 +78,8 @@ export function keyToCommand(e: KeyInput, mode: DecisionMode, goPending: boolean
       return { type: "photos" };
     case "o":
       return { type: "osmLayer" };
+    case "v":
+      return { type: "streetView" };
     case "e":
       return { type: "openEditor" };
     case "g":
@@ -107,6 +111,7 @@ export const SHORTCUTS: ReadonlyArray<{ group: string; keys: ReadonlyArray<[stri
       ["k or ↑", "Previous report"],
       ["p", "Open photos"],
       ["o", "Show live OSM post boxes on the map"],
+      ["v", "Switch between the map and Street View"],
       ["e", "Open this spot in the iD editor"],
       ["g then q, h or o", "Queue, history or OSM edits"],
       ["?", "This list"],

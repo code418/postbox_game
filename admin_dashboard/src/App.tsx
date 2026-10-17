@@ -6,7 +6,7 @@ import { keyToCommand, type Command, type View } from "./keys.ts";
 import type { DecisionState } from "./decision.ts";
 import { cypherName } from "./monarchs.ts";
 import { signed } from "./format.ts";
-import { Workspace, type WorkspaceHandle } from "./components/Workspace.tsx";
+import { Workspace, type CentreView, type WorkspaceHandle } from "./components/Workspace.tsx";
 import { HistoryList, Queue, applyQueueFilters, type HistoryFilters, type QueueFilters } from "./components/Lists.tsx";
 import { OsmView } from "./components/OsmView.tsx";
 import { BatchRejectDialog, HelpDialog, TopBar, Toasts, type Toast } from "./components/Chrome.tsx";
@@ -59,6 +59,7 @@ function Dashboard({ session }: { session: SessionDto }) {
   const [batch, setBatch] = useState<Set<string>>(new Set());
   const [batchOpen, setBatchOpen] = useState(false);
   const [help, setHelp] = useState(false);
+  const [centre, setCentre] = useState<CentreView>("map");
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [historyFilters, setHistoryFilters] = useState<HistoryFilters>({ status: "all", type: "all" });
   const [history, setHistory] = useState<HistoryState>({ rows: [], nextBefore: null, loading: false, error: null });
@@ -223,6 +224,9 @@ function Dashboard({ session }: { session: SessionDto }) {
       case "batchReject":
         if (view === "queue" && batch.size > 0) setBatchOpen(true);
         return;
+      case "streetView":
+        if (view !== "osm") setCentre((c) => (c === "map" ? "street" : "map"));
+        return;
       default:
         if (view !== "osm") workspace.current?.run(cmd);
     }
@@ -304,6 +308,8 @@ function Dashboard({ session }: { session: SessionDto }) {
               summary={shown}
               session={session}
               readOnly={view === "history"}
+              centre={centre}
+              onCentre={setCentre}
               onDecided={onDecided}
               handle={workspace}
             />

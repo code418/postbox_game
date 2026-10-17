@@ -223,6 +223,30 @@ export interface OsmNearbyDto {
   flags: DuplicateFlagDto[];
 }
 
+/** Google Street View at a report's spot (missing box: the reported
+ *  position; cypher: the box). mapsUrl always opens Google Maps in a tab. */
+export type StreetViewDto =
+  | {
+      status: "ok";
+      panoId: string;
+      /** Where the panorama was taken. */
+      lat: number;
+      lng: number;
+      /** Panorama to the spot. */
+      distanceM: number;
+      /** Compass heading from the panorama to the spot: the camera faces it. */
+      headingDeg: number;
+      /** Capture month, "YYYY-MM", when Google gives one. */
+      date: string | null;
+      copyright: string | null;
+      embedUrl: string;
+      mapsUrl: string;
+    }
+  /** No outdoor panorama within radiusM. */
+  | { status: "none"; radiusM: number; mapsUrl: string }
+  /** The server has no Google Maps key: link only. */
+  | { status: "not_configured"; mapsUrl: string };
+
 export interface CypherImpactUserDto {
   uid: string;
   displayName: string | null;

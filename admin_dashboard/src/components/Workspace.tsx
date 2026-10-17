@@ -7,9 +7,13 @@ import type { Command, DecisionMode } from "../keys.ts";
 import { cypherForDigit, cypherName } from "../monarchs.ts";
 import { coords, dateTime, idEditorUrl, metres, relativeTime } from "../format.ts";
 import { ReportMap } from "./ReportMap.tsx";
+import { StreetView } from "./StreetView.tsx";
 import { Photos } from "./Photos.tsx";
 import { DecisionPanel } from "./DecisionPanel.tsx";
 import { FlagsPanel, ImpactPanel, OutcomePanel, ReporterPanel } from "./Panels.tsx";
+
+/** What the centre pane shows above the photos. */
+export type CentreView = "map" | "street";
 
 export interface WorkspaceHandle {
   mode(): DecisionMode;
@@ -21,13 +25,16 @@ interface Props {
   session: SessionDto;
   /** History: show the outcome instead of the decision form. */
   readOnly: boolean;
+  /** Map or Street View; kept by the App so it carries across reports. */
+  centre: CentreView;
+  onCentre: (view: CentreView) => void;
   onDecided?: (summary: ReportSummaryDto, decision: DecisionState, result: ReviewReportResult) => void;
   handle?: Ref<WorkspaceHandle>;
 }
 
 const SEVERITY_ORDER = { high: 0, medium: 1, info: 2 } as const;
 
-export function Workspace({ summary, session, readOnly, onDecided, handle }: Props) {
+export function Workspace({ summary, session, readOnly, centre, onCentre, onDecided, handle }: Props) {
   const id = summary.id;
   const detail = useResource(`detail:${id}`, () => api.detail(id));
   const ctx = useResource(`context:${id}`, () => api.context(id));
@@ -96,8 +103,10 @@ export function Workspace({ summary, session, readOnly, onDecided, handle }: Pro
           if ((detail.data?.photos.length ?? 0) > 0) setPhotoOpen(0);
           return;
         case "osmLayer":
+          // The layer is drawn on the map, so show the map first.
+          if (centre === "street") onCentre("map");
           if (osm.error) osm.reload();
-          else setOsmOn((on) => !on);
+          else setOsmOn((on) => centre === "street" || !on);
           return;
         case "openEditor": {
           const url = editorUrl();
@@ -159,7 +168,20 @@ export function Workspace({ summary, session, readOnly, onDecided, handle }: Pro
           {summary.status !== "pending" && <p className={`status-chip status-${summary.status}`}>{summary.status === "accepted" ? "Accepted" : "Rejected"}</p>}
         </header>
 
-        {ctx.error ? (
+        <div className="centre-tools">
+          <div className="seg" role="group" aria-label="Show">
+            {(["map", "street"] as const).map((v) => (
+              <button key={v} type="button" aria-pressed={centre === v} className={centre === v ? "is-on" : undefined} onClick={() => onCentre(v)}>
+                {v === "map" ? "Map" : "Street View"}
+              </button>
+            ))}
+          </div>
+          <span className="muted small">Switch with <kbd>v</kbd></span>
+        </div>
+
+        {centre === "street" ? (
+          <StreetView reportId={id} target={summary.type === "wrong_cypher" ? "box" : "spot"} reportedAtMs={summary.createdAtMs} />
+        ) : ctx.error ? (
           <p className="error-line">Couldn't load the map context: {ctx.error.message}</p>
         ) : ctx.data ? (
           <ReportMap map={ctx.data.map} osmNodes={osm.data?.nodes ?? null} />

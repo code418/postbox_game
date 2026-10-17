@@ -21,6 +21,7 @@ import { performReview, REJECT_PRESETS, REVIEW_LIMITS, type ReviewReportInput } 
 import { previewCypherImpact } from "../../_cypherImpact";
 import { assessOsmNodes, buildMapContext, buildReporterContext, CONTEXT_RADIUS_M, toMs, type StoredReport } from "../../_reportContext";
 import { OverpassClient, clampOverpassRadius } from "../../_overpass";
+import { StreetViewClient, describeStreetView } from "../../_streetView";
 import { queryPostboxesNear } from "../../_postboxQuery";
 import { buildOsmChangeBatch, fetchOsmNodeResult, type OsmNodeResult } from "../../_osmChange";
 import {
@@ -40,6 +41,7 @@ import type {
   OsmNearbyDto,
   ReportSummaryDto,
   SessionDto,
+  StreetViewDto,
 } from "../../_reviewTypes";
 import type { PostboxDoc } from "../../types";
 import { ReportsStore } from "./reportsStore";
@@ -80,6 +82,8 @@ export interface ServerOptions {
   ignoreMaintenance: boolean;
   token: string;
   staticDir: string;
+  /** Google Maps Platform key for the Street View embed; null = links only. */
+  mapsKey: string | null;
 }
 
 export interface RunningServer {
@@ -196,6 +200,7 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   const reviewer = { uid: reviewerUid, displayName: reviewerNames.get(reviewerUid) ?? reviewerRecord.displayName ?? null };
 
   const overpass = new OverpassClient();
+  const streetView = opts.mapsKey === null ? null : new StreetViewClient(opts.mapsKey);
   const origins = allowedOrigins(opts.port, opts.devPort);
   let reviewerCheckedAt = Date.now();
 
@@ -395,6 +400,17 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
             nodes,
           ),
         };
+        sendJson(res, 200, body);
+      },
+    },
+    {
+      method: "GET",
+      pattern: /^\/api\/reports\/([^/]+)\/streetview$/,
+      handler: async ({ res, params }) => {
+        const r = await findReport(params[0]);
+        const anchor = await anchorOf(r);
+        if (!anchor) throw new HttpError(409, "failed-precondition", "This report has no location to look at");
+        const body: StreetViewDto = describeStreetView(anchor, opts.mapsKey, streetView ? await streetView.lookup(anchor) : null);
         sendJson(res, 200, body);
       },
     },

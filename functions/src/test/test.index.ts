@@ -6469,6 +6469,16 @@ import {
   OverpassClient,
   OverpassError,
 } from "../_overpass";
+import {
+  buildStreetViewMetadataUrl,
+  parseStreetViewMetadata,
+  bearingDegrees,
+  buildStreetViewEmbedUrl,
+  googleMapsStreetViewUrl,
+  describeStreetView,
+  StreetViewClient,
+  StreetViewError,
+} from "../_streetView";
 import { previewCypherImpact } from "../_cypherImpact";
 import {
   toMs,
@@ -6684,6 +6694,101 @@ describe("_overpass", () => {
     await assert.rejects(() => client.nodesAround(1, 1, 50), (e: unknown) => e instanceof OverpassError && e.status === "network");
     fail = null;
     assert.deepStrictEqual((await client.nodesAround(1, 1, 50)).nodes, []);
+  });
+});
+
+describe("_streetView", () => {
+  const spot = { lat: 51.5, lng: -0.1 };
+  // ~10 m due south of the spot, so the camera should face north.
+  const okBody = { status: "OK", pano_id: "PANO_1", location: { lat: 51.49991, lng: -0.1 }, date: "2023-06", copyright: "© Google" };
+
+  it("asks for the nearest outdoor panorama within the radius", () => {
+    const u = new URL(buildStreetViewMetadataUrl({ lat: 51.123456789, lng: -0.1 }, "K&Y", 40));
+    assert.strictEqual(u.origin + u.pathname, "https://maps.googleapis.com/maps/api/streetview/metadata");
+    assert.strictEqual(u.searchParams.get("location"), "51.123457,-0.100000");
+    assert.strictEqual(u.searchParams.get("radius"), "40");
+    assert.strictEqual(u.searchParams.get("source"), "outdoor");
+    assert.strictEqual(u.searchParams.get("key"), "K&Y", "the key is URL-encoded, not spliced");
+  });
+  it("parses a panorama, treats no imagery as a result and refusals as errors", () => {
+    assert.deepStrictEqual(parseStreetViewMetadata(okBody), { status: "ok", panoId: "PANO_1", lat: 51.49991, lng: -0.1, date: "2023-06", copyright: "© Google" });
+    assert.strictEqual((parseStreetViewMetadata({ ...okBody, date: "June" }) as { date: string | null }).date, null, "odd dates dropped");
+    assert.deepStrictEqual(parseStreetViewMetadata({ status: "ZERO_RESULTS" }), { status: "none" });
+    assert.deepStrictEqual(parseStreetViewMetadata({ status: "NOT_FOUND" }), { status: "none" });
+    assert.throws(() => parseStreetViewMetadata({ status: "REQUEST_DENIED", error_message: "The provided API key is invalid." }), (e: unknown) => e instanceof StreetViewError && /GOOGLE_MAPS_API_KEY/.test(e.message) && /invalid/.test(e.message));
+    assert.throws(() => parseStreetViewMetadata({ status: "OVER_QUERY_LIMIT" }), /quota/);
+    assert.throws(() => parseStreetViewMetadata({ status: "OK" }), StreetViewError);
+    assert.throws(() => parseStreetViewMetadata("nope"), StreetViewError);
+  });
+  it("aims the camera from the panorama at the spot", () => {
+    assert.strictEqual(bearingDegrees({ lat: 51.49991, lng: -0.1 }, spot), 0);
+    assert.strictEqual(bearingDegrees(spot, { lat: 51.5, lng: -0.1001 }), 270);
+    assert.strictEqual(bearingDegrees({ lat: 51.5, lng: -0.1001 }, spot), 90);
+    const d = describeStreetView(spot, "KEY", parseStreetViewMetadata(okBody));
+    assert.strictEqual(d.status, "ok");
+    if (d.status !== "ok") return;
+    assert.strictEqual(d.headingDeg, 0);
+    assert.ok(d.distanceM >= 9 && d.distanceM <= 11, `distance ${d.distanceM}`);
+    const embed = new URL(d.embedUrl);
+    assert.strictEqual(embed.origin + embed.pathname, "https://www.google.com/maps/embed/v1/streetview");
+    assert.deepStrictEqual(
+      ["key", "pano", "heading", "pitch", "fov"].map((k) => embed.searchParams.get(k)),
+      ["KEY", "PANO_1", "0", "-5", "70"],
+    );
+    const maps = new URL(d.mapsUrl);
+    assert.strictEqual(maps.searchParams.get("pano"), "PANO_1");
+    assert.strictEqual(maps.searchParams.get("viewpoint"), "51.499910,-0.100000");
+    assert.strictEqual(maps.searchParams.get("key"), null, "the key never goes into the Google Maps link");
+  });
+  it("falls back to a keyless Google Maps link", () => {
+    const none = describeStreetView(spot, "KEY", { status: "none" });
+    assert.deepStrictEqual(none, { status: "none", radiusM: 50, mapsUrl: googleMapsStreetViewUrl(spot) });
+    const off = describeStreetView(spot, null, null);
+    assert.strictEqual(off.status, "not_configured");
+    const u = new URL(off.mapsUrl);
+    assert.strictEqual(u.origin + u.pathname, "https://www.google.com/maps/@");
+    assert.deepStrictEqual(
+      ["api", "map_action", "viewpoint", "pano"].map((k) => u.searchParams.get(k)),
+      ["1", "pano", "51.500000,-0.100000", null],
+    );
+    assert.strictEqual(buildStreetViewEmbedUrl("K", "P", 12).includes("heading=12"), true);
+  });
+  it("caches lookups per spot and maps failures to StreetViewError", async () => {
+    let t = 0;
+    let calls = 0;
+    let answer: "ok" | "http" | "net" | "timeout" = "ok";
+    let sawSignal = false;
+    const client = new StreetViewClient(
+      "KEY",
+      async (_url, init) => {
+        calls++;
+        sawSignal = init.signal instanceof AbortSignal;
+        if (answer === "net") throw new Error("down");
+        if (answer === "timeout") {
+          const e = new Error("aborted");
+          e.name = "TimeoutError";
+          throw e;
+        }
+        if (answer === "http") return { ok: false, status: 500, json: async () => ({}) };
+        return { ok: true, status: 200, json: async () => okBody };
+      },
+      () => t,
+      1_000,
+      8_000,
+    );
+    assert.strictEqual((await client.lookup(spot)).status, "ok");
+    await client.lookup(spot);
+    assert.strictEqual(calls, 1, "second lookup served from the cache");
+    assert.ok(sawSignal);
+    t += 1_001;
+    answer = "http";
+    await assert.rejects(() => client.lookup(spot), (e: unknown) => e instanceof StreetViewError && /HTTP 500/.test(e.message));
+    answer = "net";
+    await assert.rejects(() => client.lookup(spot), /unreachable/);
+    answer = "timeout";
+    await assert.rejects(() => client.lookup(spot), /within 8 s/);
+    answer = "ok";
+    assert.strictEqual((await client.lookup(spot)).status, "ok", "recovers after failures");
   });
 });
 
@@ -7055,7 +7160,7 @@ import {
 } from "../scripts/review_dashboard/_security";
 import { HttpError, toHttpError, matchRoute, requireId, requireIds, type Route } from "../scripts/review_dashboard/_http";
 import { toSummary, toDetail, pendingOrder, selectHistory, isOsmPending } from "../scripts/review_dashboard/_dto";
-import { parseDashboardArgs, chooseToken } from "../scripts/review_dashboard/main";
+import { parseDashboardArgs, chooseToken, mapsKeyFromEnv } from "../scripts/review_dashboard/main";
 import * as functionsV2 from "firebase-functions";
 
 describe("review dashboard _security", () => {
@@ -7122,6 +7227,7 @@ describe("review dashboard _security", () => {
     assert.strictEqual(contentTypeFor("/x/blob"), "application/octet-stream");
     assert.match(PAGE_CSP, /script-src 'self'(;|$)/);
     assert.match(PAGE_CSP, /frame-ancestors 'none'/);
+    assert.match(PAGE_CSP, /frame-src https:\/\/www\.google\.com\/maps\/embed\/(;|$)/, "Street View is the only frame");
     assert.ok(!/unsafe-eval/.test(PAGE_CSP));
   });
 });
@@ -7133,8 +7239,9 @@ describe("review dashboard _http", () => {
     assert.strictEqual(toHttpError(new functionsV2.https.HttpsError("not-found", "x")).status, 404);
     assert.strictEqual(toHttpError(new functionsV2.https.HttpsError("permission-denied", "x")).status, 403);
   });
-  it("maps Overpass failures to 502 and anything else to 500", () => {
+  it("maps Overpass and Street View failures to 502 and anything else to 500", () => {
     assert.strictEqual(toHttpError(new OverpassError("slow down", 429)).status, 502);
+    assert.strictEqual(toHttpError(new StreetViewError("denied")).status, 502);
     assert.strictEqual(toHttpError(new Error("boom")).status, 500);
     const own = new HttpError(409, "conflict", "c");
     assert.strictEqual(toHttpError(own), own);
@@ -7257,5 +7364,11 @@ describe("review dashboard CLI (main.ts)", () => {
     const random = chooseToken(false, undefined);
     assert.ok(random.length >= 43 && /^[A-Za-z0-9_-]+$/.test(random));
     assert.notStrictEqual(random, chooseToken(false, undefined));
+  });
+  it("takes the Street View key from the environment, blank meaning none", () => {
+    assert.strictEqual(mapsKeyFromEnv(" AIzaKey "), "AIzaKey");
+    assert.strictEqual(mapsKeyFromEnv(""), null);
+    assert.strictEqual(mapsKeyFromEnv("   "), null);
+    assert.strictEqual(mapsKeyFromEnv(undefined), null);
   });
 });

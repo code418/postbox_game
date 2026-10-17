@@ -3,6 +3,7 @@
 A local, desktop-first replacement for the app's **Admin · Reports** screen. It shows a keyboard-driven queue of problem reports, and for each report:
 
 - a map of the reported spot, photo EXIF positions, stored boxes nearby, other reports and live OSM nodes;
+- Google Street View from the nearest panorama, aimed at the spot;
 - duplicate checks;
 - reporter context;
 - a preview of what a cypher correction will rescore;
@@ -40,6 +41,8 @@ The server prints a link like `http://127.0.0.1:8790/#t=…`. Open it. The `#t=`
 | `--ignore-maintenance` | Allow reviews while Remote Config `maintenance_mode` is on (blocked by default, as in the app). |
 | `--dev`, `--dev-port <n>` | Use the Vite dev server instead of `dist/` (see below). |
 
+Set `GOOGLE_MAPS_API_KEY` to show Street View inside the dashboard (see below). It's read from the environment rather than a flag, so the key stays out of `ps` and your shell history.
+
 The server won't start unless it can reach Auth, Remote Config (server and client templates) and Storage with your credentials. Without that check, a rescore could silently use different points from production.
 
 ## Keys
@@ -50,6 +53,7 @@ Press `?` in the dashboard for the full list.
 - `j`/`k` (or the arrow keys): next and previous report.
 - `p`: photos.
 - `o`: show live OSM post boxes on the map.
+- `v`: switch between the map and Street View.
 - `e`: open the spot in iD.
 - `g` then `q`, `h` or `o`: switch to Queue, History or OSM edits.
 
@@ -67,6 +71,25 @@ Press `?` in the dashboard for the full list.
 - `Shift+R`: reject the whole batch.
 
 Accepting a cypher correction is blocked until its impact preview has loaded.
+
+## Street View
+
+The **Street View** tab (or `v`) swaps the map for Google Street View from the nearest outdoor panorama within 50 m. The camera faces the reported spot, or the box for a cypher report. Below it you see how far away and when the image was taken. It warns you when the image is over 25 m away or at least 3 years older than the report.
+
+To see it inside the dashboard, the server needs a Google Maps Platform key that can use the **Maps Embed API** and the **Street View Static API**. Both are free for this use: embeds have no charge, and the dashboard only makes Street View *metadata* requests, which cost nothing and use no quota. To create one:
+
+```sh
+gcloud services enable maps-embed-backend.googleapis.com street-view-image-backend.googleapis.com --project the-postbox-game
+gcloud services api-keys create --project the-postbox-game --display-name="Review dashboard Street View" \
+  --api-target=service=maps-embed-backend.googleapis.com \
+  --api-target=service=street-view-image-backend.googleapis.com
+```
+
+Then pass the key string when you start the server: `GOOGLE_MAPS_API_KEY=<key> npm run review-dashboard -- --reviewer <uid>`.
+- **Restrict it by API, not by website.** The server looks up panoramas itself and sends no referrer, so a key limited to websites would refuse those lookups.
+- **Keep it private.** The browser sees it in the embed URL, but nothing outside your machine does.
+
+Without a key the tab shows a button that opens Street View in Google Maps instead. That still needs no key, but the camera isn't aimed.
 
 ## OSM edits
 

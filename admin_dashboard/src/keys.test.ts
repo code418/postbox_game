@@ -54,6 +54,8 @@ test("letters", () => {
   assert.deepEqual(keyToCommand(k("r"), "accept", false), { type: "stageReject" });
   assert.deepEqual(keyToCommand(k("R", { shiftKey: true }), "idle", false), { type: "batchReject" });
   assert.deepEqual(keyToCommand(k("x"), "idle", false), { type: "toggleBatch" });
+  assert.deepEqual(keyToCommand(k("v"), "accept", false), { type: "streetView" });
+  assert.equal(keyToCommand(k("v", { inTextField: true }), "accept", false), null);
   assert.deepEqual(keyToCommand(k("?", { shiftKey: true }), "idle", false), { type: "help" });
   assert.equal(keyToCommand(k("z"), "idle", false), null);
 });

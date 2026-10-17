@@ -101,7 +101,8 @@ export function isAllowedPhotoType(contentType: string | undefined): boolean {
   return typeof contentType === "string" && PHOTO_TYPES.has(contentType.split(";")[0].trim().toLowerCase());
 }
 
-/** CSP for the dashboard page: own scripts only; OSM tiles; blob: photos. */
+/** CSP for the dashboard page: own scripts only; OSM tiles; blob: photos;
+ *  Google's Street View embed as the only frame. */
 export const PAGE_CSP = [
   "default-src 'self'",
   "script-src 'self'",
@@ -110,6 +111,7 @@ export const PAGE_CSP = [
   // Vite inlines small font files as data: URLs.
   "font-src 'self' data:",
   "connect-src 'self'",
+  "frame-src https://www.google.com/maps/embed/",
   "frame-ancestors 'none'",
   "base-uri 'none'",
   "form-action 'none'",

@@ -223,6 +223,8 @@ select { width: auto; }
 .status-rejected { background: var(--red); }
 .section-h { margin: 22px 0 8px; }
 
+.centre-tools { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.centre-tools kbd { margin-left: 2px; }
 .map-wrap { display: grid; gap: 6px; }
 .map { height: 360px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: #dfe3e8; }
 .map-empty { display: grid; place-items: center; color: var(--muted); }
@@ -231,6 +233,12 @@ select { width: auto; }
 .dot { width: 10px; height: 10px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px var(--line-strong); }
 .dot-hollow { background: #fff; border-width: 2px; border-style: solid; box-shadow: none; }
 .legend-rings { margin-left: auto; }
+.streetview { display: block; width: 100%; }
+.sv-frame-wrap:focus { outline: none; }
+.sv-message { align-content: center; gap: 12px; padding: 24px; text-align: center; }
+.sv-message p { max-width: 46ch; margin: 0; }
+.sv-caption { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 16px; margin: 0; font-size: 12px; color: var(--muted); }
+.sv-note { margin: 0; font-size: 12px; color: var(--gold-ink); }
 .tag-table { margin-top: 6px; border-collapse: collapse; font-size: 12px; }
 .tag-table th { padding-right: 8px; text-align: left; font-weight: 600; }
 

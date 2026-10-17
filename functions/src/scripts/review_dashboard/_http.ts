@@ -3,6 +3,7 @@
 
 import type { IncomingMessage, ServerResponse } from "http";
 import { OverpassError } from "../../_overpass";
+import { StreetViewError } from "../../_streetView";
 import { MAX_BODY_BYTES } from "./_security";
 
 export class HttpError extends Error {
@@ -12,7 +13,7 @@ export class HttpError extends Error {
 }
 
 /** HttpsError (thrown by performReview & co.) → its HTTP status;
- *  OverpassError → 502; everything else → 500. */
+ *  OverpassError / StreetViewError → 502; everything else → 500. */
 export function toHttpError(e: unknown): HttpError {
   if (e instanceof HttpError) return e;
   const o = e as { code?: unknown; message?: unknown; httpErrorCode?: { status?: unknown } };
@@ -20,7 +21,7 @@ export function toHttpError(e: unknown): HttpError {
   if (typeof o?.code === "string" && typeof o.httpErrorCode?.status === "number") {
     return new HttpError(o.httpErrorCode.status, o.code, message);
   }
-  if (e instanceof OverpassError) return new HttpError(502, "bad-gateway", message);
+  if (e instanceof OverpassError || e instanceof StreetViewError) return new HttpError(502, "bad-gateway", message);
   return new HttpError(500, "internal", message);
 }
 
