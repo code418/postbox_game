@@ -77,4 +77,10 @@ export interface ReportDoc {
   osmStatus?: "not_started" | "changeset_generated" | "changeset_failed";
   osmChangesetPath?: string;
   osmEditUrl?: string;
+  finalMonarch?: string | null;
+  finalReference?: string;
+  // wrong_cypher accept only: what the retroactive rescore did.
+  rescoredClaims?: number;
+  affectedUsers?: number;
+  rescoreTotalDelta?: number;
 }

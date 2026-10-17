@@ -9,8 +9,10 @@ import { countySlug } from "./_leaderboardUtils";
 import { getLatLng, MAX_GEOHASH_PRECISION } from "./_geo";
 import { containsProfanity } from "./_profanityFilter";
 import { rescoreAfterCypherChange } from "./_recomputeScores";
-import { buildOsmChange, fetchOsmNode } from "./_osmChange";
+import { buildOsmChange, fetchOsmNode, type OsmNode } from "./_osmChange";
+import { getGameConfig } from "./_config";
 import type { PostboxDoc, ReportPhoto } from "./types";
+import type { ReviewReportResult } from "./_reviewTypes";
 
 // Re-exported so existing importers (tests, scripts) keep their import path.
 export { buildOsmChange } from "./_osmChange";
@@ -234,7 +236,9 @@ export const submitReport = functions.https.onCall(async (request) => {
   return { reportId: reportRef.id };
 });
 
-interface ReviewReportData {
+/** Raw (unvalidated) reviewReport input: the callable's request.data, or the
+ *  review dashboard's request body plus the route's reportId. */
+export interface ReviewReportInput {
   reportId?: unknown;
   decision?: unknown;
   reviewNote?: unknown;
@@ -242,21 +246,38 @@ interface ReviewReportData {
   finalReference?: unknown;
 }
 
-export const reviewReport = functions.https.onCall({ timeoutSeconds: 300 }, async (request) => {
-  monitorAppCheck(request, "reviewReport");
-  if (request.auth?.token?.admin !== true) {
-    throw new functions.https.HttpsError("permission-denied", "Admin access required");
-  }
-  const adminUid = request.auth.uid;
+/** The slice of a Storage bucket performReview writes .osc files through. */
+export interface ReviewBucketLike {
+  file(path: string): { save(data: string, options: { contentType: string }): Promise<unknown> };
+}
 
-  const data = (request.data as ReviewReportData) ?? {};
+/** Seams for tests. Production (the callable and the dashboard) passes none. */
+export interface PerformReviewOptions {
+  fetchOsmNode?: (id: number) => Promise<OsmNode | null>;
+  rescore?: typeof rescoreAfterCypherChange;
+  countyForPoint?: (lat: number, lng: number) => string | null;
+  today?: string;
+}
+
+/**
+ * Accept or reject one pending report: the whole of reviewReport after the
+ * admin-claim check. Shared by the callable and the local review dashboard
+ * (functions/src/scripts/review_dashboard/) so the two can never drift.
+ * Throws HttpsError; `adminUid` is stamped as reviewedBy / correctedBy.
+ */
+export async function performReview(
+  db: admin.firestore.Firestore,
+  bucket: ReviewBucketLike,
+  adminUid: string,
+  data: ReviewReportInput,
+  opts: PerformReviewOptions = {}
+): Promise<ReviewReportResult> {
   const reportId = data.reportId;
   if (typeof reportId !== "string" || reportId.length === 0 || reportId.includes("/")) throw err("reportId is required");
   const decision = data.decision;
   if (decision !== "accept" && decision !== "reject") throw err("decision must be 'accept' or 'reject'");
   const reviewNote = parseNote(data.reviewNote);
 
-  const db = admin.firestore();
   const reportRef = db.collection("reports").doc(reportId);
   const reportSnap = await reportRef.get();
   if (!reportSnap.exists) throw new functions.https.HttpsError("not-found", "Report not found");
@@ -286,13 +307,14 @@ export const reviewReport = functions.https.onCall({ timeoutSeconds: 300 }, asyn
   // ── accept ────────────────────────────────────────────────────────────────
   const finalMonarch = parseSuggestedMonarch(data.finalMonarch === undefined ? report.suggestedMonarch : data.finalMonarch);
   const finalReference = parseReference(data.finalReference === undefined ? report.suggestedReference : data.finalReference);
-  const today = getTodayLondon();
+  const today = opts.today ?? getTodayLondon();
 
   let osmEditUrl = "https://www.openstreetmap.org/edit";
   let osmChangesetPath: string | undefined;
   let osmStatus: "changeset_generated" | "changeset_failed" = "changeset_failed";
   let rescoredClaims = 0;
   let affectedUsers = 0;
+  let rescoreTotalDelta = 0;
 
   if (report.type === "wrong_cypher") {
     if (finalMonarch === undefined) throw err("a cypher correction must specify finalMonarch (a key, or null for plain)");
@@ -304,6 +326,11 @@ export const reviewReport = functions.https.onCall({ timeoutSeconds: 300 }, asyn
     const pb = pbSnap.data() as PostboxDoc;
     const overpassId = typeof pb.overpass_id === "number" ? pb.overpass_id : (typeof report.overpassId === "number" ? report.overpassId : undefined);
     const countyName = typeof pb.county === "string" ? pb.county : null;
+    // Resolve the points config before the first write. Deployed, this just
+    // warms the cache (the loader never throws); the dashboard installs a
+    // strict loader, so an unreachable Remote Config aborts here rather than
+    // after the postbox doc has been corrected.
+    await getGameConfig();
 
     const pbUpdate: Record<string, unknown> = { correctedBy: adminUid, correctedAt: now };
     pbUpdate.monarch = finalMonarch === null ? admin.firestore.FieldValue.delete() : finalMonarch;
@@ -321,13 +348,15 @@ export const reviewReport = functions.https.onCall({ timeoutSeconds: 300 }, asyn
     // Always rewrite the claims' stored monarch; this also recomputes affected
     // users' totals and leaderboards (a no-op for totals when the new cypher
     // maps to the same points value as the old one).
-    const r = await rescoreAfterCypherChange(db, postboxKey, finalMonarch, countyName ? countySlug(countyName) : null, countyName, today);
+    const rescore = opts.rescore ?? rescoreAfterCypherChange;
+    const r = await rescore(db, postboxKey, finalMonarch, countyName ? countySlug(countyName) : null, countyName, today);
     rescoredClaims = r.rescoredClaims;
     affectedUsers = r.affectedUsers;
+    rescoreTotalDelta = r.totalDelta;
 
     if (overpassId !== undefined) {
       osmEditUrl = `https://www.openstreetmap.org/edit?editor=id&node=${overpassId}`;
-      const node = await fetchOsmNode(overpassId);
+      const node = await (opts.fetchOsmNode ?? fetchOsmNode)(overpassId);
       if (node) {
         const tags = { ...node.tags };
         if (finalMonarch === null) delete tags.royal_cypher;
@@ -336,7 +365,7 @@ export const reviewReport = functions.https.onCall({ timeoutSeconds: 300 }, asyn
         const osc = buildOsmChange({ action: "modify", id: overpassId, version: node.version, lat: node.lat, lon: node.lon, tags });
         osmChangesetPath = `osm_changesets/${reportId}.osc`;
         try {
-          await admin.storage().bucket().file(osmChangesetPath).save(osc, { contentType: "application/xml" });
+          await bucket.file(osmChangesetPath).save(osc, { contentType: "application/xml" });
           osmStatus = "changeset_generated";
         } catch (e) {
           console.error("osmChange upload failed:", e);
@@ -383,11 +412,13 @@ export const reviewReport = functions.https.onCall({ timeoutSeconds: 300 }, asyn
     // starts. The util's own `_features` cache then keeps subsequent calls
     // within a single warm reviewReport instance cheap.
     try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const counties = require("../util/county_lookup") as {
-        countyForPoint: (lat: number, lng: number) => string | null;
-      };
-      const county = counties.countyForPoint(lat, lng);
+      const countyForPoint = opts.countyForPoint ?? (
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        require("../util/county_lookup") as {
+          countyForPoint: (lat: number, lng: number) => string | null;
+        }
+      ).countyForPoint;
+      const county = countyForPoint(lat, lng);
       if (county) pbData.county = county;
     } catch (e) {
       // County lookup is best-effort: NI postboxes legitimately lack a
@@ -416,7 +447,7 @@ export const reviewReport = functions.https.onCall({ timeoutSeconds: 300 }, asyn
     const osc = buildOsmChange({ action: "create", id: -1, lat, lon: lng, tags });
     osmChangesetPath = `osm_changesets/${reportId}.osc`;
     try {
-      await admin.storage().bucket().file(osmChangesetPath).save(osc, { contentType: "application/xml" });
+      await bucket.file(osmChangesetPath).save(osc, { contentType: "application/xml" });
       osmStatus = "changeset_generated";
     } catch (e) {
       console.error("osmChange upload failed:", e);
@@ -437,7 +468,27 @@ export const reviewReport = functions.https.onCall({ timeoutSeconds: 300 }, asyn
   if (reviewNote) update.reviewNote = reviewNote;
   if (finalReference) update.finalReference = finalReference;
   if (osmChangesetPath) update.osmChangesetPath = osmChangesetPath;
+  if (report.type === "wrong_cypher") {
+    // Kept on the doc so the review history can show what an accept did
+    // (the callable's response is otherwise the only record).
+    update.rescoredClaims = rescoredClaims;
+    update.affectedUsers = affectedUsers;
+    update.rescoreTotalDelta = rescoreTotalDelta;
+  }
   await reportRef.set(update, { merge: true });
 
-  return { status: "accepted", osmEditUrl, osmChangesetPath: osmChangesetPath ?? null, rescoredClaims, affectedUsers };
+  return { status: "accepted", osmEditUrl, osmChangesetPath: osmChangesetPath ?? null, rescoredClaims, affectedUsers, rescoreTotalDelta };
+}
+
+export const reviewReport = functions.https.onCall({ timeoutSeconds: 300 }, async (request) => {
+  monitorAppCheck(request, "reviewReport");
+  if (request.auth?.token?.admin !== true) {
+    throw new functions.https.HttpsError("permission-denied", "Admin access required");
+  }
+  return performReview(
+    admin.firestore(),
+    admin.storage().bucket(),
+    request.auth.uid,
+    (request.data as ReviewReportInput) ?? {}
+  );
 });

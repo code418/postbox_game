@@ -281,7 +281,7 @@ export async function rescoreAfterCypherChange(
   countySlugVal: string | null,
   countyName: string | null,
   today: string = getTodayLondon()
-): Promise<{ rescoredClaims: number; affectedUsers: number }> {
+): Promise<{ rescoredClaims: number; affectedUsers: number; totalDelta: number }> {
   const { deltaByUid, claimCount } = await repointClaimsForPostbox(db, postboxKey, newMonarch);
   // Users whose point delta is 0 (corrected cypher maps to the same score —
   // e.g. GR→GVR are both 4 pts) had their claims' monarch / audit fields
@@ -295,5 +295,7 @@ export async function rescoreAfterCypherChange(
       recomputeUserAggregates(db, uid, today, delta, countySlugVal, countyName)
     )
   );
-  return { rescoredClaims: claimCount, affectedUsers: affected.length };
+  let totalDelta = 0;
+  for (const delta of deltaByUid.values()) totalDelta += delta;
+  return { rescoredClaims: claimCount, affectedUsers: affected.length, totalDelta };
 }

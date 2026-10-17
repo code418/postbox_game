@@ -4137,6 +4137,209 @@ describe("maxDailyFromClaims", () => {
   });
 });
 
+import { performReview, type PerformReviewOptions } from "../reports";
+
+describe("performReview (unit, mock Firestore)", () => {
+  type Doc = Record<string, unknown>;
+  type SetCall = { path: string; data: Doc; merge: boolean };
+
+  function makeReviewDb(initial: Record<string, Doc>) {
+    const store = new Map<string, Doc>(Object.entries(initial));
+    const sets: SetCall[] = [];
+    const db = {
+      collection: (c: string) => ({
+        doc: (id: string) => {
+          const path = `${c}/${id}`;
+          return {
+            id,
+            path,
+            async get() {
+              const d = store.get(path);
+              return { exists: d !== undefined, data: () => d };
+            },
+            async set(data: Doc, opts?: { merge?: boolean }) {
+              const merge = opts?.merge === true;
+              sets.push({ path, data, merge });
+              store.set(path, merge ? { ...(store.get(path) ?? {}), ...data } : data);
+            },
+          };
+        },
+      }),
+    };
+    return { db: db as unknown as import("firebase-admin").firestore.Firestore, sets, store };
+  }
+
+  function makeBucket() {
+    const saved: Array<{ path: string; data: string; contentType: string }> = [];
+    return {
+      saved,
+      bucket: { file: (path: string) => ({ save: async (data: string, o: { contentType: string }) => { saved.push({ path, data, contentType: o.contentType }); } }) },
+    };
+  }
+
+  const isDelete = (v: unknown) => admin.firestore.FieldValue.delete().isEqual(v as admin.firestore.FieldValue);
+  const code = async (p: Promise<unknown>) => {
+    try { await p; return "resolved"; } catch (e) { return (e as { code?: string }).code; }
+  };
+
+  const pendingMissing = { type: "missing_postbox", status: "pending", reporterUid: "rep", lat: 51.5, lng: -0.12, photos: [], suggestedMonarch: "VR", suggestedReference: "SW1 9" };
+  const pendingCypher = { type: "wrong_cypher", status: "pending", reporterUid: "rep", postboxId: "osm_77", overpassId: 77, currentMonarch: "EIIR", photos: [], suggestedMonarch: "GR" };
+  const box77 = { overpass_id: 77, monarch: "EIIR", county: "Greater London", removedFromOsm: true, removedFromOsmAt: 1, geopoint: { latitude: 51.5, longitude: -0.12 } };
+  const opts = (extra: Partial<PerformReviewOptions> = {}): PerformReviewOptions => ({
+    today: "2026-10-17",
+    countyForPoint: () => "Greater London",
+    fetchOsmNode: async () => ({ version: 3, lat: 51.5, lon: -0.12, tags: { amenity: "post_box", royal_cypher: "EIIR", ref: "OLD 1" } }),
+    rescore: async () => ({ rescoredClaims: 5, affectedUsers: 2, totalDelta: 10 }),
+    ...extra,
+  });
+
+  it("rejects: stamps status, reviewer and note, writes nothing else", async () => {
+    const { db, sets } = makeReviewDb({ "reports/r1": { ...pendingMissing } });
+    const { bucket, saved } = makeBucket();
+    const r = await performReview(db, bucket, "admin1", { reportId: "r1", decision: "reject", reviewNote: "Duplicate" }, opts());
+    assert.deepStrictEqual(r, { status: "rejected" });
+    assert.strictEqual(sets.length, 1);
+    assert.strictEqual(sets[0].path, "reports/r1");
+    assert.strictEqual(sets[0].data.status, "rejected");
+    assert.strictEqual(sets[0].data.reviewedBy, "admin1");
+    assert.strictEqual(sets[0].data.reviewNote, "Duplicate");
+    assert.strictEqual(saved.length, 0);
+  });
+
+  it("validates decision and reportId before reading anything", async () => {
+    const { db, sets } = makeReviewDb({});
+    const { bucket } = makeBucket();
+    assert.strictEqual(await code(performReview(db, bucket, "a", { reportId: "r1", decision: "maybe" }, opts())), "invalid-argument");
+    assert.strictEqual(await code(performReview(db, bucket, "a", { reportId: "x/y", decision: "reject" }, opts())), "invalid-argument");
+    assert.strictEqual(sets.length, 0);
+  });
+
+  it("not-found for a missing report, failed-precondition for an already-reviewed one", async () => {
+    const { db } = makeReviewDb({ "reports/done": { ...pendingMissing, status: "accepted" } });
+    const { bucket } = makeBucket();
+    assert.strictEqual(await code(performReview(db, bucket, "a", { reportId: "nope", decision: "reject" }, opts())), "not-found");
+    assert.strictEqual(await code(performReview(db, bucket, "a", { reportId: "done", decision: "reject" }, opts())), "failed-precondition");
+  });
+
+  it("accepts a missing postbox: manual_ doc, meta increment, create .osc, report stamped", async () => {
+    const { db, sets, store } = makeReviewDb({ "reports/r1": { ...pendingMissing } });
+    const { bucket, saved } = makeBucket();
+    const r = await performReview(db, bucket, "admin1", { reportId: "r1", decision: "accept" }, opts());
+    assert.deepStrictEqual(r, {
+      status: "accepted",
+      osmEditUrl: "https://www.openstreetmap.org/edit#map=19/51.5/-0.12",
+      osmChangesetPath: "osm_changesets/r1.osc",
+      rescoredClaims: 0,
+      affectedUsers: 0,
+      rescoreTotalDelta: 0,
+    });
+    const box = store.get("postbox/manual_r1");
+    assert.ok(box, "postbox/manual_r1 created");
+    assert.strictEqual(box.source, "user_report");
+    assert.strictEqual(box.reportId, "r1");
+    assert.strictEqual(box.monarch, "VR", "falls back to the reporter's suggestion");
+    assert.strictEqual(box.reference, "SW1 9");
+    assert.strictEqual(box.county, "Greater London");
+    assert.strictEqual((box.geohash as string).length, MAX_GEOHASH_PRECISION);
+    assert.ok(sets.some((c) => c.path === "meta/stats"), "totalPostboxes incremented for a new box");
+    assert.strictEqual(saved.length, 1);
+    assert.match(saved[0].data, /<create>/);
+    assert.match(saved[0].data, /<tag k="royal_cypher" v="VR"\/>/);
+    const rep = store.get("reports/r1");
+    assert.ok(rep);
+    assert.strictEqual(rep.status, "accepted");
+    assert.strictEqual(rep.osmStatus, "changeset_generated");
+    assert.strictEqual(rep.finalMonarch, "VR");
+    assert.ok(!("rescoredClaims" in rep), "no rescore counts for a missing-postbox accept");
+  });
+
+  it("a missing-postbox retry over an existing manual_ doc does not re-increment meta/stats", async () => {
+    const { db, sets } = makeReviewDb({ "reports/r1": { ...pendingMissing }, "postbox/manual_r1": { source: "user_report" } });
+    const { bucket } = makeBucket();
+    await performReview(db, bucket, "admin1", { reportId: "r1", decision: "accept" }, opts());
+    assert.ok(!sets.some((c) => c.path === "meta/stats"));
+  });
+
+  it("an explicit empty finalReference overrides the reporter's suggested one", async () => {
+    const { db, store } = makeReviewDb({ "reports/r1": { ...pendingMissing } });
+    const { bucket } = makeBucket();
+    await performReview(db, bucket, "admin1", { reportId: "r1", decision: "accept", finalReference: "", finalMonarch: null }, opts());
+    const box = store.get("postbox/manual_r1");
+    assert.ok(box);
+    assert.ok(!("reference" in box));
+    assert.ok(!("monarch" in box), "plain writes no monarch");
+  });
+
+  it("accepts a cypher correction: postbox updated, rescore run, modify .osc, counts persisted", async () => {
+    const { db, store } = makeReviewDb({ "reports/r2": { ...pendingCypher }, "postbox/osm_77": { ...box77 } });
+    const { bucket, saved } = makeBucket();
+    const rescoreCalls: unknown[][] = [];
+    const r = await performReview(db, bucket, "admin1", { reportId: "r2", decision: "accept", finalReference: "NEW 2" }, opts({
+      rescore: async (...args) => { rescoreCalls.push(args.slice(1)); return { rescoredClaims: 5, affectedUsers: 2, totalDelta: 10 }; },
+    }));
+    assert.deepStrictEqual(r, {
+      status: "accepted",
+      osmEditUrl: "https://www.openstreetmap.org/edit?editor=id&node=77",
+      osmChangesetPath: "osm_changesets/r2.osc",
+      rescoredClaims: 5,
+      affectedUsers: 2,
+      rescoreTotalDelta: 10,
+    });
+    const box = store.get("postbox/osm_77");
+    assert.ok(box);
+    assert.strictEqual(box.monarch, "GR");
+    assert.strictEqual(box.reference, "NEW 2");
+    assert.strictEqual(box.correctedBy, "admin1");
+    assert.ok(isDelete(box.removedFromOsm), "a soft-pruned box is restored");
+    assert.deepStrictEqual(rescoreCalls, [["osm_77", "GR", "greater-london", "Greater London", "2026-10-17"]]);
+    assert.strictEqual(saved.length, 1);
+    assert.match(saved[0].data, /<node id="77" version="3"/);
+    assert.match(saved[0].data, /<tag k="royal_cypher" v="GR"\/>/);
+    assert.match(saved[0].data, /<tag k="ref" v="NEW 2"\/>/);
+    const rep = store.get("reports/r2");
+    assert.ok(rep);
+    assert.strictEqual(rep.rescoredClaims, 5);
+    assert.strictEqual(rep.affectedUsers, 2);
+    assert.strictEqual(rep.rescoreTotalDelta, 10);
+  });
+
+  it("a cypher correction to plain deletes the monarch and the OSM royal_cypher tag", async () => {
+    const { db, store } = makeReviewDb({ "reports/r2": { ...pendingCypher }, "postbox/osm_77": { ...box77 } });
+    const { bucket, saved } = makeBucket();
+    await performReview(db, bucket, "admin1", { reportId: "r2", decision: "accept", finalMonarch: null }, opts());
+    assert.ok(isDelete(store.get("postbox/osm_77")?.monarch));
+    assert.ok(!/royal_cypher/.test(saved[0].data));
+  });
+
+  it("a cypher correction needs a resolvable finalMonarch", async () => {
+    const { db, sets } = makeReviewDb({ "reports/r2": { ...pendingCypher, suggestedMonarch: undefined }, "postbox/osm_77": { ...box77 } });
+    const { bucket } = makeBucket();
+    assert.strictEqual(await code(performReview(db, bucket, "a", { reportId: "r2", decision: "accept" }, opts())), "invalid-argument");
+    assert.strictEqual(sets.length, 0);
+  });
+
+  it("records changeset_failed when the OSM node can't be fetched", async () => {
+    const { db, store } = makeReviewDb({ "reports/r2": { ...pendingCypher }, "postbox/osm_77": { ...box77 } });
+    const { bucket, saved } = makeBucket();
+    const r = await performReview(db, bucket, "admin1", { reportId: "r2", decision: "accept" }, opts({ fetchOsmNode: async () => null }));
+    assert.strictEqual(r.status === "accepted" && r.osmChangesetPath, null);
+    assert.strictEqual(saved.length, 0);
+    assert.strictEqual(store.get("reports/r2")?.osmStatus, "changeset_failed");
+  });
+
+  it("aborts before any write when the points config can't be loaded (strict loader)", async () => {
+    const { db, sets } = makeReviewDb({ "reports/r2": { ...pendingCypher }, "postbox/osm_77": { ...box77 } });
+    const { bucket } = makeBucket();
+    setConfigLoader(async () => { throw new Error("rc down"); });
+    try {
+      await assert.rejects(() => performReview(db, bucket, "a", { reportId: "r2", decision: "accept" }, opts()), /rc down/);
+      assert.strictEqual(sets.length, 0);
+    } finally {
+      setConfigLoaderForTest(fallbackGameConfig);
+    }
+  });
+});
+
 describe("submitReport / reviewReport (onCall) — auth & validation", function (this: Mocha.Suite) {
   this.timeout(10000);
   const wrappedSubmit = testEnv.wrap(myFunctions.submitReport) as (data: unknown) => Promise<unknown>;
