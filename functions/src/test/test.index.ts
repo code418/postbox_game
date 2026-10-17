@@ -3790,6 +3790,31 @@ describe("buildOsmChange", () => {
       "",
     ].join("\n"));
   });
+  it("buildOsmChangeBatch of one node is identical to buildOsmChange", () => {
+    const mod = { action: "modify" as const, id: 9, version: 3, lat: 1, lon: 2, tags: { amenity: "post_box" } };
+    const cre = { action: "create" as const, id: -1, lat: 1, lon: 2, tags: { amenity: "post_box" } };
+    assert.strictEqual(buildOsmChangeBatch([mod]), buildOsmChange(mod));
+    assert.strictEqual(buildOsmChangeBatch([cre]), buildOsmChange(cre));
+  });
+  it("buildOsmChangeBatch groups creates before modifies, preserving input order", () => {
+    const osc = buildOsmChangeBatch([
+      { action: "modify", id: 100, version: 2, lat: 1, lon: 1, tags: { royal_cypher: "VR" } },
+      { action: "create", id: -1, lat: 2, lon: 2, tags: { amenity: "post_box" } },
+      { action: "modify", id: 200, version: 5, lat: 3, lon: 3, tags: { royal_cypher: "GR" } },
+      { action: "create", id: -2, lat: 4, lon: 4, tags: { amenity: "post_box" } },
+    ]);
+    assert.strictEqual((osc.match(/<create>/g) ?? []).length, 1);
+    assert.strictEqual((osc.match(/<modify>/g) ?? []).length, 1);
+    const order = [...osc.matchAll(/<node id="(-?\d+)"/g)].map((m) => m[1]);
+    assert.deepStrictEqual(order, ["-1", "-2", "100", "200"]);
+    assert.ok(osc.indexOf("</create>") < osc.indexOf("<modify>"));
+  });
+  it("buildOsmChangeBatch of nothing is a valid empty osmChange", () => {
+    assert.strictEqual(
+      buildOsmChangeBatch([]),
+      '<?xml version="1.0" encoding="UTF-8"?>\n<osmChange version="0.6" generator="PostboxGame">\n</osmChange>\n',
+    );
+  });
   it("matches the golden tagless output byte-for-byte", () => {
     const osc = buildOsmChange({ action: "create", id: -1, lat: 0, lon: 0, tags: {} });
     assert.strictEqual(osc, [
@@ -3802,6 +3827,32 @@ describe("buildOsmChange", () => {
       "</osmChange>",
       "",
     ].join("\n"));
+  });
+});
+
+import { buildOsmChangeBatch, fetchOsmNodeResult } from "../_osmChange";
+
+describe("fetchOsmNodeResult", () => {
+  const okFetch = (body: unknown) => async () => ({ ok: true, status: 200, json: async () => body });
+  it("parses the node's version, position and tags", async () => {
+    const r = await fetchOsmNodeResult(7, okFetch({ elements: [{ type: "node", version: 4, lat: 51, lon: -1, tags: { amenity: "post_box" } }] }));
+    assert.deepStrictEqual(r, { ok: true, node: { version: 4, lat: 51, lon: -1, tags: { amenity: "post_box" } } });
+  });
+  it("reports the HTTP status for a deleted node (410) so it is not retried", async () => {
+    const r = await fetchOsmNodeResult(7, async () => ({ ok: false, status: 410, json: async () => ({}) }));
+    assert.deepStrictEqual(r, { ok: false, status: 410 });
+  });
+  it("reports network failures distinctly", async () => {
+    const r = await fetchOsmNodeResult(7, async () => { throw new Error("offline"); });
+    assert.deepStrictEqual(r, { ok: false, status: "network" });
+  });
+  it("treats a body with no usable node as malformed", async () => {
+    const r = await fetchOsmNodeResult(7, okFetch({ elements: [{ type: "way" }] }));
+    assert.deepStrictEqual(r, { ok: false, status: "malformed" });
+  });
+  it("defaults a missing version to 1 and missing tags to {}", async () => {
+    const r = await fetchOsmNodeResult(7, okFetch({ elements: [{ type: "node", lat: 1, lon: 2 }] }));
+    assert.deepStrictEqual(r, { ok: true, node: { version: 1, lat: 1, lon: 2, tags: {} } });
   });
 });
 

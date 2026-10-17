@@ -6,10 +6,15 @@ import * as geohash from "ngeohash";
 import { KNOWN_MONARCHS } from "./_getPoints";
 import { getTodayLondon } from "./_dateUtils";
 import { countySlug } from "./_leaderboardUtils";
-import { getLatLng, MAX_GEOHASH_PRECISION } from "./_lookupPostboxes";
+import { getLatLng, MAX_GEOHASH_PRECISION } from "./_geo";
 import { containsProfanity } from "./_profanityFilter";
 import { rescoreAfterCypherChange } from "./_recomputeScores";
+import { buildOsmChange, fetchOsmNode } from "./_osmChange";
 import type { PostboxDoc, ReportPhoto } from "./types";
+
+// Re-exported so existing importers (tests, scripts) keep their import path.
+export { buildOsmChange } from "./_osmChange";
+export type { OsmChangeInput } from "./_osmChange";
 
 const NOTE_MAX = 280;
 const REFERENCE_MAX = 40;
@@ -18,8 +23,6 @@ const MAX_PHOTOS = 3;
  *  a malicious or buggy client can't flood the reports collection (and the
  *  admin review queue / Storage with photos) faster than this. */
 const MAX_REPORTS_PER_DAY = 10;
-const OSM_NODE_API = "https://api.openstreetmap.org/api/0.6/node";
-const OSM_USER_AGENT = "PostboxGame/1.0 (https://the-postbox-game.web.app)";
 
 // ── input validation ────────────────────────────────────────────────────────
 
@@ -128,74 +131,6 @@ export function nextQuotaState(
     return { allowed: false, state: { date: today, count: prevCount } };
   }
   return { allowed: true, state: { date: today, count: prevCount + 1 } };
-}
-
-// ── osmChange XML ───────────────────────────────────────────────────────────
-
-function escapeXml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
-}
-
-export interface OsmChangeInput {
-  action: "create" | "modify";
-  /** OSM node id; pass a negative placeholder (e.g. -1) for create. */
-  id: number;
-  /** Required for modify (the node's current version); ignored for create. */
-  version?: number;
-  lat: number;
-  lon: number;
-  tags: Record<string, string>;
-}
-
-/**
- * Builds an osmChange (.osc) document for a single node create/modify, of the
- * form JOSM accepts. The changeset attribute is left at 0 so the editor fills
- * it in on upload. Exported for unit testing.
- */
-export function buildOsmChange(input: OsmChangeInput): string {
-  const versionAttr = input.action === "modify" ? ` version="${Math.max(1, Math.trunc(input.version ?? 1))}"` : "";
-  const tagXml = Object.entries(input.tags)
-    .filter(([, v]) => typeof v === "string" && v.length > 0)
-    .map(([k, v]) => `      <tag k="${escapeXml(k)}" v="${escapeXml(v)}"/>`)
-    .join("\n");
-  return [
-    '<?xml version="1.0" encoding="UTF-8"?>',
-    '<osmChange version="0.6" generator="PostboxGame">',
-    `  <${input.action}>`,
-    `    <node id="${Math.trunc(input.id)}"${versionAttr} lat="${input.lat}" lon="${input.lon}" changeset="0">`,
-    ...(tagXml ? [tagXml] : []),
-    "    </node>",
-    `  </${input.action}>`,
-    "</osmChange>",
-    "",
-  ].join("\n");
-}
-
-interface OsmNode {
-  version: number;
-  lat: number;
-  lon: number;
-  tags: Record<string, string>;
-}
-
-/** Fetches a node from the OSM API. Returns null on any error (offline, 404, …). */
-async function fetchOsmNode(id: number): Promise<OsmNode | null> {
-  try {
-    const res = await fetch(`${OSM_NODE_API}/${id}.json`, { headers: { "User-Agent": OSM_USER_AGENT } });
-    if (!res.ok) return null;
-    const body = (await res.json()) as { elements?: Array<{ type?: string; version?: number; lat?: number; lon?: number; tags?: Record<string, string> }> };
-    const node = body.elements?.find((e) => e.type === "node");
-    if (!node || typeof node.lat !== "number" || typeof node.lon !== "number") return null;
-    return { version: typeof node.version === "number" ? node.version : 1, lat: node.lat, lon: node.lon, tags: node.tags ?? {} };
-  } catch (e) {
-    console.error("OSM node lookup failed:", e);
-    return null;
-  }
 }
 
 // ── callables ───────────────────────────────────────────────────────────────
