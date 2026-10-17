@@ -3584,7 +3584,7 @@ describe("county_lookup (point-in-polygon)", () => {
 
 import { KNOWN_MONARCHS, pointsForMonarch } from "../_getPoints";
 import { parsePhotos, buildOsmChange, nextQuotaState } from "../reports";
-import { maxDailyFromClaims, repointClaimsForPostbox } from "../_recomputeScores";
+import { maxDailyFromClaims, repointClaimsForPostbox, planRepointClaims } from "../_recomputeScores";
 
 describe("pointsForMonarch", () => {
   it("treats null as plain (2 points)", () => assert.strictEqual(pointsForMonarch(null), 2));
@@ -4025,6 +4025,41 @@ describe("repointClaimsForPostbox (unit, mock Firestore)", () => {
     // u1 contributes no delta — its claim already matches; u2 contributes -5.
     assert.strictEqual(result.deltaByUid.has("u1"), false);
     assert.strictEqual(result.deltaByUid.get("u2"), -5);
+  });
+});
+
+describe("planRepointClaims (pure)", () => {
+  it("plans a rewrite for every claim not already at the target, with per-user deltas", () => {
+    const plan = planRepointClaims([
+      { userid: "u1", points: 9, monarch: "EVIIR" },
+      { userid: "u1", points: 4, monarch: "GR" }, // already corrected → skipped
+      { userid: "u2", points: 9, monarch: "EVIIR" },
+    ], "GR", 4);
+    assert.deepStrictEqual(plan.rewrite, [0, 2]);
+    assert.strictEqual(plan.deltaByUid.get("u1"), -5);
+    assert.strictEqual(plan.deltaByUid.get("u2"), -5);
+  });
+  it("treats empty-string and null monarchs as plain", () => {
+    const plan = planRepointClaims([
+      { userid: "u1", points: 2, monarch: "" },
+      { userid: "u2", points: 2 },
+    ], null, 2);
+    assert.deepStrictEqual(plan.rewrite, []);
+    assert.strictEqual(plan.deltaByUid.size, 0);
+  });
+  it("keeps a zero-delta entry when only the monarch changes", () => {
+    const plan = planRepointClaims([{ userid: "u1", points: 4, monarch: "GR" }], "GVR", 4);
+    assert.deepStrictEqual(plan.rewrite, [0]);
+    assert.strictEqual(plan.deltaByUid.get("u1"), 0);
+  });
+  it("counts a claim with no numeric points as 0 old points", () => {
+    const plan = planRepointClaims([{ userid: "u1", monarch: "VR" }], "EVIIIR", 12);
+    assert.strictEqual(plan.deltaByUid.get("u1"), 12);
+  });
+  it("rewrites but does not attribute a claim with no usable userid", () => {
+    const plan = planRepointClaims([{ points: 9, monarch: "EVIIR" }, { userid: 42, points: 9, monarch: "EVIIR" }], "GR", 4);
+    assert.deepStrictEqual(plan.rewrite, [0, 1]);
+    assert.strictEqual(plan.deltaByUid.size, 0);
   });
 });
 
