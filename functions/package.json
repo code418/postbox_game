@@ -13,7 +13,8 @@
     "test": "npm run build && nyc mocha lib/test/test.index.js --reporter spec",
     "plan-route": "npm run build && node lib/scripts/plan_route.js",
     "verify-migration": "npm run build && node lib/scripts/verify_migration.js",
-    "backfill-event-time": "npm run build && node lib/scripts/backfill_event_time.js"
+    "backfill-event-time": "npm run build && node lib/scripts/backfill_event_time.js",
+    "review-dashboard": "npm run build && node lib/scripts/review_dashboard/main.js"
   },
   "engines": {
     "node": "22"

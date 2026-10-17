@@ -6955,3 +6955,225 @@ describe("REJECT_PRESETS", () => {
     for (const p of REJECT_PRESETS) assert.ok(!p.includes("—"), p);
   });
 });
+
+// ── local review dashboard: server helpers ──────────────────────────────────
+
+import * as nodePath from "path";
+import {
+  allowedOrigins,
+  isAllowedHost,
+  isAllowedOrigin,
+  isAllowedFetchSite,
+  tokenMatches,
+  isJsonContentType,
+  resolveStaticPath,
+  contentTypeFor,
+  isAllowedPhotoType,
+  PAGE_CSP,
+} from "../scripts/review_dashboard/_security";
+import { HttpError, toHttpError, matchRoute, requireId, requireIds, type Route } from "../scripts/review_dashboard/_http";
+import { toSummary, toDetail, pendingOrder, selectHistory, isOsmPending } from "../scripts/review_dashboard/_dto";
+import { parseDashboardArgs, chooseToken } from "../scripts/review_dashboard/main";
+import * as functionsV2 from "firebase-functions";
+
+describe("review dashboard _security", () => {
+  it("accepts only our own loopback Host (DNS-rebinding defence)", () => {
+    assert.strictEqual(isAllowedHost("127.0.0.1:8790", 8790), true);
+    assert.strictEqual(isAllowedHost("localhost:8790", 8790), true);
+    assert.strictEqual(isAllowedHost("evil.example:8790", 8790), false);
+    assert.strictEqual(isAllowedHost("127.0.0.1:9999", 8790), false);
+    assert.strictEqual(isAllowedHost("127.0.0.1", 8790), false);
+    assert.strictEqual(isAllowedHost(undefined, 8790), false);
+  });
+  it("allows the Vite origin only in dev mode", () => {
+    const prod = allowedOrigins(8790, null);
+    const dev = allowedOrigins(8790, 5173);
+    assert.deepStrictEqual(prod, ["http://127.0.0.1:8790", "http://localhost:8790"]);
+    assert.strictEqual(isAllowedOrigin("http://127.0.0.1:5173", prod), false);
+    assert.strictEqual(isAllowedOrigin("http://127.0.0.1:5173", dev), true);
+    assert.strictEqual(isAllowedOrigin("https://evil.example", dev), false);
+    assert.strictEqual(isAllowedOrigin(undefined, dev), false);
+    assert.strictEqual(isAllowedOrigin("null", dev), false);
+  });
+  it("refuses cross-site and same-site fetches", () => {
+    assert.strictEqual(isAllowedFetchSite(undefined), true);
+    assert.strictEqual(isAllowedFetchSite("same-origin"), true);
+    assert.strictEqual(isAllowedFetchSite("same-site"), false);
+    assert.strictEqual(isAllowedFetchSite("cross-site"), false);
+    assert.strictEqual(isAllowedFetchSite("none"), false);
+  });
+  it("compares tokens exactly", () => {
+    const t = "a".repeat(43);
+    assert.strictEqual(tokenMatches(t, t), true);
+    assert.strictEqual(tokenMatches(t.slice(1), t), false);
+    assert.strictEqual(tokenMatches("b" + t.slice(1), t), false);
+    assert.strictEqual(tokenMatches(undefined, t), false);
+  });
+  it("requires a JSON content type on POST bodies", () => {
+    assert.strictEqual(isJsonContentType("application/json"), true);
+    assert.strictEqual(isJsonContentType("application/json; charset=utf-8"), true);
+    assert.strictEqual(isJsonContentType("text/plain"), false);
+    assert.strictEqual(isJsonContentType("application/x-www-form-urlencoded"), false);
+    assert.strictEqual(isJsonContentType("application/jsonp"), false);
+    assert.strictEqual(isJsonContentType(undefined), false);
+  });
+  it("resolves static paths inside the root only, with an SPA fallback", () => {
+    const root = nodePath.resolve("/srv/dist");
+    assert.strictEqual(resolveStaticPath(root, "/"), nodePath.join(root, "index.html"));
+    assert.strictEqual(resolveStaticPath(root, "/history"), nodePath.join(root, "index.html"));
+    assert.strictEqual(resolveStaticPath(root, "/assets/app-1.js"), nodePath.join(root, "assets/app-1.js"));
+    assert.strictEqual(resolveStaticPath(root, "/../secret.json"), null);
+    assert.strictEqual(resolveStaticPath(root, "/%2e%2e/%2e%2e/etc/passwd.txt"), null);
+    assert.strictEqual(resolveStaticPath(root, "/a%00.js"), null);
+    assert.strictEqual(resolveStaticPath(root, "/%E0%A4%A.js"), null, "malformed escapes are refused");
+  });
+  it("serves only raster photo types (never SVG)", () => {
+    assert.strictEqual(isAllowedPhotoType("image/jpeg"), true);
+    assert.strictEqual(isAllowedPhotoType("image/HEIC"), true);
+    assert.strictEqual(isAllowedPhotoType("image/svg+xml"), false);
+    assert.strictEqual(isAllowedPhotoType("text/html"), false);
+    assert.strictEqual(isAllowedPhotoType(undefined), false);
+  });
+  it("maps content types and keeps a script-tight CSP", () => {
+    assert.strictEqual(contentTypeFor("/x/index.html"), "text/html; charset=utf-8");
+    assert.strictEqual(contentTypeFor("/x/a.JS"), "text/javascript; charset=utf-8");
+    assert.strictEqual(contentTypeFor("/x/blob"), "application/octet-stream");
+    assert.match(PAGE_CSP, /script-src 'self'(;|$)/);
+    assert.match(PAGE_CSP, /frame-ancestors 'none'/);
+    assert.ok(!/unsafe-eval/.test(PAGE_CSP));
+  });
+});
+
+describe("review dashboard _http", () => {
+  it("maps HttpsError codes to their HTTP status", () => {
+    const e = toHttpError(new functionsV2.https.HttpsError("failed-precondition", "Report already accepted"));
+    assert.deepStrictEqual([e.status, e.code, e.message], [400, "failed-precondition", "Report already accepted"]);
+    assert.strictEqual(toHttpError(new functionsV2.https.HttpsError("not-found", "x")).status, 404);
+    assert.strictEqual(toHttpError(new functionsV2.https.HttpsError("permission-denied", "x")).status, 403);
+  });
+  it("maps Overpass failures to 502 and anything else to 500", () => {
+    assert.strictEqual(toHttpError(new OverpassError("slow down", 429)).status, 502);
+    assert.strictEqual(toHttpError(new Error("boom")).status, 500);
+    const own = new HttpError(409, "conflict", "c");
+    assert.strictEqual(toHttpError(own), own);
+  });
+  it("routes by method and anchored pattern, decoding captures", async () => {
+    const hit: string[] = [];
+    const routes: Route[] = [
+      { method: "GET", pattern: /^\/api\/reports\/history$/, handler: async () => { hit.push("history"); } },
+      { method: "GET", pattern: /^\/api\/reports\/([^/]+)$/, handler: async () => { hit.push("one"); } },
+    ];
+    assert.strictEqual(matchRoute(routes, "GET", "/api/reports/history")?.route, routes[0]);
+    assert.deepStrictEqual(matchRoute(routes, "GET", "/api/reports/a%20b")?.params, ["a b"]);
+    assert.strictEqual(matchRoute(routes, "POST", "/api/reports/x"), null);
+    assert.strictEqual(matchRoute(routes, "GET", "/api/reports/x/y"), null);
+    assert.strictEqual(matchRoute(routes, "GET", "/api/reports/%E0%A4%A"), null);
+  });
+  it("validates ids and id lists", () => {
+    assert.strictEqual(requireId("abc"), "abc");
+    assert.throws(() => requireId("a/b"), (e: unknown) => e instanceof HttpError && e.status === 400);
+    assert.throws(() => requireId(""), HttpError);
+    assert.deepStrictEqual(requireIds(["a", "b", "a"], 5), ["a", "b"]);
+    assert.throws(() => requireIds([], 5), HttpError);
+    assert.throws(() => requireIds(["a", "b", "c"], 2), HttpError);
+    assert.throws(() => requireIds("a", 5), HttpError);
+    assert.throws(() => requireIds([1], 5), HttpError);
+  });
+});
+
+describe("review dashboard _dto", () => {
+  const ts = (ms: number) => admin.firestore.Timestamp.fromMillis(ms);
+  const rep = (id: string, data: Record<string, unknown>): StoredReport => ({ id, data: { photos: [], reporterUid: "u1", status: "pending", ...data } as unknown as StoredReport["data"] });
+
+  it("summarises a missing report with its spot, suggestion and names", () => {
+    const s = toSummary(rep("r1", { type: "missing_postbox", lat: 51, lng: -1, createdAt: ts(5), suggestedMonarch: null, note: "by the pub", photos: [{ storagePath: "p" }] }), new Map([["u1", "Una"]]), new Map());
+    assert.strictEqual(s.reporterName, "Una");
+    assert.deepStrictEqual([s.lat, s.lng], [51, -1]);
+    assert.strictEqual(s.createdAtMs, 5);
+    assert.strictEqual(s.hasSuggestedMonarch, true, "null = plain is a suggestion");
+    assert.strictEqual(s.suggestedMonarch, null);
+    assert.strictEqual(s.photoCount, 1);
+    assert.strictEqual(s.hasNote, true);
+  });
+  it("tells 'not sure' (absent) from 'plain' (null)", () => {
+    const s = toSummary(rep("r1", { type: "wrong_cypher", postboxId: "osm_1" }), new Map(), new Map());
+    assert.strictEqual(s.hasSuggestedMonarch, false);
+  });
+  it("places a cypher report at its box's position once known", () => {
+    const s = toSummary(rep("r1", { type: "wrong_cypher", postboxId: "osm_1" }), new Map(), new Map([["osm_1", { lat: 2, lng: 3 }]]));
+    assert.deepStrictEqual([s.lat, s.lng], [2, 3]);
+  });
+  it("carries the review outcome, incl. persisted rescore counts", () => {
+    const s = toSummary(rep("r1", {
+      type: "wrong_cypher", status: "accepted", reviewedBy: "adm", reviewedAt: ts(9), finalMonarch: "GR",
+      osmStatus: "changeset_failed", rescoredClaims: 4, affectedUsers: 2, rescoreTotalDelta: -10,
+    }), new Map([["adm", "Admin"]]), new Map());
+    assert.deepStrictEqual(
+      [s.reviewedByName, s.reviewedAtMs, s.finalMonarch, s.osmStatus, s.rescoredClaims, s.affectedUsers, s.rescoreTotalDelta],
+      ["Admin", 9, "GR", "changeset_failed", 4, 2, -10],
+    );
+  });
+  it("detail: flags media purged by the retention sweep, and maps the box", () => {
+    const purged = toDetail(rep("r1", { type: "missing_postbox", status: "rejected", photos: undefined }), new Map(), new Map(), null);
+    assert.strictEqual(purged.mediaPurged, true);
+    const fresh = toDetail(rep("r2", { type: "wrong_cypher", status: "pending", postboxId: "osm_1" }), new Map(), new Map(), {
+      id: "osm_1", data: { geopoint: { latitude: 1, longitude: 2 }, monarch: "VR", overpass_id: 1 },
+    });
+    assert.strictEqual(fresh.mediaPurged, false);
+    assert.strictEqual(fresh.postbox?.monarch, "VR");
+    assert.strictEqual(fresh.postbox?.overpassId, 1);
+  });
+  it("orders the queue oldest first and pages history newest first", () => {
+    const all = [
+      rep("old", { type: "missing_postbox", createdAt: ts(1) }),
+      rep("new", { type: "missing_postbox", createdAt: ts(2) }),
+      rep("a1", { type: "missing_postbox", status: "accepted", reviewedAt: ts(30) }),
+      rep("a2", { type: "wrong_cypher", status: "accepted", reviewedAt: ts(20) }),
+      rep("j1", { type: "missing_postbox", status: "rejected", reviewedAt: ts(10) }),
+    ];
+    assert.deepStrictEqual(all.filter((r) => r.data.status === "pending").sort(pendingOrder).map((r) => r.id), ["old", "new"]);
+    const p1 = selectHistory(all, { status: "all", type: "all", beforeMs: null, limit: 2 });
+    assert.deepStrictEqual(p1.reports.map((r) => r.id), ["a1", "a2"]);
+    assert.strictEqual(p1.nextBefore, 20);
+    const p2 = selectHistory(all, { status: "all", type: "all", beforeMs: p1.nextBefore, limit: 2 });
+    assert.deepStrictEqual(p2.reports.map((r) => r.id), ["j1"]);
+    assert.strictEqual(p2.nextBefore, null);
+    assert.deepStrictEqual(selectHistory(all, { status: "accepted", type: "wrong_cypher", beforeMs: null, limit: 9 }).reports.map((r) => r.id), ["a2"]);
+  });
+  it("an accepted report is OSM-pending until uploaded or skipped", () => {
+    assert.strictEqual(isOsmPending(rep("a", { status: "accepted" })), true);
+    assert.strictEqual(isOsmPending(rep("a", { status: "accepted", osmUploadedAt: ts(1) })), false);
+    assert.strictEqual(isOsmPending(rep("a", { status: "accepted", osmSkippedAt: ts(1) })), false);
+    assert.strictEqual(isOsmPending(rep("a", { status: "rejected" })), false);
+  });
+});
+
+describe("review dashboard CLI (main.ts)", () => {
+  it("parses flags with defaults", () => {
+    const a = parseDashboardArgs(["--reviewer", "me@example.com", "--port", "9000", "--dev", "--open"]);
+    assert.strictEqual(a.reviewer, "me@example.com");
+    assert.strictEqual(a.port, 9000);
+    assert.strictEqual(a.projectId, "the-postbox-game");
+    assert.strictEqual(a.dev, true);
+    assert.strictEqual(a.devPort, 5173);
+    assert.strictEqual(a.open, true);
+    assert.strictEqual(a.ignoreMaintenance, false);
+    assert.ok(a.staticDir.endsWith(nodePath.join("admin_dashboard", "dist")));
+  });
+  it("rejects unknown flags, missing values and bad ports", () => {
+    assert.throws(() => parseDashboardArgs(["--nope"]), /Unknown argument/);
+    assert.throws(() => parseDashboardArgs(["--reviewer"]), /needs a value/);
+    assert.throws(() => parseDashboardArgs(["--reviewer", "--dev"]), /needs a value/);
+    assert.throws(() => parseDashboardArgs(["--port", "70000"]), /port/);
+    assert.throws(() => parseDashboardArgs(["--dev", "--dev-port", "8790"]), /must differ/);
+  });
+  it("pins the token from the environment only in dev, and only if long enough", () => {
+    const long = "x".repeat(40);
+    assert.strictEqual(chooseToken(true, long), long);
+    assert.notStrictEqual(chooseToken(false, long), long, "ignored outside --dev");
+    assert.throws(() => chooseToken(true, "short"), /at least 32/);
+    const random = chooseToken(false, undefined);
+    assert.ok(random.length >= 43 && /^[A-Za-z0-9_-]+$/.test(random));
+    assert.notStrictEqual(random, chooseToken(false, undefined));
+  });
+});
