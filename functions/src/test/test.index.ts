@@ -3757,6 +3757,52 @@ describe("buildOsmChange", () => {
     const osc = buildOsmChange({ action: "create", id: -1, lat: 0, lon: 0, tags: { amenity: "post_box", royal_cypher: "" } });
     assert.ok(!/royal_cypher/.test(osc));
   });
+  // Golden outputs: pin the exact bytes so refactors (the batch builder in
+  // _osmChange.ts) can't drift the single-node format JOSM has been fed.
+  it("matches the golden modify output byte-for-byte", () => {
+    const osc = buildOsmChange({ action: "modify", id: 12345, version: 7, lat: 51.5, lon: -0.1, tags: { amenity: "post_box", royal_cypher: "VR", ref: "SW1A 1" } });
+    assert.strictEqual(osc, [
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      '<osmChange version="0.6" generator="PostboxGame">',
+      "  <modify>",
+      '    <node id="12345" version="7" lat="51.5" lon="-0.1" changeset="0">',
+      '      <tag k="amenity" v="post_box"/>',
+      '      <tag k="royal_cypher" v="VR"/>',
+      '      <tag k="ref" v="SW1A 1"/>',
+      "    </node>",
+      "  </modify>",
+      "</osmChange>",
+      "",
+    ].join("\n"));
+  });
+  it("matches the golden create output byte-for-byte", () => {
+    const osc = buildOsmChange({ action: "create", id: -1, lat: 52, lon: -1.5, tags: { amenity: "post_box", royal_cypher: "EIIR" } });
+    assert.strictEqual(osc, [
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      '<osmChange version="0.6" generator="PostboxGame">',
+      "  <create>",
+      '    <node id="-1" lat="52" lon="-1.5" changeset="0">',
+      '      <tag k="amenity" v="post_box"/>',
+      '      <tag k="royal_cypher" v="EIIR"/>',
+      "    </node>",
+      "  </create>",
+      "</osmChange>",
+      "",
+    ].join("\n"));
+  });
+  it("matches the golden tagless output byte-for-byte", () => {
+    const osc = buildOsmChange({ action: "create", id: -1, lat: 0, lon: 0, tags: {} });
+    assert.strictEqual(osc, [
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      '<osmChange version="0.6" generator="PostboxGame">',
+      "  <create>",
+      '    <node id="-1" lat="0" lon="0" changeset="0">',
+      "    </node>",
+      "  </create>",
+      "</osmChange>",
+      "",
+    ].join("\n"));
+  });
 });
 
 describe("repointClaimsForPostbox (unit, mock Firestore)", () => {
