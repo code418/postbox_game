@@ -12,6 +12,7 @@ import {
   getClaimRadiusMeters,
   getPointsForMonarch,
   setConfigLoaderForTest,
+  setConfigLoader,
   DEFAULT_CLAIM_RADIUS_METERS,
   sanitiseGraceHours,
   sanitiseMaxOfflinePerDay,
@@ -177,6 +178,35 @@ describe("_config: getGameConfig caching", () => {
     assert.strictEqual(await getClaimRadiusMeters(), 55);
     assert.strictEqual(await getPointsForMonarch("VR"), 8);
     assert.strictEqual(await getPointsForMonarch("EIIR"), 2);
+  });
+});
+
+describe("_config: strict loader", () => {
+  afterEach(() => setConfigLoaderForTest(fallbackGameConfig));
+
+  it("a throwing loader propagates through getGameConfig and getPointsForMonarch (no silent fallback)", async () => {
+    setConfigLoader(async () => { throw new Error("remote config unreachable"); });
+    await assert.rejects(() => getGameConfig(), /remote config unreachable/);
+    await assert.rejects(() => getPointsForMonarch("VR"), /remote config unreachable/);
+  });
+
+  it("a failed load is not cached, so the next call retries", async () => {
+    let calls = 0;
+    setConfigLoader(async () => {
+      calls++;
+      if (calls === 1) throw new Error("blip");
+      return { claimRadiusMeters: 30, pointsOverride: { VR: 9 }, ...offlineDefaults };
+    });
+    await assert.rejects(() => getGameConfig(1_000));
+    assert.strictEqual((await getGameConfig(2_000)).pointsOverride?.VR, 9);
+    assert.strictEqual(calls, 2);
+  });
+
+  it("setConfigLoader drops a cached config immediately", async () => {
+    setConfigLoader(async () => ({ claimRadiusMeters: 31, pointsOverride: null, ...offlineDefaults }));
+    assert.strictEqual((await getGameConfig(5_000)).claimRadiusMeters, 31);
+    setConfigLoader(async () => ({ claimRadiusMeters: 32, pointsOverride: null, ...offlineDefaults }));
+    assert.strictEqual((await getGameConfig(5_001)).claimRadiusMeters, 32);
   });
 });
 

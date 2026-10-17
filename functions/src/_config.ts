@@ -173,22 +173,31 @@ export function buildGameConfig(
   };
 }
 
-type ConfigLoader = () => Promise<GameConfig>;
+export type ConfigLoader = () => Promise<GameConfig>;
+
+/** Read + evaluate the Remote Config server template. THROWS on any failure.
+ *  For callers that must not silently score with the fallback points — the
+ *  local review dashboard installs it via setConfigLoader, because a rescore
+ *  run with fallbacks while production uses overrides would mis-point claims
+ *  with no error anywhere. Deployed functions use the never-throw wrapper. */
+export async function loadGameConfigFromRemoteConfig(): Promise<GameConfig> {
+  const template = await admin.remoteConfig().getServerTemplate();
+  const config = template.evaluate();
+  const rawRadius = config.getValue(KEY_CLAIM_RADIUS).asNumber();
+  const rawPoints = config.getValue(KEY_POINTS_BY_MONARCH).asString();
+  return buildGameConfig(rawRadius, rawPoints, {
+    killSwitch: config.getValue(KEY_KILL_SWITCH_OFFLINE).asBoolean(),
+    graceHours: config.getValue(KEY_OFFLINE_GRACE_HOURS).asNumber(),
+    maxPerDay: config.getValue(KEY_MAX_OFFLINE_PER_DAY).asNumber(),
+    maintenanceMode: config.getValue(KEY_MAINTENANCE_MODE).asBoolean(),
+  });
+}
 
 /** Real loader: read + evaluate the Remote Config server template. Never throws
  *  — any failure yields the fallback config. */
 async function fetchGameConfigFromRemoteConfig(): Promise<GameConfig> {
   try {
-    const template = await admin.remoteConfig().getServerTemplate();
-    const config = template.evaluate();
-    const rawRadius = config.getValue(KEY_CLAIM_RADIUS).asNumber();
-    const rawPoints = config.getValue(KEY_POINTS_BY_MONARCH).asString();
-    return buildGameConfig(rawRadius, rawPoints, {
-      killSwitch: config.getValue(KEY_KILL_SWITCH_OFFLINE).asBoolean(),
-      graceHours: config.getValue(KEY_OFFLINE_GRACE_HOURS).asNumber(),
-      maxPerDay: config.getValue(KEY_MAX_OFFLINE_PER_DAY).asNumber(),
-      maintenanceMode: config.getValue(KEY_MAINTENANCE_MODE).asBoolean(),
-    });
+    return await loadGameConfigFromRemoteConfig();
   } catch (e) {
     console.warn("[_config] Remote Config fetch failed; using fallbacks:", e);
     return FALLBACK_CONFIG;
@@ -217,10 +226,16 @@ export async function getPointsForMonarch(monarch: string | null | undefined): P
   return resolvePointsForMonarch(await getGameConfig(), monarch);
 }
 
-/** Test hook: swap the config loader (dependency injection for cache tests). */
-export function setConfigLoaderForTest(l: ConfigLoader): void {
+/** Swap the config loader and drop the cache. Used by the local review
+ *  dashboard (strict loader) and by tests. */
+export function setConfigLoader(l: ConfigLoader): void {
   loader = l;
   cache = null;
+}
+
+/** Test hook: swap the config loader (dependency injection for cache tests). */
+export function setConfigLoaderForTest(l: ConfigLoader): void {
+  setConfigLoader(l);
 }
 
 /** Test hook: clear the in-memory cache (leaves the loader as-is). */
