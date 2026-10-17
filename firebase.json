@@ -20,6 +20,20 @@
   },
   "functions": {
     "source": "functions",
+    "ignore": [
+      "node_modules",
+      ".git",
+      "firebase-debug.log",
+      "firebase-debug.*.log",
+      "*.local",
+      "*-????????????.json",
+      "pre-*.json",
+      "post-*.json",
+      "interpreter*",
+      ".last_import_manifest.json",
+      ".nyc_output",
+      ".vscode"
+    ],
     "predeploy": [
       "npm_config_script_shell=/bin/bash (cd functions && npm run lint)",
       "npm_config_script_shell=/bin/bash (cd functions && npm test)"
