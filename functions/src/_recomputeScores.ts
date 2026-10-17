@@ -1,5 +1,6 @@
 import "./adminInit";
 import * as admin from "firebase-admin";
+import { DELETED_UID } from "./_accountDeletion";
 import { getPointsForMonarch } from "./_config";
 import { getTodayLondon } from "./_dateUtils";
 import {
@@ -59,6 +60,11 @@ export interface RepointPlan {
  * delta. Claims already at the target monarch + points are skipped, which
  * keeps a retry from re-stamping the audit trail with post-correction values.
  * A zero-delta user still gets an entry (their claims' monarch changes).
+ *
+ * Claims anonymised by account deletion (`userid: DELETED_UID`) are rewritten
+ * like any other but never attributed: recomputing aggregates for "deleted"
+ * would create a users/deleted doc and a phantom leaderboard row summing every
+ * anonymised claim (newDayScoreboard skips the same uid for the same reason).
  */
 export function planRepointClaims(
   claims: ReadonlyArray<RepointClaimInput>,
@@ -75,7 +81,7 @@ export function planRepointClaims(
     if (currentMonarch === targetMonarch && oldPts === newPts) return;
     rewrite.push(i);
     const uid = d.userid;
-    if (typeof uid === "string" && uid.length > 0) {
+    if (typeof uid === "string" && uid.length > 0 && uid !== DELETED_UID) {
       deltaByUid.set(uid, (deltaByUid.get(uid) ?? 0) + (newPts - oldPts));
     }
   });

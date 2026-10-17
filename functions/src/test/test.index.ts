@@ -4002,6 +4002,18 @@ describe("repointClaimsForPostbox (unit, mock Firestore)", () => {
     assert.strictEqual(writes[0].update.points, 4);
   });
 
+  it("rewrites anonymised claims without recomputing a 'deleted' user", async () => {
+    const claims: ClaimDoc[] = [
+      { id: "c1", userid: "deleted", points: 9, monarch: "EVIIR", postboxes: "/postbox/osm_42" },
+      { id: "c2", userid: "u1", points: 9, monarch: "EVIIR", postboxes: "/postbox/osm_42" },
+    ];
+    const { db, writes } = makeMockDb(claims);
+    const result = await repointClaimsForPostbox(db, "osm_42", "GR");
+    assert.strictEqual(result.claimCount, 2);
+    assert.strictEqual(writes.length, 2, "the anonymised claim's points are still corrected");
+    assert.deepStrictEqual([...result.deltaByUid.keys()], ["u1"]);
+  });
+
   it("skips claims already at the target monarch+points (idempotent retry)", async () => {
     // Simulates an admin re-running reviewReport after a partial-success run:
     // some claims were already rewritten on the first attempt. The retry must
@@ -4055,6 +4067,15 @@ describe("planRepointClaims (pure)", () => {
   it("counts a claim with no numeric points as 0 old points", () => {
     const plan = planRepointClaims([{ userid: "u1", monarch: "VR" }], "EVIIIR", 12);
     assert.strictEqual(plan.deltaByUid.get("u1"), 12);
+  });
+  it("rewrites but never attributes an anonymised (deleted-account) claim", () => {
+    const plan = planRepointClaims([
+      { userid: "deleted", points: 9, monarch: "EVIIR" },
+      { userid: "u1", points: 9, monarch: "EVIIR" },
+    ], "GR", 4);
+    assert.deepStrictEqual(plan.rewrite, [0, 1]);
+    assert.strictEqual(plan.deltaByUid.has("deleted"), false);
+    assert.strictEqual(plan.deltaByUid.get("u1"), -5);
   });
   it("rewrites but does not attribute a claim with no usable userid", () => {
     const plan = planRepointClaims([{ points: 9, monarch: "EVIIR" }, { userid: 42, points: 9, monarch: "EVIIR" }], "GR", 4);
