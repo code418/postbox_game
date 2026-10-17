@@ -83,4 +83,14 @@ export interface ReportDoc {
   rescoredClaims?: number;
   affectedUsers?: number;
   rescoreTotalDelta?: number;
+  // OSM follow-up bookkeeping (local review dashboard, never the app):
+  osmUploadedAt?: unknown;
+  osmUploadedBy?: string;
+  osmChangesetId?: number;
+  /** The OSM node created from a missing_postbox report, once known, so a
+   *  later import's osm_<id> doc can be matched to its manual_<reportId>. */
+  osmNodeId?: number;
+  osmSkippedAt?: unknown;
+  osmSkippedBy?: string;
+  osmSkipReason?: string;
 }

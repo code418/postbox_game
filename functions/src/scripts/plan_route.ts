@@ -35,9 +35,8 @@
 
 import * as fs from "fs";
 import * as admin from "firebase-admin";
-import * as geohash from "ngeohash";
 import { pointsForMonarch, KNOWN_MONARCHS } from "../_getPoints";
-import { setPrecision, getLatLng } from "../_geo";
+import { queryPostboxesNear } from "../_postboxQuery";
 import {
   type Point,
   type Candidate,
@@ -267,36 +266,20 @@ async function loadFromFirestore(centre: Point, radiusMetres: number, projectId:
   if (!admin.apps.length) admin.initializeApp({ projectId });
   const db = admin.firestore();
 
-  const precision = setPrecision(radiusMetres / 1000);
-  const centreHash = geohash.encode(centre.lat, centre.lng, precision);
-  const cells = [centreHash, ...geohash.neighbors(centreHash)];
-
-  const snapshots = await Promise.all(
-    cells.map((prefix) => db.collection("postbox").orderBy("geohash").startAt(prefix).endAt(prefix + "\uf8ff").get()),
-  );
-
-  const seen = new Set<string>();
-  const candidates: Candidate[] = [];
-  for (const snap of snapshots) {
-    for (const doc of snap.docs) {
-      if (seen.has(doc.id)) continue;
-      seen.add(doc.id);
-      const data = doc.data() as Record<string, unknown>;
-      const pos = getLatLng(data.geopoint as Parameters<typeof getLatLng>[0]);
-      if (!pos) continue;
-      const monarch = typeof data.monarch === "string" ? data.monarch : null;
-      candidates.push({
-        id: doc.id,
-        lat: pos.lat,
-        lng: pos.lng,
-        monarch,
-        points: pointsForMonarch(monarch),
-        reference: typeof data.reference === "string" ? data.reference : undefined,
-        county: typeof data.county === "string" ? data.county : undefined,
-      });
-    }
-  }
-  return candidates;
+  // The coarse 9-cell set: the beam search trims it with its own ellipse.
+  const boxes = await queryPostboxesNear(db, centre.lat, centre.lng, radiusMetres, { filterToRadius: false });
+  return boxes.map(({ id, data, lat, lng }) => {
+    const monarch = typeof data.monarch === "string" ? data.monarch : null;
+    return {
+      id,
+      lat,
+      lng,
+      monarch,
+      points: pointsForMonarch(monarch),
+      reference: typeof data.reference === "string" ? data.reference : undefined,
+      county: typeof data.county === "string" ? data.county : undefined,
+    };
+  });
 }
 
 type Warn = (msg: string) => void;

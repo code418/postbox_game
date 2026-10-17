@@ -26,6 +26,21 @@ const MAX_PHOTOS = 3;
  *  admin review queue / Storage with photos) faster than this. */
 const MAX_REPORTS_PER_DAY = 10;
 
+/** One-tap reject reasons for the review dashboard. A reviewNote is shown to
+ *  the reporter in-app (My reports), so these are friendly and must pass
+ *  parseNote (length + profanity), which a test pins. */
+export const REJECT_PRESETS: ReadonlyArray<string> = [
+  "Thanks! This postbox is already on the map.",
+  "Sorry, we couldn't confirm a postbox here from the report.",
+  "The location wasn't precise enough to add this box. Please report it again while standing right next to it.",
+  "We couldn't make out the cypher. A close-up photo of the crest would help.",
+  "Our records already show this cypher.",
+  "Thanks, but this looks like a private or business mailbox rather than a Royal Mail postbox.",
+];
+
+/** Limits the dashboard mirrors in its form (same values the validators use). */
+export const REVIEW_LIMITS = { noteMax: NOTE_MAX, referenceMax: REFERENCE_MAX } as const;
+
 // ── input validation ────────────────────────────────────────────────────────
 
 function err(message: string): functions.https.HttpsError {
@@ -41,7 +56,7 @@ function parseSuggestedMonarch(raw: unknown): string | null | undefined {
   return raw;
 }
 
-function parseNote(raw: unknown): string | undefined {
+export function parseNote(raw: unknown): string | undefined {
   if (raw === undefined || raw === null || raw === "") return undefined;
   if (typeof raw !== "string") throw err("note must be a string");
   const note = raw.trim();
