@@ -4,6 +4,8 @@ import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -20,6 +22,8 @@ import 'package:postbox_game/authentication_bloc/bloc.dart';
 import 'package:postbox_game/county_heatmap.dart';
 import 'package:postbox_game/intro.dart';
 import 'package:postbox_game/maintenance_guard.dart';
+import 'package:postbox_game/notification_service.dart';
+import 'package:postbox_game/services/notification_preprompt.dart';
 import 'package:postbox_game/services/telemetry_consent.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -30,13 +34,20 @@ import 'package:postbox_game/widgets/postbox_map.dart';
 import 'package:postbox_game/widgets/postbox_marker.dart';
 
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key});
+  const SettingsScreen({
+    super.key,
+    this.notificationPermissionStatus = NotificationService.permissionStatus,
+  });
+
+  /// Reads the OS notification permission. A seam for tests.
+  final Future<AuthorizationStatus?> Function() notificationPermissionStatus;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _SettingsScreenState extends State<SettingsScreen> {
+class _SettingsScreenState extends State<SettingsScreen>
+    with WidgetsBindingObserver {
   DistanceUnit _distanceUnit = DistanceUnit.meters;
   bool _isSaving = false;
   Position? _lastPosition;
@@ -47,6 +58,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     'streakReminder': true,
   };
   bool _notifPrefsLoaded = false;
+  AuthorizationStatus? _notifPermission;
+  bool _notifPromptRefused = false;
+  bool _isRequestingNotifPermission = false;
   bool _analyticsConsent = true;
   bool _crashReports = true;
   bool _perfMonitoring = true;
@@ -59,8 +73,79 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.initState();
     _loadPrefs();
     _loadNotifPrefs();
+    _loadNotifPermission();
     _loadPrivacyPrefs();
     _loadLastPosition();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Pick up a change made in system settings (via "Open Settings").
+    if (state == AppLifecycleState.resumed) _loadNotifPermission();
+  }
+
+  bool get _isIOS => !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+
+  NotificationSettingsAction get _notifAction => notificationSettingsAction(
+        status: _notifPermission,
+        isIOS: _isIOS,
+        promptRefused: _notifPromptRefused,
+      );
+
+  Future<void> _loadNotifPermission() async {
+    final status = await widget.notificationPermissionStatus();
+    if (mounted) setState(() => _notifPermission = status);
+  }
+
+  Future<void> _turnOnNotifications(NotificationSettingsAction action) async {
+    if (action == NotificationSettingsAction.openSettings) {
+      // Re-read on resume (didChangeAppLifecycleState).
+      await Geolocator.openAppSettings();
+      return;
+    }
+    setState(() => _isRequestingNotifPermission = true);
+    // Registers the FCM token too when the player says yes.
+    await NotificationService.requestAndInit();
+    final status = await widget.notificationPermissionStatus();
+    if (!mounted) return;
+    setState(() {
+      _notifPermission = status;
+      _notifPromptRefused =
+          status != null && !NotificationService.isGranted(status);
+      _isRequestingNotifPermission = false;
+    });
+  }
+
+  /// Shown above the notification switches while the OS permission is off,
+  /// since the switches alone can't make a notification arrive.
+  Widget _notificationPermissionTile(NotificationSettingsAction action) {
+    final openSettings = action == NotificationSettingsAction.openSettings;
+    return ListTile(
+      leading: const Icon(Icons.notifications_off_outlined),
+      title: const Text('Notifications are off'),
+      subtitle: Text(!openSettings
+          ? 'Allow them so the alerts below can reach you.'
+          : _isIOS
+              ? 'Turn them on in iPhone Settings so the alerts below can reach you.'
+              : "Turn them on in your phone's settings so the alerts below can reach you."),
+      // The theme gives filled buttons an infinite minimum width (page-level
+      // CTAs); inside a ListTile that is an unbounded layout, so pin a
+      // finite one.
+      trailing: FilledButton.tonal(
+        style: FilledButton.styleFrom(minimumSize: const Size(0, 40)),
+        onPressed: _isRequestingNotifPermission
+            ? null
+            : () => _turnOnNotifications(action),
+        child: Text(openSettings ? 'Open Settings' : 'Allow'),
+      ),
+    );
   }
 
   Future<void> _loadPrivacyPrefs() async {
@@ -840,6 +925,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _mapColourPicker(),
           const Divider(height: 24),
           _sectionHeader('Notifications'),
+          if (_notifAction != NotificationSettingsAction.none)
+            _notificationPermissionTile(_notifAction),
           if (!_notifPrefsLoaded)
             const Padding(
               padding: EdgeInsets.symmetric(

@@ -26,6 +26,40 @@ bool shouldShowNotificationPrePrompt({
   return true;
 }
 
+/// What the Settings screen offers when notifications are off.
+enum NotificationSettingsAction {
+  /// Notifications work, or the permission can't be read: show nothing.
+  none,
+
+  /// Ask with the system prompt.
+  request,
+
+  /// Send the player to the app's page in system settings.
+  openSettings,
+}
+
+/// The Settings screen's notification row for [status]. Pure, for tests.
+///
+/// Unlike the post-claim pre-prompt, the player has come looking for this,
+/// so it is offered every time notifications are off. A refused iOS prompt
+/// never reappears, so iOS's denied state goes to system settings. Android
+/// reports "not yet asked" as denied, so there the prompt is tried first,
+/// and system settings only once [promptRefused] says it came back refused
+/// (Android stops showing it after two refusals).
+NotificationSettingsAction notificationSettingsAction({
+  required AuthorizationStatus? status,
+  required bool isIOS,
+  bool promptRefused = false,
+}) {
+  if (status == null || NotificationService.isGranted(status)) {
+    return NotificationSettingsAction.none;
+  }
+  if (status == AuthorizationStatus.denied && (isIOS || promptRefused)) {
+    return NotificationSettingsAction.openSettings;
+  }
+  return NotificationSettingsAction.request;
+}
+
 /// The guide's one-time ask before the system notification prompt, shown
 /// after a successful claim: the first moment the player has something
 /// (a streak, friends to race) that a notification would protect.

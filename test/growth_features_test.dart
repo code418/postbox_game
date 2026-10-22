@@ -8,6 +8,7 @@ import 'package:postbox_game/deep_links.dart';
 import 'package:postbox_game/friends_screen.dart';
 import 'package:postbox_game/james_messages.dart';
 import 'package:postbox_game/login/bloc/login_bloc.dart';
+import 'package:postbox_game/notification_service.dart';
 import 'package:postbox_game/services/friends_repository.dart';
 import 'package:postbox_game/services/invite_service.dart';
 import 'package:postbox_game/services/notification_preprompt.dart';
@@ -369,6 +370,63 @@ void main() {
               status: AuthorizationStatus.denied,
               isIOS: false),
           isTrue);
+    });
+  });
+
+  group('notificationSettingsAction', () {
+    test('nothing to offer when notifications work or status is unknown', () {
+      for (final isIOS in [true, false]) {
+        for (final status in [
+          AuthorizationStatus.authorized,
+          AuthorizationStatus.provisional,
+          null,
+        ]) {
+          expect(notificationSettingsAction(status: status, isIOS: isIOS),
+              NotificationSettingsAction.none,
+              reason: '$status on ${isIOS ? 'iOS' : 'Android'}');
+        }
+      }
+    });
+
+    test('iOS: prompt when unasked, system settings once refused', () {
+      expect(
+          notificationSettingsAction(
+              status: AuthorizationStatus.notDetermined, isIOS: true),
+          NotificationSettingsAction.request);
+      expect(
+          notificationSettingsAction(
+              status: AuthorizationStatus.denied, isIOS: true),
+          NotificationSettingsAction.openSettings);
+    });
+
+    test('Android: "denied" may be unasked, so prompt until it comes back '
+        'refused', () {
+      expect(
+          notificationSettingsAction(
+              status: AuthorizationStatus.denied, isIOS: false),
+          NotificationSettingsAction.request);
+      expect(
+          notificationSettingsAction(
+              status: AuthorizationStatus.denied,
+              isIOS: false,
+              promptRefused: true),
+          NotificationSettingsAction.openSettings);
+    });
+  });
+
+  group('NotificationService.usesApns', () {
+    test('only the native Apple apps present FCM through APNs', () {
+      for (final platform in TargetPlatform.values) {
+        expect(
+            NotificationService.usesApns(isWeb: false, platform: platform),
+            platform == TargetPlatform.iOS ||
+                platform == TargetPlatform.macOS,
+            reason: '$platform');
+        // Web on an iPhone reports TargetPlatform.iOS but uses web push.
+        expect(NotificationService.usesApns(isWeb: true, platform: platform),
+            isFalse,
+            reason: 'web on $platform');
+      }
     });
   });
 

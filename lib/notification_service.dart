@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:postbox_game/firebase_functions_eu.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:postbox_game/maintenance_guard.dart';
 
@@ -19,6 +20,16 @@ class NotificationService {
   static bool isGranted(AuthorizationStatus status) =>
       status == AuthorizationStatus.authorized ||
       status == AuthorizationStatus.provisional;
+
+  /// Whether FCM rides on APNs here (the iOS and macOS apps, not the web).
+  /// Decides how a message that arrives while the app is open is shown,
+  /// and whether `getToken()` must wait for an APNs device token first.
+  static bool usesApns({
+    required bool isWeb,
+    required TargetPlatform platform,
+  }) =>
+      !isWeb &&
+      (platform == TargetPlatform.iOS || platform == TargetPlatform.macOS);
 
   /// The current notification permission, or null if it can't be read.
   static Future<AuthorizationStatus?> permissionStatus() async {
@@ -64,13 +75,26 @@ class NotificationService {
         return;
       }
 
-      // Deliberately do NOT opt in to FCM's iOS foreground presentation here.
-      // FCM would then show a native banner *and* deliver the message to
-      // onMessage, where we already render a flutter_local_notifications
-      // banner — the user would see two stacked notifications for every
-      // event. By leaving FCM's foreground options at their default
-      // (alert: false), the native banner is suppressed and the local
-      // notification is the single source of truth on both iOS and Android.
+      final apns =
+          usesApns(isWeb: kIsWeb, platform: defaultTargetPlatform);
+      if (apns) {
+        // On iOS, firebase_messaging makes itself the UNUserNotificationCenter
+        // delegate at launch, and its willPresent hook applies FCM's
+        // foreground presentation options to EVERY notification, local ones
+        // included. Left at the default (none), it hid both the FCM banner
+        // and the flutter_local_notifications re-post below, so nothing
+        // showed while the app was open. So iOS presents the FCM notification
+        // natively and skips the re-post (one banner, as on Android).
+        await messaging.setForegroundNotificationPresentationOptions(
+          alert: true,
+          badge: true,
+          sound: true,
+        );
+        // getToken() throws apns-token-not-set until APNs registration
+        // (started by the plugin at launch) has delivered a device token,
+        // which can lag a cold-start sign-in.
+        await _waitForApnsToken(messaging);
+      }
 
       final token = await messaging.getToken();
       if (token != null) {
@@ -80,8 +104,8 @@ class NotificationService {
       _tokenRefreshSub = messaging.onTokenRefresh.listen(_registerToken);
 
       // Configure flutter_local_notifications so FCM messages display when the
-      // app is in the foreground (FCM does not auto-show system notifications
-      // in the foreground on Android or iOS).
+      // app is in the foreground on Android, where FCM never shows its own
+      // notification while the app is open. (iOS presents natively, above.)
       const initSettings = InitializationSettings(
         android: AndroidInitializationSettings('@mipmap/ic_launcher'),
         iOS: DarwinInitializationSettings(),
@@ -101,7 +125,7 @@ class NotificationService {
 
       _onMessageSub = FirebaseMessaging.onMessage.listen((message) {
         final notification = message.notification;
-        if (notification == null) return;
+        if (notification == null || apns) return;
         _localNotifications.show(
           id: notification.hashCode,
           title: notification.title,
@@ -145,6 +169,16 @@ class NotificationService {
       await FirebaseMessaging.instance.deleteToken();
     } catch (_) {
       // Token deletion is best-effort; failure does not block sign-out.
+    }
+  }
+
+  /// Polls for the APNs device token for up to five seconds. If it still
+  /// hasn't arrived, the getToken() that follows throws and [_init] resets,
+  /// so the next resume or sign-in tries again.
+  static Future<void> _waitForApnsToken(FirebaseMessaging messaging) async {
+    for (var attempt = 0; attempt < 10; attempt++) {
+      if (await messaging.getAPNSToken() != null) return;
+      await Future<void>.delayed(const Duration(milliseconds: 500));
     }
   }
 

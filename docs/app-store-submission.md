@@ -13,7 +13,8 @@ the parts that are questionnaires or settings rather than text.
 - [ ] Sign in with Apple prerequisites (from the Apple sign-in PR) are done:
       the capability is enabled on the App ID and the "Postbox Game App Store"
       profile was regenerated afterwards. The Apple provider is enabled in Firebase Auth.
-- [ ] APNs key is uploaded to Firebase Cloud Messaging.
+- [x] APNs key is uploaded to Firebase Cloud Messaging (key AQJS9D8FZ3, team
+      M24Q4KZ737, development and production).
 - [ ] On the version page, under **Build**, select the new build. Export compliance
       is answered automatically (`ITSAppUsesNonExemptEncryption = NO`).
 

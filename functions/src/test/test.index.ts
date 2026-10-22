@@ -3132,7 +3132,41 @@ describe("rebuildPeriodLeaderboard (unit, mock Firestore)", () => {
   });
 });
 
-import { updateFcmTokens, diffFriends, shouldNotifyFirstClaim, shouldNotifyOvertake } from "../_notifications";
+import {
+  updateFcmTokens,
+  diffFriends,
+  shouldNotifyFirstClaim,
+  shouldNotifyOvertake,
+  buildPushMessage,
+  isStaleTokenError,
+} from "../_notifications";
+
+describe("buildPushMessage", () => {
+  it("carries the title, body and every token", () => {
+    const msg = buildPushMessage(["a", "b"], "Overtaken!", "Sam overtook you");
+    assert.deepStrictEqual(msg.tokens, ["a", "b"]);
+    assert.deepStrictEqual(msg.notification, { title: "Overtaken!", body: "Sam overtook you" });
+  });
+  it("asks APNs for the default sound (iOS alerts are silent without one)", () => {
+    const msg = buildPushMessage(["a"], "t", "b");
+    assert.strictEqual(msg.apns?.payload?.aps?.sound, "default");
+  });
+});
+
+describe("isStaleTokenError", () => {
+  it("prunes only the two permanent token codes", () => {
+    assert.strictEqual(isStaleTokenError("messaging/registration-token-not-registered"), true);
+    assert.strictEqual(isStaleTokenError("messaging/invalid-registration-token"), true);
+  });
+  it("keeps tokens on credential, quota and unknown failures", () => {
+    // third-party-auth-error is a server-side APNs credential problem, not a
+    // dead token: pruning on it would wipe every iOS token at once.
+    assert.strictEqual(isStaleTokenError("messaging/third-party-auth-error"), false);
+    assert.strictEqual(isStaleTokenError("messaging/message-rate-exceeded"), false);
+    assert.strictEqual(isStaleTokenError("messaging/internal-error"), false);
+    assert.strictEqual(isStaleTokenError(undefined), false);
+  });
+});
 
 describe("updateFcmTokens", () => {
   it("adds a token to an empty list", () => {

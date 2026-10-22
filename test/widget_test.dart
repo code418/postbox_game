@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_auth_mocks/firebase_auth_mocks.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_core_platform_interface/test.dart';
+import 'package:firebase_messaging/firebase_messaging.dart' show AuthorizationStatus;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -1665,7 +1666,7 @@ void main() {
   // ---------------------------------------------------------------------------
 
   group('SettingsScreen notification prefs', () {
-    Widget buildSettings() {
+    Widget buildSettings({AuthorizationStatus? permission}) {
       final repo = UserRepository(
         firebaseAuth: MockFirebaseAuth(),
         firestore: FakeFirebaseFirestore(),
@@ -1673,10 +1674,40 @@ void main() {
       return MaterialApp(
         home: BlocProvider<AuthenticationBloc>(
           create: (_) => AuthenticationBloc(userRepository: repo),
-          child: const SettingsScreen(),
+          child: SettingsScreen(
+            notificationPermissionStatus: () async => permission,
+          ),
         ),
       );
     }
+
+    testWidgets('offers to allow notifications while the OS permission is off',
+        (tester) async {
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+
+      await tester.pumpWidget(
+          buildSettings(permission: AuthorizationStatus.notDetermined));
+      await tester.pump();
+      expect(find.text('Notifications are off'), findsOneWidget);
+      expect(find.widgetWithText(FilledButton, 'Allow'), findsOneWidget);
+      // The switches stay: they are server-side prefs.
+      expect(find.text('First friend to score today'), findsOneWidget);
+    });
+
+    testWidgets('no permission row once notifications are allowed',
+        (tester) async {
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+
+      await tester.pumpWidget(
+          buildSettings(permission: AuthorizationStatus.authorized));
+      await tester.pump();
+      expect(find.text('Notifications are off'), findsNothing);
+      expect(find.text('First friend to score today'), findsOneWidget);
+    });
 
     testWidgets('Notifications section header is visible', (tester) async {
       // ListView.builder is lazy and only builds items in the visible area;
