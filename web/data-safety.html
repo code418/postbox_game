@@ -117,7 +117,7 @@
     <tbody>
       <tr>
         <td><strong>Precise location</strong></td>
-        <td>GPS coordinates while using the App. The position you claimed from is stored with that claim, then removed after 90 days</td>
+        <td>GPS coordinates while using the App. The position you claimed from (for a workout claim, the point on your recorded route where you passed the postbox) is stored with that claim, then removed after 90 days</td>
         <td>Find nearby postboxes; validate claims; anti-cheat</td>
         <td><span class="badge badge-required">Required</span></td>
       </tr>
@@ -173,6 +173,12 @@
         <td><strong>Usage analytics</strong></td>
         <td>Usage events such as scans, claims and screens viewed (Firebase Analytics), linked to your account's user ID and never used for advertising — on by default; can be turned off in Settings → Privacy</td>
         <td>Understand how the App is used</td>
+        <td><span class="badge badge-optional">Optional</span></td>
+      </tr>
+      <tr>
+        <td><strong>Fitness info</strong></td>
+        <td>Only if you connect Health Connect (Android): your walking, running and hiking sessions from the last 36 hours (type, start/end time, which fitness app recorded them) and their GPS routes. Read only while the App is open; each new route is processed on our server to find postboxes you passed, then discarded, never stored. Never written to, never used for advertising or analytics</td>
+        <td>Claim postboxes your recorded workouts passed</td>
         <td><span class="badge badge-optional">Optional</span></td>
       </tr>
       <tr>
@@ -256,6 +262,10 @@
       <tr>
         <td>Claim location, timing and device token</td>
         <td>Removed automatically 90 days after the claim</td>
+      </tr>
+      <tr>
+        <td>Workout routes from Health Connect</td>
+        <td>Never stored (processed in memory, then discarded). The pass point and recording app of a claimed postbox are stored with that claim and removed after 90 days</td>
       </tr>
       <tr>
         <td>Report photos and notes</td>

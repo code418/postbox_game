@@ -466,6 +466,82 @@ abstract final class JamesMessages {
     ],
   );
 
+  // ── Workouts (Health Connect) ────────────────────────────────────────────
+
+  /// A foreground check found postboxes a recorded workout passed.
+  static String activityCandidatesFound(int n) {
+    final boxes = n == 1 ? 'an unclaimed postbox' : '$n unclaimed postboxes';
+    final pool = [
+      "Your workout went past $boxes. Fancy claiming? I'll want the cypher, mind.",
+      "Spotted $boxes on your route. Tell me the cypher and they're yours.",
+      "All that legwork paid off: $boxes along the way. Shall we?",
+    ];
+    return pool[_random.nextInt(pool.length)];
+  }
+
+  /// New workouts whose routes Health Connect wants a per-run OK for.
+  static const activityRouteConsentNeeded = JamesMessage(
+    'jamesActivityRouteConsentNeeded',
+    [
+      "New workout in. Health Connect wants your say-so before I peek at the route.",
+      "I can see you've been out, but I need your OK to look at the route.",
+    ],
+  );
+
+  /// Connected for the first time.
+  static const activityConnected = JamesMessage(
+    'jamesActivityConnected',
+    [
+      "Lovely. I'll keep an eye on your walks and runs for postboxes.",
+      "Connected. Every walk's a postbox hunt now, whether you like it or not.",
+    ],
+  );
+
+  /// A check found nothing new to claim.
+  static const activityNoneFound = JamesMessage(
+    'jamesActivityNoneFound',
+    [
+      "No unclaimed postboxes on your recent workouts. Try a different route next time.",
+      "Nothing new on those routes, I'm afraid. Mix it up a bit!",
+    ],
+  );
+
+  /// A workout claim succeeded.
+  static String activityClaimSuccess(int claimed, int points) {
+    final what = claimed == 1 ? 'That one' : 'Those $claimed';
+    final pool = [
+      "$what counted. $points points, and you didn't even stop running.",
+      "Claimed from the comfort of the sofa: $points points. Well earned.",
+      "$what went in the book. $points points to you.",
+    ];
+    return pool[_random.nextInt(pool.length)];
+  }
+
+  /// The pass is past the claim window.
+  static const activityExpired = JamesMessage(
+    'jamesActivityExpired',
+    [
+      "That one's gone stale, I'm afraid. Claim them within a day and a half.",
+    ],
+  );
+
+  /// The daily workout-claim budget is spent.
+  static const activityQuotaExceeded = JamesMessage(
+    'jamesActivityQuotaExceeded',
+    [
+      "That's plenty of workout claims for one day. More tomorrow.",
+    ],
+  );
+
+  /// The player didn't know the cypher.
+  static const activityQuizFailed = JamesMessage(
+    'jamesActivityQuizFailed',
+    [
+      "Not quite. Have another look next time you pass it.",
+      "Close, but no. Eyes on the cypher next time, eh?",
+    ],
+  );
+
   // ── Intro dialogue ───────────────────────────────────────────────────────
 
   static const _introStep2Classic = JamesMessage(

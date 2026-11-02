@@ -37,7 +37,9 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:postbox_game/app_preferences.dart';
+import 'package:postbox_game/activity/activity_helpers.dart';
 import 'package:postbox_game/deep_links.dart';
+import 'package:postbox_game/services/health_connect_bridge.dart';
 import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/remote_config_service.dart';
 import 'package:postbox_game/services/home_widget_service.dart';
@@ -814,6 +816,78 @@ void main() {
       expect(source, contains('"${RemoteConfigService.keyMaintenanceMode}"'),
           reason: 'the car reads the maintenance flag by raw key; it must '
               'match RemoteConfigService.keyMaintenanceMode');
+    });
+  });
+
+  group('workout claims (Health Connect) stay in sync', () {
+    // The eligible exercise types, the claim window, the fitness-app
+    // allowlist, the channel name and the permission strings are each written
+    // down in several languages. A drift here would, for example, have the
+    // phone send runs the server refuses, or the server accept a source the
+    // app never offers.
+    final kotlinMapping = File(
+            'android/app/src/healthconnect/kotlin/com/code418/postbox_game/health/HealthConnectMapping.kt')
+        .readAsStringSync();
+    final tsConfig = File('functions/src/_activityConfig.ts').readAsStringSync();
+    final template = jsonDecode(File('remoteconfig.template.json').readAsStringSync()) as Map<String, dynamic>;
+    String templateDefault(String key) =>
+        ((template['parameters'] as Map<String, dynamic>)[key]['defaultValue'] as Map<String, dynamic>)['value']
+            as String;
+
+    test('eligible exercise types: Kotlin == Dart == TS', () {
+      final kBlock = RegExp(r'ELIGIBLE_EXERCISE_TYPES: Map<Int, String> = mapOf\((.*?)\)', dotAll: true)
+          .firstMatch(kotlinMapping)!
+          .group(1)!;
+      final kotlin = RegExp(r'to "(\w+)"').allMatches(kBlock).map((m) => m.group(1)!).toList();
+      final tsBlock = RegExp(r'ELIGIBLE_EXERCISE_TYPES = \[([^\]]+)\]').firstMatch(tsConfig)!.group(1)!;
+      final ts = RegExp(r'"(\w+)"').allMatches(tsBlock).map((m) => m.group(1)!).toList();
+      expect(kotlin, eligibleExerciseTypes);
+      expect(ts, eligibleExerciseTypes);
+    });
+
+    test('claim window default and band: Dart == TS == template', () {
+      int tsConst(String name) =>
+          int.parse(RegExp('export const $name = (\\d+);').firstMatch(tsConfig)!.group(1)!);
+      expect(tsConst('DEFAULT_ACTIVITY_GRACE_HOURS'), RemoteConfigService.defaultActivityClaimGraceHours);
+      expect(tsConst('MIN_ACTIVITY_GRACE_HOURS'), RemoteConfigService.minActivityClaimGraceHours);
+      expect(tsConst('MAX_ACTIVITY_GRACE_HOURS'), RemoteConfigService.maxActivityClaimGraceHours);
+      expect(int.parse(templateDefault(RemoteConfigService.keyActivityClaimGraceHours)),
+          RemoteConfigService.defaultActivityClaimGraceHours);
+    });
+
+    test('fitness-app allowlist: Dart == TS == template', () {
+      final dart = (jsonDecode(RemoteConfigService.defaultActivityOriginAllowlistJson) as List).cast<String>();
+      final tsBlock = RegExp(r'DEFAULT_ACTIVITY_ORIGIN_ALLOWLIST: readonly string\[\] = \[(.*?)\];', dotAll: true)
+          .firstMatch(tsConfig)!
+          .group(1)!;
+      final ts = RegExp(r'"([^"]+)"').allMatches(tsBlock).map((m) => m.group(1)!).toList();
+      final tpl = (jsonDecode(templateDefault(RemoteConfigService.keyActivityOriginAllowlist)) as List).cast<String>();
+      expect(ts, dart);
+      expect(tpl, dart);
+    });
+
+    test('channel name and permission strings: Kotlin == Dart', () {
+      expect(kotlinMapping, contains('CHANNEL = "${MethodChannelHealthConnectBridge.channelName}"'));
+      expect(kotlinMapping, contains('"${HealthConnectPermissions.readExercise}"'));
+      expect(kotlinMapping, contains('"${HealthConnectPermissions.readExerciseRoutes}"'));
+    });
+
+    test('the workout claim call site sends an attemptId', () {
+      // claimActivityPostbox is the second non-idempotent write; like
+      // startScoring it is made safe to retry only by the attemptId replay.
+      final source = File('lib/services/activity_claims_service.dart').readAsStringSync();
+      expect(source, contains("httpsCallable('claimActivityPostbox')"));
+      expect(source, contains("'attemptId'"));
+      expect(File('functions/src/claimActivityPostbox.ts').readAsStringSync(),
+          allOf(contains('runInAttempt'), contains('attemptId is required')));
+    });
+
+    test('the workout claim surface gates on maintenance (client and server)', () {
+      expect(File('lib/activity/activity_claim_sheet.dart').readAsStringSync(), contains('MaintenanceGuard'));
+      for (final path in ['functions/src/matchActivityRoute.ts', 'functions/src/claimActivityPostbox.ts']) {
+        expect(File(path).readAsStringSync(), contains('assertActivityClaimsOpen('), reason: path);
+      }
+      expect(tsConfig, contains('cfg.maintenance'));
     });
   });
 }

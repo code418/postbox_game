@@ -63,6 +63,9 @@ android {
             dimension "device"
             // Submitted to Google Play. Carries NO Android Auto surface (Play
             // rejected the car app twice under the Auto app-quality guidelines).
+            // minSdk 26: the Health Connect client library's floor (workout
+            // claims). The Health Connect app itself needs Android 9+.
+            minSdk 26
         }
         auto {
             dimension "device"
@@ -70,6 +73,7 @@ android {
             // Google Sign-In / App Check config) PLUS the full Android Auto
             // surface. Distributed OUTSIDE Google Play, so it needs no separate
             // versionCode band; the suffix just makes the build identifiable.
+            minSdk 26 // Health Connect client floor, as for `phone`
             versionNameSuffix "-auto"
         }
         wear {
@@ -80,6 +84,18 @@ android {
             versionCode flutterVersionCode.toInteger() + 10000
             versionNameSuffix "-wear"
         }
+    }
+
+    // Workout claims (Health Connect): the bridge lives in its own source set,
+    // compiled into the phone-side flavours only. The wear flavour compiles a
+    // no-op HealthConnectRegistrar (src/wear/kotlin/.../health/) instead, so
+    // MainActivity in src/main builds for every flavour while the watch links
+    // no Health Connect code and declares no health permissions.
+    sourceSets {
+        phone.java.srcDirs += 'src/healthconnect/kotlin'
+        auto.java.srcDirs += 'src/healthconnect/kotlin'
+        testPhone.java.srcDirs += 'src/testHealthconnect/kotlin'
+        testAuto.java.srcDirs += 'src/testHealthconnect/kotlin'
     }
 
     signingConfigs {
@@ -193,6 +209,14 @@ dependencies {
     // No tiles-tooling / tiles-tooling-preview: those exist for @Preview
     // rendering in Android Studio, and this tile is built with protolayout
     // builders rather than Compose. Leaving them out keeps the AAB smaller.
+
+    // Workout claims: read-only Health Connect access (exercise sessions +
+    // their GPS routes). Phone-side flavours only, pinned exactly (1.1.0+
+    // needs compileSdk 36 + AGP 8.9.1+, both met). The wear AAB links none of
+    // it. Coroutines run the suspend API (auto already declares them above).
+    phoneImplementation 'androidx.health.connect:connect-client:1.1.0'
+    autoImplementation 'androidx.health.connect:connect-client:1.1.0'
+    phoneImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1'
 
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'androidx.test:runner:1.4.0'

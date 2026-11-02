@@ -6,6 +6,7 @@ import 'package:postbox_game/admin/admin_abuse_screen.dart';
 import 'package:postbox_game/admin/admin_access.dart';
 import 'package:postbox_game/admin/admin_remote_config_screen.dart';
 import 'package:postbox_game/admin/admin_reports_screen.dart';
+import 'package:postbox_game/activity/activity_claims_screen.dart';
 import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/analytics_user_properties.dart';
 import 'package:postbox_game/claim.dart';
@@ -24,6 +25,8 @@ import 'package:postbox_game/reports/my_reports_screen.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/widgets/maintenance_banner.dart';
 import 'package:postbox_game/widgets/offline_banner.dart';
+import 'package:postbox_game/widgets/activity_candidates_banner.dart';
+import 'package:postbox_game/services/activity_claims_service.dart';
 import 'package:postbox_game/services/outbox_sync.dart';
 
 class Home extends StatefulWidget {
@@ -111,6 +114,12 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     // signal.
     PendingInviteStore.signal.addListener(_takePendingInvite);
     WidgetsBinding.instance.addPostFrameCallback((_) => _takePendingInvite());
+    // Workout claims: look for new walks/runs once Home is up (a silent,
+    // debounced check — no-op unless the player connected Health Connect).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(ActivityClaimsService.instance.refreshBanner());
+      unawaited(_checkWorkouts());
+    });
     CrashlyticsHelper.setContext(
         CrashlyticsHelper.keyActiveTab, _tabName(_selectedIndex));
     // The "Admin · Reports" menu item only appears for users holding the
@@ -142,6 +151,21 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     // banked offline captures (no-op when the outbox is empty).
     if (state == AppLifecycleState.resumed) {
       unawaited(OutboxSync.instance.flushNow());
+      // Also a natural moment to look for a workout that has synced since.
+      unawaited(_checkWorkouts());
+    }
+  }
+
+  /// Silent workout check (Health Connect). The service owns every guard
+  /// (feature flag, opt-in, maintenance, connectivity, 20-minute debounce,
+  /// single flight) and never prompts; Home only narrates the outcome.
+  Future<void> _checkWorkouts() async {
+    final summary = await ActivityClaimsService.instance.autoCheck();
+    if (summary == null || !mounted) return;
+    if (summary.newCandidates > 0) {
+      _jamesController.show(JamesMessages.activityCandidatesFound(summary.newCandidates));
+    } else if (summary.consentNeeded > 0) {
+      _jamesController.show(JamesMessages.activityRouteConsentNeeded.resolve());
     }
   }
 
@@ -203,6 +227,11 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
                 switch (value) {
                   case 'settings':
                     Navigator.pushNamed(context, '/settings');
+                  case 'workouts':
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const ActivityClaimsScreen()),
+                    ).then((_) => ActivityClaimsService.instance.refreshBanner());
                   case 'intro':
                     Navigator.push(
                       context,
@@ -245,6 +274,15 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
                     contentPadding: EdgeInsets.zero,
                   ),
                 ),
+                if (ActivityClaimsService.instance.featureVisible)
+                  const PopupMenuItem(
+                    value: 'workouts',
+                    child: ListTile(
+                      leading: Icon(Icons.directions_run),
+                      title: Text('Claim from your workouts'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
                 if (_isAdmin)
                   const PopupMenuItem(
                     value: 'adminReports',
@@ -296,6 +334,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           children: [
             const MaintenanceBanner(),
             const OfflineBanner(),
+            const ActivityCandidatesBanner(),
             Expanded(
               child: Stack(
                 children: [
