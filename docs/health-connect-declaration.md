@@ -102,3 +102,26 @@ finding a postbox, and the cypher quiz claim.
 **Kill switches:** `kill_switch_activity_claims` (Remote Config, read by the
 app and by the server from the client template), or
 `ACTIVITY_CLAIMS_AUDIENCE=off` (server, no client involvement).
+
+## 5. Beyond Health Connect (future sources)
+
+The server core is source-agnostic: `_activityMatch.ts` takes a `RouteSubmission`
+(`prepareRoute` + `findCandidates`), so any source reuses matching, tokens,
+quotas, the quiz and the claim path. On-device sources call
+`matchActivityRoute`; a server-side source would go webhook → fetch route →
+match → store candidates in an owner-readable `activityCandidates/{uid}/items`
+(tokens stay server-side) → FCM "you passed N postboxes" → the player still
+opens the app and answers the quiz. OAuth tokens would live in a server-only
+`providerLinks/{uid}/{provider}`, revoked on account deletion.
+
+| Source | Route arrives via | Reach | Gatekeeping | Verdict |
+|---|---|---|---|---|
+| Apple HealthKit | On-device `HKWorkout` + `HKWorkoutRoute` (`HKWorkoutRouteQuery`) | iPhone: Apple Watch, Strava, Nike Run Club, Garmin Connect. **Fitbit does not write to Apple Health.** | HealthKit entitlement (regenerate the App Store profile), `NSHealthShareUsageDescription`, App Privacy "Health & Fitness", guideline 5.1.3; HealthKit hides read denials | Next, for iOS parity |
+| Strava | OAuth `activity:read` + webhook → `streams?keys=latlng,time` | The hub most devices sync to; both OSes | Nov 2024 API agreement (owner-only display, no AI use, ~7-day cache — match-and-discard fits); stream access may need approval; rate limits | Best reach per unit of effort server-side |
+| Google Health API (Fitbit Web API successor) | Server REST; `exportExerciseTcx` returns the GPS track | Every Fitbit / Pixel Watch owner, including on iPhone | Restricted OAuth scopes: verification + security assessment | Fallback if Fitbit doesn't write routes to Health Connect |
+| Samsung Health | Already syncs to Health Connect; the Samsung Health Data SDK reads exercise location directly | Galaxy devices | SDK distribution needs Samsung partner approval | Rely on Health Connect |
+| Garmin | Connect Developer Program Activity API (webhooks, FIT/GPX/TCX) | Garmin owners, both OSes | Business approval; public intake reportedly paused (Sept 2026) | Wait; reach Garmin users via Strava / Health Connect / HealthKit |
+| Aggregators (Terra, Junction, Rook) | One webhook API across vendors, with GPS | Broad | Paid per user; adds a processor to the privacy policy | Only if several server-side sources are wanted at once |
+
+The 36 h window, the quiz requirement and "never store the route" stay the
+same for every source.
