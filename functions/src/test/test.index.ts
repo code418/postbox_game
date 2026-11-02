@@ -6541,10 +6541,10 @@ function makeFakeDb(collections: Record<string, Record<string, Record<string, un
     const data = collections[coll]?.[id];
     return { id, exists: data !== undefined, data: () => data, ref: { id, path: `${coll}/${id}` } };
   };
-  const query = (coll: string, filters: Array<[string, unknown]>, range?: { start: string; end: string }, limit?: number) => ({
+  const query = (coll: string, filters: Array<[string, unknown, string?]>, range?: { start: string; end: string }, limit?: number) => ({
     where: (field: string, op: string, value: unknown) => {
-      if (op !== "==") throw new Error(`fake db: unsupported op ${op}`);
-      return query(coll, [...filters, [field, value]], range, limit);
+      if (op !== "==" && op !== "in") throw new Error(`fake db: unsupported op ${op}`);
+      return query(coll, [...filters, [field, value, op]], range, limit);
     },
     limit: (n: number) => query(coll, filters, range, n),
     orderBy: (field: string) => {
@@ -6555,7 +6555,9 @@ function makeFakeDb(collections: Record<string, Record<string, Record<string, un
     },
     get: async () => {
       let docs = Object.keys(collections[coll] ?? {})
-        .filter((id) => filters.every(([f, v]) => collections[coll][id][f] === v))
+        .filter((id) => filters.every(([f, v, op]) => op === "in"
+          ? (v as unknown[]).includes(collections[coll][id][f])
+          : collections[coll][id][f] === v))
         .filter((id) => {
           if (!range) return true;
           const gh = collections[coll][id].geohash;
@@ -7404,5 +7406,788 @@ describe("review dashboard CLI (main.ts)", () => {
     assert.strictEqual(mapsKeyFromEnv(""), null);
     assert.strictEqual(mapsKeyFromEnv("   "), null);
     assert.strictEqual(mapsKeyFromEnv(undefined), null);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// Workout claims (Health Connect): route matching, tokens, quotas, config,
+// claim-core provenance, abuse wiring and the two callables.
+// ════════════════════════════════════════════════════════════════════════════
+import * as geolibW from "geolib";
+import {
+  projectOntoSegment,
+  validateRoute,
+  coveringCells,
+  matchRoute as matchRouteW,
+  groupPasses,
+  routeDigest,
+  defaultRouteLimits,
+  fastDistanceM,
+  MAX_ROUTE_POINTS,
+  type RoutePoint,
+  type RoutePass,
+} from "../_routeMatch";
+import {
+  deriveDomainKey,
+  signDomainToken,
+  verifyDomainToken,
+} from "../_scanToken";
+import {
+  signActivityCandidate,
+  verifyActivityCandidate,
+  sessionFingerprint,
+  candidateKey,
+} from "../_activityToken";
+import { nextMatchQuota, nextClaimQuota, normaliseQuota, SEEN_TTL_MS } from "../_activityQuota";
+import {
+  sanitiseActivityGraceHours,
+  parseOriginAllowlist,
+  buildActivityConfig,
+  activityClaimsAudience,
+  inActivityAudience,
+  assertActivityClaimsOpen,
+  setActivityConfigLoaderForTest,
+  FALLBACK_ACTIVITY_CONFIG,
+  DEFAULT_ACTIVITY_GRACE_HOURS,
+  DEFAULT_ACTIVITY_ORIGIN_ALLOWLIST,
+  ELIGIBLE_EXERCISE_TYPES,
+  type ActivityConfig,
+} from "../_activityConfig";
+import {
+  validateActivitySubmission,
+  prepareRoute,
+  findCandidates,
+  MAX_CANDIDATES_PER_SESSION,
+  type RouteSubmission,
+} from "../_activityMatch";
+import { checkCandidateWindow, MAX_TOKEN_AGE_MS } from "../claimActivityPostbox";
+import { restrictLookup } from "../_claimCore";
+import { CLAIM_PII_FIELDS as CLAIM_PII_FIELDS_W } from "../_accountDeletion";
+import {
+  evaluateClaimSignals as evaluateClaimSignalsW,
+  ACTIVITY_DENSE_SESSION_MIN,
+} from "../_abuseSignals";
+import type { LookupResult } from "../types";
+
+const W_M_LAT = 111_319.5;
+const wNorth = (p: { lat: number; lng: number }, m: number) => ({ lat: p.lat + m / W_M_LAT, lng: p.lng });
+const wEast = (p: { lat: number; lng: number }, m: number) =>
+  ({ lat: p.lat, lng: p.lng + m / (W_M_LAT * Math.cos((p.lat * Math.PI) / 180)) });
+
+/** A straight eastward route: n points, stepM apart, stepMs apart. */
+function wEastRoute(start: { lat: number; lng: number }, t0: number, n: number, stepM: number, stepMs: number): RoutePoint[] {
+  return Array.from({ length: n }, (_, i) => ({ ...wEast(start, i * stepM), tMs: t0 + i * stepMs }));
+}
+
+const W_ORIGIN = { lat: 51.5, lng: -0.12 };
+const W_GRACE_MS = 36 * 3600_000;
+const W_LIMITS = defaultRouteLimits(W_GRACE_MS);
+
+function wSession(points: RoutePoint[]) {
+  return { startMs: points[0].tMs, endMs: points[points.length - 1].tMs };
+}
+
+describe("workout claims: projectOntoSegment", () => {
+  const a = W_ORIGIN;
+  const b = wEast(W_ORIGIN, 100);
+  it("projects a point beside the middle of the segment perpendicularly", () => {
+    const r = projectOntoSegment(wNorth(wEast(a, 50), 20), a, b);
+    assert.ok(Math.abs(r.t - 0.5) < 1e-6);
+    assert.ok(Math.abs(r.distM - 20) < 0.01);
+    assert.ok(Math.abs(r.point.lat - a.lat) < 1e-9);
+  });
+  it("clamps projections before the start to the start vertex", () => {
+    const r = projectOntoSegment(wEast(a, -30), a, b);
+    assert.strictEqual(r.t, 0);
+    assert.ok(Math.abs(r.distM - 30) < 0.01);
+    assert.deepStrictEqual(r.point, { lat: a.lat, lng: a.lng });
+  });
+  it("clamps projections past the end to the end vertex", () => {
+    const r = projectOntoSegment(wEast(a, 140), a, b);
+    assert.strictEqual(r.t, 1);
+    assert.ok(Math.abs(r.distM - 40) < 0.01);
+  });
+  it("projects everything onto the start of a degenerate segment", () => {
+    const r = projectOntoSegment(wNorth(a, 10), a, a);
+    assert.strictEqual(r.t, 0);
+    assert.ok(Math.abs(r.distM - 10) < 0.01);
+  });
+  it("fastDistanceM agrees with geolib to within a metre at street scale", () => {
+    const p = wNorth(wEast(a, 300), 400);
+    const g = geolibW.getDistance({ latitude: a.lat, longitude: a.lng }, { latitude: p.lat, longitude: p.lng });
+    assert.ok(Math.abs(fastDistanceM(a, p) - g) <= 1.5, `${fastDistanceM(a, p)} vs ${g}`);
+  });
+});
+
+describe("workout claims: validateRoute", () => {
+  const t0 = Date.UTC(2026, 6, 1, 8, 0, 0);
+  const now = t0 + 3600_000;
+  const route = wEastRoute(W_ORIGIN, t0, 61, 10, 5_000); // 600 m at 2 m/s
+
+  it("accepts a plausible run and marks every segment usable", () => {
+    const v = validateRoute(route, wSession(route), now, W_LIMITS);
+    assert.ok(v.ok);
+    if (v.ok) {
+      assert.strictEqual(v.usable.length, route.length - 1);
+      assert.ok(v.usable.every(Boolean));
+      assert.ok(Math.abs(v.lengthM - 600) < 2);
+      assert.strictEqual(v.speedMaskedM, 0);
+    }
+  });
+  const reasonOf = (pts: RoutePoint[], session = wSession(pts), nowMs = now) => {
+    const v = validateRoute(pts, session, nowMs, W_LIMITS);
+    return v.ok ? "ok" : v.reason;
+  };
+  it("rejects too few / too many points", () => {
+    assert.strictEqual(reasonOf(route.slice(0, 1), { startMs: t0, endMs: t0 }), "too_few_points");
+    const many = wEastRoute(W_ORIGIN, t0, MAX_ROUTE_POINTS + 1, 1, 500);
+    assert.strictEqual(reasonOf(many), "too_many_points");
+  });
+  it("rejects non-finite or out-of-range points", () => {
+    const bad = route.map((p, i) => (i === 3 ? { ...p, lat: NaN } : p));
+    assert.strictEqual(reasonOf(bad), "bad_point");
+  });
+  it("rejects time going backwards", () => {
+    const back = route.map((p, i) => (i === 5 ? { ...p, tMs: t0 } : p));
+    assert.strictEqual(reasonOf(back), "non_monotonic");
+  });
+  it("rejects points outside the session bounds (beyond the slack)", () => {
+    assert.strictEqual(reasonOf(route, { startMs: t0 + 120_000, endMs: wSession(route).endMs }), "outside_session");
+    assert.strictEqual(reasonOf(route, { startMs: t0 + 30_000, endMs: wSession(route).endMs }), "ok");
+  });
+  it("rejects sessions in the future", () => {
+    // The session ends 300 s after t0; with 5 min of skew slack it is only
+    // "future" once now is earlier than t0.
+    assert.strictEqual(reasonOf(route, wSession(route), t0 - 10_000), "future");
+    assert.strictEqual(reasonOf(route, wSession(route), t0 + 60_000), "ok");
+  });
+  it("rejects a route whose last point is past the claim window", () => {
+    const last = route[route.length - 1].tMs;
+    assert.strictEqual(reasonOf(route, wSession(route), last + W_GRACE_MS + 1), "expired");
+    assert.strictEqual(reasonOf(route, wSession(route), last + W_GRACE_MS - 1), "ok");
+  });
+  it("rejects over-long sessions and routes", () => {
+    assert.strictEqual(reasonOf(route, { startMs: t0 - 13 * 3600_000, endMs: wSession(route).endMs }), "too_long_duration");
+    const longSession = { startMs: t0, endMs: t0 + 13 * 3600_000 };
+    const spread = route.map((p, i) => ({ ...p, tMs: t0 + i * 60_000 }));
+    assert.strictEqual(reasonOf(spread, longSession, longSession.endMs + 60_000), "too_long_duration");
+    const far = wEastRoute(W_ORIGIN, t0, 70, 1000, 400_000); // 69 km at 2.5 m/s
+    assert.strictEqual(reasonOf(far, wSession(far), far[far.length - 1].tMs + 1000), "route_too_long");
+  });
+  it("rejects routes outside the British Isles", () => {
+    const paris = wEastRoute({ lat: 48.85, lng: 2.35 }, t0, 10, 10, 5000);
+    assert.strictEqual(reasonOf(paris), "outside_region");
+  });
+  it("masks a short too-fast segment but keeps the route", () => {
+    const pts = route.slice(0, 21).concat([{ ...wEast(route[20], 30), tMs: route[20].tMs + 1000 }]);
+    const v = validateRoute(pts, wSession(pts), now, W_LIMITS);
+    assert.ok(v.ok);
+    if (v.ok) {
+      assert.strictEqual(v.usable[v.usable.length - 1], false);
+      assert.ok(v.speedMaskedM > 25);
+    }
+  });
+  it("rejects a route that is mostly implausibly fast", () => {
+    const car = wEastRoute(W_ORIGIN, t0, 40, 100, 5000); // 72 km/h
+    assert.strictEqual(reasonOf(car), "implausible_speed");
+  });
+  it("masks a GPS-dropout chord (long gap AND long distance) without rejecting", () => {
+    const pts = [...route.slice(0, 10), { ...wEast(route[9], 400), tMs: route[9].tMs + 10 * 60_000 }];
+    const v = validateRoute(pts, wSession(pts), now, W_LIMITS);
+    assert.ok(v.ok);
+    if (v.ok) {
+      assert.strictEqual(v.usable[v.usable.length - 1], false);
+      assert.strictEqual(v.speedMaskedM, 0);
+    }
+  });
+  it("keeps a long pause in place (gap but no distance) usable", () => {
+    const pts = [...route.slice(0, 10), { ...wEast(route[9], 5), tMs: route[9].tMs + 10 * 60_000 }];
+    const v = validateRoute(pts, wSession(pts), now, W_LIMITS);
+    assert.ok(v.ok && v.usable[v.usable.length - 1]);
+  });
+  it("tolerates zero-time duplicate fixes but not zero-time jumps", () => {
+    const dup = [...route.slice(0, 5), { ...route[4] }, ...route.slice(5)];
+    const v = validateRoute(dup, wSession(dup), now, W_LIMITS);
+    assert.ok(v.ok && v.usable[4]);
+  });
+});
+
+describe("workout claims: coveringCells", () => {
+  // Deterministic PRNG (mulberry32).
+  function rng(seed: number) {
+    return () => {
+      seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  it("covers every point within the buffer of a usable segment (property)", () => {
+    const rand = rng(42);
+    for (let trial = 0; trial < 20; trial++) {
+      const pts: RoutePoint[] = [];
+      let p = { lat: 50 + rand() * 8, lng: -5 + rand() * 6 };
+      for (let i = 0; i < 15; i++) {
+        pts.push({ ...p, tMs: i * 60_000 });
+        p = wNorth(wEast(p, (rand() - 0.5) * 600), (rand() - 0.5) * 600);
+      }
+      const usable = pts.slice(1).map(() => true);
+      const idx = coveringCells(pts, usable, 35);
+      assert.ok(idx);
+      for (let k = 0; k < 50; k++) {
+        const i = Math.floor(rand() * (pts.length - 1));
+        const t = rand();
+        const on = { lat: pts[i].lat + t * (pts[i + 1].lat - pts[i].lat), lng: pts[i].lng + t * (pts[i + 1].lng - pts[i].lng) };
+        const ang = rand() * 2 * Math.PI;
+        const r = rand() * 34;
+        const q = wNorth(wEast(on, Math.cos(ang) * r), Math.sin(ang) * r);
+        const segs = idx!.get(ngeohash.encode(q.lat, q.lng, 7));
+        assert.ok(segs && segs.includes(i), `trial ${trial}: point ${r.toFixed(1)} m from segment ${i} not covered`);
+      }
+    }
+  });
+  it("ignores unusable segments", () => {
+    const pts = wEastRoute(W_ORIGIN, 0, 3, 2000, 600_000);
+    const idx = coveringCells(pts, [true, false], 35)!;
+    const farCell = ngeohash.encode(pts[2].lat, pts[2].lng, 7);
+    assert.ok(!idx.has(farCell) || !(idx.get(farCell) ?? []).includes(1));
+  });
+  it("returns null when the route needs more cells than the cap", () => {
+    const pts = wEastRoute(W_ORIGIN, 0, 2, 50_000, 3600_000);
+    assert.strictEqual(coveringCells(pts, [true], 35, 7, 50), null);
+  });
+});
+
+describe("workout claims: matchRoute", () => {
+  const t0 = Date.UTC(2026, 6, 1, 11, 0, 0); // 12:00 BST
+  const route = wEastRoute(W_ORIGIN, t0, 21, 10, 10_000); // 200 m at 1 m/s
+  const usable = route.slice(1).map(() => true);
+  const idx = coveringCells(route, usable, 35)!;
+
+  it("matches a box beside the route with an interpolated pass time and London day", () => {
+    const box = { id: "osm_1", monarch: "VR", ...wNorth(wEast(W_ORIGIN, 55), 20) };
+    const passes = matchRouteW(route, usable, [box], 30, idx);
+    assert.strictEqual(passes.length, 1);
+    assert.strictEqual(passes[0].boxId, "osm_1");
+    assert.strictEqual(passes[0].monarch, "VR");
+    assert.ok(Math.abs(passes[0].passedAtMs - (t0 + 55_000)) < 1500);
+    assert.strictEqual(passes[0].claimDate, "2026-07-01");
+    assert.ok(passes[0].distanceM >= 19 && passes[0].distanceM <= 21);
+  });
+  it("uses geolib's integer distance at the boundary (29 m in, 31.5 m out)", () => {
+    const inBox = { id: "in", ...wNorth(wEast(W_ORIGIN, 100), 29) };
+    const outBox = { id: "out", ...wNorth(wEast(W_ORIGIN, 100), 31.5) };
+    const ids = matchRouteW(route, usable, [inBox, outBox], 30, idx).map((p) => p.boxId);
+    assert.deepStrictEqual(ids, ["in"]);
+    // The anchor really is within the radius by the claim path's own test.
+    const pass = matchRouteW(route, usable, [inBox], 30, idx)[0];
+    assert.ok(geolibW.getDistance(
+      { latitude: pass.point.lat, longitude: pass.point.lng },
+      { latitude: inBox.lat, longitude: inBox.lng }) <= 30);
+  });
+  it("matches a box just outside a bend via the clamped vertex", () => {
+    const a = W_ORIGIN;
+    const b = wEast(a, 100);
+    const c = wNorth(b, 100);
+    const bend: RoutePoint[] = [{ ...a, tMs: t0 }, { ...b, tMs: t0 + 100_000 }, { ...c, tMs: t0 + 200_000 }];
+    const u = [true, true];
+    const box = { id: "corner", ...wNorth(wEast(b, 15), -15) }; // ~21 m diagonal from B
+    const passes = matchRouteW(bend, u, [box], 30, coveringCells(bend, u, 35)!);
+    assert.strictEqual(passes.length, 1);
+    assert.ok(Math.abs(passes[0].passedAtMs - (t0 + 100_000)) < 1000);
+  });
+  it("keeps only the closest pass when a loop passes the same box twice in a day", () => {
+    const out = wEastRoute(W_ORIGIN, t0, 21, 10, 10_000);
+    const back = out.slice(0, -1).reverse().map((p, i) => ({ ...wNorth(p, 10), tMs: out[20].tMs + (i + 1) * 10_000 }));
+    const loop = [...out, ...back];
+    const u = loop.slice(1).map(() => true);
+    const box = { id: "loopbox", ...wNorth(wEast(W_ORIGIN, 100), 15) };
+    const passes = matchRouteW(loop, u, [box], 30, coveringCells(loop, u, 35)!);
+    assert.strictEqual(passes.length, 1);
+    // The return leg runs 10 m north (5 m from the box) — that pass wins.
+    assert.ok(passes[0].passedAtMs > out[20].tMs);
+  });
+  it("yields one pass per London day when a loop crosses midnight (BST)", () => {
+    // 22:58:20Z = 23:58:20 BST; the return leg passes after midnight BST.
+    const t = Date.UTC(2026, 6, 1, 22, 58, 20);
+    const out = wEastRoute(W_ORIGIN, t, 21, 10, 10_000);
+    const back = out.slice(0, -1).reverse().map((p, i) => ({ ...p, tMs: out[20].tMs + (i + 1) * 10_000 }));
+    const loop = [...out, ...back];
+    const u = loop.slice(1).map(() => true);
+    const box = { id: "mid", ...wNorth(wEast(W_ORIGIN, 100), 10) };
+    const days = matchRouteW(loop, u, [box], 30, coveringCells(loop, u, 35)!).map((p) => p.claimDate);
+    assert.deepStrictEqual(days, ["2026-07-01", "2026-07-02"]);
+  });
+  it("uses GMT for the London day in winter", () => {
+    const t = Date.UTC(2026, 11, 1, 23, 58, 20); // 23:58:20 GMT
+    const out = wEastRoute(W_ORIGIN, t, 21, 10, 10_000);
+    const u = out.slice(1).map(() => true);
+    const early = { id: "e", ...wNorth(wEast(W_ORIGIN, 40), 5) }; // ~23:59:00
+    const late = { id: "l", ...wNorth(wEast(W_ORIGIN, 160), 5) }; // ~00:01:00
+    const byId = Object.fromEntries(
+      matchRouteW(out, u, [early, late], 30, coveringCells(out, u, 35)!).map((p) => [p.boxId, p.claimDate]));
+    assert.deepStrictEqual(byId, { e: "2026-12-01", l: "2026-12-02" });
+  });
+  it("never matches along a masked segment", () => {
+    const box = { id: "m", ...wNorth(wEast(W_ORIGIN, 55), 5) };
+    const masked = usable.map((_, i) => i !== 5);
+    const passes = matchRouteW(route, masked, [box], 30, coveringCells(route, masked, 35)!);
+    // Segment 5 spans 50–60 m; the box's closest usable approach is a vertex
+    // ≥ 5 m along-track away, still inside 30 m — so check the anchor is a
+    // vertex of a usable segment, not the masked segment's interior.
+    assert.strictEqual(passes.length, 1);
+    const onVertex = [route[5], route[6]].some((v) =>
+      Math.abs(v.lat - passes[0].point.lat) < 1e-9 && Math.abs(v.lng - passes[0].point.lng) < 1e-9);
+    assert.ok(onVertex);
+  });
+  it("ignores boxes whose cell the route never covers", () => {
+    const far = { id: "far", ...wNorth(W_ORIGIN, 500) };
+    assert.deepStrictEqual(matchRouteW(route, usable, [far], 30, idx), []);
+  });
+});
+
+describe("workout claims: groupPasses", () => {
+  const mk = (id: string, along: number, side: number, t: number, day = "2026-07-01"): RoutePass => {
+    const point = wEast(W_ORIGIN, along);
+    const box = wNorth(point, side);
+    return { boxId: id, boxLat: box.lat, boxLng: box.lng, point, passedAtMs: t, claimDate: day, distanceM: Math.abs(side) };
+  };
+  it("groups boxes 10 m apart passed seconds apart into one quiz", () => {
+    const g = groupPasses([mk("a", 100, 5, 1000), mk("b", 110, -5, 11_000)], 30);
+    assert.strictEqual(g.length, 1);
+    assert.deepStrictEqual(g[0].boxIds, ["a", "b"]);
+    assert.strictEqual(g[0].passedAtMs, 1000);
+  });
+  it("splits boxes too far from the anchor", () => {
+    const g = groupPasses([mk("a", 100, 5, 1000), mk("b", 150, 5, 51_000)], 30);
+    assert.strictEqual(g.length, 2);
+  });
+  it("splits boxes passed more than the time window apart, even when close", () => {
+    const g = groupPasses([mk("a", 100, 5, 0), mk("b", 105, 5, 200_000)], 30);
+    assert.strictEqual(g.length, 2);
+  });
+  it("never mixes London days in one group", () => {
+    const g = groupPasses([mk("a", 100, 5, 0, "2026-07-01"), mk("b", 105, 5, 1000, "2026-07-02")], 30);
+    assert.strictEqual(g.length, 2);
+  });
+});
+
+describe("workout claims: routeDigest", () => {
+  it("is stable for identical routes and changes when any point changes", () => {
+    const r = wEastRoute(W_ORIGIN, 0, 10, 10, 1000);
+    assert.strictEqual(routeDigest(r), routeDigest(r.map((p) => ({ ...p }))));
+    assert.notStrictEqual(routeDigest(r), routeDigest(r.map((p, i) => (i === 3 ? { ...p, tMs: p.tMs + 1 } : p))));
+  });
+});
+
+describe("workout claims: domain-separated tokens", () => {
+  const secret = "test-secret-123";
+  const payload = {
+    uid: "u1", boxIds: ["osm_1"], lat: 51.5, lng: -0.12, passedAtMs: 1_800_000_000_000,
+    claimDate: "2027-01-15", sessionFp: "fp", source: "health_connect" as const,
+    origin: "com.fitbit.FitbitMobile", rm: "active" as const, issuedAtMs: 1_800_000_100_000,
+  };
+  it("round-trips a candidate token for its owner", () => {
+    const t = signActivityCandidate(payload, secret);
+    const v = verifyActivityCandidate(t, "u1", secret);
+    assert.ok(v);
+    assert.deepStrictEqual(v!.boxIds, ["osm_1"]);
+    assert.strictEqual(v!.d, "activity-candidate");
+  });
+  it("rejects another user, a tampered body, garbage and the wrong secret", () => {
+    const t = signActivityCandidate(payload, secret);
+    assert.strictEqual(verifyActivityCandidate(t, "u2", secret), null);
+    const [body, mac] = t.split(".");
+    const forged = Buffer.from(JSON.stringify({ ...JSON.parse(Buffer.from(body, "base64url").toString()), boxIds: ["osm_2"] })).toString("base64url");
+    assert.strictEqual(verifyActivityCandidate(`${forged}.${mac}`, "u1", secret), null);
+    for (const g of ["", "x", "a.b", 42, null, undefined]) assert.strictEqual(verifyActivityCandidate(g, "u1", secret), null);
+    assert.strictEqual(verifyActivityCandidate(t, "u1", "other-secret"), null);
+  });
+  it("a candidate token never verifies as an offline scanId (cross-domain)", () => {
+    const t = signActivityCandidate(payload, secret);
+    assert.strictEqual(verifyScanToken(t, "u1", secret), null);
+  });
+  it("an offline scanId never verifies as a candidate token (cross-domain)", () => {
+    const scan = signScanToken({ uid: "u1", lat: 51.5, lng: -0.12, issuedAtMs: 1, nonce: "n" }, secret);
+    assert.strictEqual(verifyActivityCandidate(scan, "u1", secret), null);
+    assert.strictEqual(verifyDomainToken(scan, secret, "activity-candidate"), null);
+  });
+  it("a token signed for one domain does not verify in another", () => {
+    const t = signDomainToken({ d: "activity-session-fp", x: 1 } as { d: "activity-session-fp" }, secret, "activity-session-fp");
+    assert.ok(verifyDomainToken(t, secret, "activity-session-fp"));
+    assert.strictEqual(verifyDomainToken(t, secret, "activity-candidate"), null);
+    assert.throws(() => signDomainToken({ d: "activity-candidate" }, secret, "activity-session-fp"));
+  });
+  it("derives distinct keys per domain", () => {
+    assert.notDeepStrictEqual(deriveDomainKey(secret, "activity-candidate"), deriveDomainKey(secret, "activity-session-fp"));
+  });
+  it("session fingerprints are stable and not uid-salted; candidate keys are order-independent", () => {
+    assert.strictEqual(sessionFingerprint("abc", secret), sessionFingerprint("abc", secret));
+    assert.notStrictEqual(sessionFingerprint("abc", secret), sessionFingerprint("abd", secret));
+    assert.strictEqual(candidateKey("u1", ["b", "a"], "2026-07-01", secret), candidateKey("u1", ["a", "b"], "2026-07-01", secret));
+    assert.notStrictEqual(candidateKey("u1", ["a"], "2026-07-01", secret), candidateKey("u2", ["a"], "2026-07-01", secret));
+  });
+});
+
+describe("workout claims: checkCandidateWindow", () => {
+  const passedAtMs = Date.UTC(2026, 6, 1, 7, 0, 0);
+  const base = {
+    v: 1, d: "activity-candidate" as const, uid: "u1", boxIds: ["osm_1"], lat: 51.5, lng: -0.12,
+    passedAtMs, claimDate: "2026-07-01", sessionFp: "fp", source: "health_connect" as const,
+    origin: "com.fitbit.FitbitMobile", rm: "active" as const, issuedAtMs: passedAtMs + 3600_000, nonce: "n",
+  };
+  it("accepts a fresh, in-window token", () => {
+    assert.strictEqual(checkCandidateWindow(base, passedAtMs + 2 * 3600_000, W_GRACE_MS), null);
+  });
+  it("expires passes older than the window", () => {
+    assert.strictEqual(checkCandidateWindow(base, passedAtMs + W_GRACE_MS + 1, W_GRACE_MS), "expired");
+  });
+  it("refuses tokens older than the max token age", () => {
+    const old = { ...base, issuedAtMs: passedAtMs };
+    assert.strictEqual(checkCandidateWindow(old, passedAtMs + MAX_TOKEN_AGE_MS + 1, 72 * 3600_000), "stale_token");
+  });
+  it("refuses a claimDate that is not the pass's London day, and future passes", () => {
+    assert.strictEqual(checkCandidateWindow({ ...base, claimDate: "2026-07-02" }, passedAtMs + 3600_000, W_GRACE_MS), "bad_token");
+    assert.strictEqual(checkCandidateWindow(base, passedAtMs - 3600_000, W_GRACE_MS), "bad_token");
+  });
+});
+
+describe("workout claims: quotas", () => {
+  const limits = { maxSessions: 2, maxRouteM: 10_000 };
+  const now = 1_800_000_000_000;
+  it("charges a new route and records its fingerprint", () => {
+    const r = nextMatchQuota(undefined, "2026-07-01", now, { sessionFp: "f1", digest: "d1", lengthM: 3000 }, limits);
+    assert.ok(r.allowed && r.charged);
+    assert.strictEqual(r.state.sessions, 1);
+    assert.strictEqual(r.state.routeMetres, 3000);
+    assert.deepStrictEqual(r.state.seen.f1, { d: "d1", at: now });
+  });
+  it("re-matches an unchanged route free, and charges a rewritten one", () => {
+    const first = nextMatchQuota(undefined, "2026-07-01", now, { sessionFp: "f1", digest: "d1", lengthM: 3000 }, limits).state;
+    const again = nextMatchQuota(first, "2026-07-01", now + 1000, { sessionFp: "f1", digest: "d1", lengthM: 3000 }, limits);
+    assert.ok(again.allowed && !again.charged);
+    assert.strictEqual(again.state.sessions, 1);
+    const rewritten = nextMatchQuota(first, "2026-07-01", now + 1000, { sessionFp: "f1", digest: "d2", lengthM: 3000 }, limits);
+    assert.ok(rewritten.allowed && rewritten.charged);
+    assert.strictEqual(rewritten.state.sessions, 2);
+  });
+  it("refuses beyond the session cap or the distance cap", () => {
+    let s: unknown = undefined;
+    for (const fp of ["a", "b"]) s = nextMatchQuota(s, "2026-07-01", now, { sessionFp: fp, digest: "d", lengthM: 1000 }, limits).state;
+    assert.strictEqual(nextMatchQuota(s, "2026-07-01", now, { sessionFp: "c", digest: "d", lengthM: 1 }, limits).allowed, false);
+    assert.strictEqual(nextMatchQuota(undefined, "2026-07-01", now, { sessionFp: "x", digest: "d", lengthM: 10_001 }, limits).allowed, false);
+  });
+  it("resets counters on a new London day but keeps recent fingerprints", () => {
+    const s = nextMatchQuota(undefined, "2026-07-01", now, { sessionFp: "f1", digest: "d1", lengthM: 9000 }, limits).state;
+    const next = nextMatchQuota(s, "2026-07-02", now + 3600_000, { sessionFp: "f1", digest: "d1", lengthM: 9000 }, limits);
+    assert.ok(next.allowed && !next.charged);
+    assert.strictEqual(next.state.sessions, 0);
+    assert.strictEqual(next.state.routeMetres, 0);
+  });
+  it("prunes fingerprints older than the TTL and survives junk state", () => {
+    const s = normaliseQuota({ date: "2026-07-01", sessions: "x", seen: { old: { d: "d", at: now - SEEN_TTL_MS - 1 }, bad: 5 } }, "2026-07-01", now);
+    assert.deepStrictEqual(s.seen, {});
+    assert.strictEqual(s.sessions, 0);
+    assert.deepStrictEqual(normaliseQuota(null, "2026-07-01", now).seen, {});
+  });
+  it("caps claims per day and resets on rollover", () => {
+    let s: unknown = undefined;
+    for (let i = 0; i < 3; i++) {
+      const r = nextClaimQuota(s, "2026-07-01", now, 3);
+      assert.ok(r.allowed);
+      s = r.state;
+    }
+    assert.strictEqual(nextClaimQuota(s, "2026-07-01", now, 3).allowed, false);
+    assert.ok(nextClaimQuota(s, "2026-07-02", now, 3).allowed);
+  });
+});
+
+describe("workout claims: config", () => {
+  const tpl = (params: Record<string, string>) => ({
+    parameters: Object.fromEntries(Object.entries(params).map(([k, v]) => [k, { defaultValue: { value: v } }])),
+  });
+  it("sanitises the grace window into its band", () => {
+    assert.strictEqual(sanitiseActivityGraceHours("48"), 48);
+    assert.strictEqual(sanitiseActivityGraceHours(12), 12);
+    for (const bad of ["0", "500", "1.5", "", "abc", undefined, null]) {
+      assert.strictEqual(sanitiseActivityGraceHours(bad), DEFAULT_ACTIVITY_GRACE_HOURS);
+    }
+  });
+  it("parses a valid origin allowlist and rejects malformed ones", () => {
+    assert.deepStrictEqual(parseOriginAllowlist('["com.fitbit.FitbitMobile","com.strava","com.strava"]'), ["com.fitbit.FitbitMobile", "com.strava"]);
+    for (const bad of ["", "[]", "{}", "not json", '["no spaces allowed here"]', '["nodots"]', "[1]"]) {
+      assert.strictEqual(parseOriginAllowlist(bad), null, bad);
+    }
+  });
+  it("builds config from the CLIENT template's default values", () => {
+    const c = buildActivityConfig(tpl({
+      kill_switch_activity_claims: "true",
+      maintenance_mode: "false",
+      activity_claim_grace_hours: "24",
+      activity_origin_allowlist: '["com.strava"]',
+    }));
+    assert.strictEqual(c.killed, true);
+    assert.strictEqual(c.maintenance, false);
+    assert.strictEqual(c.graceHours, 24);
+    assert.deepStrictEqual(c.originAllowlist, ["com.strava"]);
+  });
+  it("falls back to defaults for an empty template, and ORs in server maintenance", () => {
+    const c = buildActivityConfig({}, true);
+    assert.strictEqual(c.killed, false);
+    assert.strictEqual(c.maintenance, true);
+    assert.strictEqual(c.graceHours, DEFAULT_ACTIVITY_GRACE_HOURS);
+    assert.deepStrictEqual(c.originAllowlist, [...DEFAULT_ACTIVITY_ORIGIN_ALLOWLIST]);
+    assert.strictEqual(buildActivityConfig(tpl({ maintenance_mode: "true" })).maintenance, true);
+  });
+  it("the default allowlist parses with the same validator and excludes Health Connect itself", () => {
+    assert.deepStrictEqual(parseOriginAllowlist(JSON.stringify(DEFAULT_ACTIVITY_ORIGIN_ALLOWLIST)), [...DEFAULT_ACTIVITY_ORIGIN_ALLOWLIST]);
+    assert.ok(!DEFAULT_ACTIVITY_ORIGIN_ALLOWLIST.includes("com.google.android.apps.healthdata"));
+    assert.ok(DEFAULT_ACTIVITY_ORIGIN_ALLOWLIST.includes("com.sec.android.app.shealth"));
+  });
+  it("the audience gate defaults to admin and fails closed", () => {
+    assert.strictEqual(activityClaimsAudience({}), "admin");
+    assert.strictEqual(activityClaimsAudience({ ACTIVITY_CLAIMS_AUDIENCE: "ALL" }), "all");
+    assert.strictEqual(activityClaimsAudience({ ACTIVITY_CLAIMS_AUDIENCE: "off" }), "off");
+    assert.strictEqual(activityClaimsAudience({ ACTIVITY_CLAIMS_AUDIENCE: "everyone" }), "admin");
+    assert.strictEqual(inActivityAudience("admin", { admin: true }), true);
+    assert.strictEqual(inActivityAudience("admin", { admin: "true" }), false);
+    assert.strictEqual(inActivityAudience("admin", undefined), false);
+    assert.strictEqual(inActivityAudience("all", undefined), true);
+    assert.strictEqual(inActivityAudience("off", { admin: true }), false);
+  });
+  it("eligible exercise types are on-foot only", () => {
+    assert.deepStrictEqual([...ELIGIBLE_EXERCISE_TYPES], ["walking", "running", "hiking"]);
+  });
+});
+
+describe("workout claims: assertActivityClaimsOpen", () => {
+  afterEach(() => setActivityConfigLoaderForTest(async () => FALLBACK_ACTIVITY_CONFIG));
+  const code = async (p: Promise<unknown>) => {
+    try { await p; return "ok"; } catch (e) { return (e as { code?: string }).code; }
+  };
+  it("refuses callers outside the audience before reading config", async () => {
+    assert.strictEqual(await code(assertActivityClaimsOpen({}, {})), "permission-denied");
+    assert.strictEqual(await code(assertActivityClaimsOpen({ admin: true }, { ACTIVITY_CLAIMS_AUDIENCE: "off" })), "permission-denied");
+  });
+  it("honours the kill switch and maintenance", async () => {
+    setActivityConfigLoaderForTest(async () => ({ ...FALLBACK_ACTIVITY_CONFIG, killed: true }));
+    assert.strictEqual(await code(assertActivityClaimsOpen({ admin: true }, {})), "failed-precondition");
+    setActivityConfigLoaderForTest(async () => ({ ...FALLBACK_ACTIVITY_CONFIG, maintenance: true }));
+    assert.strictEqual(await code(assertActivityClaimsOpen({}, { ACTIVITY_CLAIMS_AUDIENCE: "all" })), "unavailable");
+    setActivityConfigLoaderForTest(async () => FALLBACK_ACTIVITY_CONFIG);
+    assert.strictEqual(await code(assertActivityClaimsOpen({ admin: true }, {})), "ok");
+  });
+});
+
+describe("workout claims: validateActivitySubmission / prepareRoute", () => {
+  const t0 = Date.UTC(2026, 6, 1, 8, 0, 0);
+  const now = t0 + 3600_000;
+  const pts = wEastRoute(W_ORIGIN, t0, 31, 10, 5000);
+  const payload = (over: Record<string, unknown> = {}, sessionOver: Record<string, unknown> = {}) => ({
+    source: "health_connect",
+    session: {
+      id: "0a1b2c3d-1111-2222-3333-444455556666", lastModifiedMs: t0 + 200_000, exerciseType: "running",
+      originPackage: "com.fitbit.FitbitMobile", recordingMethod: "active",
+      startMs: t0, endMs: pts[pts.length - 1].tMs, ...sessionOver,
+    },
+    route: { dtMs: pts.map((p) => p.tMs - t0), lat: pts.map((p) => p.lat), lng: pts.map((p) => p.lng) },
+    ...over,
+  });
+  const expectInvalid = (data: unknown) => {
+    assert.throws(() => validateActivitySubmission(data), (e: unknown) => (e as { code?: string }).code === "invalid-argument");
+  };
+  it("normalises the compact wire format to absolute-time points", () => {
+    const s = validateActivitySubmission(payload());
+    assert.strictEqual(s.points.length, pts.length);
+    assert.strictEqual(s.points[3].tMs, pts[3].tMs);
+    assert.strictEqual(s.exerciseType, "running");
+  });
+  it("rejects malformed payloads with invalid-argument", () => {
+    expectInvalid(null);
+    expectInvalid(payload({ source: "strava" }));
+    expectInvalid(payload({}, { id: "has spaces" }));
+    expectInvalid(payload({}, { id: "x".repeat(65) }));
+    expectInvalid(payload({}, { recordingMethod: "guessed" }));
+    expectInvalid(payload({}, { startMs: "soon" }));
+    expectInvalid(payload({ route: { dtMs: [0, 1], lat: [51.5], lng: [-0.1, -0.1] } }));
+    expectInvalid(payload({ route: { dtMs: [0, NaN], lat: [51.5, 51.5], lng: [-0.1, -0.1] } }));
+    expectInvalid(payload({ route: null }));
+  });
+  const cfg: ActivityConfig = FALLBACK_ACTIVITY_CONFIG;
+  const verdict = (data: unknown) => {
+    const r = prepareRoute(validateActivitySubmission(data), cfg, now);
+    return r.ok ? "ok" : r.reason;
+  };
+  it("returns per-session verdicts for manual entries, unknown apps and other sports", () => {
+    assert.strictEqual(verdict(payload()), "ok");
+    assert.strictEqual(verdict(payload({}, { recordingMethod: "manual" })), "manual_entry");
+    assert.strictEqual(verdict(payload({}, { originPackage: "com.example.gpxfaker" })), "origin_not_supported");
+    assert.strictEqual(verdict(payload({}, { exerciseType: "biking" })), "exercise_type_not_supported");
+    assert.strictEqual(verdict(payload({}, { recordingMethod: "unknown" })), "ok");
+  });
+  it("passes geometry verdicts through and digests a good route", () => {
+    const r = prepareRoute(validateActivitySubmission(payload()), cfg, pts[pts.length - 1].tMs + W_GRACE_MS + 1);
+    assert.deepStrictEqual(r, { ok: false, reason: "expired" });
+    const ok = prepareRoute(validateActivitySubmission(payload()), cfg, now);
+    assert.ok(ok.ok && ok.digest.length === 16 && ok.lengthM > 290);
+  });
+});
+
+describe("workout claims: findCandidates (fake Firestore)", () => {
+  const secret = "s3cret";
+  const t0 = Date.now() - 2 * 3600_000;
+  const route = wEastRoute(W_ORIGIN, t0, 41, 10, 5000); // 400 m east
+  const day = getLondonDayOf(new Date(t0 + 50_000));
+  const b1 = wNorth(wEast(W_ORIGIN, 100), 10);
+  const b2 = wNorth(wEast(W_ORIGIN, 105), -10); // grouped with b1
+  const b3 = wNorth(wEast(W_ORIGIN, 250), 12);
+  const b4 = wNorth(wEast(W_ORIGIN, 320), 8); // already claimed today-of-pass
+  const pruned = wNorth(wEast(W_ORIGIN, 200), 5);
+  const far = wNorth(wEast(W_ORIGIN, 200), 80);
+  const { db } = makeFakeDb({
+    postbox: {
+      osm_1: boxAt(b1.lat, b1.lng, { monarch: "VR" }),
+      osm_2: boxAt(b2.lat, b2.lng, { monarch: "EIIR" }),
+      osm_3: boxAt(b3.lat, b3.lng),
+      osm_4: boxAt(b4.lat, b4.lng, { monarch: "GR" }),
+      osm_pruned: boxAt(pruned.lat, pruned.lng, { removedFromOsm: true }),
+      osm_far: boxAt(far.lat, far.lng),
+    },
+    claims: {
+      [`u1_osm_4_${day}`]: { userid: "u1", dailyDate: day, postboxes: "/postbox/osm_4" },
+      [`u2_osm_3_${day}`]: { userid: "u2", dailyDate: day, postboxes: "/postbox/osm_3" },
+    },
+  });
+  const sub: RouteSubmission = {
+    source: "health_connect", sessionId: "sess-1", originPackage: "com.fitbit.FitbitMobile",
+    recordingMethod: "active", exerciseType: "running", startMs: t0, endMs: route[route.length - 1].tMs, points: route,
+  };
+  const gameCfg = { claimRadiusMeters: 30, pointsOverride: null, ...offlineDefaults };
+
+  it("returns grouped, signed candidates and skips claimed, pruned and distant boxes", async () => {
+    const prepared = prepareRoute(sub, FALLBACK_ACTIVITY_CONFIG, Date.now());
+    assert.ok(prepared.ok);
+    if (!prepared.ok) return;
+    const r = await findCandidates(db, "u1", sub, prepared, gameCfg, FALLBACK_ACTIVITY_CONFIG, secret, Date.now());
+    assert.ok(r.ok);
+    if (!r.ok) return;
+    assert.strictEqual(r.alreadyClaimed, 1); // osm_4 by u1 (u2's claim of osm_3 doesn't count)
+    assert.strictEqual(r.expiredPasses, 0);
+    assert.strictEqual(r.truncated, false);
+    assert.strictEqual(r.candidates.length, 2);
+    const tokens = r.candidates.map((c) => verifyActivityCandidate(c.token, "u1", secret)!);
+    assert.deepStrictEqual(tokens.map((t) => t.boxIds), [["osm_1", "osm_2"], ["osm_3"]]);
+    assert.deepStrictEqual(r.candidates[0].boxes, [{ monarch: "VR", points: 7 }, { monarch: "EIIR", points: 2 }]);
+    assert.strictEqual(r.candidates[0].claimDate, day);
+    assert.strictEqual(tokens[0].claimDate, day);
+    assert.strictEqual(tokens[0].origin, "com.fitbit.FitbitMobile");
+    // The DTO itself carries no coordinates (only the token does).
+    for (const c of r.candidates) {
+      assert.deepStrictEqual(Object.keys(c).sort(), ["boxes", "claimDate", "key", "passedAtMs", "token"]);
+    }
+  });
+  it("counts passes that fell out of the claim window as expired", async () => {
+    const prepared = prepareRoute(sub, FALLBACK_ACTIVITY_CONFIG, Date.now());
+    if (!prepared.ok) throw new Error("prepare failed");
+    const tight: ActivityConfig = { ...FALLBACK_ACTIVITY_CONFIG, graceHours: 1 };
+    const r = await findCandidates(db, "u1", sub, prepared, gameCfg, tight, secret, Date.now());
+    assert.ok(r.ok && r.candidates.length === 0 && r.expiredPasses > 0);
+  });
+  it("caps candidates per session", () => {
+    assert.ok(MAX_CANDIDATES_PER_SESSION >= 20 && MAX_CANDIDATES_PER_SESSION <= 200);
+  });
+});
+
+describe("workout claims: claim core provenance", () => {
+  const ts = adminRet.firestore.Timestamp.fromMillis(1_800_000_000_000);
+  const base = { userid: "u1", postboxKey: "osm_1", points: 7, claimDate: "2027-01-15", lat: 51.5, lng: -0.12, timestamp: ts, eventTime: ts };
+  const activity = { source: "health_connect", origin: "com.fitbit.FitbitMobile", recordingMethod: "active", sessionFp: "fp", lagMs: 3600_000 };
+  it("buildClaimData writes the activity provenance fields", () => {
+    const d = buildClaimData({ ...base, activity });
+    assert.strictEqual(d.activity, true);
+    assert.strictEqual(d.activitySource, "health_connect");
+    assert.strictEqual(d.activityOrigin, "com.fitbit.FitbitMobile");
+    assert.strictEqual(d.activityRecordingMethod, "active");
+    assert.strictEqual(d.activitySessionFp, "fp");
+    assert.strictEqual(d.activityLagMs, 3600_000);
+    assert.strictEqual(d.offline, undefined);
+  });
+  it("buildClaimData refuses a claim that is both offline and activity", () => {
+    assert.throws(() => buildClaimData({ ...base, activity, offline: { queuedForMs: 1, batchSize: 1, batchSpanMs: 0 } }));
+  });
+  it("a live claim carries no activity fields", () => {
+    const d = buildClaimData(base);
+    assert.ok(!Object.keys(d).some((k) => k.startsWith("activity")));
+  });
+  it("restrictLookup narrows the in-range set and its total", () => {
+    const res: LookupResult = {
+      postboxes: { osm_1: { monarch: "VR" }, osm_2: { monarch: "EIIR" }, osm_3: {} },
+      counts: { total: 3, claimedToday: 0 },
+      points: { max: 7, min: 2 },
+      compass: {},
+    };
+    const r = restrictLookup(res, ["osm_2", "osm_9"]);
+    assert.deepStrictEqual(Object.keys(r.postboxes), ["osm_2"]);
+    assert.strictEqual(r.counts.total, 1);
+    assert.strictEqual(restrictLookup(res, undefined), res);
+    assert.strictEqual(restrictLookup(res, []).counts.total, 0);
+  });
+  it("CLAIM_PII_FIELDS strips the workout provenance but keeps the activity flag", () => {
+    for (const f of ["activityOrigin", "activityRecordingMethod", "activitySessionFp", "activityLagMs"]) {
+      assert.ok((CLAIM_PII_FIELDS_W as readonly string[]).includes(f), f);
+    }
+    assert.ok(!(CLAIM_PII_FIELDS_W as readonly string[]).includes("activity"));
+    assert.ok(!(CLAIM_PII_FIELDS_W as readonly string[]).includes("activitySource"));
+  });
+});
+
+describe("workout claims: abuse signal wiring", () => {
+  const base = { serverTsMs: 1_800_000_000_000, coordRepeatCount: 0, distinctDeviceAccounts: 0 };
+  it("flags a claim near the end of the window, a dense session and a shared session", () => {
+    const r = evaluateClaimSignalsW({
+      ...base, activity: true, activityLagMs: 35 * 3600_000, activityGraceMs: W_GRACE_MS,
+      activitySessionClaims: ACTIVITY_DENSE_SESSION_MIN, activitySessionAccounts: 2,
+    });
+    assert.deepStrictEqual(r.reasons, ["activity_near_ceiling", "activity_dense_session", "activity_shared_session"]);
+    assert.strictEqual(r.severity, "high");
+    assert.strictEqual(r.signals.activitySessionAccounts, 2);
+  });
+  it("is silent for an ordinary workout claim and ignores activity inputs on live claims", () => {
+    const quiet = evaluateClaimSignalsW({
+      ...base, activity: true, activityLagMs: 3600_000, activityGraceMs: W_GRACE_MS, activitySessionClaims: 3, activitySessionAccounts: 1,
+    });
+    assert.deepStrictEqual(quiet.reasons, []);
+    const live = evaluateClaimSignalsW({ ...base, activityLagMs: 35 * 3600_000, activityGraceMs: W_GRACE_MS, activitySessionAccounts: 5 });
+    assert.deepStrictEqual(live.reasons, []);
+  });
+});
+
+describe("workout claims callables — App Check, auth & validation", function (this: Mocha.Suite) {
+  this.timeout(10000);
+  before(() => setActivityConfigLoaderForTest(async () => FALLBACK_ACTIVITY_CONFIG));
+  after(() => setActivityConfigLoaderForTest(null));
+  const wrappedMatch = testEnv.wrap(myFunctions.matchActivityRoute) as (data: unknown) => Promise<unknown>;
+  const wrappedClaim = testEnv.wrap(myFunctions.claimActivityPostbox) as (data: unknown) => Promise<unknown>;
+  const app = { appId: "test-app" };
+  const code = async (p: Promise<unknown>) => {
+    try { await p; return "ok"; } catch (e) { return (e as { code?: string }).code; }
+  };
+  it("both refuse a request without App Check", async () => {
+    assert.strictEqual(await code(wrappedMatch({ data: {}, auth: { uid: "u1", token: { admin: true } } })), "failed-precondition");
+    assert.strictEqual(await code(wrappedClaim({ data: {}, auth: { uid: "u1", token: { admin: true } } })), "failed-precondition");
+  });
+  it("both refuse a signed-out caller", async () => {
+    assert.strictEqual(await code(wrappedMatch({ data: {}, app })), "unauthenticated");
+    assert.strictEqual(await code(wrappedClaim({ data: {}, app })), "unauthenticated");
+  });
+  it("both refuse a non-admin while the audience is admin-only (the default)", async () => {
+    assert.strictEqual(await code(wrappedMatch({ data: {}, app, auth: { uid: "u1", token: {} } })), "permission-denied");
+    assert.strictEqual(await code(wrappedClaim({ data: {}, app, auth: { uid: "u1", token: {} } })), "permission-denied");
+  });
+  it("matchActivityRoute rejects a malformed payload; claimActivityPostbox requires an attemptId", async () => {
+    const auth = { uid: "u1", token: { admin: true } };
+    assert.strictEqual(await code(wrappedMatch({ data: { source: "health_connect" }, app, auth })), "invalid-argument");
+    assert.strictEqual(await code(wrappedClaim({ data: { token: "x" }, app, auth })), "invalid-argument");
+    assert.strictEqual(await code(wrappedClaim({ data: { token: "x", attemptId: "bad/id" }, app, auth })), "invalid-argument");
   });
 });

@@ -92,3 +92,57 @@ export function verifyScanToken(
     return null;
   }
 }
+
+// ── Domain-separated tokens (workout claims) ────────────────────────────────
+//
+// Other token kinds reuse the same Secret Manager secret but sign with a key
+// DERIVED per domain. Without that, a workout-candidate token (which also
+// carries uid/lat/lng/issuedAtMs/nonce) signed with the raw secret would pass
+// verifyScanToken and could anchor offline captures; the derived key makes
+// each kind unforgeable from any other. The scan-token functions above are
+// deliberately untouched so every outstanding scanId stays valid.
+
+export type TokenDomain =
+  | "activity-candidate"
+  | "activity-session-fp"
+  | "activity-candidate-key";
+
+/** HMAC(secret, "postbox-game/v1/" + domain) — the per-domain signing key. */
+export function deriveDomainKey(secret: string, domain: TokenDomain): Buffer {
+  return createHmac("sha256", secret).update(`postbox-game/v1/${domain}`).digest();
+}
+
+/** Keyed digest of [value] in [domain], base64url, truncated to [chars]. */
+export function domainDigest(value: string, secret: string, domain: TokenDomain, chars = 22): string {
+  return createHmac("sha256", deriveDomainKey(secret, domain)).update(value).digest("base64url").slice(0, chars);
+}
+
+/** Sign [payload] (which must carry `d: domain`) as body.mac with the derived key. */
+export function signDomainToken(payload: { d: TokenDomain } & object, secret: string, domain: TokenDomain): string {
+  if (payload.d !== domain) throw new Error("token payload domain mismatch");
+  const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const mac = createHmac("sha256", deriveDomainKey(secret, domain)).update(body).digest("base64url");
+  return `${body}.${mac}`;
+}
+
+/** Verify a domain token: derived-key signature (timing-safe) and a payload
+ *  whose `d` equals [domain]. Returns the parsed payload object or null on ANY
+ *  failure; field-level validation is the caller's job. Never throws. */
+export function verifyDomainToken(token: string, secret: string, domain: TokenDomain): Record<string, unknown> | null {
+  try {
+    if (typeof token !== "string") return null;
+    const parts = token.split(".");
+    if (parts.length !== 2) return null;
+    const [body, mac] = parts;
+    const expected = createHmac("sha256", deriveDomainKey(secret, domain)).update(body).digest();
+    const given = Buffer.from(mac, "base64url");
+    if (given.length !== expected.length || !timingSafeEqual(given, expected)) return null;
+    const parsed = JSON.parse(Buffer.from(body, "base64url").toString()) as unknown;
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null;
+    const obj = parsed as Record<string, unknown>;
+    if (obj.d !== domain) return null;
+    return obj;
+  } catch {
+    return null;
+  }
+}
