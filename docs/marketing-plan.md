@@ -20,7 +20,7 @@ The Postbox Game is live on both stores. Android (phone and Wear OS) is on Googl
 With one or two hours a week and no budget, the plan rests on three bets:
 
 1. **Every player is a recruiter.** Invite links open the app and add the friend in both directions. Every peak moment produces a share card that carries the sharer's invite link: a rare find, a streak milestone, a finished route. A rating prompt after good moments raises store ranking. These are built once and keep working without the owner.
-2. **A niche-community launch burst, led by [r/Postboxes](https://www.reddit.com/r/Postboxes/).** The people who already care about postbox cyphers are the people most likely to evangelise a game about them. Start with r/Postboxes and the Letter Box Study Group, then add one community a week, with every link tracked. Keep the channels that produce installs and drop the ones that don't.
+2. **A niche-community launch burst, led by [r/Postboxes](https://www.reddit.com/r/Postboxes/).** The people who already care about postbox cyphers are the people most likely to evangelise a game about them. Start with r/Postboxes and the Letter Box Study Group, then add one community a week, with every link tracked. Keep the channels that produce installs and drop the ones that don't. **Update, 3 November 2026:** moderators removed both the r/Postboxes and the r/CasualUK launch posts, and r/CasualUK banned the account permanently. Reddit is now ask-first only (§4.2), and the burst leans on channels where permission is asked anyway: the LBSG, the OSM UK forum and the January press push.
 3. **Seasonal, data-led content and store optimisation, about an hour a week.** The postbox dataset is a story generator. Only 143 Edward VIII boxes are mapped, and fewer Charles III boxes are mapped than that. Pair that data with dated hooks: the pillar box anniversary each 23 November, Christmas posting, January walking resolutions, and the 175th anniversary in November 2027 as the year's main PR moment.
 
 **First 90 days:** ship the invite loop before iOS approval. Launch on r/Postboxes the day the iPhone app goes live, run one tracked community post a week, run a "Victorian Christmas" Remote Config event in December, and make a press push in the first week of January.
@@ -139,6 +139,8 @@ The `/get` page forwards `src` into the store links: App Store `ct=<channel>` (w
 
 **Kill rule:** drop a channel after **two attempts with fewer than 5 tracked installs** between them. Put the time into the next one on the list.
 
+**A removal or a ban ends a channel at once.** Never repost removed content, and never use another account to get round a ban: that breaks Reddit's sitewide rules and risks the whole account, which would close every Reddit channel at once.
+
 ### 4.1 Store featuring and ASO
 
 About 2 hours once, then 15 minutes a month.
@@ -155,11 +157,11 @@ About 2 hours once, then 15 minutes a month.
 
 ### 4.2 Launch communities: r/Postboxes first, then one a week
 
-**Rules first, every time.** Read each community's rules and pinned posts before posting. Many subreddits limit self-promotion or require you to take part beyond your own links. Post only where "I made this" posts are welcome. Always say you're the maker.
+**Ask the mods first, every time.** Reading the rules was not enough. On 3 November 2026 both launch posts were removed: r/Postboxes gave no reason, and r/CasualUK cited its Rule 5 (advertising is not permitted; surveys, AMAs and PSAs need prior approval) and banned the account permanently. Before posting in any subreddit, take part there for a while, then send the mods a short modmail (draft in §4.6a) and post only after a written yes. Removals close together make a new account look like spam to Reddit itself, so leave a clear gap after any removal. Always say you're the maker.
 
 **[r/Postboxes](https://www.reddit.com/r/Postboxes/) is the home community, not a one-off post.**
-- **Launch post there first,** on the day the iPhone app goes live (draft in §4.6a).
-- **Then 15 minutes a week:** reply to threads, share one rare find (a share card, or a player's photo with permission), and post a monthly "rarest boxes claimed this month" titbit from the data.
+- **The launch post (draft in §4.6a) was removed on 3 November 2026.** Look for the removal reason (a removal comment on the post, or the Reddit inbox). Comment helpfully, with no links, for a week or two, then send the modmail in §4.6a. Repost only if the mods say yes.
+- **Then 15 minutes a week:** reply to threads and help with cypher questions. Until the mods approve, no links, share cards or app mentions. After a yes, and only as far as the mods allow: one rare find a week (a share card, or a player's photo with permission) and a monthly "rarest boxes claimed this month" titbit from the data.
 - **Ask for help with cypher identification.** About 30% of mapped boxes have no cypher recorded, and the in-app "report wrong or missing cypher" flow turns the sub's expertise into OpenStreetMap fixes. That makes the sub a partner, not an audience.
 
 **The staggered list** (one a week, about 45 minutes each including replies, best fit first):
@@ -167,7 +169,7 @@ About 2 hours once, then 15 minutes a month.
 | Week | Channel | Angle | `src` tag |
 |---|---|---|---|
 | 1 | r/Postboxes | Home community, launch post | `reddit_postboxes` |
-| 2 | r/CasualUK | A gentle British pastime, made into a game | `reddit_casualuk` |
+| 2 | ~~r/CasualUK~~ | **Banned 3 Nov 2026** under Rule 5 (no advertising). Closed for good | ~~`reddit_casualuk`~~ |
 | 3 | LBSG, by email | Their members' knowledge puts them top of the leaderboards; ask for a newsletter mention (draft in §4.6c) | `lbsg` |
 | 4 | OSM UK community forum plus a weeklyOSM news tip | A game that turns walkers into OSM data fixers (reports produce `.osc` changesets) | `osm_forum`, `weeklyosm` |
 | 5 | r/WearOS | A real standalone Wear game with a tile and complications | `reddit_wearos` |
@@ -175,6 +177,8 @@ About 2 hours once, then 15 minutes a month.
 | 7 | r/AndroidGaming and r/iosgaming | Free, no ads, UK-only walking game | `reddit_androidgaming`, `reddit_iosgaming` |
 | 8 | Local history and walking Facebook groups (2–3 groups) | **Ask admins first.** Local rarity angle from the county table (§4.6d) | `facebook_groups` |
 | 9 | r/FlutterDev | "Built with Flutter": Wear, offline claims, fuzzy compass | `reddit_flutterdev` |
+
+Every subreddit row needs a written yes from that sub's mods before anything is posted, so send the modmail a week or two before the row's slot. The LBSG, OSM forum and Facebook rows already ask first.
 
 ### 4.3 Data-led press: two bursts a year
 
@@ -226,7 +230,19 @@ About 1 hour a month.
 >
 > https://the-postbox-game.web.app/get?src=reddit_postboxes
 
-_(Check the sub's rules first. If self-promotion needs mod approval, message the mods with this text.)_
+_(Removed by the r/Postboxes mods on 3 November 2026. Don't repost it. Send the modmail below, and use this text only if the mods approve.)_
+
+**Modmail to the mods first.** Written for r/Postboxes after the removal; for a sub you haven't posted in, drop the apology and adapt the last paragraph.
+
+> **Subject:** My postbox game post
+>
+> Hi mods, sorry about the post you removed. I'm the maker of The Postbox Game, a free game where you claim real postboxes by naming their royal cypher (no ads, no purchases). I should have asked before posting.
+>
+> Would you be happy for it to appear here in any form? A post you approve first, a mention in a megathread, or not at all are all fine.
+>
+> I hoped to share it with this sub in particular because about a third of the 90,000 postboxes on OpenStreetMap have no cypher recorded. The app has a button for reporting wrong or missing cyphers, with photos, and accepted fixes go back to OpenStreetMap. Nobody knows cyphers better than this sub, so I'd value your help even if the answer on promotion is no.
+>
+> Thanks for running the place.
 
 #### b) Generic community post template
 
@@ -319,7 +335,7 @@ Most mapped Charles III boxes: Hampshire 8, Kent 6, Devon 4, West Sussex 4, Nort
 | Channel | `src` / `ct` / `utm_source` | Link |
 |---|---|---|
 | r/Postboxes | `reddit_postboxes` | https://the-postbox-game.web.app/get?src=reddit_postboxes |
-| r/CasualUK | `reddit_casualuk` | https://the-postbox-game.web.app/get?src=reddit_casualuk |
+| ~~r/CasualUK~~ (banned) | ~~`reddit_casualuk`~~ | Don't use |
 | LBSG | `lbsg` | https://the-postbox-game.web.app/get?src=lbsg |
 | OSM UK forum | `osm_forum` | https://the-postbox-game.web.app/get?src=osm_forum |
 | weeklyOSM | `weeklyosm` | https://the-postbox-game.web.app/get?src=weeklyosm |
@@ -433,16 +449,16 @@ Owner time is in brackets. "Eng" is engineering work done in the repo, not owner
 | **12 Oct** | **Before iOS approval:** Eng ships Phase 0 (hosting pages, `.well-known` files, invite functions, store-copy fix) and Phase 1 (invite loop, add back, notification timing, growth analytics). Owner: brand Gmail; Instagram and Facebook page; Meta Business Suite; budget alert | Ref, Act | 2 h |
 | **19 Oct** | Owner deploys hosting, functions and rules (§14); Play signing SHA-256 into `assetlinks.json`; Android release with Phase 1. Start a Play listing experiment (short description). Join r/Postboxes and read the rules | Ref, Acq | 1.5 h |
 | **26 Oct** | **iOS approval (expected; it came on 3 Nov):** featuring nomination; launch promotional text; **r/Postboxes launch post**. If review drags past 2 Nov, post anyway with "iPhone coming very soon" | Acq | 1.5 h |
-| **2 Nov** | **iOS live 3 Nov:** featuring nomination; Apple campaign provider token (§14); launch promotional text; the r/Postboxes launch post if it hasn't gone out. r/CasualUK post. (Associated Domains and the Phase 1 iOS build were already done: the approved build 454 carries both.) | Acq, Ref | 2 h |
+| **2 Nov** | **iOS live 3 Nov:** featuring nomination (done); Apple campaign provider token (done, §14); launch promotional text; r/Postboxes launch post and r/CasualUK post. **Outcome:** the mods removed both posts and r/CasualUK banned the account (§4.2), so Reddit is paused. (Associated Domains and the Phase 1 iOS build were already done: the approved build 454 carries both.) | Acq, Ref | 2 h |
 | **9 Nov** | LBSG email. Schedule the 23 November post | Acq | 1 h |
-| **16 Nov** | OSM UK forum post plus weeklyOSM tip. Keyword review (30 days of data) | Acq | 1.5 h |
-| **23 Nov** | **Pillar box anniversary** (St Helier, 1852) post: warm-up for the 175th. r/WearOS post | Acq | 1 h |
-| **30 Nov** | Prepare "Victorian Christmas": submit the In-App Event, schedule posts, Christmas promotional text. r/geocaching post | Ret, Acq | 1.5 h |
+| **16 Nov** | OSM UK forum post plus weeklyOSM tip (check the forum's rules on announcements first). Keyword review (30 days of data). Modmails (§4.6a): r/Postboxes, plus r/WearOS and r/geocaching asking about their slots | Acq | 2 h |
+| **23 Nov** | **Pillar box anniversary** (St Helier, 1852) post: warm-up for the 175th. r/WearOS post, only with the mods' written yes | Acq | 1 h |
+| **30 Nov** | Prepare "Victorian Christmas": submit the In-App Event, schedule posts, Christmas promotional text. r/geocaching post, only with the mods' written yes | Ret, Acq | 1.5 h |
 | **7 Dec** | Eng ships Phase 2 (share cards, rating prompt). Featuring nomination for the update | Ref | 1 h |
 | **14 Dec** | **Victorian Christmas weekend:** flip Remote Config on Friday, off on Monday. Pick a weekend before Royal Mail's published last posting dates | Ret | 1 h |
 | **21 Dec** | Light week: dashboard and review replies only | n/a | 0.5 h |
 | **28 Dec** | January promotional text, Play experiment review, refresh press numbers, build the county pitch list | Acq | 1.5 h |
-| **4 Jan** | **Press burst 1** ("rarest postboxes" plus new-year walking). r/AndroidGaming and r/iosgaming | Acq | 3 h (one-off over budget) |
+| **4 Jan** | **Press burst 1** ("rarest postboxes" plus new-year walking). r/AndroidGaming and r/iosgaming, if their mods said yes (ask in December) | Acq | 3 h (one-off over budget) |
 
 Two weeks run over the 2-hour budget: the setup week (in effect) and the press week. Every other week fits.
 
@@ -473,7 +489,7 @@ Two weeks run over the 2-hour budget: the setup week (in effect) and the press w
 | Slot | What | Time |
 |---|---|---|
 | Dashboard | Installs by `src` channel (App Store Connect, Play Console); invites sent and accepted, shares and `first_claim` (Firebase Analytics); new ratings | 15 min |
-| r/Postboxes | Reply to threads; share one rare find or data titbit; point cypher questions at the in-app report | 15 min |
+| r/Postboxes | Reply to threads and help with cypher questions. No links or app mentions until the mods approve (§4.2); after that, one rare find or data titbit | 15 min |
 | One queued move | The week's community post or outreach email (§9) | 30 min |
 | Store reviews | Reply to every review on both stores | 15 min |
 | **Monthly** | Batch-schedule four social posts in Meta Business Suite; check the Play listing experiment | 60 min |
@@ -489,7 +505,7 @@ If a week is squeezed, cut in this order: the queued move first, then social. Ke
 | Invite links and codes, two-way friend add | **Now (built)** | Removes the biggest referral friction |
 | Share cards at peak moments | **Now (built)** | Every share is an ad plus an invite |
 | In-app rating prompt | **Now (built)** | Ratings feed ranking |
-| r/Postboxes as home community | **Now** | Highest fit, gives expert cypher help |
+| r/Postboxes as home community | **Now**, ask-first (launch post removed 3 Nov 2026) | Highest fit, gives expert cypher help |
 | Apple Featuring Nomination | **Now** | Free, 20 minutes |
 | Play store listing experiments | **Now** | Free A/B testing |
 | Seasonal promotional text | **Now** | 5 minutes, no release |
@@ -564,7 +580,7 @@ Do these in order. The engineering is already in the repo; these steps can't be 
 1. **Public support email.** `web/support.html` lists a personal address. Switch to the brand Gmail to keep the public face anonymous?
 2. **Families with children.** "Family walks" is a strong angle (Victorians is a primary-school history topic), but targeting children has implications for age rating and consent. The current position is to market to adults, with families as a side benefit.
 3. **Cosmetic referral badge** once badges ship (v1.8). Yes or no?
-4. **Android-first launch if iOS review drags.** Post on r/Postboxes with Android only after 2 November, or wait?
+4. ~~**Android-first launch if iOS review drags.** Post on r/Postboxes with Android only after 2 November, or wait?~~ Resolved: iOS was approved on 3 November 2026.
 5. **Named spokesperson for press burst 2 (the 175th)?** Press coverage would improve. Revisit in September 2027.
 6. **Custom domain.** Not free (about £10 a year). Revisit only if budget appears; the `web.app` domain works fine.
 
