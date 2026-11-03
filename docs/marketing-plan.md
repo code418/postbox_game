@@ -547,7 +547,7 @@ Do these in order. The engineering is already in the repo; these steps can't be 
 3. **Deploy** (when ready): `firebase deploy --only hosting,functions,firestore:rules`. Then check that `curl -sI https://the-postbox-game.web.app/.well-known/apple-app-site-association` returns `content-type: application/json`, not HTML. **Deploy hosting before any build with the link entitlement ships,** because Apple's CDN caches what it first sees.
 4. **App Store Connect:**
    - get your campaign provider token (`pt`): App Store Connect → Apps → The Postbox Game → **Analytics** → Acquisition → **Campaigns** → **+**, generate a link with any campaign name, and copy the number after `pt=` in it. It identifies the developer account, so it's the same for every campaign, and it isn't secret (it appears in every public campaign link). Campaigns only appears once the app has some analytics data, so this can't be done before launch and may take a few days after it. Put the number in `APPLE_PROVIDER_TOKEN` in `web/invite.html` and `web/get.html`, then `firebase deploy --only hosting`. Until then, App Store links carry no `ct` and iOS installs can't be split by channel. **Done 3 Nov 2026:** `pt=129562838` is in both pages; it takes effect at the next hosting deploy
-   - submit the **Featuring Nomination** ("new app launch") on approval day
+   - ~~submit the **Featuring Nomination** ("new app launch") on approval day~~ Done 3 Nov 2026. Next: an "app enhancements" nomination for the Phase 2 update (§9, week of 7 Dec)
    - at the next version, paste the fixed description (`fastlane/metadata/ios/en-GB/description.txt`, now "MEET YOUR GUIDE")
 5. **Accounts:**
    - create one free **brand Gmail** for social sign-ups, press and outreach
