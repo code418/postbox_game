@@ -33,7 +33,7 @@ subprojects { subproject ->
                 if (android.namespace == null) {
                     def manifest = file("${subproject.projectDir}/src/main/AndroidManifest.xml")
                     if (manifest.exists()) {
-                        def pkg = new XmlSlurper().parse(manifest).@package.text()
+                        def pkg = new groovy.xml.XmlSlurper().parse(manifest).@package.text()
                         if (pkg) android.namespace = pkg
                     }
                 }
@@ -58,7 +58,7 @@ subprojects { subproject ->
         if (android != null && android.namespace == null) {
             def manifest = file("${subproject.projectDir}/src/main/AndroidManifest.xml")
             if (manifest.exists()) {
-                def pkg = new XmlSlurper().parse(manifest).@package.text()
+                def pkg = new groovy.xml.XmlSlurper().parse(manifest).@package.text()
                 if (pkg) android.namespace = pkg
             }
         }
