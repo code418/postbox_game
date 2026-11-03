@@ -351,6 +351,7 @@ function loadFromFile(path: string): Candidate[] {
   try {
     return candidatesFromJson(parsed);
   } catch (err) {
+    // eslint-disable-next-line preserve-caught-error -- target ES2020 has no ErrorOptions; the message carries the cause
     throw new Error(`${path}: ${err instanceof Error ? err.message : String(err)}`);
   }
 }

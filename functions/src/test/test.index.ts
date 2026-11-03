@@ -947,7 +947,7 @@ describe("sanitiseName", () => {
 // by editing this assertion, which is a much louder signal than editing an
 // implicit literal.
 //
-// eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const profanityModule = require("../_profanityFilter") as {
   MIN_DISPLAY_NAME_CHARS: number;
   MAX_DISPLAY_NAME_CHARS: number;
@@ -3579,13 +3579,13 @@ describe("countySlug", () => {
   // anywhere. Checked exhaustively against the real asset rather than by
   // spot-checking two names, so regenerating the geojson can't slip past.
   describe("agrees with every slug baked into the geojson asset", () => {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const fs = require("fs");
-    // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const path = require("path");
     const assetPath = path.join(__dirname, "../../../assets/uk_counties_simplified.geojson");
     let features: Array<{ properties?: { name?: string; slug?: string } }> = [];
-    let loaded = false;
+    let loaded: boolean;
     try {
       features = JSON.parse(fs.readFileSync(assetPath, "utf8")).features;
       loaded = Array.isArray(features) && features.length > 0;
@@ -3628,9 +3628,9 @@ describe("county_lookup (point-in-polygon)", () => {
   // Lazy-require so test discovery doesn't load 1MB of geojson when the file
   // isn't present (e.g. fresh clone before backfill prep). Tests skip
   // gracefully in that case.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const counties = require("../../util/county_lookup");
-  let loaded = false;
+  let loaded: boolean;
   try {
     counties.load();
     loaded = true;
@@ -4551,7 +4551,7 @@ describe("filterToCorridor", () => {
 });
 
 describe("midpoint", () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const planner = require("../_routePlanner") as typeof import("../_routePlanner");
 
   it("averages lat/lng of two points", () => {
@@ -4573,7 +4573,7 @@ describe("midpoint", () => {
 });
 
 describe("metresBetween", () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const planner = require("../_routePlanner") as typeof import("../_routePlanner");
 
   it("returns 0 for coincident points", () => {
@@ -4811,7 +4811,7 @@ describe("routePostboxes pure detour logic", () => {
 describe("finaliseRoute", () => {
   // Pure helper used by the plan_route CLI to compute closing-leg metres /
   // seconds and total route stats after the beam search picks stops.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const planner = require("../_routePlanner") as typeof import("../_routePlanner");
 
   const start = { lat: 51.5000, lng: -0.1000 };
@@ -6179,7 +6179,7 @@ describe("getInviteCode / acceptInvite (onCall) — auth & validation", function
 });
 
 describe("plan_route CLI helpers", () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const cli = require("../scripts/plan_route") as typeof import("../scripts/plan_route");
 
   describe("parseLatLng", () => {
@@ -6402,7 +6402,7 @@ describe("plan_route CLI helpers", () => {
 });
 
 describe("route alternatives (_routePlanner)", () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const planner = require("../_routePlanner") as typeof import("../_routePlanner");
   type S = import("../_routePlanner").SearchState;
   const state = (ids: string[], score: number, timeUsed = 0): S => ({

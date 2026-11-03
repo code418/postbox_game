@@ -7,6 +7,36 @@ const Color postalGold = Color(0xFFFFB400);
 const Color royalNavy = Color(0xFF0A1931);
 const Color parchment = Color(0xFFFFF8F0);
 
+/// [base] with every style set in Plus Jakarta Sans.
+///
+/// Not `GoogleFonts.plusJakartaSansTextTheme`: from google_fonts 9 that helper
+/// returns `package:material_ui`'s `TextTheme`, a different class from the
+/// `package:flutter/material.dart` one `ThemeData` takes, so it no longer
+/// type-checks. `GoogleFonts.plusJakartaSans` returns a plain `TextStyle`, and
+/// this maps it over the styles exactly as the package helper does, so each
+/// style still loads the font variant matching its own weight.
+TextTheme plusJakartaSansTextTheme(TextTheme base) {
+  TextStyle font(TextStyle? style) =>
+      GoogleFonts.plusJakartaSans(textStyle: style);
+  return TextTheme(
+    displayLarge: font(base.displayLarge),
+    displayMedium: font(base.displayMedium),
+    displaySmall: font(base.displaySmall),
+    headlineLarge: font(base.headlineLarge),
+    headlineMedium: font(base.headlineMedium),
+    headlineSmall: font(base.headlineSmall),
+    titleLarge: font(base.titleLarge),
+    titleMedium: font(base.titleMedium),
+    titleSmall: font(base.titleSmall),
+    bodyLarge: font(base.bodyLarge),
+    bodyMedium: font(base.bodyMedium),
+    bodySmall: font(base.bodySmall),
+    labelLarge: font(base.labelLarge),
+    labelMedium: font(base.labelMedium),
+    labelSmall: font(base.labelSmall),
+  );
+}
+
 /// Semantic colour tokens engineered for WCAG AAA contrast in their intended
 /// pairings. Prefer these over raw `Colors.grey.*` or brand constants for any
 /// text or icon foreground.
@@ -84,7 +114,7 @@ class AppTheme {
     );
 
     return base.copyWith(
-      textTheme: GoogleFonts.plusJakartaSansTextTheme(base.textTheme),
+      textTheme: plusJakartaSansTextTheme(base.textTheme),
       appBarTheme: AppBarTheme(
         backgroundColor: AppColors.brandSurface,
         foregroundColor: Colors.white,
@@ -240,7 +270,7 @@ class AppTheme {
 
     const darkRed = AppColors.brandTextDark;
     return base.copyWith(
-      textTheme: GoogleFonts.plusJakartaSansTextTheme(base.textTheme),
+      textTheme: plusJakartaSansTextTheme(base.textTheme),
       appBarTheme: AppBarTheme(
         backgroundColor: const Color(0xFF1C1C1E),
         foregroundColor: Colors.white,

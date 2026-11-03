@@ -96,11 +96,18 @@ class NotificationService {
         await _waitForApnsToken(messaging);
       }
 
+      // firebase_messaging 17 deprecates getToken/onTokenRefresh/deleteToken in
+      // favour of register()/onRegistered, which yield a Firebase Installation
+      // ID for FCM's direct-send API. The backend (sendToUser) sends to FCM
+      // registration tokens, so the replacement isn't drop-in: switching needs
+      // a matching backend change. Keep the token API until then.
+      // ignore: deprecated_member_use
       final token = await messaging.getToken();
       if (token != null) {
         await _registerToken(token);
       }
 
+      // ignore: deprecated_member_use
       _tokenRefreshSub = messaging.onTokenRefresh.listen(_registerToken);
 
       // Configure flutter_local_notifications so FCM messages display when the
@@ -166,6 +173,8 @@ class NotificationService {
     _onMessageSub = null;
     _initialized = false;
     try {
+      // Deprecated in firebase_messaging 17; see the getToken note in _init().
+      // ignore: deprecated_member_use
       await FirebaseMessaging.instance.deleteToken();
     } catch (_) {
       // Token deletion is best-effort; failure does not block sign-out.
