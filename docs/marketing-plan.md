@@ -15,7 +15,7 @@ Engineering work that supports the plan is listed in §14 and in the "Growth" no
 
 ## 1. Executive summary
 
-The Postbox Game is ready for a two-store launch. Android (phone and Wear OS) is live on Google Play, and the iPhone build is in App Store review. The product already keeps players coming back: daily claims, streaks with a reminder push, friend pushes, county leaderboards, an Android widget, and a Wear tile and complications. What it lacked was any way for players to bring in other players. The only invite was a text message containing a 28-character account ID that the friend had to paste in by hand. There was nothing worth sharing, no link into the app, no rating prompt and no measurement of any of it.
+The Postbox Game is live on both stores. Android (phone and Wear OS) is on Google Play, and the iPhone app was approved for the [App Store](https://apps.apple.com/app/the-postbox-game/id6819213888) on 3 November 2026. The product already keeps players coming back: daily claims, streaks with a reminder push, friend pushes, county leaderboards, an Android widget, and a Wear tile and complications. What it lacked was any way for players to bring in other players. The only invite was a text message containing a 28-character account ID that the friend had to paste in by hand. There was nothing worth sharing, no link into the app, no rating prompt and no measurement of any of it.
 
 With one or two hours a week and no budget, the plan rests on three bets:
 
@@ -430,10 +430,10 @@ Owner time is in brackets. "Eng" is engineering work done in the repo, not owner
 
 | Week of | What | AARRR | Owner time |
 |---|---|---|---|
-| **12 Oct** | **Before iOS approval:** Eng ships Phase 0 (hosting pages, `.well-known` files, invite functions, store-copy fix) and Phase 1 (invite loop, add back, notification timing, growth analytics). Owner: brand Gmail; Instagram and Facebook page; Meta Business Suite; budget alert; Apple campaign provider token | Ref, Act | 2 h |
+| **12 Oct** | **Before iOS approval:** Eng ships Phase 0 (hosting pages, `.well-known` files, invite functions, store-copy fix) and Phase 1 (invite loop, add back, notification timing, growth analytics). Owner: brand Gmail; Instagram and Facebook page; Meta Business Suite; budget alert | Ref, Act | 2 h |
 | **19 Oct** | Owner deploys hosting, functions and rules (§14); Play signing SHA-256 into `assetlinks.json`; Android release with Phase 1. Start a Play listing experiment (short description). Join r/Postboxes and read the rules | Ref, Acq | 1.5 h |
-| **26 Oct** | **iOS approval (expected):** featuring nomination; launch promotional text; **r/Postboxes launch post**. If review drags past 2 Nov, post anyway with "iPhone coming very soon" | Acq | 1.5 h |
-| **2 Nov** | r/CasualUK post. Apple: Associated Domains plus a regenerated profile, then the next `build-ios` with Phase 1 | Acq, Ref | 1.5 h |
+| **26 Oct** | **iOS approval (expected; it came on 3 Nov):** featuring nomination; launch promotional text; **r/Postboxes launch post**. If review drags past 2 Nov, post anyway with "iPhone coming very soon" | Acq | 1.5 h |
+| **2 Nov** | **iOS live 3 Nov:** featuring nomination; Apple campaign provider token (§14); launch promotional text; the r/Postboxes launch post if it hasn't gone out. r/CasualUK post. Apple: Associated Domains plus a regenerated profile, then the next `build-ios` with Phase 1 | Acq, Ref | 2.5 h |
 | **9 Nov** | LBSG email. Schedule the 23 November post | Acq | 1 h |
 | **16 Nov** | OSM UK forum post plus weeklyOSM tip. Keyword review (30 days of data) | Acq | 1.5 h |
 | **23 Nov** | **Pillar box anniversary** (St Helier, 1852) post: warm-up for the 175th. r/WearOS post | Acq | 1 h |
@@ -543,10 +543,10 @@ If a week is squeezed, cut in this order: the queued move first, then social. Ke
 Do these in order. The engineering is already in the repo; these steps can't be automated.
 
 1. ~~**Play Console → App integrity:** confirm the fingerprints in `web/.well-known/assetlinks.json`.~~ Done 13 Oct 2026: `F9:13:80:66:…` matches Play's Digital Asset Links JSON (the app-signing key), and `3C:9F:79:DC:…` is the upload key, kept for the off-Play `auto` build.
-2. **Apple Developer → Identifiers → `com.code418.postboxGame` → enable Associated Domains.** Regenerate the App Store profile **with the same name**, "Postbox Game App Store". Do this after the current 1.5.x review is resolved and before the next `build-ios` run.
+2. **Apple Developer → Identifiers → `com.code418.postboxGame` → enable Associated Domains.** Regenerate the App Store profile **with the same name**, "Postbox Game App Store". The 1.5.x review is resolved (approved 3 November 2026), so do this before the next `build-ios` run.
 3. **Deploy** (when ready): `firebase deploy --only hosting,functions,firestore:rules`. Then check that `curl -sI https://the-postbox-game.web.app/.well-known/apple-app-site-association` returns `content-type: application/json`, not HTML. **Deploy hosting before any build with the link entitlement ships,** because Apple's CDN caches what it first sees.
 4. **App Store Connect:**
-   - get your campaign provider token (`pt`) from App Store Connect's campaign link generator (in app analytics) and put it in `APPLE_PROVIDER_TOKEN` in `web/invite.html` and `web/get.html`
+   - get your campaign provider token (`pt`): App Store Connect → Apps → The Postbox Game → **Analytics** → Acquisition → **Campaigns** → **+**, generate a link with any campaign name, and copy the number after `pt=` in it. It identifies the developer account, so it's the same for every campaign, and it isn't secret (it appears in every public campaign link). Campaigns only appears once the app has some analytics data, so this can't be done before launch and may take a few days after it. Put the number in `APPLE_PROVIDER_TOKEN` in `web/invite.html` and `web/get.html`, then `firebase deploy --only hosting`. Until then, App Store links carry no `ct` and iOS installs can't be split by channel. **Done 3 Nov 2026:** `pt=129562838` is in both pages; it takes effect at the next hosting deploy
    - submit the **Featuring Nomination** ("new app launch") on approval day
    - at the next version, paste the fixed description (`fastlane/metadata/ios/en-GB/description.txt`, now "MEET YOUR GUIDE")
 5. **Accounts:**
