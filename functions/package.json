@@ -4,7 +4,7 @@
   "main": "lib/index.js",
   "scripts": {
     "build": "tsc",
-    "lint": "eslint src --ext .ts",
+    "lint": "eslint src",
     "serve": "npm run build && firebase serve --only functions",
     "shell": "npm run build && firebase functions:shell",
     "start": "npm run shell",
@@ -26,16 +26,16 @@
     "ngeohash": "^0.6.3"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/mocha": "^10.0.0",
     "@types/node": "^25.9.1",
-    "@typescript-eslint/eslint-plugin": "^6.0.0",
-    "@typescript-eslint/parser": "^6.0.0",
-    "eslint": "^8.0.0",
+    "eslint": "^10.14.0",
     "eslint-plugin-promise": "^7.3.0",
     "firebase-functions-test": "^3.0.0",
     "mocha": "^10.0.0",
     "nyc": "^18.0.0",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "typescript-eslint": "^8.72.1"
   },
   "overrides": {
     "serialize-javascript": "^7.0.7",
