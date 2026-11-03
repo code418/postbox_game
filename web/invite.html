@@ -183,9 +183,9 @@
 </footer>
 <script>
   // App Store campaign provider token (App Store Connect > Analytics > Campaigns).
-  // Leave empty until the owner creates one: see the owner checklist in
-  // docs/marketing-plan.md. Apple ignores campaign links without it.
-  const APPLE_PROVIDER_TOKEN = '';
+  // It identifies the developer account, is the same for every campaign and is
+  // public in every campaign link. Empty = plain store links with no `ct`.
+  const APPLE_PROVIDER_TOKEN = '129562838';
   const APP_STORE_ID = '6819213888';
   const PLAY_PACKAGE = 'com.code418.postbox_game';
   const CODE_PATTERN = /^[0-9A-HJKMNP-TV-Z]{8}$/;
