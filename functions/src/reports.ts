@@ -428,7 +428,7 @@ export async function performReview(
     // within a single warm reviewReport instance cheap.
     try {
       const countyForPoint = opts.countyForPoint ?? (
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         require("../util/county_lookup") as {
           countyForPoint: (lat: number, lng: number) => string | null;
         }
