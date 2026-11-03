@@ -144,3 +144,6 @@ functions/audit_exports/
 # Feature worktrees (git worktree add .worktrees/<name>). Local scratch space
 # for in-flight branches; never source.
 /.worktrees/
+
+# Fonts the cypher artwork generator downloads (tool/cypher_art/README.md).
+tool/cypher_art/.cache/

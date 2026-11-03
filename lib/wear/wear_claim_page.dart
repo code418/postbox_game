@@ -19,6 +19,7 @@ import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/wear/wear_error_messages.dart';
 import 'package:postbox_game/wear/wear_round_inset.dart';
 import 'package:postbox_game/wear/wear_theme.dart';
+import 'package:postbox_game/widgets/cypher_art.dart';
 import 'package:postbox_game/widgets/quiz_helpers.dart';
 
 enum WearClaimStage {
@@ -663,39 +664,57 @@ class WearClaimView extends StatelessWidget {
           // A miss is signalled by the title alone (red + heavy haptic);
           // there is no room for a second hint line under it.
           Text(
-            quizMissed ? 'Not quite!' : 'Which cipher?',
+            quizMissed ? 'Not quite!' : 'Which cypher?',
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
                   color: quizMissed ? Colors.red : null,
                 ),
           ),
           const SizedBox(height: WearSpacing.md),
-          for (final (i, code) in quizOptions.indexed) ...[
-            if (i > 0) const SizedBox(height: WearSpacing.sm),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton(
-                onPressed: () => onQuizAnswer(code),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      code,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                      ),
-                    ),
-                    Text(
-                      watchMonarchLabel(code),
-                      style: Theme.of(context).textTheme.bodySmall,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
-              ),
+          // Side by side, so each cypher's plate gets half the inscribed
+          // square: the drawing is what the player matches against the box.
+          IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (final (i, code) in quizOptions.indexed) ...[
+                  if (i > 0) const SizedBox(width: 6),
+                  Expanded(child: _buildQuizTile(context, code)),
+                ],
+              ],
             ),
-          ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQuizTile(BuildContext context, String code) {
+    return OutlinedButton(
+      key: ValueKey('wear-quiz-$code'),
+      onPressed: () => onQuizAnswer(code),
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size(48, 48),
+        padding: const EdgeInsets.symmetric(
+          horizontal: WearSpacing.sm,
+          vertical: 6,
+        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          CypherPlate(code, height: 52, embossed: false),
+          const SizedBox(height: WearSpacing.sm),
+          Text(
+            watchMonarchLabel(code),
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context)
+                .textTheme
+                .titleSmall
+                ?.copyWith(height: 1.15),
+          ),
         ],
       ),
     );

@@ -134,6 +134,61 @@ void main() {
             reason: 'duplicate option produced for validCiphers=$valid');
       }
     });
+
+    test('never offers one George as a distractor for another', () {
+      // GR and GVR share artwork, and "George (V or VI)" fits GVIR too: a
+      // player at a George box must not be marked wrong for a fair pick.
+      const georges = {'GR', 'GVR', 'GVIR'};
+      for (final answer in georges) {
+        for (final maxOptions in [2, 4]) {
+          for (var i = 0; i < 200; i++) {
+            final opts = buildQuizOptions({answer}, maxOptions: maxOptions);
+            expect(opts, contains(answer));
+            expect(opts.where(georges.contains), [answer],
+                reason: 'look-alike distractor for $answer: $opts');
+            expect(opts, hasLength(maxOptions));
+          }
+        }
+      }
+    });
+
+    test('several Georges nearby are all shown', () {
+      for (var i = 0; i < 50; i++) {
+        final opts = buildQuizOptions({'GR', 'GVR'}, maxOptions: 4);
+        expect(opts, containsAll(['GR', 'GVR']));
+        expect(opts, isNot(contains('GVIR')),
+            reason: 'GVIR is a look-alike distractor here');
+      }
+    });
+
+    test('a non-George answer draws at most one George distractor', () {
+      const georges = {'GR', 'GVR', 'GVIR'};
+      final seen = <String>{};
+      for (var i = 0; i < 400; i++) {
+        final opts = buildQuizOptions({'EIIR'}, maxOptions: 4);
+        expect(opts.where(georges.contains).length, lessThanOrEqualTo(1),
+            reason: 'two look-alike distractors: $opts');
+        expect(opts, hasLength(4));
+        seen.addAll(opts);
+      }
+      // Each George still turns up as a distractor somewhere.
+      expect(seen, containsAll(georges));
+    });
+
+    test('no valid answers: four distractors, at most one George', () {
+      for (var i = 0; i < 200; i++) {
+        final opts = buildQuizOptions(const {}, maxOptions: 4);
+        expect(opts, hasLength(4));
+        expect(opts.where({'GR', 'GVR', 'GVIR'}.contains).length,
+            lessThanOrEqualTo(1));
+      }
+    });
+
+    test('look-alike groups only name quiz cyphers', () {
+      for (final group in kQuizLookAlikes) {
+        expect(MonarchInfo.all, containsAll(group));
+      }
+    });
   });
 }
 

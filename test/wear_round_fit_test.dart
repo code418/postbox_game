@@ -25,6 +25,7 @@ import 'package:firebase_core_platform_interface/test.dart';
 import 'package:firebase_remote_config/firebase_remote_config.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:google_sign_in/google_sign_in.dart';
@@ -99,6 +100,7 @@ void expectFitsRoundScreen(WidgetTester tester, {String? state}) {
       w is Text ||
       w is Icon ||
       w is FaIcon ||
+      w is SvgPicture ||
       w is ButtonStyleButton ||
       w is CircularProgressIndicator ||
       w is Switch ||
@@ -218,8 +220,9 @@ void main() {
   });
 
   group('claim page states fit', () {
-    // Worst-case content for each stage: longest messages, two two-line quiz
-    // options, a multi-claim success with points and a streak line.
+    // Worst-case content for each stage: longest messages, two quiz tiles
+    // whose names wrap to two lines, a multi-claim success with points and a
+    // streak line.
     final cases = <String, WearClaimView>{
       'ready': WearClaimView(
         stage: WearClaimStage.ready,
@@ -268,6 +271,15 @@ void main() {
         stage: WearClaimStage.error,
         signedIn: true,
         errorMessage: 'Location denied. Enable in settings.',
+        onScan: () {},
+        onClaim: () {},
+        onQuizAnswer: (_) {},
+        onDone: () {},
+      ),
+      'quiz': WearClaimView(
+        stage: WearClaimStage.quiz,
+        signedIn: true,
+        quizOptions: const ['SCOTTISH_CROWN', 'GR'],
         onScan: () {},
         onClaim: () {},
         onQuizAnswer: (_) {},

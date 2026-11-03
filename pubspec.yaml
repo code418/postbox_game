@@ -112,6 +112,8 @@ flutter:
     - assets/postman_james.svg
     - assets/postman_james.png
     - assets/postbox.svg
+    # Royal cypher illustrations: tool/cypher_art/build_cypher_svgs.py.
+    - assets/cyphers/
     - assets/uk_counties_simplified.geojson
     - assets/legal/privacy_policy.md
 

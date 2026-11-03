@@ -7,7 +7,4 @@ import 'package:postbox_game/monarch_info.dart';
 ///
 /// Shared by every Wear surface that names a cipher (the claim quiz and the
 /// today's-claims glance) so the shortening can't drift between them.
-String watchMonarchLabel(String code) {
-  final label = MonarchInfo.labels[code] ?? code;
-  return label.replaceFirst(RegExp(r'\s*\([^)]*\)$'), '');
-}
+String watchMonarchLabel(String code) => MonarchInfo.nameOf(code);

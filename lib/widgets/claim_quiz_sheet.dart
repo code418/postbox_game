@@ -19,6 +19,7 @@ import 'package:postbox_game/james_messages.dart';
 import 'package:postbox_game/james_strip.dart';
 import 'package:postbox_game/location_service.dart';
 import 'package:postbox_game/maintenance_guard.dart';
+import 'package:postbox_game/cypher_guide_screen.dart';
 import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/remote_config_service.dart';
 import 'package:postbox_game/reports/report_missing_postbox_screen.dart';
@@ -30,6 +31,7 @@ import 'package:postbox_game/services/home_widget_service.dart';
 import 'package:postbox_game/services/scan_cache.dart';
 import 'package:postbox_game/services/perf_service.dart';
 import 'package:postbox_game/theme.dart';
+import 'package:postbox_game/widgets/cypher_art.dart';
 import 'package:postbox_game/widgets/postbox_map.dart';
 import 'package:postbox_game/widgets/postbox_marker.dart';
 import 'package:postbox_game/widgets/quiz_helpers.dart';
@@ -1436,12 +1438,14 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
   }
 
   Widget _buildQuiz(BuildContext context) {
+    final theme = Theme.of(context);
+    final single = (_count - _claimedToday) == 1;
     return LayoutBuilder(
       builder: (context, constraints) => SingleChildScrollView(
         padding: EdgeInsets.only(
-          top: AppSpacing.xl,
-          left: AppSpacing.xl,
-          right: AppSpacing.xl,
+          top: AppSpacing.lg,
+          left: AppSpacing.md,
+          right: AppSpacing.md,
           bottom: _bottomPad,
         ),
         child: ConstrainedBox(
@@ -1450,100 +1454,53 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.help_outline, size: 64, color: postalRed),
-              const SizedBox(height: AppSpacing.md),
               Text(
-                (_count - _claimedToday) == 1
-                    ? 'What\'s the cipher on this postbox?'
-                    : 'What\'s the cipher on one of the nearby postboxes?',
-                style: Theme.of(context)
-                    .textTheme
-                    .headlineSmall
+                single
+                    ? 'Which cypher is on this postbox?'
+                    : 'Which cypher is on one of the nearby postboxes?',
+                style: theme.textTheme.headlineSmall
                     ?.copyWith(fontWeight: FontWeight.bold),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: AppSpacing.xs),
               Text(
-                (_count - _claimedToday) == 1
-                    ? 'Look at the postbox and pick the correct royal cipher.'
-                    : 'Look at one of the postboxes and pick its royal cipher.',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant),
+                single
+                    ? 'Find the crown and letters on the front and pick the '
+                        'match.'
+                    : 'Find the crown and letters on any of them and pick the '
+                        'match.',
+                style: theme.textTheme.bodyMedium
+                    ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
                 textAlign: TextAlign.center,
               ),
-              const SizedBox(height: AppSpacing.xl),
-              ..._quizOptions.map((code) {
-                final isSelected = _selectedAnswer == code;
-                final isCorrectSelected = isSelected && _isClaiming;
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                    decoration: BoxDecoration(
-                      color: isCorrectSelected
-                          ? _success(context).withValues(alpha: 0.10)
-                          : Colors.transparent,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: OutlinedButton(
-                      onPressed: _isClaiming ? null : () => _onQuizAnswer(code),
-                      style: OutlinedButton.styleFrom(
-                        minimumSize: Size(double.infinity, _optionHeight),
-                        side: BorderSide(
-                          color: isCorrectSelected
-                              ? _success(context)
-                              : (Theme.of(context).brightness == Brightness.dark
-                                  ? AppColors.brandTextDark
-                                  : AppColors.brandTextLight),
-                          width: isCorrectSelected ? 2 : 1,
-                        ),
+              const SizedBox(height: AppSpacing.lg),
+              // Two tiles a row: the plates are what the player compares
+              // against the box, so they get the width.
+              for (var i = 0; i < _quizOptions.length; i += 2) ...[
+                if (i > 0) const SizedBox(height: AppSpacing.sm),
+                IntrinsicHeight(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(child: _buildQuizOption(context, _quizOptions[i])),
+                      const SizedBox(width: AppSpacing.sm),
+                      Expanded(
+                        child: i + 1 < _quizOptions.length
+                            ? _buildQuizOption(context, _quizOptions[i + 1])
+                            : const SizedBox.shrink(),
                       ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          if (isCorrectSelected) ...[
-                            SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: _success(context),
-                              ),
-                            ),
-                            const SizedBox(width: AppSpacing.sm),
-                          ],
-                          Column(
-                            children: [
-                              Text(
-                                isCorrectSelected ? 'Correct! Claiming…' : code,
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 16,
-                                  color: isCorrectSelected
-                                      ? _success(context)
-                                      : null,
-                                ),
-                              ),
-                              if (!isCorrectSelected)
-                                Text(
-                                  MonarchInfo.labels[code] ?? code,
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .bodySmall
-                                      ?.copyWith(
-                                          color: Theme.of(context)
-                                              .colorScheme
-                                              .onSurfaceVariant),
-                                ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
+                    ],
                   ),
-                );
-              }),
-              const SizedBox(height: AppSpacing.md),
+                ),
+              ],
+              const SizedBox(height: AppSpacing.sm),
+              TextButton.icon(
+                onPressed: _isClaiming
+                    ? null
+                    : () => CypherGuideScreen.open(context, source: 'quiz'),
+                icon: const Icon(Icons.auto_stories_outlined, size: 18),
+                label: const Text('Not sure? See the cypher guide'),
+              ),
               TextButton(
                 onPressed: _isClaiming
                     ? null
@@ -1552,6 +1509,93 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  /// One quiz tile: the cypher's plate over its name and reign. No points:
+  /// showing them would nudge players to guess the most valuable cypher.
+  Widget _buildQuizOption(BuildContext context, String code) {
+    final theme = Theme.of(context);
+    final isSelected = _selectedAnswer == code;
+    final isCorrectSelected = isSelected && _isClaiming;
+    final success = _success(context);
+    final detail = MonarchInfo.detailOf(code);
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      decoration: BoxDecoration(
+        color: isCorrectSelected
+            ? success.withValues(alpha: 0.10)
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: OutlinedButton(
+        onPressed: _isClaiming ? null : () => _onQuizAnswer(code),
+        style: OutlinedButton.styleFrom(
+          minimumSize: Size(0, _optionHeight),
+          padding: const EdgeInsets.all(AppSpacing.sm),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          side: BorderSide(
+            color: isCorrectSelected
+                ? success
+                : (theme.brightness == Brightness.dark
+                    ? AppColors.brandTextDark
+                    : AppColors.brandTextLight),
+            width: isCorrectSelected ? 2 : 1,
+          ),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AnimatedOpacity(
+              duration: const Duration(milliseconds: 200),
+              opacity: _isClaiming && !isSelected ? 0.4 : 1,
+              child: CypherPlate(code, height: 92),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            if (isCorrectSelected)
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: success,
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.xs),
+                  Flexible(
+                    child: Text(
+                      'Correct! Claiming…',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: success,
+                      ),
+                    ),
+                  ),
+                ],
+              )
+            else ...[
+              Text(
+                MonarchInfo.nameOf(code),
+                textAlign: TextAlign.center,
+                style: theme.textTheme.titleSmall
+                    ?.copyWith(fontWeight: FontWeight.bold),
+              ),
+              if (detail != null)
+                Text(
+                  detail,
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodySmall
+                      ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                ),
+            ],
+          ],
         ),
       ),
     );
@@ -1736,8 +1780,16 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
               ),
               const SizedBox(height: AppSpacing.sm),
               Text(
-                'Take another look at the cipher on the postbox and try again.',
+                'Take another look at the cypher on the postbox and try again.',
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                'Tip: the small Roman numeral between the letters tells the '
+                'kings apart.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: Theme.of(context).colorScheme.onSurfaceVariant),
                 textAlign: TextAlign.center,
               ),

@@ -118,6 +118,11 @@ class Analytics {
         'selected_cipher': selectedCipher,
       });
 
+  /// The Cypher guide opened. [source] is `menu` (the AppBar overflow) or
+  /// `quiz` (the claim quiz's "See the cypher guide" link).
+  static Future<void> cypherGuideOpened({required String source}) =>
+      _log('cypher_guide_opened', {'source': source});
+
   // ---------------------------------------------------------------------------
   // Claim events
   // ---------------------------------------------------------------------------

@@ -357,8 +357,8 @@ abstract final class JamesMessages {
     'jamesQuizFailed',
     [
       "Next time, look at the postbox before jabbing your finger wildly at the screen",
-      "Not quite. Have another look at the cipher on the postbox.",
-      "Ooh, unlucky. The cipher is the emblem stamped on the front.",
+      "Not quite. Have another look at the cypher on the postbox.",
+      "Ooh, unlucky. The cypher is the emblem cast on the front.",
       "That's not it. Each monarch had their own design... worth a second look.",
       "Wrong answer, I'm afraid. Don't worry, the postbox isn't going anywhere.",
     ],

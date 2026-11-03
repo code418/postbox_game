@@ -16,7 +16,7 @@ export const CYPHERS: ReadonlyArray<CypherInfo> = [
   { key: "GVR", mono: "GVR", name: "George V", years: "1910–1936" },
   { key: "EVIIIR", mono: "EVIIIR", name: "Edward VIII", years: "1936" },
   { key: "GVIR", mono: "GVIR", name: "George VI", years: "1936–1952" },
-  { key: "GR", mono: "GR", name: "George (generic)", years: "1910–1952" },
+  { key: "GR", mono: "GR", name: "George (V or VI)", years: "1910–1952" },
   { key: "EIIR", mono: "EIIR", name: "Elizabeth II", years: "1952–2022" },
   { key: "CIIIR", mono: "CIIIR", name: "Charles III", years: "2022–" },
   { key: "SCOTTISH_CROWN", mono: "Crown", name: "Scottish Crown", years: "Scotland, 1952–" },

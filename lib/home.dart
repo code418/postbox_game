@@ -10,6 +10,7 @@ import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/analytics_user_properties.dart';
 import 'package:postbox_game/claim.dart';
 import 'package:postbox_game/claim_history_screen.dart';
+import 'package:postbox_game/cypher_guide_screen.dart';
 import 'package:postbox_game/friends_screen.dart';
 import 'package:postbox_game/intro.dart';
 import 'package:postbox_game/james_controller.dart';
@@ -203,6 +204,8 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
                 switch (value) {
                   case 'settings':
                     Navigator.pushNamed(context, '/settings');
+                  case 'cypherGuide':
+                    CypherGuideScreen.open(context, source: 'menu');
                   case 'intro':
                     Navigator.push(
                       context,
@@ -277,6 +280,14 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
                   child: ListTile(
                     leading: Icon(Icons.settings_outlined),
                     title: Text('Settings'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'cypherGuide',
+                  child: ListTile(
+                    leading: Icon(Icons.auto_stories_outlined),
+                    title: Text('Cypher guide'),
                     contentPadding: EdgeInsets.zero,
                   ),
                 ),
