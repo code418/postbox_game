@@ -41,9 +41,21 @@ class HomeCarScreen(carContext: CarContext) : Screen(carContext) {
     private var stats: StatsRepository.UserStats? = null
     private var dailyEntries: List<StatsRepository.LeaderboardEntry>? = null
 
+    /** The account [statsJob] is streaming. `users/{uid}` is readable by any
+     *  signed-in user, so a listener left on the previous account keeps
+     *  succeeding: without this the pane went on showing (and live-updating)
+     *  the last account's points and streak after a switch on a shared phone. */
+    private var observedUid: String? = null
+
+    /** Re-renders on any sign-in, sign-out or switch; [refreshAuthPhase]
+     *  notices the new uid and re-arms the observers. */
+    private val authListener = FirebaseAuth.AuthStateListener { invalidate() }
+
     init {
+        FirebaseAuth.getInstance().addAuthStateListener(authListener)
         lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onDestroy(owner: LifecycleOwner) {
+                FirebaseAuth.getInstance().removeAuthStateListener(authListener)
                 pending?.cancel()
                 statsJob?.cancel()
                 leaderboardJob?.cancel()
@@ -55,8 +67,11 @@ class HomeCarScreen(carContext: CarContext) : Screen(carContext) {
     }
 
     private fun startStatsObserver() {
-        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
+        val uid = FirebaseAuth.getInstance().currentUser?.uid
+        observedUid = uid
         statsJob?.cancel()
+        stats = null
+        if (uid == null) return
         statsJob = scope.launch {
             StatsRepository.observeUserStats(uid).collectLatest {
                 stats = it
@@ -108,15 +123,20 @@ class HomeCarScreen(carContext: CarContext) : Screen(carContext) {
     }
 
     private fun refreshAuthPhase() {
-        val signedIn = FirebaseAuth.getInstance().currentUser != null
+        val uid = FirebaseAuth.getInstance().currentUser?.uid
+        if (uid != observedUid) {
+            // Any change of account, including one that never passed through
+            // a rendered signed-out state: never keep the last one's stats.
+            startStatsObserver()
+            refreshLeaderboard()
+        }
+        val signedIn = uid != null
         if (!signedIn && phase != Phase.SignedOut) {
             phase = Phase.SignedOut
             message = "Sign in on your phone to start claiming postboxes."
         } else if (signedIn && phase == Phase.SignedOut) {
             phase = Phase.Idle
             message = "Tap to scan for nearby postboxes."
-            startStatsObserver()
-            refreshLeaderboard()
         }
     }
 

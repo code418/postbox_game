@@ -54,16 +54,36 @@ void main() {
   test('pruneExpired drops entries older than the grace window', () async {
     final outbox = ClaimOutbox.instance;
     final now = DateTime.now().millisecondsSinceEpoch;
+    // Captured by an earlier process, so only the wall clock dates them.
     await outbox.add(OutboxEntry(
         scanId: 'old', lat: 1, lng: 2,
-        capturedWallMs: now - 48 * 3600000, capturedMonotonicMs: 0, attemptId: 'a1'));
+        capturedWallMs: now - 48 * 3600000, capturedMonotonicMs: 0,
+        attemptId: 'a1', capturedBootId: 'earlier-process'));
     await outbox.add(OutboxEntry(
         scanId: 'fresh', lat: 1, lng: 2,
-        capturedWallMs: now - 3600000, capturedMonotonicMs: 0, attemptId: 'a2'));
+        capturedWallMs: now - 3600000, capturedMonotonicMs: 0,
+        attemptId: 'a2', capturedBootId: 'earlier-process'));
     final dropped = await outbox.pruneExpired(graceHours: 36);
     expect(dropped, 1);
     final entries = await outbox.entries();
     expect(entries.single.scanId, 'fresh');
+  });
+
+  test('pruneExpired keeps a recent capture whose wall clock was far behind',
+      () async {
+    // Captured moments ago in THIS process while the device clock read two
+    // days slow (since corrected). The flush would send the monotonic-anchored
+    // time, which is recent, so pruning by the raw wall clock deleted a claim
+    // the server would have accepted.
+    final outbox = ClaimOutbox.instance;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await outbox.add(OutboxEntry(
+        scanId: 'skewed', lat: 1, lng: 2,
+        capturedWallMs: now - 48 * 3600000,
+        capturedMonotonicMs: ClaimOutbox.monotonicNowMs(),
+        attemptId: 'a1'));
+    expect(await outbox.pruneExpired(graceHours: 36), 0);
+    expect((await outbox.entries()).single.scanId, 'skewed');
   });
 
   test('caps the queue: adding beyond the cap drops the oldest', () async {
@@ -87,26 +107,72 @@ void main() {
   });
 
   test('flushCaptureTimes anchors to the monotonic clock in-process', () {
-    // Captured at monotonic 10s with wall clock W. At flush, monotonic is 70s
-    // and the wall clock has been set BACK an hour: the anchored capture time
-    // must be flushWall - 60s, not the (now bogus) stored wall clock.
+    // Captured at monotonic 10s with wall clock W. At flush IN THE SAME PROCESS
+    // (matching boot id), monotonic is 70s and the wall clock has been set BACK
+    // an hour: the anchored capture time must be flushWall - 60s, not the (now
+    // bogus) stored wall clock.
     final entry = OutboxEntry(
         scanId: 't', lat: 1, lng: 2,
-        capturedWallMs: 5000000, capturedMonotonicMs: 10000, attemptId: 'a');
+        capturedWallMs: 5000000, capturedMonotonicMs: 10000, attemptId: 'a',
+        capturedBootId: 'boot-1');
     final anchored = entry.capturedAtForFlush(
-        flushWallMs: 2000000, flushMonotonicMs: 70000);
+        flushWallMs: 2000000, flushMonotonicMs: 70000, flushBootId: 'boot-1');
     expect(anchored, 2000000 - 60000);
   });
 
   test('flushCaptureTimes falls back to the stored wall clock across restarts', () {
-    // A restart resets the monotonic clock (flush monotonic < capture
-    // monotonic): fall back to the stored wall time.
+    // A restart mints a new boot id: even when the new process's monotonic
+    // clock happens to be smaller than the stored one, fall back to wall time.
     final entry = OutboxEntry(
         scanId: 't', lat: 1, lng: 2,
-        capturedWallMs: 5000000, capturedMonotonicMs: 90000, attemptId: 'a');
+        capturedWallMs: 5000000, capturedMonotonicMs: 90000, attemptId: 'a',
+        capturedBootId: 'boot-old');
     final anchored = entry.capturedAtForFlush(
-        flushWallMs: 9000000, flushMonotonicMs: 20000);
+        flushWallMs: 9000000, flushMonotonicMs: 20000, flushBootId: 'boot-new');
     expect(anchored, 5000000);
+  });
+
+  test('flushCaptureTimes does NOT anchor across a restart even when the new '
+      'process outran the old monotonic value', () {
+    // Regression: the bare `flushMonotonic >= capturedMonotonic` guard was a
+    // false same-process signal. A capture taken 10s into the OLD process
+    // (capturedMonotonic 10s), flushed 70s into a NEW process (different boot
+    // id) whose stopwatch has already passed 10s, must still use the stored
+    // wall clock — anchoring here would report the capture as ~now and mis-date
+    // an offline claim (and its streak) to the flush day.
+    final entry = OutboxEntry(
+        scanId: 't', lat: 1, lng: 2,
+        capturedWallMs: 5000000, capturedMonotonicMs: 10000, attemptId: 'a',
+        capturedBootId: 'boot-old');
+    final anchored = entry.capturedAtForFlush(
+        flushWallMs: 2000000, flushMonotonicMs: 70000, flushBootId: 'boot-new');
+    expect(anchored, 5000000,
+        reason: 'cross-process must never take the monotonic anchor');
+  });
+
+  test('flushCaptureTimes falls back to wall clock for legacy entries with no '
+      'boot id', () {
+    // Entries written before capturedBootId existed can never be proven
+    // same-process, so they always use the stored wall clock.
+    final entry = OutboxEntry(
+        scanId: 't', lat: 1, lng: 2,
+        capturedWallMs: 5000000, capturedMonotonicMs: 10000, attemptId: 'a');
+    final anchored = entry.capturedAtForFlush(
+        flushWallMs: 2000000, flushMonotonicMs: 70000, flushBootId: 'boot-x');
+    expect(anchored, 5000000);
+  });
+
+  test('add stamps the capturing process boot id and it round-trips', () async {
+    final outbox = ClaimOutbox.instance;
+    await outbox.add(OutboxEntry(
+        scanId: 't', lat: 1, lng: 2,
+        capturedWallMs: 1000, capturedMonotonicMs: 500, attemptId: 'a'));
+    // A fresh instance (simulated new process) reloads from storage; the static
+    // boot id persists, so the stamped id still matches the live one.
+    ClaimOutbox.resetForTest();
+    final reloaded = await ClaimOutbox.instance.entries();
+    expect(reloaded.single.capturedBootId, ClaimOutbox.bootId(),
+        reason: 'the boot id is stamped at add() and survives reload');
   });
 
   group('account scoping', () {
@@ -211,6 +277,43 @@ void main() {
       uid = 'userA';
       await outbox.refreshOwnership();
       expect(outbox.pendingCount.value, 1);
+    });
+
+    test("a pending flush id is never handed to another account", () async {
+      // The server binds an attempt id to the uid that first sent it. With one
+      // device-wide slot, user B reused user A's id after A's flush response
+      // was lost, and got `permission-denied` on every flush for the 48 h
+      // attempts TTL, by which time B's own captures had aged out.
+      var uid = 'userA';
+      final outbox = ClaimOutbox(uidProvider: () => uid);
+      await outbox.setPendingFlushAttemptId('flush-A');
+
+      uid = 'userB';
+      expect(await outbox.pendingFlushAttemptId(), isNull);
+      await outbox.setPendingFlushAttemptId('flush-B');
+      await outbox.setPendingFlushAttemptId(null); // B's response arrived
+
+      uid = 'userA';
+      expect(await outbox.pendingFlushAttemptId(), 'flush-A',
+          reason: "A's lost-response replay survives B's session");
+    });
+
+    test('clearAll drops every account\'s pending flush id', () async {
+      await outboxFor('userB').setPendingFlushAttemptId('flush-B');
+      await outboxFor('userA').clearAll();
+      expect(await outboxFor('userB').pendingFlushAttemptId(), isNull);
+    });
+
+    test('an id from before per-account keys is never replayed', () async {
+      // Its owner is unknowable, so replaying it could be the bug above.
+      SharedPreferences.setMockInitialValues(
+          {ClaimOutbox.flushAttemptKey: 'legacy'});
+      final a = outboxFor('userA');
+      expect(await a.pendingFlushAttemptId(), isNull);
+      await a.setPendingFlushAttemptId('fresh');
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.containsKey(ClaimOutbox.flushAttemptKey), isFalse);
+      expect(await a.pendingFlushAttemptId(), 'fresh');
     });
   });
 }

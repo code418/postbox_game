@@ -11,6 +11,8 @@ import 'package:latlong2/latlong.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/app_preferences.dart';
+import 'package:postbox_game/services/notification_preprompt.dart';
+import 'package:postbox_game/services/review_prompt_service.dart';
 import 'package:postbox_game/services/user_properties_publisher.dart';
 import 'package:postbox_game/james_controller.dart';
 import 'package:postbox_game/james_messages.dart';
@@ -31,6 +33,7 @@ import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/widgets/postbox_map.dart';
 import 'package:postbox_game/widgets/postbox_marker.dart';
 import 'package:postbox_game/widgets/quiz_helpers.dart';
+import 'package:postbox_game/widgets/share_card.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Callable typedefs (injectable for testing)
@@ -236,6 +239,14 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
   int _claimedCount = 0;
   bool _isClaiming = false;
 
+  // ── After a claim: share, activation and permission asks ─────────────────
+  // Streak as the server left it after this claim (read back with the
+  // user-properties refresh); 0 until that read lands.
+  int _streakAfterClaim = 0;
+  // Delays the post-claim asks so the success moment lands first; cancelled
+  // on dispose so it can't fire on a dead sheet.
+  Timer? _postClaimTimer;
+
   // ── Network-error retry state ─────────────────────────────────────────────
   // Identifies the current logical claim attempt for the server's idempotent
   // replay (functions/src/_attempts.ts). Generated when a claim attempt
@@ -336,6 +347,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
     AppPreferences.getDistanceUnit().then((unit) {
       if (mounted) setState(() => _distanceUnit = unit);
     });
+    AppPreferences.distanceUnitChanged.addListener(_onDistanceUnitChanged);
 
     // Kick off the scan immediately on first build.
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -345,12 +357,19 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
 
   @override
   void dispose() {
+    AppPreferences.distanceUnitChanged.removeListener(_onDistanceUnitChanged);
     unawaited(_moveSub?.cancel());
+    _postClaimTimer?.cancel();
     _successController.dispose();
     _pulseController.dispose();
     _confettiController.dispose();
     _ownJames?.dispose();
     super.dispose();
+  }
+
+  void _onDistanceUnitChanged() {
+    final unit = AppPreferences.distanceUnitChanged.value;
+    if (unit != null && mounted) setState(() => _distanceUnit = unit);
   }
 
   // ── Empty-state movement watch ──────────────────────────────────────────────
@@ -433,6 +452,13 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
     if (RemoteConfigService.instance.killSwitchOfflineClaims) return false;
     final cached = ScanCache.fresh(uid: ClaimOutbox.currentUid());
     if (cached == null) return false;
+    // An empty scan can't be claimed from, so replaying one rescues nothing.
+    // It would only tell a player who may have walked up to 250 m that there
+    // are no postboxes here, hide that they have no signal, and leave them
+    // with no Retry once they reach a box.
+    final cachedTotal =
+        ((cached.data['counts'] as Map?)?['total'] as num?)?.toInt() ?? 0;
+    if (cachedTotal == 0) return false;
     final movedM = Geolocator.distanceBetween(
       cached.position.latitude,
       cached.position.longitude,
@@ -699,9 +725,12 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
       // Fire-and-forget — analytics never blocks the UI.
       final uid = FirebaseAuth.instance.currentUser?.uid;
       if (uid != null) {
-        unawaited(publishUserPropertiesFromFirestore(uid));
+        unawaited(publishUserPropertiesFromFirestore(uid).then((data) =>
+            _afterClaimProfile(data,
+                claimedCount: claimedCount, earnedPts: earnedPts)));
       }
       setState(() {
+        _streakAfterClaim = 0;
         _pointsEarned = earnedPts;
         _claimedCount = claimedCount;
         _isClaiming = false;
@@ -1019,6 +1048,71 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
   }
 
   // ── All-claimed banner ─────────────────────────────────────────────────────
+
+  /// Follow-ups that need the post-claim `users/{uid}` read: the activation
+  /// event, the streak for the share card, and (after a beat, so the
+  /// success moment lands first) the notification pre-prompt or, failing
+  /// that, a rating ask. At most one dialog per claim.
+  void _afterClaimProfile(
+    Map<String, dynamic>? data, {
+    required int claimedCount,
+    required int earnedPts,
+  }) {
+    if (data == null || !mounted || _stage != _QuizStage.claimed) return;
+    final unique = (data['uniquePostboxesClaimed'] as num?)?.toInt();
+    final streak = (data['streak'] as num?)?.toInt() ?? 0;
+    // Lifetime unique boxes no more than this claim's count: this was the
+    // account's first ever claim.
+    if (unique != null && unique > 0 && unique <= claimedCount) {
+      unawaited(Analytics.firstClaim());
+    }
+    setState(() => _streakAfterClaim = streak);
+    final rare = claimedCount > 0 && earnedPts / claimedCount >= 7;
+    _postClaimTimer?.cancel();
+    _postClaimTimer = Timer(const Duration(seconds: 2), () async {
+      if (!mounted || _stage != _QuizStage.claimed) return;
+      if (kShareStreakMilestones.contains(streak)) {
+        _james?.show(JamesMessages.shareNudgeStreak(streak));
+      } else if (rare) {
+        _james?.show(JamesMessages.shareNudgeRare.resolve());
+      }
+      final shown = await NotificationPrePrompt.maybeShow(context);
+      if (!mounted) return;
+      unawaited(ReviewPromptService.maybeRequest(
+        rareClaim: rare,
+        streak: streak,
+        otherDialogShown: shown,
+      ));
+    });
+  }
+
+  bool get _streakMilestone => kShareStreakMilestones.contains(_streakAfterClaim);
+
+  void _shareClaim() {
+    // The quiz cypher is only the claimed box's own when one box was taken.
+    final cypher = _claimedCount == 1 ? _quizCipher : null;
+    final milestone = _streakMilestone;
+    unawaited(showShareCardSheet(
+      context,
+      data: milestone
+          ? ShareCardData(
+              headline: '$_streakAfterClaim-day streak!',
+              cypher: shareableCypher(cypher),
+              points: _pointsEarned,
+              streak: _streakAfterClaim,
+            )
+          : claimShareCard(
+              claimedCount: _claimedCount,
+              points: _pointsEarned,
+              cypher: cypher,
+              streak: _streakAfterClaim,
+            ),
+      contentType: milestone ? 'streak' : 'claim',
+      itemId: milestone
+          ? '$_streakAfterClaim'
+          : (shareableCypher(cypher) ?? 'multi'),
+    ));
+  }
 
   Widget _buildAllClaimedBanner(BuildContext context) {
     return Container(
@@ -1499,19 +1593,35 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: AppSpacing.xl),
+              // A claim retry stays on this screen while it runs, so it shows
+              // its progress here, and Back is locked until it settles (as in
+              // every other stage): leaving mid-retry unmounted the sheet, so
+              // a claim that then succeeded showed no confirmation and never
+              // refreshed History or the widget.
               FilledButton.icon(
-                onPressed: () {
-                  if (_retryIsClaim) {
-                    unawaited(_claimPostbox(isRetry: true));
-                  } else {
-                    unawaited(_runSearch(position: _scanCenter));
-                  }
-                },
+                onPressed: _isClaiming
+                    ? null
+                    : () {
+                        if (_retryIsClaim) {
+                          unawaited(_claimPostbox(isRetry: true));
+                        } else {
+                          unawaited(_runSearch(position: _scanCenter));
+                        }
+                      },
                 style: FilledButton.styleFrom(
                   minimumSize: Size(double.infinity, _buttonHeight),
                 ),
-                icon: const Icon(Icons.refresh),
-                label: const Text('Retry'),
+                icon: _isClaiming
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          color: Colors.white,
+                          strokeWidth: 2,
+                        ),
+                      )
+                    : const Icon(Icons.refresh),
+                label: Text(_isClaiming ? 'Claiming...' : 'Retry'),
               ),
               // Offline banking (v1.5 Phase 3): a claim that already passed
               // the quiz and holds a scan token can be saved to the outbox
@@ -1539,7 +1649,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
               ],
               const SizedBox(height: AppSpacing.sm),
               TextButton(
-                onPressed: _cancel,
+                onPressed: _isClaiming ? null : _cancel,
                 child: const Text('Back'),
               ),
             ],
@@ -1730,6 +1840,17 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
                     ),
                     icon: const Icon(Icons.explore),
                     label: const Text('Keep exploring'),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  OutlinedButton.icon(
+                    onPressed: _shareClaim,
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: Size(double.infinity, _buttonHeight),
+                    ),
+                    icon: const Icon(Icons.ios_share),
+                    label: Text(_streakMilestone
+                        ? 'Share your $_streakAfterClaim-day streak'
+                        : 'Share this find'),
                   ),
                 ],
               ),

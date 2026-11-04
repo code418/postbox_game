@@ -24,9 +24,13 @@ export const nearbyPostboxes = functions.https.onCall({ enforceAppCheck: true, s
   // Platform enforceAppCheck rejects unattested requests up front; this
   // in-code check is the defence-in-depth + break-glass layer (see _appCheck).
   requireAppCheck(request);
-  if (!request.auth?.uid) {
-    throw new functions.https.HttpsError("unauthenticated", "Must be signed in to scan for postboxes");
-  }
+  // Deliberately NO auth requirement: the discovery scan ("find nearby
+  // postboxes") must work before sign-in so a new user can see the game is
+  // worth signing in for. App Check above remains the abuse gate. A signed-out
+  // scan has no per-user claim state to overlay and gets no offline-capture
+  // scanId (the token is uid-bound and flushing requires auth). Claiming
+  // (startScoring) still requires auth.
+  const uid = request.auth?.uid ?? null;
   const data = request.data as NearbyCallData;
   const { lat, lng, meters } = data ?? {};
   if (lat === undefined || lat === null || lng === undefined || lng === null || meters === undefined || meters === null) {
@@ -43,25 +47,27 @@ export const nearbyPostboxes = functions.https.onCall({ enforceAppCheck: true, s
   }
   // Cap radius at 2km to prevent runaway Firestore queries.
   const clampedMeters = Math.min(meters, 2000);
-  const uid = request.auth!.uid;
   const todayLondon = getTodayLondon();
 
   // Run postbox lookup, today's user-claims query, and the game config in
   // parallel. The config drives the Remote-Config points so the displayed
   // range matches what startScoring would award (see applyUserClaims).
+  // Signed out there are no claims to fetch — everything reads as unclaimed.
   const [full, userClaimsSnap, gameConfig] = await Promise.all([
     lookupPostboxes(lat, lng, clampedMeters),
-    admin.firestore().collection("claims")
-      .where("userid", "==", uid)
-      .where("dailyDate", "==", todayLondon)
-      .get(),
+    uid === null
+      ? Promise.resolve(null)
+      : admin.firestore().collection("claims")
+        .where("userid", "==", uid)
+        .where("dailyDate", "==", todayLondon)
+        .get(),
     getGameConfig(),
   ]);
 
   // Build the set of postbox IDs already claimed by THIS user today.
   // The postboxes field is stored as "/postbox/{key}".
   const userClaimedKeys = new Set(
-    userClaimsSnap.docs
+    (userClaimsSnap?.docs ?? [])
       .map(d => d.data().postboxes as string | undefined)
       .filter((ref): ref is string => typeof ref === "string")
       .map(ref => ref.replace(/^\/postbox\//, ""))
@@ -75,10 +81,11 @@ export const nearbyPostboxes = functions.https.onCall({ enforceAppCheck: true, s
   // an offline claim presents it to flushOfflineClaims, which enforces the
   // capture window against the server-attested issue time (_scanToken.ts has
   // the threat model). Fail-open: if the secret isn't configured the scan
-  // still works and offline capture is simply unavailable.
+  // still works and offline capture is simply unavailable. The token binds a
+  // uid, so a signed-out scan gets none — flushing requires auth anyway.
   let scanId: string | undefined;
   const secret = getScanSecret();
-  if (secret) {
+  if (secret && uid !== null) {
     scanId = signScanToken({
       uid,
       lat,

@@ -174,6 +174,53 @@ class Analytics {
   static Future<void> friendRemoved() => _log('friend_removed');
 
   // ---------------------------------------------------------------------------
+  // Growth: sharing, invites, activation (docs/marketing-plan.md §Measurement)
+  // ---------------------------------------------------------------------------
+
+  /// Standard Firebase Analytics share event. [contentType] is what was
+  /// shared (`invite`, `claim`, `streak`, `route`, `profile`); [itemId] a
+  /// coarse label for it (e.g. the cypher for a claim card); [method] the
+  /// share target the OS reported, or `unknown`.
+  static Future<void> share({
+    required String contentType,
+    required String itemId,
+    String method = 'unknown',
+  }) =>
+      _fa.logShare(contentType: contentType, itemId: itemId, method: method);
+
+  /// An invite link or code reached the app. [source] is how: `link`
+  /// (App Link / Universal Link), `scheme` (the invite page's open-in-app
+  /// button) or `typed` (pasted into the Friends field).
+  static Future<void> inviteLinkOpened({required String source}) =>
+      _log('invite_link_opened', {'source': source});
+
+  /// Outcome of acting on an invite: `accepted`, `declined`,
+  /// `already_friends`, `self_invite`, `not_found`, `friend_limit`, `error`.
+  /// [referral] is true when the server attributed a new sign-up to it.
+  static Future<void> inviteAccepted({
+    required String result,
+    bool referral = false,
+  }) =>
+      _log('invite_accepted', {'result': result, 'referral': referral ? 1 : 0});
+
+  /// Standard tutorial_complete: the first-run intro was finished.
+  static Future<void> tutorialComplete() => _fa.logTutorialComplete();
+
+  /// The account's first ever successful claim (activation).
+  static Future<void> firstClaim() => _log('first_claim');
+
+  /// The guide's pre-prompt before the system notification prompt was
+  /// answered. [accepted] says whether the system prompt was then shown.
+  static Future<void> notificationPrePrompt({required bool accepted}) =>
+      _log('notification_preprompt', {'accepted': accepted ? 1 : 0});
+
+  /// The in-app review flow was requested after [trigger] (`rare_claim`,
+  /// `streak`). The OS decides whether a sheet actually appears, so this
+  /// counts requests, not impressions.
+  static Future<void> reviewPromptRequested({required String trigger}) =>
+      _log('review_prompt_requested', {'trigger': trigger});
+
+  // ---------------------------------------------------------------------------
   // Location
   // ---------------------------------------------------------------------------
 

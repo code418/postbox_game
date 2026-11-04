@@ -4,7 +4,7 @@
   "main": "lib/index.js",
   "scripts": {
     "build": "tsc",
-    "lint": "eslint src --ext .ts",
+    "lint": "eslint src",
     "serve": "npm run build && firebase serve --only functions",
     "shell": "npm run build && firebase functions:shell",
     "start": "npm run shell",
@@ -13,7 +13,8 @@
     "test": "npm run build && nyc mocha lib/test/test.index.js --reporter spec",
     "plan-route": "npm run build && node lib/scripts/plan_route.js",
     "verify-migration": "npm run build && node lib/scripts/verify_migration.js",
-    "backfill-event-time": "npm run build && node lib/scripts/backfill_event_time.js"
+    "backfill-event-time": "npm run build && node lib/scripts/backfill_event_time.js",
+    "review-dashboard": "npm run build && node lib/scripts/review_dashboard/main.js"
   },
   "engines": {
     "node": "22"
@@ -25,16 +26,16 @@
     "ngeohash": "^0.6.3"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/mocha": "^10.0.0",
     "@types/node": "^25.9.1",
-    "@typescript-eslint/eslint-plugin": "^6.0.0",
-    "@typescript-eslint/parser": "^6.0.0",
-    "eslint": "^8.0.0",
-    "eslint-plugin-promise": "^6.0.0",
+    "eslint": "^10.14.0",
+    "eslint-plugin-promise": "^7.3.0",
     "firebase-functions-test": "^3.0.0",
     "mocha": "^10.0.0",
-    "nyc": "^15.0.1",
-    "typescript": "^5.0.0"
+    "nyc": "^18.0.0",
+    "typescript": "^5.0.0",
+    "typescript-eslint": "^8.72.1"
   },
   "overrides": {
     "serialize-javascript": "^7.0.7",

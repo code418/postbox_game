@@ -178,7 +178,6 @@ export function countySlug(name: string): string | null {
   const slug = name
     .toLowerCase()
     .normalize("NFKD")
-    // eslint-disable-next-line no-misleading-character-class
     .replace(/[̀-ͯ]/g, "")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");

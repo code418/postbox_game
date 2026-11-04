@@ -87,4 +87,24 @@ void main() {
     expect(fakePerf.collectionEnabled, isFalse);
     expect(fakeAnalytics.collectionEnabled, isTrue);
   });
+
+  // Wear OS passes includePerf: false. Perf Monitoring auto-instruments HTTP
+  // app-wide, and the watch has no third toggle to object with, so it must be
+  // forced off regardless of what the stored pref says.
+  test('includePerf: false forces perf off even when the pref allows it',
+      () async {
+    await ConsentPreferences.setPerfMonitoringEnabled(true);
+    await applyStoredTelemetryPreferences(isDebug: false, includePerf: false);
+    expect(fakePerf.collectionEnabled, isFalse);
+    // The other two streams still follow consent as normal.
+    expect(fakeAnalytics.collectionEnabled, isTrue);
+    expect(fakeCrashlytics.collectionEnabled, isTrue);
+  });
+
+  test('includePerf: false still honours an analytics opt-out', () async {
+    await ConsentPreferences.setAnalyticsConsent(false);
+    await applyStoredTelemetryPreferences(isDebug: false, includePerf: false);
+    expect(fakeAnalytics.collectionEnabled, isFalse);
+    expect(fakePerf.collectionEnabled, isFalse);
+  });
 }

@@ -160,7 +160,7 @@ class _JamesStripState extends State<JamesStrip> with SingleTickerProviderStateM
         onTap: _dismiss,
         label: _currentMessage.isEmpty
             ? null
-            : 'Postman James says: $_currentMessage. Double tap to dismiss.',
+            : 'Your guide says: $_currentMessage. Double tap to dismiss.',
         child: ExcludeSemantics(
           child: GestureDetector(
             onTap: _dismiss,

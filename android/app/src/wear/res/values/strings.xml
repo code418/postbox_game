@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Wear-flavour strings. Deliberately NOT reusing the widget_* names from
+     src/main/res so a change here can never alter the phone widget. -->
+<resources>
+    <string name="tile_label">Postbox</string>
+    <string name="tile_description">Today\'s points and your streak</string>
+    <string name="complication_streak_label">Postbox streak</string>
+    <string name="complication_points_label">Postbox points today</string>
+</resources>

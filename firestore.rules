@@ -184,5 +184,24 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // ── invites collection ───────────────────────────────────────────────────
+    // One friend-invite code per user: invites/{code} = {uid, createdAt,
+    // referralCount}. Minted by getInviteCode and redeemed by acceptInvite
+    // (Admin SDK). Server-only: the code is the capability that lets someone
+    // add themselves to the owner's friends list (and so receive their claim
+    // pushes), so it must never be readable — which is also why it lives here
+    // and not on the world-readable users/{uid} doc.
+    match /invites/{code} {
+      allow read, write: if false;
+    }
+
+    // ── referrals collection ─────────────────────────────────────────────────
+    // referrals/{inviteeUid} = {inviterUid, code, createdAt}: written at most
+    // once by acceptInvite when a new account joins through an invite. Growth
+    // attribution only — Cloud Functions (Admin SDK) read and write it.
+    match /referrals/{uid} {
+      allow read, write: if false;
+    }
+
   }
 }

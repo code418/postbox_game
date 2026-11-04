@@ -13,6 +13,7 @@
 
 import 'package:flutter/foundation.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:postbox_game/london_date.dart';
 
 class CachedScan {
   const CachedScan({
@@ -58,15 +59,24 @@ class ScanCache {
   /// account can't be served the previous one's results or capture token.
   static void clear() => _last = null;
 
-  /// The cached scan if it is fresh enough AND belongs to [uid], else null.
-  /// A null [uid] on either side matches, which keeps the headless tests and
-  /// any pre-uid cache entry working.
+  /// The cached scan if it is fresh enough, from the current London day, AND
+  /// belongs to [uid], else null. A null [uid] on either side matches, which
+  /// keeps the headless tests and any pre-uid cache entry working.
   static CachedScan? fresh({DateTime? now, String? uid}) {
     final last = _last;
     if (last == null) return null;
     if (uid != null && last.uid != null && last.uid != uid) return null;
     final nowMs = (now ?? DateTime.now()).millisecondsSinceEpoch;
     if (nowMs - last.fetchedAtMs > maxAge.inMilliseconds) return null;
+    // The payload's claimedToday flags describe the London day it was taken
+    // on. Past midnight those boxes are claimable again, but replaying the
+    // scan would still mark them claimed, hiding the claim button and leaving
+    // the quiz nothing to ask about for captures the server would accept.
+    if (formatLondon(DateTime.fromMillisecondsSinceEpoch(last.fetchedAtMs,
+            isUtc: true)) !=
+        formatLondon(DateTime.fromMillisecondsSinceEpoch(nowMs, isUtc: true))) {
+      return null;
+    }
     return last;
   }
 

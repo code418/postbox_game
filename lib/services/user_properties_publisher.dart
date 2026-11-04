@@ -13,7 +13,12 @@ import 'package:postbox_game/intro_preferences.dart';
 ///
 /// Best-effort: every failure path logs in debug and returns. Analytics is
 /// fire-and-forget; we never propagate up to UI.
-Future<void> publishUserPropertiesFromFirestore(String uid) async {
+///
+/// Returns the `users/{uid}` data it read (null on failure) so the claim
+/// flow can reuse the post-claim read for its streak milestone and
+/// first-claim checks instead of reading the doc a second time.
+Future<Map<String, dynamic>?> publishUserPropertiesFromFirestore(
+    String uid) async {
   try {
     final doc = await FirebaseFirestore.instance
         .collection('users')
@@ -30,7 +35,9 @@ Future<void> publishUserPropertiesFromFirestore(String uid) async {
       hasSeenIntro: results[1] as bool,
     );
     await Analytics.setUserProperties(snap);
+    return data;
   } catch (e, st) {
     debugPrint('publishUserPropertiesFromFirestore($uid) failed: $e\n$st');
+    return null;
   }
 }

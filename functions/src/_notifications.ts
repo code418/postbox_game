@@ -31,6 +31,35 @@ export function diffFriends(before: string[], after: string[]): string[] {
 // ── Internal FCM send helper ──────────────────────────────────────────────
 
 /**
+ * The multicast message for one notification. iOS alerts are silent unless
+ * the APNs payload names a sound (Android plays its channel's sound), so
+ * `aps.sound` is set to keep the two platforms alike.
+ */
+export function buildPushMessage(
+  tokens: string[],
+  title: string,
+  body: string
+): admin.messaging.MulticastMessage {
+  return {
+    tokens,
+    notification: { title, body },
+    apns: { payload: { aps: { sound: "default" } } },
+  };
+}
+
+/**
+ * True for the FCM error codes that mean the token will never work again.
+ * not-registered: the app was uninstalled or the token revoked;
+ * invalid-registration-token: the string was never a valid FCM token.
+ */
+export function isStaleTokenError(code: string | undefined): boolean {
+  return (
+    code === "messaging/registration-token-not-registered" ||
+    code === "messaging/invalid-registration-token"
+  );
+}
+
+/**
  * Sends a push notification to all valid FCM tokens registered for `uid`.
  * Prunes any tokens that FCM reports as no longer registered.
  *
@@ -43,25 +72,25 @@ export async function sendToUser(uid: string, title: string, body: string): Prom
   const tokens: string[] = (doc.data()?.tokens as string[] | undefined) ?? [];
   if (tokens.length === 0) return;
 
-  const response = await admin.messaging().sendEachForMulticast({
-    tokens,
-    notification: { title, body },
-  });
+  const response = await admin.messaging().sendEachForMulticast(
+    buildPushMessage(tokens, title, body)
+  );
 
   const staleTokens: string[] = [];
   response.responses.forEach((r, idx) => {
-    if (!r.success) {
-      // Both codes are permanent: not-registered means the install was
-      // uninstalled or the token was revoked, invalid-argument means the
-      // string was never a valid FCM token. Either way the token will never
-      // succeed again — prune it so we stop sending to it.
-      const code = r.error?.code;
-      if (
-        code === "messaging/registration-token-not-registered" ||
-        code === "messaging/invalid-registration-token"
-      ) {
-        staleTokens.push(tokens[idx]);
-      }
+    if (r.success) return;
+    const code = r.error?.code;
+    if (isStaleTokenError(code)) {
+      // Permanent: prune it so we stop sending to it.
+      staleTokens.push(tokens[idx]);
+    } else {
+      // Anything else (e.g. messaging/third-party-auth-error when the APNs
+      // key is wrong) would otherwise vanish without trace. Never log the
+      // token itself.
+      console.warn(
+        `[sendToUser] FCM send failed for ${uid}: ${code ?? "unknown"}`,
+        r.error?.message
+      );
     }
   });
 

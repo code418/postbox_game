@@ -115,6 +115,10 @@ export function filterToCorridor(
  * Explores combinations of postboxes that maximise score while keeping the
  * total walk time (travel + per-claim dwell) within budgetSeconds, leaving
  * enough time to reach `end` from the last visited postbox.
+ *
+ * `onExplored`, if given, receives every feasible state generated (before
+ * beam truncation), so a caller can pick alternative routes from the same
+ * search via selectAlternatives(). The return value is unaffected.
  */
 export function beamSearchOrienteering(
   start: Point,
@@ -124,6 +128,7 @@ export function beamSearchOrienteering(
   speedMps: number,
   perClaimSeconds: number,
   beamWidth: number,
+  onExplored?: (state: SearchState) => void,
 ): SearchState {
   const initial: SearchState = {
     current: start,
@@ -169,6 +174,7 @@ export function beamSearchOrienteering(
 
     for (const s of dedup.values()) {
       next.push(s);
+      onExplored?.(s);
       if (s.score > best.score || (s.score === best.score && s.timeUsed < best.timeUsed)) best = s;
     }
 
@@ -177,6 +183,39 @@ export function beamSearchOrienteering(
   }
 
   return best;
+}
+
+/**
+ * Jaccard similarity of two routes' stop sets (0 = disjoint, 1 = identical).
+ * Two empty routes count as identical.
+ */
+export function routeOverlap(a: SearchState, b: SearchState): number {
+  if (a.visited.size === 0 && b.visited.size === 0) return 1;
+  let shared = 0;
+  for (const id of a.visited) if (b.visited.has(id)) shared++;
+  return shared / (a.visited.size + b.visited.size - shared);
+}
+
+/**
+ * Pick up to `k` alternative routes from a pool of explored states: best
+ * score first, then greedily the next-best route that shares at most
+ * `maxOverlap` (Jaccard) of its stops with every route already chosen. If
+ * that yields fewer than `k`, fill with the next-best routes that are at
+ * least distinct (overlap < 1), so callers get the alternatives that exist
+ * rather than none. Identical stop sets are never returned twice.
+ */
+export function selectAlternatives(states: SearchState[], k: number, maxOverlap = 0.5): SearchState[] {
+  const ranked = [...states].sort((a, b) => (b.score - a.score) || (a.timeUsed - b.timeUsed));
+  const picked: SearchState[] = [];
+  const fill = (accept: (overlap: number) => boolean): void => {
+    for (const s of ranked) {
+      if (picked.length >= k) return;
+      if (picked.every((p) => accept(routeOverlap(p, s)))) picked.push(s);
+    }
+  };
+  fill((o) => o <= maxOverlap);
+  if (picked.length < k) fill((o) => o < 1);
+  return picked;
 }
 
 /**

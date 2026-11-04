@@ -37,12 +37,21 @@ import 'package:postbox_game/admin/admin_access.dart';
 import 'package:postbox_game/analytics_user_properties.dart';
 import 'package:postbox_game/notification_service.dart';
 import 'package:postbox_game/remote_config_service.dart';
+import 'package:postbox_game/deep_links.dart';
 import 'package:postbox_game/services/crashlytics_helper.dart';
+import 'package:postbox_game/services/pending_invite_store.dart';
 import 'package:postbox_game/services/telemetry_consent.dart';
 import 'package:postbox_game/route/destination_picker_screen.dart';
 import 'package:postbox_game/route/route_notifications.dart';
 import 'package:postbox_game/services/user_properties_publisher.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:app_links/app_links.dart';
+
+// Deep-link parsing and the unknown-route guard live in deep_links.dart so the
+// Wear entry point can share them. Re-exported so existing importers (and the
+// tests that pin the Kotlin DEEP_LINK contract) keep resolving them here.
+export 'package:postbox_game/deep_links.dart'
+    show isClaimDeepLink, isWidgetClaimDeepLink, unknownRoute;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -69,9 +78,14 @@ void main() async {
   // one place (analytics is opt-in and starts manifest-disabled; crash/perf
   // are legitimate-interest with Settings opt-outs, still off in debug).
   unawaited(applyStoredTelemetryPreferences());
+  unawaited(
+      CrashlyticsHelper.setContext(CrashlyticsHelper.keySurface, 'phone'));
   try {
     await FirebaseAppCheck.instance.activate(
-      providerWeb: ReCaptchaV3Provider(kRecaptchaSiteKey),
+      // reCAPTCHA Enterprise (score-based website key). Only the site key is
+      // used client-side; App Check verifies tokens through the project's
+      // reCAPTCHA Enterprise API, so no secret key is involved.
+      providerWeb: ReCaptchaEnterpriseProvider(kRecaptchaSiteKey),
       // Debug provider is only safe for local development; release builds must use
       // Play Integrity to actually enforce App Check.
       providerAndroid: kDebugMode
@@ -117,12 +131,13 @@ void main() async {
 }
 
 /// Coarse auth-provider label for the Crashlytics `auth_state` key. Never PII —
-/// just which sign-in method is active (`google` / `email` / `anon`).
+/// just which sign-in method is active (`google` / `apple` / `email` / `anon`).
 String _authStateLabel(User? user) {
   if (user == null) return 'signed_out';
   if (user.isAnonymous) return 'anon';
   final providers = user.providerData.map((p) => p.providerId).toSet();
   if (providers.contains('google.com')) return 'google';
+  if (providers.contains('apple.com')) return 'apple';
   if (providers.contains('password')) return 'email';
   return 'unknown';
 }
@@ -131,76 +146,6 @@ String _authStateLabel(User? user) {
 /// (postbox://claim?source=widget). Consumed once by [_PostboxGameState] to
 /// open the Claim tab and auto-scan, then cleared.
 bool _pendingWidgetAutoScan = false;
-
-/// Whether [uri] is the home-screen widget's claim deep link.
-///
-/// The Kotlin widget provider fires `postbox://claim?source=widget`
-/// (PostboxWidgetProvider.kt DEEP_LINK). Keeping the parsing in one place
-/// stops the two call sites below from drifting and gives a single thing
-/// to pin in tests against the Kotlin constant.
-@visibleForTesting
-bool isWidgetClaimDeepLink(Uri? uri) =>
-    uri != null &&
-    uri.host == 'claim' &&
-    uri.queryParameters['source'] == 'widget';
-
-/// Swallow a named route the app doesn't own, instead of crashing.
-///
-/// The platform pushes intent URIs into the Navigator as named routes
-/// (`didPushRouteInformation` → `pushNamed`). The home-screen widget's
-/// `postbox://claim?source=widget` arrives that way as `/?source=widget`,
-/// which is in neither [routes] nor an `onGenerateRoute` — and with
-/// `onUnknownRoute` unset Flutter does `widget.onUnknownRoute!(settings)`,
-/// so tapping the widget WHILE THE APP WAS ALREADY OPEN hard-crashed it
-/// (Crashlytics `_WidgetsAppState._onUnknownRoute`, fatal, 1.4.0).
-///
-/// Swallowing is the right answer rather than landing somewhere: the widget
-/// tap is already handled properly by the `HomeWidget.widgetClicked` listener
-/// in [_PostboxGameState], which opens the Claim tab and auto-scans. This
-/// route is the engine's duplicate of that same tap. It must still return a
-/// real Route — returning null crashes on the `_routeNamed(...)!` in
-/// `pushNamed` — so it returns a transparent one that pops on the first frame.
-///
-/// Unknown routes are still reported (non-fatally, deduped) so a genuinely
-/// broken deep link doesn't just vanish.
-@visibleForTesting
-Route<void> unknownRoute(RouteSettings settings) {
-  unawaited(CrashlyticsHelper.recordHandled(
-    StateError('unknown route pushed: ${settings.name}'),
-    StackTrace.current,
-    reason: 'navigator_unknown_route',
-    dedupeKey: 'unknown_route_${settings.name}',
-  ));
-  return PageRouteBuilder<void>(
-    settings: settings,
-    opaque: false,
-    barrierColor: null,
-    transitionDuration: Duration.zero,
-    reverseTransitionDuration: Duration.zero,
-    pageBuilder: (_, __, ___) => const _SelfDismissingRoute(),
-  );
-}
-
-/// Renders nothing and pops itself once mounted. See [unknownRoute].
-class _SelfDismissingRoute extends StatefulWidget {
-  const _SelfDismissingRoute();
-
-  @override
-  State<_SelfDismissingRoute> createState() => _SelfDismissingRouteState();
-}
-
-class _SelfDismissingRouteState extends State<_SelfDismissingRoute> {
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) Navigator.of(context).maybePop();
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) => const SizedBox.shrink();
-}
 
 Future<void> _checkInitialWidgetLaunch() async {
   try {
@@ -224,13 +169,15 @@ class _PostboxGameState extends State<PostboxGame> with WidgetsBindingObserver {
   final UserRepository _userRepository = UserRepository();
   final HomeWidgetService _homeWidgetService = HomeWidgetService();
   StreamSubscription<Uri?>? _widgetClickSub;
-  // Monotonic counter of widget-deep-link activations. Each increment is used
-  // as part of the Home widget's key so a widget tap while the app is warm
+  StreamSubscription<Uri>? _appLinkSub;
+  // Widget-deep-link activations. Each tap bumps the epoch, which is used as
+  // part of the Home widget's key so a widget tap while the app is warm
   // (already authenticated) forces a fresh Home + Claim mount rather than
   // re-using the existing _HomeState — the previous _pages/_selectedIndex
   // were initialised from `late final` fields and would otherwise ignore the
-  // new autoScan/initialIndex props.
-  int _autoScanEpoch = _pendingWidgetAutoScan ? 1 : 0;
+  // new autoScan/initialIndex props. Reset on sign-out (see the class).
+  final WidgetAutoScanRequests _autoScan =
+      WidgetAutoScanRequests(launchedFromWidget: _pendingWidgetAutoScan);
 
   @override
   void initState() {
@@ -243,18 +190,43 @@ class _PostboxGameState extends State<PostboxGame> with WidgetsBindingObserver {
     try {
       _widgetClickSub = HomeWidget.widgetClicked.listen((uri) {
         if (isWidgetClaimDeepLink(uri)) {
-          setState(() => _autoScanEpoch++);
+          setState(_autoScan.tapped);
         }
       });
     } catch (_) {
       // home_widget unsupported on this platform.
     }
+    // Invite links (App Links / Universal Links and the invite page's
+    // custom scheme). The stream also delivers the link that cold-started
+    // the app. The invite is parked rather than acted on here: the opener is
+    // usually not signed in yet, and Home takes it once it mounts. The
+    // web build is skipped: it has no app to open, and app_links only
+    // replays the page URL there.
+    if (!kIsWeb) {
+      try {
+        // onError: a missing plugin (tests, unsupported hosts) surfaces as
+        // a stream error, which would otherwise be an uncaught async error.
+        _appLinkSub =
+            AppLinks().uriLinkStream.listen(_onAppLink, onError: (_) {});
+      } catch (_) {
+        // app_links unsupported on this platform.
+      }
+    }
+  }
+
+  void _onAppLink(Uri uri) {
+    final code = parseInviteLink(uri);
+    if (code == null) return;
+    unawaited(Analytics.inviteLinkOpened(
+        source: uri.scheme == kInviteScheme ? 'scheme' : 'link'));
+    unawaited(PendingInviteStore.save(code));
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _widgetClickSub?.cancel();
+    _appLinkSub?.cancel();
     super.dispose();
   }
 
@@ -269,6 +241,11 @@ class _PostboxGameState extends State<PostboxGame> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       unawaited(_homeWidgetService.refresh());
+      // Pick up a notification grant made in system settings while away.
+      // Non-prompting, and a no-op once registered.
+      if (FirebaseAuth.instance.currentUser != null) {
+        unawaited(NotificationService.init());
+      }
     }
   }
 
@@ -301,6 +278,7 @@ class _PostboxGameState extends State<PostboxGame> with WidgetsBindingObserver {
           home: BlocConsumer<AuthenticationBloc, AuthenticationState?>(
             listener: (context, state) {
               if (state is Authenticated) {
+                _autoScan.signedIn();
                 unawaited(NotificationService.init());
                 unawaited(_homeWidgetService.refresh());
                 // Force a fresh Remote Config fetch on login (bypassing the
@@ -319,6 +297,8 @@ class _PostboxGameState extends State<PostboxGame> with WidgetsBindingObserver {
                   unawaited(publishUserPropertiesFromFirestore(uid));
                 }
               } else if (state is Unauthenticated) {
+                // Read by the builder that runs right after this listener.
+                _autoScan.signedOut();
                 unawaited(NotificationService.reset());
                 unawaited(_homeWidgetService.refresh());
                 // Forget any admin-claim result cached against the previous
@@ -346,7 +326,8 @@ class _PostboxGameState extends State<PostboxGame> with WidgetsBindingObserver {
                 // ConsentGate is a pass-through for anyone who has made the
                 // analytics choice (new users decide in the intro); existing
                 // installs get a one-time consent prompt before Home.
-                if (_autoScanEpoch > 0) {
+                final autoScanEpoch = _autoScan.epoch;
+                if (autoScanEpoch > 0) {
                   // Keying on the epoch forces a fresh Home + Claim mount on
                   // each widget tap. Without the key, Flutter reconciles the
                   // existing _HomeState whose `late final _pages` was built
@@ -354,7 +335,7 @@ class _PostboxGameState extends State<PostboxGame> with WidgetsBindingObserver {
                   // scan fires.
                   return ConsentGate(
                     child: Home(
-                      key: ValueKey('claim-widget-$_autoScanEpoch'),
+                      key: ValueKey('claim-widget-$autoScanEpoch'),
                       initialIndex: 1,
                       autoScan: true,
                     ),
@@ -413,9 +394,18 @@ class _UnauthGateState extends State<_UnauthGate> {
       return Intro(
         replay: false,
         onDone: () async {
-          await IntroPreferences.setIntroSeen();
+          // Never let this write stand between the player and sign-in. The
+          // intro latches its final button, so a throw here (or a hang: the
+          // SharedPreferences channel hangs rather than throws when it's
+          // down) left them on the intro with a button that did nothing. The
+          // worst a failed write costs is seeing the intro again next launch.
+          try {
+            await IntroPreferences.setIntroSeen()
+                .timeout(const Duration(seconds: 3));
+          } catch (_) {}
           unawaited(Analytics.setUserProperty(
               AnalyticsUserProps.kHasSeenIntro, 'true'));
+          unawaited(Analytics.tutorialComplete());
           if (mounted) setState(() => _introSeen = true);
         },
       );

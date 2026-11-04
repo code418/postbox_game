@@ -46,21 +46,32 @@ class ConnectivityService {
   final ValueNotifier<bool> _online = ValueNotifier<bool>(true);
   ValueListenable<bool> get online => _online;
 
+  /// Offline only on a positive report of no transport. An empty list says
+  /// nothing either way, so it fails open like every other uncertainty here.
   static bool _isOnline(List<ConnectivityResult> results) =>
-      results.any((r) => r != ConnectivityResult.none);
+      results.isEmpty || results.any((r) => r != ConnectivityResult.none);
 
   /// Reads the current state and subscribes to updates. Safe to call more
   /// than once; errors fail open (stay online — see class comment).
   Future<void> init() async {
     await _sub?.cancel();
+    // A change event is newer than the initial check it can overtake: the
+    // check is awaited AFTER subscribing, so if the network came up while it
+    // was in flight, applying its older "none" would pin the banner at
+    // "offline" until the next change.
+    var sawChange = false;
     _sub = _changes.listen(
-      (results) => _online.value = _isOnline(results),
+      (results) {
+        sawChange = true;
+        _online.value = _isOnline(results);
+      },
       onError: (_) => _online.value = true,
     );
     try {
-      _online.value = _isOnline(await _check());
+      final initial = await _check();
+      if (!sawChange) _online.value = _isOnline(initial);
     } catch (_) {
-      _online.value = true;
+      if (!sawChange) _online.value = true;
     }
   }
 }

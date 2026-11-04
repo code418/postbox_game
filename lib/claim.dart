@@ -65,11 +65,23 @@ class _ClaimState extends State<Claim> {
     AppPreferences.getDistanceUnit().then((unit) {
       if (mounted) setState(() => _distanceUnit = unit);
     });
+    AppPreferences.distanceUnitChanged.addListener(_onDistanceUnitChanged);
     if (widget.autoScan) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) unawaited(_startScan());
       });
     }
+  }
+
+  @override
+  void dispose() {
+    AppPreferences.distanceUnitChanged.removeListener(_onDistanceUnitChanged);
+    super.dispose();
+  }
+
+  void _onDistanceUnitChanged() {
+    final unit = AppPreferences.distanceUnitChanged.value;
+    if (unit != null && mounted) setState(() => _distanceUnit = unit);
   }
 
   // ── Location acquisition ──────────────────────────────────────────────────

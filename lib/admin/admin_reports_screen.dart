@@ -292,7 +292,7 @@ class _ReportCardState extends State<_ReportCard> {
                 height: 84,
                 child: ListView(
                   scrollDirection: Axis.horizontal,
-                  children: [for (final p in photos) _PhotoThumb(photo: Map<String, dynamic>.from(p as Map))],
+                  children: [for (final p in photos) AdminPhotoThumb(photo: Map<String, dynamic>.from(p as Map))],
                 ),
               ),
             ],
@@ -611,15 +611,26 @@ class _ReviewOutcome extends StatelessWidget {
   }
 }
 
-class _PhotoThumb extends StatefulWidget {
-  const _PhotoThumb({required this.photo});
+/// A report photo's thumbnail; tapping it opens the full-size view with the
+/// photo's EXIF location. Public only so it can be widget-tested.
+@visibleForTesting
+class AdminPhotoThumb extends StatefulWidget {
+  const AdminPhotoThumb({
+    super.key,
+    required this.photo,
+    @visibleForTesting this.downloadUrlFor,
+  });
   final Map<String, dynamic> photo;
 
+  /// Resolves a Storage path to a download URL. Defaults to Firebase Storage;
+  /// overridden in tests.
+  final Future<String> Function(String path)? downloadUrlFor;
+
   @override
-  State<_PhotoThumb> createState() => _PhotoThumbState();
+  State<AdminPhotoThumb> createState() => _AdminPhotoThumbState();
 }
 
-class _PhotoThumbState extends State<_PhotoThumb> {
+class _AdminPhotoThumbState extends State<AdminPhotoThumb> {
   /// Cached download URL future — built once per path so a parent rebuild
   /// (Accept tap, photo dialog open, sibling busy toggling) doesn't fire a
   /// fresh Storage round-trip per thumb on every frame.
@@ -642,7 +653,8 @@ class _PhotoThumbState extends State<_PhotoThumb> {
   Future<String> _urlFor(String path) {
     if (_urlFuture == null || _lastPath != path) {
       _lastPath = path;
-      _urlFuture = FirebaseStorage.instance.ref(path).getDownloadURL();
+      _urlFuture = (widget.downloadUrlFor ??
+          (p) => FirebaseStorage.instance.ref(p).getDownloadURL())(path);
     }
     return _urlFuture!;
   }
@@ -692,7 +704,11 @@ class _PhotoThumbState extends State<_PhotoThumb> {
                             : ColoredBox(
                                 color: Colors.black12,
                                 child: Center(
-                                  child: s.hasError
+                                  // A retry keeps the previous error on the
+                                  // snapshot while it waits, so key off the
+                                  // connection state to show it's retrying.
+                                  child: s.hasError &&
+                                          s.connectionState == ConnectionState.done
                                       ? const Icon(Icons.broken_image_outlined, size: 22)
                                       : const SizedBox(
                                           width: 18,
@@ -716,7 +732,23 @@ class _PhotoThumbState extends State<_PhotoThumb> {
   Future<void> _open(BuildContext context, String path) async {
     // Reuse the cached URL future (same Storage download URL) instead of
     // firing a fresh getDownloadURL request on every tap.
-    final url = await _urlFor(path);
+    final String url;
+    try {
+      url = await _urlFor(path);
+    } catch (_) {
+      // The lookup failed (typically a transient `retry-limit-exceeded` on a
+      // poor connection). This tap is unawaited, so rethrowing would reach
+      // the zone as an uncaught error, which Crashlytics records as FATAL.
+      // And the failed future is cached, so without dropping it the thumb
+      // could never load again: clearing it makes the rebuild re-fetch,
+      // turning this tap into a retry.
+      if (!mounted || !context.mounted) return;
+      setState(() => _urlFuture = null);
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(const SnackBar(
+        content: Text("Couldn't load that photo. Retrying..."),
+      ));
+      return;
+    }
     if (!context.mounted) return;
     final exifLat = _exifLat;
     final exifLng = _exifLng;
@@ -727,7 +759,24 @@ class _PhotoThumbState extends State<_PhotoThumb> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Flexible(child: InteractiveViewer(child: Image.network(url))),
+            Flexible(
+              child: InteractiveViewer(
+                child: Image.network(
+                  url,
+                  errorBuilder: (_, __, ___) => const Padding(
+                    padding: EdgeInsets.all(AppSpacing.lg),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.broken_image_outlined, size: 40),
+                        SizedBox(height: AppSpacing.sm),
+                        Text("Couldn't load the photo."),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
             Padding(
               padding: const EdgeInsets.all(AppSpacing.sm),
               child: Column(

@@ -163,7 +163,9 @@ class OutboxSync {
               'lat': e.lat,
               'lng': e.lng,
               'capturedAtMs': e.capturedAtForFlush(
-                  flushWallMs: nowWall, flushMonotonicMs: nowMono),
+                  flushWallMs: nowWall,
+                  flushMonotonicMs: nowMono,
+                  flushBootId: ClaimOutbox.bootId()),
             },
         ],
       };

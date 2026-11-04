@@ -4,20 +4,33 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:postbox_game/firebase_functions_eu.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:geolocator/geolocator.dart' show Position;
 import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/remote_config_service.dart';
 import 'package:postbox_game/services/claim_outbox.dart';
 import 'package:postbox_game/services/device_id_service.dart';
 import 'package:postbox_game/location_service.dart';
 import 'package:postbox_game/maintenance_guard.dart';
-import 'package:postbox_game/monarch_info.dart';
+import 'package:postbox_game/wear/wear_labels.dart';
+import 'package:postbox_game/services/claim_events.dart';
+import 'package:postbox_game/services/home_widget_service.dart';
 import 'package:postbox_game/streak_service.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/wear/wear_error_messages.dart';
+import 'package:postbox_game/wear/wear_round_inset.dart';
 import 'package:postbox_game/wear/wear_theme.dart';
 import 'package:postbox_game/widgets/quiz_helpers.dart';
 
-enum _ClaimStage { ready, scanning, found, empty, error, quiz, claiming, success }
+enum WearClaimStage {
+  ready,
+  scanning,
+  found,
+  empty,
+  error,
+  quiz,
+  claiming,
+  success
+}
 
 /// Maps a [FirebaseFunctionsException] code from the `startScoring` callable to
 /// a short, watch-appropriate error message.
@@ -38,15 +51,57 @@ String wearClaimErrorMessage(String code) => switch (code) {
 ///
 /// Scan → quiz (2 options) → claim → success with haptic feedback.
 /// No confetti or complex animations — optimised for small screen and battery.
+///
+/// Scanning works signed out (discovery is auth-free server-side); claiming
+/// does not. When [signedIn] is false the claim CTA becomes "Sign in to
+/// claim" and fires [onSignInRequested] (the shell swipes to its sign-in
+/// page) instead of starting the quiz.
 class WearClaimPage extends StatefulWidget {
-  const WearClaimPage({super.key});
+  const WearClaimPage({
+    super.key,
+    required this.signedIn,
+    this.onSignInRequested,
+    this.autoScan = false,
+    @visibleForTesting this.nearbyCallable,
+    @visibleForTesting this.claimCallable,
+    @visibleForTesting this.positionProvider,
+  });
+
+  /// Test seams, as on the phone's ClaimQuizSheet: default to the real
+  /// `nearbyPostboxes` / `startScoring` callables and GPS.
+  final Future<HttpsCallableResult<dynamic>> Function(Map<String, dynamic>)?
+      nearbyCallable;
+  final Future<HttpsCallableResult<dynamic>> Function(Map<String, dynamic>)?
+      claimCallable;
+  final Future<Position> Function()? positionProvider;
+
+  final bool signedIn;
+  final VoidCallback? onSignInRequested;
+
+  /// Start scanning as soon as this page mounts. Set when the app was opened
+  /// by a tile or complication tap, which is a request to scan rather than
+  /// just to open the app. The shell is keyed on the tap, so each tap gives a
+  /// fresh mount and therefore exactly one scan.
+  final bool autoScan;
 
   @override
   State<WearClaimPage> createState() => _WearClaimPageState();
 }
 
 class _WearClaimPageState extends State<WearClaimPage> {
-  _ClaimStage _stage = _ClaimStage.ready;
+  @override
+  void initState() {
+    super.initState();
+    if (widget.autoScan) {
+      // Post-frame so the first build (and its round-fit layout) completes
+      // before the scan's setState lands.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_scan());
+      });
+    }
+  }
+
+  WearClaimStage _stage = WearClaimStage.ready;
   int _count = 0;
   int _claimedToday = 0;
   Map<String, dynamic> _postboxes = {};
@@ -54,30 +109,43 @@ class _WearClaimPageState extends State<WearClaimPage> {
   List<String> _quizOptions = [];
   int _pointsEarned = 0;
   int _claimedCount = 0;
-  /// Short human-readable error message shown in the [_ClaimStage.error] view.
+
+  /// Short human-readable error message shown in the [WearClaimStage.error] view.
   /// Set whenever a scan or claim fails for a recoverable reason (location
   /// denied, services off, network down). Null when there's no active error.
   String? _errorMessage;
 
-  final HttpsCallable _nearbyCallable =
-      appFunctions.httpsCallable('nearbyPostboxes');
-  final HttpsCallable _claimCallable =
-      appFunctions.httpsCallable('startScoring');
+  late final Future<HttpsCallableResult<dynamic>> Function(
+          Map<String, dynamic>) _nearbyCallable =
+      widget.nearbyCallable ??
+          (p) => appFunctions.httpsCallable('nearbyPostboxes').call(p);
+  late final Future<HttpsCallableResult<dynamic>> Function(
+          Map<String, dynamic>) _claimCallable =
+      widget.claimCallable ??
+          (p) => appFunctions.httpsCallable('startScoring').call(p);
+
+  Future<Position> _position() => (widget.positionProvider ??
+      () => getPosition(forceLocationManager: true))();
   final StreakService _streakService = StreakService();
-  late final Stream<int?> _streakStream = _streakService.streakStream();
+
+  /// Created on first claim success rather than at mount, so it binds to the
+  /// uid that actually claimed — this page can now be mounted signed-out.
+  /// (The shell also remounts on auth changes; this is defence-in-depth so
+  /// the stream's correctness doesn't silently depend on the parent's key.)
+  Stream<int?>? _streakStream;
 
   Future<void> _scan() async {
-    if (_stage == _ClaimStage.scanning) return;
+    if (_stage == WearClaimStage.scanning) return;
     setState(() {
-      _stage = _ClaimStage.scanning;
+      _stage = WearClaimStage.scanning;
       _errorMessage = null;
     });
     Analytics.scanStarted();
     try {
-      final position = await getPosition(forceLocationManager: true);
+      final position = await _position();
       // Read-only scan: safe to retry wholesale on a transport flake.
       final result =
-          await retryOnUnavailable(() => _nearbyCallable.call(<String, dynamic>{
+          await retryOnUnavailable(() => _nearbyCallable(<String, dynamic>{
                 'lat': position.latitude,
                 'lng': position.longitude,
                 'meters': RemoteConfigService.instance.claimRadiusMeters,
@@ -94,7 +162,7 @@ class _WearClaimPageState extends State<WearClaimPage> {
       setState(() {
         _count = total;
         _claimedToday = claimed;
-        _stage = total > 0 ? _ClaimStage.found : _ClaimStage.empty;
+        _stage = total > 0 ? WearClaimStage.found : WearClaimStage.empty;
       });
       if (total > 0) {
         HapticFeedback.lightImpact();
@@ -119,7 +187,7 @@ class _WearClaimPageState extends State<WearClaimPage> {
       if (!mounted) return;
       HapticFeedback.heavyImpact();
       setState(() {
-        _stage = _ClaimStage.error;
+        _stage = WearClaimStage.error;
         _errorMessage = wearLocationErrorMessage(e.kind, action: 'scan');
       });
     } catch (e) {
@@ -127,14 +195,14 @@ class _WearClaimPageState extends State<WearClaimPage> {
       if (!mounted) return;
       HapticFeedback.heavyImpact();
       setState(() {
-        _stage = _ClaimStage.error;
+        _stage = WearClaimStage.error;
         _errorMessage = 'Scan failed';
       });
     } finally {
       // Safety net: ensure we never get permanently stuck on 'scanning' if
       // an unexpected Dart Error bypasses the catch block above.
-      if (mounted && _stage == _ClaimStage.scanning) {
-        setState(() => _stage = _ClaimStage.ready);
+      if (mounted && _stage == WearClaimStage.scanning) {
+        setState(() => _stage = WearClaimStage.ready);
       }
     }
   }
@@ -149,6 +217,12 @@ class _WearClaimPageState extends State<WearClaimPage> {
   bool _quizMissed = false;
 
   void _startQuiz() {
+    if (!widget.signedIn) {
+      // Claiming needs an account; the found-view CTA already says so — this
+      // guard is belt-and-braces for any other path into the quiz.
+      widget.onSignInRequested?.call();
+      return;
+    }
     final valid = collectValidQuizCiphers(_postboxes.values);
     if (valid.isEmpty) {
       _claimPostbox();
@@ -163,7 +237,7 @@ class _WearClaimPageState extends State<WearClaimPage> {
       // Watch screen is tiny — show only 2 options vs the phone's 4.
       _quizOptions = buildQuizOptions(valid, maxOptions: 2);
       _quizMissed = false;
-      _stage = _ClaimStage.quiz;
+      _stage = WearClaimStage.quiz;
     });
   }
 
@@ -188,6 +262,15 @@ class _WearClaimPageState extends State<WearClaimPage> {
   }
 
   Future<void> _claimPostbox() async {
+    // Re-entry guard, as _scan has and the phone's claim path does. The CTA
+    // stays live until the next frame, so a double-tap ran two claims; only
+    // one scores, but if the loser's "already claimed" answer arrived second
+    // it replaced the "Claimed!" screen with a rescan.
+    if (_stage == WearClaimStage.claiming) return;
+    if (!widget.signedIn) {
+      widget.onSignInRequested?.call();
+      return;
+    }
     // Maintenance gate. The phone routes every write through
     // MaintenanceGuard.blocked(), whose own doc notes it is the ONLY gate —
     // `startScoring` has no server-side maintenance check (unlike
@@ -199,17 +282,17 @@ class _WearClaimPageState extends State<WearClaimPage> {
     if (MaintenanceGuard.isOn) {
       HapticFeedback.heavyImpact();
       setState(() {
-        _stage = _ClaimStage.error;
+        _stage = WearClaimStage.error;
         _errorMessage = 'Paused for maintenance';
       });
       return;
     }
     setState(() {
-      _stage = _ClaimStage.claiming;
+      _stage = WearClaimStage.claiming;
       _errorMessage = null;
     });
     try {
-      final position = await getPosition(forceLocationManager: true);
+      final position = await _position();
       final deviceIdHash = await DeviceIdService.get();
       // One id per logical claim attempt, exactly as the phone claim sheet
       // does. A watch's tethered link drops far more readily than a phone's,
@@ -221,7 +304,7 @@ class _WearClaimPageState extends State<WearClaimPage> {
       // which is also what makes the auto-retry below safe on a WRITE call.
       final attemptId = newAttemptId();
       final result =
-          await retryOnUnavailable(() => _claimCallable.call(<String, dynamic>{
+          await retryOnUnavailable(() => _claimCallable(<String, dynamic>{
                 'lat': position.latitude,
                 'lng': position.longitude,
                 // Client wall-clock for the shadow-mode out-of-window anomaly
@@ -249,7 +332,7 @@ class _WearClaimPageState extends State<WearClaimPage> {
         if (!mounted) return;
         HapticFeedback.heavyImpact();
         setState(() {
-          _stage = _ClaimStage.error;
+          _stage = WearClaimStage.error;
           _errorMessage = 'Too far. Move closer.';
         });
         return;
@@ -266,7 +349,16 @@ class _WearClaimPageState extends State<WearClaimPage> {
 
       Analytics.claimSuccess(
           pointsEarned: earnedPts, claimedCount: claimedCount);
+      // Push the new streak/points to the tile and complications. Mirrors the
+      // phone's post-claim refresh in claim_quiz_sheet.dart: a glanceable
+      // surface still showing the pre-claim total is the thing a player is
+      // most likely to look at next.
+      unawaited(HomeWidgetService().refresh());
+      // Anything showing claim-derived data (the Today glance) refetches.
+      ClaimEvents.markClaimed();
       if (!mounted) return;
+      // Bind the streak stream to the uid that just claimed (see field doc).
+      _streakStream ??= _streakService.streakStream();
       // Success haptic — double tap.
       HapticFeedback.mediumImpact();
       Future.delayed(const Duration(milliseconds: 100), () {
@@ -275,7 +367,7 @@ class _WearClaimPageState extends State<WearClaimPage> {
       setState(() {
         _pointsEarned = earnedPts;
         _claimedCount = claimedCount;
-        _stage = _ClaimStage.success;
+        _stage = WearClaimStage.success;
       });
     } on LocationServiceException catch (e) {
       debugPrint('Wear claim location error: $e');
@@ -286,7 +378,7 @@ class _WearClaimPageState extends State<WearClaimPage> {
       if (!mounted) return;
       HapticFeedback.heavyImpact();
       setState(() {
-        _stage = _ClaimStage.error;
+        _stage = WearClaimStage.error;
         _errorMessage = wearLocationErrorMessage(e.kind, action: 'claim');
       });
     } on FirebaseFunctionsException catch (e) {
@@ -298,7 +390,7 @@ class _WearClaimPageState extends State<WearClaimPage> {
       if (!mounted) return;
       HapticFeedback.heavyImpact();
       setState(() {
-        _stage = _ClaimStage.error;
+        _stage = WearClaimStage.error;
         _errorMessage = wearClaimErrorMessage(e.code);
       });
     } catch (e) {
@@ -307,14 +399,14 @@ class _WearClaimPageState extends State<WearClaimPage> {
       if (!mounted) return;
       HapticFeedback.heavyImpact();
       setState(() {
-        _stage = _ClaimStage.error;
+        _stage = WearClaimStage.error;
         _errorMessage = 'Claim failed';
       });
     } finally {
       // Safety net: ensure we never get permanently stuck on 'claiming' if
       // an unexpected Dart Error bypasses the catch block above.
-      if (mounted && _stage == _ClaimStage.claiming) {
-        setState(() => _stage = _ClaimStage.ready);
+      if (mounted && _stage == WearClaimStage.claiming) {
+        setState(() => _stage = WearClaimStage.ready);
       }
     }
   }
@@ -323,51 +415,116 @@ class _WearClaimPageState extends State<WearClaimPage> {
   Widget build(BuildContext context) {
     return Container(
       color: Colors.black,
-      child: _buildContent(context),
+      child: WearClaimView(
+        stage: _stage,
+        signedIn: widget.signedIn,
+        count: _count,
+        claimedToday: _claimedToday,
+        errorMessage: _errorMessage,
+        quizOptions: _quizOptions,
+        quizMissed: _quizMissed,
+        pointsEarned: _pointsEarned,
+        claimedCount: _claimedCount,
+        streakStream: _streakStream,
+        onScan: _scan,
+        // Signed out the CTA routes to the sign-in page — the scan result
+        // stays visible so the user knows what signing in unlocks.
+        onClaim: widget.signedIn
+            ? _startQuiz
+            : () => widget.onSignInRequested?.call(),
+        onQuizAnswer: _onQuizAnswer,
+        onDone: () => setState(() => _stage = WearClaimStage.ready),
+      ),
     );
+  }
+}
+
+/// The claim page's rendering, one layout per [WearClaimStage].
+///
+/// Split from the state machine so every stage can be laid out in a widget
+/// test without location, App Check or the callables — the round-screen fit
+/// test (test/wear_round_fit_test.dart) renders each one at watch size.
+class WearClaimView extends StatelessWidget {
+  const WearClaimView({
+    super.key,
+    required this.stage,
+    required this.signedIn,
+    this.count = 0,
+    this.claimedToday = 0,
+    this.errorMessage,
+    this.quizOptions = const [],
+    this.quizMissed = false,
+    this.pointsEarned = 0,
+    this.claimedCount = 0,
+    this.streakStream,
+    required this.onScan,
+    required this.onClaim,
+    required this.onQuizAnswer,
+    required this.onDone,
+  });
+
+  final WearClaimStage stage;
+  final bool signedIn;
+  final int count;
+  final int claimedToday;
+  final String? errorMessage;
+  final List<String> quizOptions;
+  final bool quizMissed;
+  final int pointsEarned;
+  final int claimedCount;
+  final Stream<int?>? streakStream;
+  final VoidCallback onScan;
+  final VoidCallback onClaim;
+  final ValueChanged<String> onQuizAnswer;
+  final VoidCallback onDone;
+
+  @override
+  Widget build(BuildContext context) {
+    // Every stage lays out inside the round display's inscribed square (~136
+    // dp on a 192 dp watch), so the taller stages put their icon on the same
+    // row as the headline rather than stacking a fifth row that would reach
+    // the bezel.
+    return WearRoundInset(child: _buildContent(context));
   }
 
   Widget _buildContent(BuildContext context) {
-    switch (_stage) {
-      case _ClaimStage.ready:
+    switch (stage) {
+      case WearClaimStage.ready:
         return _buildReady(context);
-      case _ClaimStage.scanning:
-      case _ClaimStage.claiming:
+      case WearClaimStage.scanning:
+      case WearClaimStage.claiming:
         return _buildLoading(context);
-      case _ClaimStage.found:
+      case WearClaimStage.found:
         return _buildFound(context);
-      case _ClaimStage.empty:
+      case WearClaimStage.empty:
         return _buildEmpty(context);
-      case _ClaimStage.error:
+      case WearClaimStage.error:
         return _buildError(context);
-      case _ClaimStage.quiz:
+      case WearClaimStage.quiz:
         return _buildQuiz(context);
-      case _ClaimStage.success:
+      case WearClaimStage.success:
         return _buildSuccess(context);
     }
   }
 
   Widget _buildError(BuildContext context) {
     return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: WearSpacing.lg),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.error_outline, size: 32, color: Colors.red),
-            const SizedBox(height: WearSpacing.md),
-            Text(
-              _errorMessage ?? 'Something went wrong',
-              style: Theme.of(context).textTheme.bodyMedium,
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: WearSpacing.lg),
-            FilledButton(
-              onPressed: _scan,
-              child: const Text('Try again'),
-            ),
-          ],
-        ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.error_outline, size: 24, color: Colors.red),
+          const SizedBox(height: WearSpacing.sm),
+          Text(
+            errorMessage ?? 'Something went wrong',
+            style: Theme.of(context).textTheme.bodyMedium,
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: WearSpacing.md),
+          FilledButton(
+            onPressed: onScan,
+            child: const Text('Try again'),
+          ),
+        ],
       ),
     );
   }
@@ -384,7 +541,7 @@ class _WearClaimPageState extends State<WearClaimPage> {
           ),
           const SizedBox(height: WearSpacing.md),
           FilledButton(
-            onPressed: _scan,
+            onPressed: onScan,
             child: const Text('Scan & Claim'),
           ),
           const SizedBox(height: WearSpacing.sm),
@@ -409,7 +566,7 @@ class _WearClaimPageState extends State<WearClaimPage> {
           ),
           const SizedBox(height: WearSpacing.md),
           Text(
-            _stage == _ClaimStage.claiming ? 'Claiming...' : 'Scanning...',
+            stage == WearClaimStage.claiming ? 'Claiming...' : 'Scanning...',
             style: Theme.of(context).textTheme.bodyMedium,
           ),
         ],
@@ -418,19 +575,19 @@ class _WearClaimPageState extends State<WearClaimPage> {
   }
 
   Widget _buildFound(BuildContext context) {
-    final available = _count - _claimedToday;
+    final available = count - claimedToday;
     final allClaimed = available <= 0;
     // When everything nearby is already claimed, show the total found count
     // rather than the available count: "0 postboxes" alongside "All claimed
     // today" reads as a contradiction (it implies nothing was found).
-    final headlineCount = allClaimed ? _count : available;
+    final headlineCount = allClaimed ? count : available;
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(Icons.location_on, size: 28, color: postalRed),
-          const SizedBox(height: WearSpacing.sm),
-          Text(
+          _headlineRow(
+            context,
+            const Icon(Icons.location_on, size: 20, color: postalRed),
             '$headlineCount postbox${headlineCount == 1 ? '' : 'es'}',
             style: Theme.of(context).textTheme.titleMedium,
           ),
@@ -444,19 +601,32 @@ class _WearClaimPageState extends State<WearClaimPage> {
                   ?.copyWith(color: Colors.orange),
             ),
           ] else ...[
-            const SizedBox(height: WearSpacing.lg),
+            const SizedBox(height: WearSpacing.md),
             FilledButton(
-              onPressed: _startQuiz,
-              child: const Text('Claim!'),
+              onPressed: onClaim,
+              child: Text(signedIn ? 'Claim!' : 'Sign in to claim'),
             ),
           ],
-          const SizedBox(height: WearSpacing.sm),
           TextButton(
-            onPressed: _scan,
+            onPressed: onScan,
             child: const Text('Rescan'),
           ),
         ],
       ),
+    );
+  }
+
+  /// Icon and headline on one row: the tall stages can't afford a separate
+  /// icon row inside the inscribed square.
+  Widget _headlineRow(BuildContext context, Widget icon, String text,
+      {TextStyle? style}) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        icon,
+        const SizedBox(width: WearSpacing.sm),
+        Text(text, style: style),
+      ],
     );
   }
 
@@ -477,7 +647,7 @@ class _WearClaimPageState extends State<WearClaimPage> {
           ),
           const SizedBox(height: WearSpacing.lg),
           FilledButton(
-            onPressed: _scan,
+            onPressed: onScan,
             child: const Text('Try again'),
           ),
         ],
@@ -487,52 +657,46 @@ class _WearClaimPageState extends State<WearClaimPage> {
 
   Widget _buildQuiz(BuildContext context) {
     return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(WearSpacing.xl),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              _quizMissed ? 'Not quite!' : 'Which cipher?',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: _quizMissed ? Colors.red : null,
-                  ),
-            ),
-            if (_quizMissed) ...[
-              const SizedBox(height: WearSpacing.xs),
-              Text(
-                'Look again',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ],
-            const SizedBox(height: WearSpacing.lg),
-            for (final code in _quizOptions) ...[
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton(
-                  onPressed: () => _onQuizAnswer(code),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        code,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 14,
-                        ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          // A miss is signalled by the title alone (red + heavy haptic);
+          // there is no room for a second hint line under it.
+          Text(
+            quizMissed ? 'Not quite!' : 'Which cipher?',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: quizMissed ? Colors.red : null,
+                ),
+          ),
+          const SizedBox(height: WearSpacing.md),
+          for (final (i, code) in quizOptions.indexed) ...[
+            if (i > 0) const SizedBox(height: WearSpacing.sm),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                onPressed: () => onQuizAnswer(code),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      code,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
                       ),
-                      Text(
-                        MonarchInfo.labels[code] ?? code,
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ],
-                  ),
+                    ),
+                    Text(
+                      watchMonarchLabel(code),
+                      style: Theme.of(context).textTheme.bodySmall,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: WearSpacing.sm),
-            ],
+            ),
           ],
-        ),
+        ],
       ),
     );
   }
@@ -542,22 +706,20 @@ class _WearClaimPageState extends State<WearClaimPage> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(
-            Icons.check_circle,
-            size: 48,
-            color: Color(0xFF2E7D32),
-          ),
-          const SizedBox(height: WearSpacing.md),
-          Text(
-            _claimedCount > 1
-                ? '$_claimedCount claimed!'
-                : 'Claimed!',
+          _headlineRow(
+            context,
+            const Icon(
+              Icons.check_circle,
+              size: 24,
+              color: Color(0xFF2E7D32),
+            ),
+            claimedCount > 1 ? '$claimedCount claimed!' : 'Claimed!',
             style: Theme.of(context).textTheme.headlineSmall,
           ),
-          if (_pointsEarned > 0) ...[
+          if (pointsEarned > 0) ...[
             const SizedBox(height: WearSpacing.sm),
             Text(
-              '+$_pointsEarned pts',
+              '+$pointsEarned pts',
               style: const TextStyle(
                 color: postalGold,
                 fontWeight: FontWeight.bold,
@@ -567,7 +729,7 @@ class _WearClaimPageState extends State<WearClaimPage> {
           ],
           // Streak display
           StreamBuilder<int?>(
-            stream: _streakStream,
+            stream: streakStream,
             builder: (context, snap) {
               final streak = snap.data ?? 0;
               if (streak <= 0) return const SizedBox.shrink();
@@ -580,9 +742,9 @@ class _WearClaimPageState extends State<WearClaimPage> {
               );
             },
           ),
-          const SizedBox(height: WearSpacing.lg),
+          const SizedBox(height: WearSpacing.sm),
           TextButton(
-            onPressed: () => setState(() => _stage = _ClaimStage.ready),
+            onPressed: onDone,
             child: const Text('Done'),
           ),
         ],

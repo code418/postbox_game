@@ -34,7 +34,12 @@
  *                                   removedFromOsmAt timestamp. Never hard-
  *                                   deletes — claims reference these IDs.
  *                                   Re-appearance auto-clears the flag (every
- *                                   normal write delete()s it).
+ *                                   normal write delete()s it). Refuses to
+ *                                   mark more than MAX_PRUNE_FRACTION of the
+ *                                   existing osm_* docs (a truncated export
+ *                                   would otherwise hide every postbox in
+ *                                   the country) unless --force-prune.
+ *   --force-prune                   Allow --prune past that safety limit.
  *   --manifest <path>               Override manifest location
  *                                   (default: functions/.last_import_manifest.json)
  *   --no-manifest                   Ignore any existing manifest; treat this
@@ -73,6 +78,13 @@ const COLLECTION = 'postbox';
 // still matches stored documents.
 const GEOHASH_PRECISION = 9;
 
+// --prune refuses to soft-mark more than this fraction of the existing osm_*
+// docs in one run. OSM loses a handful of postboxes per import; an Overpass
+// error response or a truncated download parses to few or no nodes, and
+// without this every postbox missing from it (i.e. all of them) would be
+// hidden from players at once.
+const MAX_PRUNE_FRACTION = 0.05;
+
 // Maximum documents per batch write (Firestore limit is 500).
 const BATCH_SIZE = 400;
 
@@ -103,6 +115,7 @@ function parseArgs(argv) {
     dryRun:    false,
     overwriteCorrections: false,
     prune:        false,
+    forcePrune:   false,
     noManifest:   false,
     manifestPath: DEFAULT_MANIFEST_PATH,
   };
@@ -115,6 +128,7 @@ function parseArgs(argv) {
     else if (a === '--dry-run')               { opts.dryRun = true; }
     else if (a === '--overwrite-corrections') { opts.overwriteCorrections = true; }
     else if (a === '--prune')                 { opts.prune = true; }
+    else if (a === '--force-prune')           { opts.forcePrune = true; }
     else if (a === '--no-manifest')           { opts.noManifest = true; }
     else if (a === '--manifest')              { opts.manifestPath = path.resolve(args[++i]); }
     else if (a === '--help' || a === '-h')    { printHelp(); process.exit(0); }
@@ -138,6 +152,9 @@ Options:
   --prune                         Soft-mark osm_* docs whose OSM node has
                                   disappeared since the last import
                                   (sets removedFromOsm + removedFromOsmAt).
+                                  Refuses to mark more than 5% of the
+                                  existing osm_* docs unless --force-prune.
+  --force-prune                   Allow --prune past that safety limit
   --manifest <path>               Override manifest path
                                   (default: functions/.last_import_manifest.json)
   --no-manifest                   Ignore any existing manifest; full re-import
@@ -253,6 +270,14 @@ async function main() {
   );
 
   console.log(`Found ${postboxes.length.toLocaleString()} postbox nodes.`);
+  if (postboxes.length === 0) {
+    // An Overpass error/timeout response ({"remark": ...}) or a truncated
+    // download lands here. Nothing useful can come of continuing.
+    throw new Error(
+      'input has no postbox nodes (Overpass error response or truncated ' +
+      'file?); refusing to import'
+    );
+  }
 
   // Cipher breakdown for informational purposes.
   const cipherCounts = {};
@@ -379,6 +404,9 @@ async function main() {
   }
   if (writeFailures > 0) {
     console.log(`  Write failures:              ${writeFailures.toLocaleString()}`);
+    // Still finish (prune, manifest, stats), but don't report success to a
+    // script or CI step that runs this.
+    process.exitCode = 1;
   }
 
   // Presence-in-OSM is judged against the FULL export, not the (possibly
@@ -401,8 +429,24 @@ async function main() {
     }
     process.stderr.write(` found ${stale.length}.\n`);
 
+    const osmTotal = snap.docs.filter((ds) => ds.id.startsWith('osm_')).length;
+    const pruneLimit = Math.floor(osmTotal * MAX_PRUNE_FRACTION);
+    const pruneBlocked = stale.length > pruneLimit && !opts.forcePrune;
+    if (pruneBlocked) {
+      console.error(
+        `\nRefusing to prune: ${stale.length.toLocaleString()} of ` +
+        `${osmTotal.toLocaleString()} osm_* docs are missing from this ` +
+        `export, over the ${MAX_PRUNE_FRACTION * 100}% safety limit ` +
+        `(${pruneLimit.toLocaleString()}). Check the export is complete, ` +
+        'then re-run with --force-prune if the removals are real.'
+      );
+      process.exitCode = 1;
+    }
+
     let marked = 0;
-    if (!opts.dryRun && stale.length > 0) {
+    if (pruneBlocked) {
+      // Nothing marked; the error above says why.
+    } else if (!opts.dryRun && stale.length > 0) {
       const ts = admin.firestore.FieldValue.serverTimestamp();
       for (let i = 0; i < stale.length; i += BATCH_SIZE) {
         const chunk = stale.slice(i, i + BATCH_SIZE);
@@ -415,6 +459,7 @@ async function main() {
           marked += chunk.length;
         } catch (err) {
           console.error(`\nPrune batch at offset ${i} failed:`, err.message);
+          process.exitCode = 1;
         }
       }
     } else if (opts.dryRun) {
@@ -428,12 +473,20 @@ async function main() {
   // Persist the manifest. Includes hashes for unchanged, written, AND
   // correctedBy-skipped items, so each run is a fresh snapshot of what the
   // current OSM file says these nodes should be.
+  //
+  // A --limit run only built a subset, so it MERGES into the previous
+  // manifest: replacing it would forget every node past the limit, and the
+  // next full run would re-write ~90k unchanged postboxes and report them all
+  // as new. (A node whose write failed is absent from nextNodes, so its
+  // previous hash survives the merge and the next run still retries it.)
   if (!opts.dryRun) {
     saveManifest(opts.manifestPath, {
       version: MANIFEST_VERSION,
       generatedAt: new Date().toISOString(),
       sourceFile: path.basename(filePath),
-      nodes: nextNodes,
+      nodes: opts.limit === Infinity
+        ? nextNodes
+        : { ...previousNodes, ...nextNodes },
     });
     console.log(`Manifest written to: ${opts.manifestPath}`);
   } else {

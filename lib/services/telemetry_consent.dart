@@ -14,12 +14,26 @@ import 'package:postbox_game/services/perf_service.dart';
 /// reporting and performance monitoring are likewise legitimate-interest with
 /// Settings opt-outs, and stay suppressed in debug builds as before. [isDebug]
 /// is a test seam.
-Future<void> applyStoredTelemetryPreferences({bool isDebug = kDebugMode}) async {
+///
+/// [includePerf] is false on Wear OS. Performance Monitoring auto-instruments
+/// HTTP calls app-wide, but the watch makes few of them and has no surface on
+/// which to present a third toggle — so rather than collect something the user
+/// cannot object to, the watch forces perf collection OFF and offers opt-outs
+/// for the two streams it does use (analytics and crash reporting).
+Future<void> applyStoredTelemetryPreferences({
+  bool isDebug = kDebugMode,
+  bool includePerf = true,
+}) async {
   final granted = await ConsentPreferences.analyticsGranted();
   final crash = await ConsentPreferences.crashReportingEnabled();
-  final perf = await ConsentPreferences.perfMonitoringEnabled();
 
   await Analytics.setCollectionEnabled(granted);
   await CrashlyticsHelper.setCollectionEnabled(!isDebug && crash);
+
+  if (!includePerf) {
+    await PerfService.setCollectionEnabled(false);
+    return;
+  }
+  final perf = await ConsentPreferences.perfMonitoringEnabled();
   await PerfService.setCollectionEnabled(!isDebug && perf);
 }

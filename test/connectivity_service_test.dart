@@ -71,4 +71,33 @@ void main() {
     await service.init();
     expect(service.online.value, isTrue);
   });
+
+  test('a change that lands during the initial check is not overwritten',
+      () async {
+    // The network came up while the (older) initial check was in flight.
+    // Applying the check's "none" afterwards pinned the banner at offline
+    // until the next change.
+    final updates = StreamController<List<ConnectivityResult>>();
+    addTearDown(updates.close);
+    final check = Completer<List<ConnectivityResult>>();
+    final service = ConnectivityService(
+      check: () => check.future,
+      changes: updates.stream,
+    );
+    final init = service.init();
+    updates.add([ConnectivityResult.wifi]);
+    await Future<void>.delayed(Duration.zero);
+    check.complete([ConnectivityResult.none]);
+    await init;
+    expect(service.online.value, isTrue);
+  });
+
+  test('an empty result is not treated as offline', () async {
+    final service = ConnectivityService(
+      check: () async => const <ConnectivityResult>[],
+      changes: const Stream.empty(),
+    );
+    await service.init();
+    expect(service.online.value, isTrue);
+  });
 }

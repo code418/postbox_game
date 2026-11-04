@@ -11,8 +11,10 @@
 // spuriously rejects an honest user server-side. So each capture stores the
 // process-monotonic elapsed too; a flush in the same process derives capture
 // times from `flushWall - (monotonicNow - monotonicAtCapture)`, immune to
-// wall-clock steps. Across a restart the monotonic anchor is gone and the
-// stored wall clock is the best available fallback.
+// wall-clock steps. The stopwatch resets on restart, so each capture is also
+// stamped with a per-process boot id (see [ClaimOutbox.bootId]); the anchor is
+// used only when the flushing process's boot id matches, otherwise the stored
+// wall clock is the fallback.
 
 import 'dart:convert';
 import 'dart:math';
@@ -41,6 +43,7 @@ class OutboxEntry {
     required this.capturedMonotonicMs,
     required this.attemptId,
     this.uid,
+    this.capturedBootId,
   });
 
   /// Who banked this capture. The outbox is device-global but its contents are
@@ -69,6 +72,15 @@ class OutboxEntry {
   /// entry's identity within the outbox.
   final String attemptId;
 
+  /// A random id unique to the OS process that took this capture (stamped by
+  /// [ClaimOutbox.add]). [capturedMonotonicMs] is only comparable to a flush's
+  /// monotonic clock WITHIN that same process — a restart resets the stopwatch
+  /// to zero — so the anchor is trustworthy only when this matches the flushing
+  /// process's boot id. Null on legacy entries (and any not routed through
+  /// [ClaimOutbox.add]); those fall back to the stored wall clock, never the
+  /// anchor.
+  final String? capturedBootId;
+
   /// A copy stamped with its owning account (see [uid]).
   OutboxEntry ownedBy(String? owner) => OutboxEntry(
         scanId: scanId,
@@ -78,13 +90,40 @@ class OutboxEntry {
         capturedMonotonicMs: capturedMonotonicMs,
         attemptId: attemptId,
         uid: owner,
+        capturedBootId: capturedBootId,
       );
 
-  /// The capture time to send at flush: monotonic-anchored when this process
-  /// took the capture (flush monotonic ≥ capture monotonic), else the stored
-  /// wall clock.
-  int capturedAtForFlush({required int flushWallMs, required int flushMonotonicMs}) {
-    if (flushMonotonicMs >= capturedMonotonicMs) {
+  /// A copy stamped with the capturing process's boot id (see [capturedBootId]).
+  OutboxEntry withBootId(String? bootId) => OutboxEntry(
+        scanId: scanId,
+        lat: lat,
+        lng: lng,
+        capturedWallMs: capturedWallMs,
+        capturedMonotonicMs: capturedMonotonicMs,
+        attemptId: attemptId,
+        uid: uid,
+        capturedBootId: bootId,
+      );
+
+  /// The capture time to send at flush: monotonic-anchored ONLY when the
+  /// flushing process is the one that took the capture ([capturedBootId] ==
+  /// [flushBootId]); otherwise the stored wall clock.
+  ///
+  /// The boot-id match is essential. A restart resets the monotonic stopwatch
+  /// to zero, so once a NEW process has been alive longer (in ms) than the old
+  /// capture's stored monotonic value, a bare `flushMonotonic >=
+  /// capturedMonotonic` guard becomes true again and would wrongly re-take the
+  /// anchor — reporting the capture as ~now and mis-dating an offline claim to
+  /// the flush day (which can silently break the very streak the offline path
+  /// exists to save). Legacy entries (null [capturedBootId]) always fall back.
+  int capturedAtForFlush({
+    required int flushWallMs,
+    required int flushMonotonicMs,
+    String? flushBootId,
+  }) {
+    final sameProcess =
+        capturedBootId != null && capturedBootId == flushBootId;
+    if (sameProcess && flushMonotonicMs >= capturedMonotonicMs) {
       return flushWallMs - (flushMonotonicMs - capturedMonotonicMs);
     }
     return capturedWallMs;
@@ -98,6 +137,7 @@ class OutboxEntry {
         'capturedMonotonicMs': capturedMonotonicMs,
         'attemptId': attemptId,
         if (uid != null) 'uid': uid!,
+        if (capturedBootId != null) 'capturedBootId': capturedBootId!,
       };
 
   static OutboxEntry? fromJson(Object? raw) {
@@ -113,6 +153,7 @@ class OutboxEntry {
       return null;
     }
     final uid = raw['uid'];
+    final bootId = raw['capturedBootId'];
     return OutboxEntry(
       scanId: scanId,
       lat: lat.toDouble(),
@@ -121,6 +162,7 @@ class OutboxEntry {
       capturedMonotonicMs: mono.toInt(),
       attemptId: attemptId,
       uid: uid is String ? uid : null,
+      capturedBootId: bootId is String ? bootId : null,
     );
   }
 }
@@ -147,9 +189,21 @@ class ClaimOutbox {
 
   static const String storageKey = 'claim_outbox_v1';
 
-  /// Where [pendingFlushAttemptId] is persisted. Separate from [storageKey] so
-  /// it survives outbox mutations (and a process restart) independently.
+  /// Prefix of where [pendingFlushAttemptId] is persisted, one key per
+  /// account (see [flushAttemptKeyFor]). Separate from [storageKey] so it
+  /// survives outbox mutations (and a process restart) independently. The
+  /// bare key is where builds before per-account keys kept it.
   static const String flushAttemptKey = 'claim_outbox_flush_attempt_v1';
+
+  /// Per account, like [OutboxEntry.uid], because the server binds an attempt
+  /// id to the uid that first sent it. A single device-wide slot let the next
+  /// account on the device reuse the previous one's id after a lost response:
+  /// the server refused it (`permission-denied`) on every retry until its
+  /// 48 h attempts TTL, longer than the grace window, so that account's
+  /// banked captures aged out unflushed. Per-account keys also let each
+  /// account's lost-response replay survive the other's session.
+  static String flushAttemptKeyFor(String? uid) =>
+      '$flushAttemptKey:${uid ?? ''}';
 
   /// Bounded queue: far above any honest outing (the server flush batch is 20
   /// and the daily quota 30), low enough that a runaway path can't bloat
@@ -164,6 +218,14 @@ class ClaimOutbox {
   /// is meaningless.
   static final Stopwatch _monotonic = Stopwatch()..start();
   static int monotonicNowMs() => _monotonic.elapsedMilliseconds;
+
+  /// A random id minted once per OS process. Stamped onto every capture (see
+  /// [add]) and passed to [OutboxEntry.capturedAtForFlush] at flush time so the
+  /// monotonic anchor is only trusted within the process that took the capture
+  /// — [_monotonic] resets on restart, so a stored monotonic value from a
+  /// previous process is not comparable to this one's.
+  static final String _bootId = newAttemptId();
+  static String bootId() => _bootId;
 
   @visibleForTesting
   static set instance(ClaimOutbox value) => _instance = value;
@@ -226,11 +288,17 @@ class ClaimOutbox {
   Future<List<OutboxEntry>> entries() async =>
       List.unmodifiable(_owned(await _load()));
 
-  /// Bank a capture for the signed-in user. The owner is stamped here rather
-  /// than at the call site so no caller can forget it.
+  /// Bank a capture for the signed-in user. The owner AND the capturing
+  /// process's boot id are stamped here rather than at the call site so no
+  /// caller can forget either — both describe state only the current process
+  /// knows: the signed-in user, and which process
+  /// [OutboxEntry.capturedMonotonicMs] belongs to.
   Future<void> add(OutboxEntry entry) async {
     final list = await _load();
-    list.add(entry.uid == null ? entry.ownedBy(_uidProvider()) : entry);
+    var stamped = entry;
+    if (stamped.uid == null) stamped = stamped.ownedBy(_uidProvider());
+    if (stamped.capturedBootId == null) stamped = stamped.withBootId(_bootId);
+    list.add(stamped);
     while (list.length > maxEntries) {
       list.removeAt(0);
     }
@@ -251,10 +319,12 @@ class ClaimOutbox {
   ///
   /// Persisted rather than held in memory so a flush interrupted by the app
   /// being killed still replays on next launch.
+  ///
+  /// Scoped to the signed-in account: see [flushAttemptKeyFor].
   Future<String?> pendingFlushAttemptId() async {
     try {
       final prefs = await _prefsProvider();
-      return prefs.getString(flushAttemptKey);
+      return prefs.getString(flushAttemptKeyFor(_uidProvider()));
     } catch (_) {
       return null; // unreadable storage: a fresh id is the safe fallback
     }
@@ -263,13 +333,31 @@ class ClaimOutbox {
   Future<void> setPendingFlushAttemptId(String? id) async {
     try {
       final prefs = await _prefsProvider();
+      final key = flushAttemptKeyFor(_uidProvider());
       if (id == null) {
-        await prefs.remove(flushAttemptKey);
+        await prefs.remove(key);
       } else {
-        await prefs.setString(flushAttemptKey, id);
+        await prefs.setString(key, id);
       }
+      // An id in the pre-per-account slot has no known owner, so it can't be
+      // safely replayed: drop it. Costs at most one re-adjudication.
+      if (prefs.containsKey(flushAttemptKey)) await prefs.remove(flushAttemptKey);
     } catch (_) {
       // Best effort: losing the marker costs at most one re-adjudication.
+    }
+  }
+
+  /// Forget every account's pending flush id (and the legacy one).
+  Future<void> _clearAllPendingFlushAttemptIds() async {
+    try {
+      final prefs = await _prefsProvider();
+      for (final key in prefs.getKeys().toList()) {
+        if (key == flushAttemptKey || key.startsWith('$flushAttemptKey:')) {
+          await prefs.remove(key);
+        }
+      }
+    } catch (_) {
+      // Best effort, as above.
     }
   }
 
@@ -284,17 +372,29 @@ class ClaimOutbox {
   Future<void> clearAll() async {
     _cache = [];
     await _save();
-    await setPendingFlushAttemptId(null);
+    await _clearAllPendingFlushAttemptIds();
   }
 
   /// Drop entries older than the grace window (they can never flush
   /// successfully). Returns how many were dropped.
+  ///
+  /// Ages each entry by the capture time a flush would SEND (monotonic-
+  /// anchored within the capturing process), not the raw stored wall clock:
+  /// a device clock that was far behind at capture and has since corrected
+  /// would otherwise make a recent capture look expired, and delete it
+  /// before the flush that would have been accepted.
   Future<int> pruneExpired({required int graceHours}) async {
     final list = await _load();
-    final cutoff =
-        DateTime.now().millisecondsSinceEpoch - graceHours * 3600000;
+    final nowWall = DateTime.now().millisecondsSinceEpoch;
+    final nowMono = monotonicNowMs();
+    final cutoff = nowWall - graceHours * 3600000;
     final before = list.length;
-    list.removeWhere((e) => e.capturedWallMs < cutoff);
+    list.removeWhere((e) =>
+        e.capturedAtForFlush(
+            flushWallMs: nowWall,
+            flushMonotonicMs: nowMono,
+            flushBootId: _bootId) <
+        cutoff);
     if (list.length != before) await _save();
     return before - list.length;
   }

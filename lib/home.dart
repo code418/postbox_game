@@ -18,6 +18,8 @@ import 'package:postbox_game/james_strip.dart';
 import 'package:postbox_game/leaderboard_screen.dart';
 import 'package:postbox_game/nearby.dart';
 import 'package:postbox_game/services/crashlytics_helper.dart';
+import 'package:postbox_game/services/pending_invite_store.dart';
+import 'package:postbox_game/widgets/invite_accept_flow.dart';
 import 'package:postbox_game/reports/my_reports_screen.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/widgets/maintenance_banner.dart';
@@ -43,6 +45,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   late int _selectedIndex = widget.initialIndex;
   late final JamesController _jamesController = JamesController();
   bool _isAdmin = false;
+  bool _inviteFlowRunning = false;
 
   static const _destinations = [
     NavigationDestination(
@@ -103,6 +106,11 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     // Narrate offline-outbox flushes through James (v1.5 offline play): the
     // sync fires lastSummary whenever a flush settles banked captures.
     OutboxSync.instance.lastSummary.addListener(_onFlushSummary);
+    // Invite links: one opened before sign-in was parked by main.dart and is
+    // picked up on the first frame; one opened while Home is up bumps the
+    // signal.
+    PendingInviteStore.signal.addListener(_takePendingInvite);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _takePendingInvite());
     CrashlyticsHelper.setContext(
         CrashlyticsHelper.keyActiveTab, _tabName(_selectedIndex));
     // The "Admin · Reports" menu item only appears for users holding the
@@ -122,6 +130,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   @override
   void dispose() {
     OutboxSync.instance.lastSummary.removeListener(_onFlushSummary);
+    PendingInviteStore.signal.removeListener(_takePendingInvite);
     WidgetsBinding.instance.removeObserver(this);
     _jamesController.dispose();
     super.dispose();
@@ -133,6 +142,23 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     // banked offline captures (no-op when the outbox is empty).
     if (state == AppLifecycleState.resumed) {
       unawaited(OutboxSync.instance.flushNow());
+    }
+  }
+
+  /// Acts on a parked invite: confirm with the player, make the friendship,
+  /// then show the Friends tab so they can see who they've just added. The
+  /// store is cleared before the dialog, so a Home remount (e.g. a widget
+  /// tap) can't show the same invite twice.
+  Future<void> _takePendingInvite() async {
+    if (_inviteFlowRunning || !mounted) return;
+    _inviteFlowRunning = true;
+    try {
+      final code = await PendingInviteStore.take();
+      if (code == null || !mounted) return;
+      final added = await runInviteAcceptFlow(context, code);
+      if (added && mounted) setState(() => _selectedIndex = 3);
+    } finally {
+      _inviteFlowRunning = false;
     }
   }
 

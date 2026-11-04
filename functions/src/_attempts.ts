@@ -152,3 +152,38 @@ export function attemptDecisionToAction(decision: AttemptDecision): { replay: un
   }
   return null; // proceed
 }
+
+/**
+ * Run [handler] inside the attempt envelope: replay a stored response, refuse
+ * a concurrent duplicate, or run the handler and store what it returned.
+ *
+ * A handler failure clears the marker (so an immediate retry can proceed) and
+ * rethrows. A failure to STORE a successful response does not: by then the
+ * handler's writes are committed, so throwing would report a claim that
+ * succeeded as failed, and the retry would find the claim already made and
+ * answer with nothing (the exact lost-claim bug this envelope exists to
+ * prevent). The response is returned anyway; only a retry whose response is
+ * ALSO lost misses the replay, which is the pre-envelope behaviour.
+ */
+export async function runInAttempt<T>(
+  db: Firestore,
+  attemptId: string,
+  uid: string,
+  handler: () => Promise<T>,
+): Promise<T> {
+  const action = attemptDecisionToAction(await beginAttempt(db, attemptId, uid));
+  if (action) return action.replay as T;
+  let response: T;
+  try {
+    response = await handler();
+  } catch (e) {
+    await failAttempt(db, attemptId);
+    throw e;
+  }
+  try {
+    await completeAttempt(db, attemptId, uid, response);
+  } catch (e) {
+    console.error("completeAttempt failed; returning the committed response (non-fatal):", e);
+  }
+  return response;
+}

@@ -37,8 +37,10 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:postbox_game/app_preferences.dart';
+import 'package:postbox_game/deep_links.dart';
 import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/remote_config_service.dart';
+import 'package:postbox_game/services/home_widget_service.dart';
 
 /// Extracts the string literals from the first `[ ... ]` array literal that
 /// follows [anchor] in [source]. Handles both single- and double-quoted entries
@@ -91,8 +93,7 @@ Map<String, int> _parseDartIntMap(String source, String anchor) {
   expect(fnIdx, isNonNegative, reason: 'getPoints not found in _getPoints.ts');
   // Bound the scan to the function body (ends at the next top-level export).
   final endIdx = source.indexOf('KNOWN_MONARCHS', fnIdx);
-  final body =
-      source.substring(fnIdx, endIdx > fnIdx ? endIdx : source.length);
+  final body = source.substring(fnIdx, endIdx > fnIdx ? endIdx : source.length);
 
   final tokenRe =
       RegExp(r'case\s+"([^"]+)"\s*:|default\s*:|return\s+(\d+)\s*;');
@@ -192,7 +193,8 @@ void main() {
     });
   });
 
-  group('recognised monarch key-set stays in sync across all three sources', () {
+  group('recognised monarch key-set stays in sync across all three sources',
+      () {
     test('MonarchInfo.all == KNOWN_MONARCHS == VALID_CIPHERS', () {
       final clientSet =
           _extractArrayLiterals(monarchInfoDart, 'List<String> all');
@@ -232,7 +234,8 @@ void main() {
     // client advertise a different score than the server grants.
     test('MonarchInfo.points[cipher] == getPoints(cipher) for every cipher',
         () {
-      final dartPoints = _parseDartIntMap(monarchInfoDart, 'Map<String, int> points');
+      final dartPoints =
+          _parseDartIntMap(monarchInfoDart, 'Map<String, int> points');
       final ts = _parseTsGetPoints(getPointsTs);
       final clientSet =
           _extractArrayLiterals(monarchInfoDart, 'List<String> all');
@@ -304,8 +307,7 @@ void main() {
       final storageRules = File('storage.rules').readAsStringSync();
       final rulesM = RegExp(r'size\s*<\s*(\d+)\s*\*\s*1024\s*\*\s*1024')
           .firstMatch(storageRules);
-      expect(rulesM, isNotNull,
-          reason: 'storage.rules size cap not found');
+      expect(rulesM, isNotNull, reason: 'storage.rules size cap not found');
       final rulesMb = int.parse(rulesM!.group(1)!);
 
       expect(dartMb, equals(rulesMb),
@@ -323,29 +325,159 @@ void main() {
     // no automated UI test to catch it. Pin the key VALUES equal here.
     test('HomeWidgetService.key* == PostboxWidgetProvider KEY_* values', () {
       // Dart: `static const String keyFoo = 'value';`
-      final dartKeys = RegExp(r'''static const String key\w+\s*=\s*['"]([^'"]+)['"]''')
-          .allMatches(homeWidgetDart)
-          .map((m) => m.group(1)!)
-          .toSet();
+      final dartKeys =
+          RegExp(r'''static const String key\w+\s*=\s*['"]([^'"]+)['"]''')
+              .allMatches(homeWidgetDart)
+              .map((m) => m.group(1)!)
+              .toSet();
       // Kotlin: `const val KEY_FOO = "value"`
       final ktKeys = RegExp(r'''const val KEY_\w+\s*=\s*"([^"]+)"''')
           .allMatches(widgetProviderKt)
           .map((m) => m.group(1)!)
           .toSet();
 
-      // Sanity: extraction found the expected six keys on each side (guards
-      // against a future rename that makes this test vacuous).
-      expect(dartKeys.length, equals(6),
-          reason: 'expected 6 Dart widget keys, parsed $dartKeys');
-      expect(ktKeys.length, equals(6),
-          reason: 'expected 6 Kotlin widget keys, parsed $ktKeys');
+      // Sanity: extraction found keys on each side (guards against a future
+      // rename that makes this test vacuous). Dart writes nine: the six stats
+      // plus the three London dates the native side re-checks freshness
+      // against, since the widget (hourly) and the Wear tile redraw long
+      // after the last write if the app hasn't been opened today.
+      expect(dartKeys.length, equals(9),
+          reason: 'expected 9 Dart widget keys, parsed $dartKeys');
+      expect(ktKeys.length, equals(9),
+          reason: 'expected 9 Kotlin widget keys, parsed $ktKeys');
 
+      // The phone widget reads every key Dart writes, dates included: without
+      // them its hourly redraw would show yesterday's points as today's.
       expect(ktKeys, equals(dartKeys),
           reason: 'widget key drift between '
               'lib/services/home_widget_service.dart and '
               'PostboxWidgetProvider.kt — '
-              'only-in-Dart=${dartKeys.difference(ktKeys)} '
-              'only-in-Kotlin=${ktKeys.difference(dartKeys)}');
+              'only-in-Kotlin=${ktKeys.difference(dartKeys)}, '
+              'only-in-Dart=${dartKeys.difference(ktKeys)}');
+    });
+
+    test('WearPrefs.kt reads exactly the keys HomeWidgetService writes', () {
+      // The Wear tile and complications consume the SAME store through
+      // HomeWidgetPlugin.getData, including the daily date keys (they show no
+      // weekly figure, so they skip weekStart). A drift here is invisible at build time and shows up as a
+      // tile permanently reading "0 pts today / No streak".
+      final dartKeys =
+          RegExp(r'''static const String key\w+\s*=\s*['"]([^'"]+)['"]''')
+              .allMatches(homeWidgetDart)
+              .map((m) => m.group(1)!)
+              .toSet();
+      final wearPrefs = File(
+        'android/app/src/wear/kotlin/com/code418/postbox_game/wear/WearPrefs.kt',
+      ).readAsStringSync();
+      final wearKeys = RegExp(r'''const val KEY_\w+\s*=\s*"([^"]+)"''')
+          .allMatches(wearPrefs)
+          .map((m) => m.group(1)!)
+          .toSet();
+
+      expect(wearKeys.length, equals(7),
+          reason: 'expected 7 Wear keys, parsed $wearKeys');
+      expect(dartKeys.containsAll(wearKeys), isTrue,
+          reason: 'WearPrefs.kt reads keys Dart never writes: '
+              '${wearKeys.difference(dartKeys)}');
+      // The dates exist precisely so the native side can re-check freshness.
+      for (final key in <String>[
+        HomeWidgetService.keyDailyDate,
+        HomeWidgetService.keyLastClaimDate,
+      ]) {
+        expect(wearKeys, contains(key),
+            reason: 'WearPrefs.kt must read "$key" or the tile will present '
+                "yesterday's points as today's");
+      }
+    });
+
+    test('the wear push targets the receiver that actually exists', () {
+      // HomeWidgetService.wearReceiverName is resolved by Class.forName at
+      // runtime, so a package or class rename fails silently — the tile simply
+      // stops updating promptly.
+      final parts = HomeWidgetService.wearReceiverName.split('.');
+      final className = parts.last;
+      final path =
+          'android/app/src/wear/kotlin/${parts.sublist(0, parts.length - 1).join('/')}/$className.kt';
+      expect(File(path).existsSync(), isTrue,
+          reason: 'HomeWidgetService.wearReceiverName points at '
+              '${HomeWidgetService.wearReceiverName}, but $path does not exist');
+      expect(File(path).readAsStringSync(), contains('class $className'),
+          reason: '$path does not declare $className');
+
+      // And it must be declared in the wear manifest, or the broadcast is
+      // delivered to nothing.
+      final manifest =
+          File('android/app/src/wear/AndroidManifest.xml').readAsStringSync();
+      expect(manifest, contains('.wear.$className'),
+          reason:
+              'wear AndroidManifest.xml is missing the $className receiver');
+    });
+  });
+
+  group('wear deep links stay in sync (Dart↔Kotlin)', () {
+    // Same contract as the phone widget's DEEP_LINK, extended to the watch:
+    // the tile trampoline and the complications both hand the app a
+    // postbox://claim URI, which lib/deep_links.dart has to accept or the tap
+    // silently opens the app without scanning.
+    final sources = RegExp(r"'(\w+)',")
+        .allMatches(
+          RegExp(r'kClaimDeepLinkSources = <String>\{([^}]*)\}')
+                  .firstMatch(File('lib/deep_links.dart').readAsStringSync())
+                  ?.group(1) ??
+              '',
+        )
+        .map((m) => m.group(1)!)
+        .toSet();
+
+    test('Dart declares the sources the Kotlin actually sends', () {
+      expect(sources, containsAll(<String>['widget', 'tile', 'complication']),
+          reason: 'parsed kClaimDeepLinkSources = $sources');
+    });
+
+    test('every Kotlin DEEP_LINK literal is accepted by the Dart parser', () {
+      const files = <String, String>{
+        'android/app/src/main/kotlin/com/code418/postbox_game/PostboxWidgetProvider.kt':
+            'widget',
+        'android/app/src/wear/kotlin/com/code418/postbox_game/wear/WearTileLaunchActivity.kt':
+            'tile',
+        'android/app/src/wear/kotlin/com/code418/postbox_game/wear/PostboxComplicationServices.kt':
+            'complication',
+      };
+      files.forEach((path, expectedSource) {
+        final kt = File(path).readAsStringSync();
+        final m = RegExp(r'DEEP_LINK\s*=\s*"([^"]+)"').firstMatch(kt);
+        expect(m, isNotNull, reason: 'DEEP_LINK constant not found in $path');
+        final uri = Uri.parse(m!.group(1)!);
+        expect(isClaimDeepLink(uri), isTrue,
+            reason: 'lib/deep_links.dart rejects "${m.group(1)}" from $path; '
+                'the tap would open the app without scanning');
+        expect(uri.queryParameters['source'], equals(expectedSource),
+            reason: '$path should identify itself as source=$expectedSource '
+                'so the entry points stay distinguishable in analytics');
+      });
+    });
+  });
+
+  group('leaderboard size stays in sync', () {
+    // The client only says "outside the top N" when a board is full; below
+    // that, a missing player simply hasn't scored. A drift would mislabel one
+    // or the other.
+    test('kLeaderboardSize (Dart) == both merge limits (TS)', () {
+      final dart = File('lib/leaderboard_screen.dart').readAsStringSync();
+      final dartM =
+          RegExp(r'const int kLeaderboardSize\s*=\s*(\d+)').firstMatch(dart);
+      expect(dartM, isNotNull, reason: 'kLeaderboardSize not found');
+      final ts =
+          File('functions/src/_leaderboardUtils.ts').readAsStringSync();
+      final limits = RegExp(r'limit\s*=\s*(\d+)')
+          .allMatches(ts)
+          .map((m) => int.parse(m.group(1)!))
+          .toList();
+      expect(limits, hasLength(2),
+          reason: 'expected the period and lifetime merge limits');
+      for (final l in limits) {
+        expect(l, int.parse(dartM!.group(1)!));
+      }
     });
   });
 
@@ -492,7 +624,8 @@ void main() {
       final decoded = (jsonDecode(raw!) as Map<String, dynamic>)
           .map((k, v) => MapEntry(k, v as int));
       expect(decoded, equals(MonarchInfo.points),
-          reason: 'the published points default drifted from MonarchInfo.points '
+          reason:
+              'the published points default drifted from MonarchInfo.points '
               '— publishing this template would re-score the game');
 
       // Read server-side via getValue().asString(), which returns the raw JSON.
@@ -512,9 +645,8 @@ void main() {
           overLong[entry.key] = description.length;
         }
       }
-      final versionDescription =
-          (template['version'] as Map<String, dynamic>?)?['description']
-              as String?;
+      final versionDescription = (template['version']
+          as Map<String, dynamic>?)?['description'] as String?;
       if (versionDescription != null &&
           versionDescription.length > maxDescriptionChars) {
         overLong['version.description'] = versionDescription.length;
@@ -571,8 +703,7 @@ void main() {
     });
 
     test('the server still accepts and replays attemptId', () {
-      final attempts =
-          File('functions/src/_attempts.ts').readAsStringSync();
+      final attempts = File('functions/src/_attempts.ts').readAsStringSync();
       expect(attempts, contains('validateAttemptId'));
       expect(attempts, contains('"replay"'),
           reason: 'the replay path is what makes a client retry safe');
@@ -594,7 +725,8 @@ void main() {
 
     setUpAll(() {
       final dir = Directory('functions/src');
-      final pattern = RegExp(r'''\.collection\(\s*["']([A-Za-z_][A-Za-z0-9_]*)["']''');
+      final pattern =
+          RegExp(r'''\.collection\(\s*["']([A-Za-z_][A-Za-z0-9_]*)["']''');
       backendCollections = {
         for (final entity in dir.listSync())
           if (entity is File && entity.path.endsWith('.ts'))
@@ -608,7 +740,8 @@ void main() {
     test('parsed at least the collections we know about', () {
       // Guard the guard: if the regex ever stops matching, the loop below
       // would vacuously pass.
-      expect(backendCollections, containsAll(<String>['claims', 'users', 'postbox']));
+      expect(backendCollections,
+          containsAll(<String>['claims', 'users', 'postbox']));
       expect(backendCollections.length, greaterThanOrEqualTo(12));
     });
 
