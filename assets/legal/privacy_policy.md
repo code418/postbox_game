@@ -1,6 +1,6 @@
 # The Postbox Game – Privacy Policy
 
-_Last updated: September 2026_
+_Last updated: October 2026_
 
 This Privacy Policy explains how The Postbox Game ("the App", "we", "us") collects, uses, and protects your personal data when you use our mobile application. We are committed to complying with the UK General Data Protection Regulation (UK GDPR) and the Data Protection Act 2018.
 
@@ -10,7 +10,7 @@ The Postbox Game is an independent mobile game. For data protection enquiries, c
 
 ## 2. Data We Collect
 
-- **Account information:** When you register or sign in with Google, we receive your email address and display name. When you register with email/password, we store your email address and chosen display name.
+- **Account information:** When you register or sign in with Google, we receive your email address and display name. When you sign in with Apple, we receive your email address (or an Apple private-relay address, if you choose to hide yours) and, the first time only, your name. When you register with email/password, we store your email address and chosen display name.
 - **Location data:** With your permission, we collect your precise GPS location to identify nearby postboxes and validate claims. The location you claimed from is stored with each claim for anti-cheat verification and is automatically removed after 90 days.
 - **Gameplay data:** Postbox claims you make (postbox ID, timestamp, points awarded), your running scores, streaks, and leaderboard entries (display name and points only).
 - **Device token:** A random per-install identifier sent with claims to detect multi-account abuse. It is not derived from your hardware and identifies only the app installation; it is removed from claims after 90 days.
@@ -18,7 +18,7 @@ The Postbox Game is an independent mobile game. For data protection enquiries, c
 - **Problem reports:** If you report a postbox data problem, we store your report, its location, and any note or photos you attach (photos may include the time and place they were taken).
 - **Anti-abuse records:** Automated checks may record anomaly flags and an internal trust score for your account. While this system runs in "shadow mode" it has no effect on your account or gameplay.
 - **Crash and performance data:** Crash reports and performance traces collected by Firebase Crashlytics and Firebase Performance Monitoring to help us fix bugs. You can turn these off in Settings → Privacy (or the Privacy page in the Wear OS watch app). The watch app does not collect performance traces at all.
-- **Usage analytics:** Anonymous usage events collected by Firebase Analytics to understand how the App is used. On by default — you can turn it off during onboarding or any time in Settings → Privacy (or the Privacy page in the Wear OS watch app).
+- **Usage analytics:** Usage events (such as scans, claims and screens viewed) collected by Firebase Analytics and linked to your account's user ID, used only to understand and improve the App and never for advertising. On by default — you can turn it off during onboarding or any time in Settings → Privacy (or the Privacy page in the Wear OS watch app).
 
 ## 3. How We Use Your Data
 
@@ -39,9 +39,10 @@ We process your personal data on the following legal bases under UK GDPR:
 
 ## 5. Data Sharing
 
-We do not sell your personal data. We share data only with the following service providers, who process it on our behalf:
+We do not sell your personal data. We do not use your data for advertising or to track you across other companies' apps and websites, we do not access your device's advertising identifier, and we do not share data with data brokers. We share data only with the following service providers, who process it on our behalf:
 
 - **Google Firebase** (Authentication, Firestore database, Cloud Functions, Crashlytics, Performance Monitoring, Analytics) – processed within Google's infrastructure. See Google's Privacy Policy at policies.google.com/privacy.
+- **Apple** (Sign in with Apple) – only if you choose to sign in with Apple; Apple confirms your identity and shares the details above. Deleting your account also revokes the App's access to your Apple ID where your device supports it. See Apple's Privacy Policy at apple.com/legal/privacy.
 - **OpenStreetMap / Nominatim:** If you search for a destination in Route Mode, only the text you type is sent to the OpenStreetMap Nominatim search service – never your GPS position.
 
 Your display name and score are visible to other users on leaderboards and to friends you add in the App. Corrections we submit back to OpenStreetMap from accepted postbox reports contain only postbox data, never anything about you.

@@ -1,5 +1,6 @@
 import "./adminInit";
 import * as admin from "firebase-admin";
+import { DELETED_UID } from "./_accountDeletion";
 import { getPointsForMonarch } from "./_config";
 import { getTodayLondon } from "./_dateUtils";
 import {
@@ -38,6 +39,55 @@ export interface RepointResult {
   claimCount: number;
 }
 
+/** The claim fields the repoint planner reads (a claims doc's data()). */
+export interface RepointClaimInput {
+  userid?: unknown;
+  points?: unknown;
+  monarch?: unknown;
+}
+
+export interface RepointPlan {
+  /** Indices into the input array of the claims that need rewriting. */
+  rewrite: number[];
+  /** uid → total points delta (newPts − oldPts) over that user's rewritten claims. */
+  deltaByUid: Map<string, number>;
+}
+
+/**
+ * Pure planner behind repointClaimsForPostbox (and the review dashboard's
+ * impact preview, which must predict exactly what an accept will do): which
+ * of a box's claims a cypher correction rewrites, and each user's points
+ * delta. Claims already at the target monarch + points are skipped, which
+ * keeps a retry from re-stamping the audit trail with post-correction values.
+ * A zero-delta user still gets an entry (their claims' monarch changes).
+ *
+ * Claims anonymised by account deletion (`userid: DELETED_UID`) are rewritten
+ * like any other but never attributed: recomputing aggregates for "deleted"
+ * would create a users/deleted doc and a phantom leaderboard row summing every
+ * anonymised claim (newDayScoreboard skips the same uid for the same reason).
+ */
+export function planRepointClaims(
+  claims: ReadonlyArray<RepointClaimInput>,
+  newMonarch: string | null,
+  newPts: number
+): RepointPlan {
+  const plain = !(typeof newMonarch === "string" && newMonarch.length > 0);
+  const targetMonarch = plain ? null : newMonarch;
+  const rewrite: number[] = [];
+  const deltaByUid = new Map<string, number>();
+  claims.forEach((d, i) => {
+    const oldPts = typeof d.points === "number" ? d.points : 0;
+    const currentMonarch = (typeof d.monarch === "string" && d.monarch.length > 0) ? d.monarch : null;
+    if (currentMonarch === targetMonarch && oldPts === newPts) return;
+    rewrite.push(i);
+    const uid = d.userid;
+    if (typeof uid === "string" && uid.length > 0 && uid !== DELETED_UID) {
+      deltaByUid.set(uid, (deltaByUid.get(uid) ?? 0) + (newPts - oldPts));
+    }
+  });
+  return { rewrite, deltaByUid };
+}
+
 /**
  * Rewrites the stored `points`/`monarch` on every claim for a single postbox
  * to reflect a new cypher, in batches. Records an audit trail
@@ -56,47 +106,31 @@ export async function repointClaimsForPostbox(
     .where("postboxes", "==", `/postbox/${postboxKey}`)
     .get();
 
-  const deltaByUid = new Map<string, number>();
+  const docs = snap.docs;
+  const plan = planRepointClaims(docs.map((doc) => doc.data()), newMonarch, newPts);
   const now = admin.firestore.Timestamp.now();
   const plain = !(typeof newMonarch === "string" && newMonarch.length > 0);
 
   const batches: admin.firestore.WriteBatch[] = [];
-  let rewritten = 0;
-  for (let i = 0; i < snap.docs.length; i += WRITE_BATCH_SIZE) {
+  for (let i = 0; i < plan.rewrite.length; i += WRITE_BATCH_SIZE) {
     const batch = db.batch();
-    let writesInBatch = 0;
-    for (const doc of snap.docs.slice(i, i + WRITE_BATCH_SIZE)) {
+    for (const idx of plan.rewrite.slice(i, i + WRITE_BATCH_SIZE)) {
+      const doc = docs[idx];
       const d = doc.data();
-      const uid = d.userid as string | undefined;
-      const oldPts = typeof d.points === "number" ? d.points : 0;
-      const currentMonarch = (typeof d.monarch === "string" && d.monarch.length > 0) ? d.monarch : null;
-      const targetMonarch = plain ? null : newMonarch;
-      // Skip claims that already match the target state. Two reasons:
-      //  - Avoids re-stamping correctedFromMonarch / correctedFromPoints with
-      //    the post-correction values (which would happen on a retry after a
-      //    partial-success run), corrupting the audit trail by losing the
-      //    real pre-correction values.
-      //  - Saves writes on no-op admin retries.
-      if (currentMonarch === targetMonarch && oldPts === newPts) continue;
       const update: Record<string, unknown> = {
         points: newPts,
         correctedAt: now,
         correctedFromMonarch: d.monarch ?? null,
-        correctedFromPoints: oldPts,
+        correctedFromPoints: typeof d.points === "number" ? d.points : 0,
         monarch: plain ? admin.firestore.FieldValue.delete() : newMonarch,
       };
       batch.set(doc.ref, update, { merge: true });
-      writesInBatch++;
-      if (uid) deltaByUid.set(uid, (deltaByUid.get(uid) ?? 0) + (newPts - oldPts));
     }
-    if (writesInBatch > 0) {
-      batches.push(batch);
-      rewritten += writesInBatch;
-    }
+    batches.push(batch);
   }
   await Promise.all(batches.map((b) => b.commit()));
 
-  return { deltaByUid, claimCount: rewritten };
+  return { deltaByUid: plan.deltaByUid, claimCount: plan.rewrite.length };
 }
 
 /**
@@ -247,7 +281,7 @@ export async function rescoreAfterCypherChange(
   countySlugVal: string | null,
   countyName: string | null,
   today: string = getTodayLondon()
-): Promise<{ rescoredClaims: number; affectedUsers: number }> {
+): Promise<{ rescoredClaims: number; affectedUsers: number; totalDelta: number }> {
   const { deltaByUid, claimCount } = await repointClaimsForPostbox(db, postboxKey, newMonarch);
   // Users whose point delta is 0 (corrected cypher maps to the same score —
   // e.g. GR→GVR are both 4 pts) had their claims' monarch / audit fields
@@ -261,5 +295,7 @@ export async function rescoreAfterCypherChange(
       recomputeUserAggregates(db, uid, today, delta, countySlugVal, countyName)
     )
   );
-  return { rescoredClaims: claimCount, affectedUsers: affected.length };
+  let totalDelta = 0;
+  for (const delta of deltaByUid.values()) totalDelta += delta;
+  return { rescoredClaims: claimCount, affectedUsers: affected.length, totalDelta };
 }

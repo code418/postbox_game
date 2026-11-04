@@ -284,6 +284,20 @@ abstract final class JamesMessages {
   );
 
   /// Dynamic: multiple postboxes claimed in a single scan.
+  /// After a rare claim: points the player at the Share button.
+  static const shareNudgeRare = JamesMessage(
+    'jamesShareNudgeRare',
+    [
+      "A find like that deserves an audience. Give the Share button a prod.",
+      "Go on, show it off. Nobody believes a rare one without a picture.",
+      "Rare as hen's teeth, that. Worth telling your mates about.",
+    ],
+  );
+
+  /// After a claim that lands on a streak milestone.
+  static String shareNudgeStreak(int days) =>
+      "$days days on the trot! That's worth a brag... hit Share.";
+
   static String claimSuccessMulti(int count, int pts) =>
       "Blimey... $count at once! That's $pts points in one go. Impressive.";
 

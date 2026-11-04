@@ -16,6 +16,7 @@ import { dataRetentionSweep } from "./dataRetention";
 import { exportMyData } from "./exportMyData";
 import { flushOfflineClaims } from "./flushOfflineClaims";
 import { buildUnpacked, rebuildUnpacked, unpackedLaunchNotify } from "./buildUnpacked";
+import { getInviteCode, acceptInvite } from "./invites";
 
 export {
   nearbyPostboxes,
@@ -39,4 +40,6 @@ export {
   buildUnpacked,
   rebuildUnpacked,
   unpackedLaunchNotify,
+  getInviteCode,
+  acceptInvite,
 };

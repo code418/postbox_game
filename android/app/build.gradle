@@ -150,8 +150,11 @@ dependencies {
     // Play-bound `phone` AAB nor the `wear` AAB links these libraries.
     autoImplementation 'androidx.car.app:app:1.7.0'
     autoImplementation 'androidx.car.app:app-projected:1.7.0'
-    autoImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1'
-    autoImplementation platform('com.google.firebase:firebase-bom:33.7.0')
+    autoImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0'
+    // Keep in step with FlutterFire's FirebaseSDKVersion (firebase_core's
+    // android/gradle.properties): the plugins' BoM wins resolution anyway, so a
+    // lower pin here only hides which versions the car code really links.
+    autoImplementation platform('com.google.firebase:firebase-bom:35.1.0')
     autoImplementation 'com.google.firebase:firebase-auth'
     autoImplementation 'com.google.firebase:firebase-functions'
     autoImplementation 'com.google.firebase:firebase-firestore'
@@ -195,8 +198,8 @@ dependencies {
     // builders rather than Compose. Leaving them out keeps the AAB smaller.
 
     testImplementation 'junit:junit:4.13.2'
-    androidTestImplementation 'androidx.test:runner:1.4.0'
-    androidTestImplementation 'androidx.test.espresso:espresso-core:3.4.0'
+    androidTestImplementation 'androidx.test:runner:1.7.0'
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.7.0'
 }
 
 tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {

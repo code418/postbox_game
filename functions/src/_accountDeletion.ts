@@ -122,8 +122,10 @@ export async function removeUserFromFriends(db: Firestore, uid: string): Promise
 
 /** Hard-delete [uid]'s own per-user documents: the profile doc and its
  *  `countyStats` subcollection, the FCM-token / report-quota / offline-flush-quota
- *  / trust-score docs (all keyed by uid), any moderation flags referencing
- *  the uid, and the uid's annual-recap snapshots for each of [unpackedYears]. */
+ *  / trust-score / referral docs (all keyed by uid), any moderation flags
+ *  referencing the uid, the user's invite code(s), the referral records
+ *  naming them as the inviter (they would otherwise keep a deleted uid), and
+ *  the uid's annual-recap snapshots for each of [unpackedYears]. */
 export async function deleteUserDocs(
   db: Firestore,
   uid: string,
@@ -134,10 +136,14 @@ export async function deleteUserDocs(
   // countyStats subcollection.
   const countyStats = await userRef.collection("countyStats").get();
   const flags = await db.collection("moderationFlags").where("uid", "==", uid).get();
+  const invites = await db.collection("invites").where("uid", "==", uid).get();
+  const referralsMade = await db.collection("referrals").where("inviterUid", "==", uid).get();
 
   const toDelete: admin.firestore.DocumentReference[] = [
     ...countyStats.docs.map((d) => d.ref),
     ...flags.docs.map((d) => d.ref),
+    ...invites.docs.map((d) => d.ref),
+    ...referralsMade.docs.map((d) => d.ref),
     userRef,
     db.collection("fcmTokens").doc(uid),
     db.collection("reportQuotas").doc(uid),
@@ -146,6 +152,7 @@ export async function deleteUserDocs(
     // leaves a residual per-user activity record behind.
     db.collection("offlineFlushQuotas").doc(uid),
     db.collection("trustScores").doc(uid),
+    db.collection("referrals").doc(uid),
     // "Your Postboxes Unpacked" annual recap snapshots, one per year.
     ...unpackedYears.map((y) =>
       db.collection("unpacked").doc(String(y)).collection("players").doc(uid),

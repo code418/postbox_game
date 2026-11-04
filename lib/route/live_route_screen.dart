@@ -20,6 +20,7 @@ import 'package:postbox_game/widgets/claim_quiz_sheet.dart';
 
 import 'route_compass_view.dart';
 import 'route_completion_screen.dart';
+import 'package:postbox_game/notification_service.dart';
 import 'route_notifications.dart';
 import 'route_session.dart';
 
@@ -243,7 +244,11 @@ class _LiveRouteScreenState extends State<LiveRouteScreen> {
 
     // Request notification permission once at screen mount.
     // Failure is silently ignored — the in-app arrival flow still works.
-    RouteNotifications.requestPermission().ignore();
+    // A grant here is also the app-wide notification permission, so register
+    // the FCM token too (social pushes otherwise wait for the next sign-in).
+    RouteNotifications.requestPermission().then((granted) {
+      if (granted) unawaited(NotificationService.init());
+    }).ignore();
 
     // Fire the route-start James message once the widget is in the tree.
     WidgetsBinding.instance.addPostFrameCallback((_) {

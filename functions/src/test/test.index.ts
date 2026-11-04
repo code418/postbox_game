@@ -12,6 +12,9 @@ import {
   getClaimRadiusMeters,
   getPointsForMonarch,
   setConfigLoaderForTest,
+  setConfigLoader,
+  isMissingServerTemplate,
+  clientTemplateFlag,
   DEFAULT_CLAIM_RADIUS_METERS,
   sanitiseGraceHours,
   sanitiseMaxOfflinePerDay,
@@ -177,6 +180,53 @@ describe("_config: getGameConfig caching", () => {
     assert.strictEqual(await getClaimRadiusMeters(), 55);
     assert.strictEqual(await getPointsForMonarch("VR"), 8);
     assert.strictEqual(await getPointsForMonarch("EIIR"), 2);
+  });
+});
+
+describe("_config: strict loader", () => {
+  afterEach(() => setConfigLoaderForTest(fallbackGameConfig));
+
+  it("a throwing loader propagates through getGameConfig and getPointsForMonarch (no silent fallback)", async () => {
+    setConfigLoader(async () => { throw new Error("remote config unreachable"); });
+    await assert.rejects(() => getGameConfig(), /remote config unreachable/);
+    await assert.rejects(() => getPointsForMonarch("VR"), /remote config unreachable/);
+  });
+
+  it("a failed load is not cached, so the next call retries", async () => {
+    let calls = 0;
+    setConfigLoader(async () => {
+      calls++;
+      if (calls === 1) throw new Error("blip");
+      return { claimRadiusMeters: 30, pointsOverride: { VR: 9 }, ...offlineDefaults };
+    });
+    await assert.rejects(() => getGameConfig(1_000));
+    assert.strictEqual((await getGameConfig(2_000)).pointsOverride?.VR, 9);
+    assert.strictEqual(calls, 2);
+  });
+
+  it("setConfigLoader drops a cached config immediately", async () => {
+    setConfigLoader(async () => ({ claimRadiusMeters: 31, pointsOverride: null, ...offlineDefaults }));
+    assert.strictEqual((await getGameConfig(5_000)).claimRadiusMeters, 31);
+    setConfigLoader(async () => ({ claimRadiusMeters: 32, pointsOverride: null, ...offlineDefaults }));
+    assert.strictEqual((await getGameConfig(5_001)).claimRadiusMeters, 32);
+  });
+});
+
+describe("_config: template helpers", () => {
+  it("isMissingServerTemplate matches only the not-found code", () => {
+    assert.strictEqual(isMissingServerTemplate({ code: "remote-config/not-found" }), true);
+    assert.strictEqual(isMissingServerTemplate({ code: "remote-config/permission-denied" }), false);
+    assert.strictEqual(isMissingServerTemplate(new Error("x")), false);
+    assert.strictEqual(isMissingServerTemplate(null), false);
+  });
+  it("clientTemplateFlag reads an explicit 'true' default only", () => {
+    const t = (defaultValue: unknown) => ({ parameters: { maintenance_mode: { defaultValue } } });
+    assert.strictEqual(clientTemplateFlag(t({ value: "true" }), "maintenance_mode"), true);
+    assert.strictEqual(clientTemplateFlag(t({ value: " TRUE " }), "maintenance_mode"), true);
+    assert.strictEqual(clientTemplateFlag(t({ value: "false" }), "maintenance_mode"), false);
+    assert.strictEqual(clientTemplateFlag(t({ useInAppDefault: true }), "maintenance_mode"), false);
+    assert.strictEqual(clientTemplateFlag({ parameters: {} }, "maintenance_mode"), false);
+    assert.strictEqual(clientTemplateFlag({}, "maintenance_mode"), false);
   });
 });
 
@@ -897,7 +947,7 @@ describe("sanitiseName", () => {
 // by editing this assertion, which is a much louder signal than editing an
 // implicit literal.
 //
-// eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const profanityModule = require("../_profanityFilter") as {
   MIN_DISPLAY_NAME_CHARS: number;
   MAX_DISPLAY_NAME_CHARS: number;
@@ -3082,7 +3132,41 @@ describe("rebuildPeriodLeaderboard (unit, mock Firestore)", () => {
   });
 });
 
-import { updateFcmTokens, diffFriends, shouldNotifyFirstClaim, shouldNotifyOvertake } from "../_notifications";
+import {
+  updateFcmTokens,
+  diffFriends,
+  shouldNotifyFirstClaim,
+  shouldNotifyOvertake,
+  buildPushMessage,
+  isStaleTokenError,
+} from "../_notifications";
+
+describe("buildPushMessage", () => {
+  it("carries the title, body and every token", () => {
+    const msg = buildPushMessage(["a", "b"], "Overtaken!", "Sam overtook you");
+    assert.deepStrictEqual(msg.tokens, ["a", "b"]);
+    assert.deepStrictEqual(msg.notification, { title: "Overtaken!", body: "Sam overtook you" });
+  });
+  it("asks APNs for the default sound (iOS alerts are silent without one)", () => {
+    const msg = buildPushMessage(["a"], "t", "b");
+    assert.strictEqual(msg.apns?.payload?.aps?.sound, "default");
+  });
+});
+
+describe("isStaleTokenError", () => {
+  it("prunes only the two permanent token codes", () => {
+    assert.strictEqual(isStaleTokenError("messaging/registration-token-not-registered"), true);
+    assert.strictEqual(isStaleTokenError("messaging/invalid-registration-token"), true);
+  });
+  it("keeps tokens on credential, quota and unknown failures", () => {
+    // third-party-auth-error is a server-side APNs credential problem, not a
+    // dead token: pruning on it would wipe every iOS token at once.
+    assert.strictEqual(isStaleTokenError("messaging/third-party-auth-error"), false);
+    assert.strictEqual(isStaleTokenError("messaging/message-rate-exceeded"), false);
+    assert.strictEqual(isStaleTokenError("messaging/internal-error"), false);
+    assert.strictEqual(isStaleTokenError(undefined), false);
+  });
+});
 
 describe("updateFcmTokens", () => {
   it("adds a token to an empty list", () => {
@@ -3495,13 +3579,13 @@ describe("countySlug", () => {
   // anywhere. Checked exhaustively against the real asset rather than by
   // spot-checking two names, so regenerating the geojson can't slip past.
   describe("agrees with every slug baked into the geojson asset", () => {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const fs = require("fs");
-    // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const path = require("path");
     const assetPath = path.join(__dirname, "../../../assets/uk_counties_simplified.geojson");
     let features: Array<{ properties?: { name?: string; slug?: string } }> = [];
-    let loaded = false;
+    let loaded: boolean;
     try {
       features = JSON.parse(fs.readFileSync(assetPath, "utf8")).features;
       loaded = Array.isArray(features) && features.length > 0;
@@ -3544,9 +3628,9 @@ describe("county_lookup (point-in-polygon)", () => {
   // Lazy-require so test discovery doesn't load 1MB of geojson when the file
   // isn't present (e.g. fresh clone before backfill prep). Tests skip
   // gracefully in that case.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const counties = require("../../util/county_lookup");
-  let loaded = false;
+  let loaded: boolean;
   try {
     counties.load();
     loaded = true;
@@ -3584,7 +3668,7 @@ describe("county_lookup (point-in-polygon)", () => {
 
 import { KNOWN_MONARCHS, pointsForMonarch } from "../_getPoints";
 import { parsePhotos, buildOsmChange, nextQuotaState } from "../reports";
-import { maxDailyFromClaims, repointClaimsForPostbox } from "../_recomputeScores";
+import { maxDailyFromClaims, repointClaimsForPostbox, planRepointClaims } from "../_recomputeScores";
 
 describe("pointsForMonarch", () => {
   it("treats null as plain (2 points)", () => assert.strictEqual(pointsForMonarch(null), 2));
@@ -3757,6 +3841,103 @@ describe("buildOsmChange", () => {
     const osc = buildOsmChange({ action: "create", id: -1, lat: 0, lon: 0, tags: { amenity: "post_box", royal_cypher: "" } });
     assert.ok(!/royal_cypher/.test(osc));
   });
+  // Golden outputs: pin the exact bytes so refactors (the batch builder in
+  // _osmChange.ts) can't drift the single-node format JOSM has been fed.
+  it("matches the golden modify output byte-for-byte", () => {
+    const osc = buildOsmChange({ action: "modify", id: 12345, version: 7, lat: 51.5, lon: -0.1, tags: { amenity: "post_box", royal_cypher: "VR", ref: "SW1A 1" } });
+    assert.strictEqual(osc, [
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      '<osmChange version="0.6" generator="PostboxGame">',
+      "  <modify>",
+      '    <node id="12345" version="7" lat="51.5" lon="-0.1" changeset="0">',
+      '      <tag k="amenity" v="post_box"/>',
+      '      <tag k="royal_cypher" v="VR"/>',
+      '      <tag k="ref" v="SW1A 1"/>',
+      "    </node>",
+      "  </modify>",
+      "</osmChange>",
+      "",
+    ].join("\n"));
+  });
+  it("matches the golden create output byte-for-byte", () => {
+    const osc = buildOsmChange({ action: "create", id: -1, lat: 52, lon: -1.5, tags: { amenity: "post_box", royal_cypher: "EIIR" } });
+    assert.strictEqual(osc, [
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      '<osmChange version="0.6" generator="PostboxGame">',
+      "  <create>",
+      '    <node id="-1" lat="52" lon="-1.5" changeset="0">',
+      '      <tag k="amenity" v="post_box"/>',
+      '      <tag k="royal_cypher" v="EIIR"/>',
+      "    </node>",
+      "  </create>",
+      "</osmChange>",
+      "",
+    ].join("\n"));
+  });
+  it("buildOsmChangeBatch of one node is identical to buildOsmChange", () => {
+    const mod = { action: "modify" as const, id: 9, version: 3, lat: 1, lon: 2, tags: { amenity: "post_box" } };
+    const cre = { action: "create" as const, id: -1, lat: 1, lon: 2, tags: { amenity: "post_box" } };
+    assert.strictEqual(buildOsmChangeBatch([mod]), buildOsmChange(mod));
+    assert.strictEqual(buildOsmChangeBatch([cre]), buildOsmChange(cre));
+  });
+  it("buildOsmChangeBatch groups creates before modifies, preserving input order", () => {
+    const osc = buildOsmChangeBatch([
+      { action: "modify", id: 100, version: 2, lat: 1, lon: 1, tags: { royal_cypher: "VR" } },
+      { action: "create", id: -1, lat: 2, lon: 2, tags: { amenity: "post_box" } },
+      { action: "modify", id: 200, version: 5, lat: 3, lon: 3, tags: { royal_cypher: "GR" } },
+      { action: "create", id: -2, lat: 4, lon: 4, tags: { amenity: "post_box" } },
+    ]);
+    assert.strictEqual((osc.match(/<create>/g) ?? []).length, 1);
+    assert.strictEqual((osc.match(/<modify>/g) ?? []).length, 1);
+    const order = [...osc.matchAll(/<node id="(-?\d+)"/g)].map((m) => m[1]);
+    assert.deepStrictEqual(order, ["-1", "-2", "100", "200"]);
+    assert.ok(osc.indexOf("</create>") < osc.indexOf("<modify>"));
+  });
+  it("buildOsmChangeBatch of nothing is a valid empty osmChange", () => {
+    assert.strictEqual(
+      buildOsmChangeBatch([]),
+      '<?xml version="1.0" encoding="UTF-8"?>\n<osmChange version="0.6" generator="PostboxGame">\n</osmChange>\n',
+    );
+  });
+  it("matches the golden tagless output byte-for-byte", () => {
+    const osc = buildOsmChange({ action: "create", id: -1, lat: 0, lon: 0, tags: {} });
+    assert.strictEqual(osc, [
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      '<osmChange version="0.6" generator="PostboxGame">',
+      "  <create>",
+      '    <node id="-1" lat="0" lon="0" changeset="0">',
+      "    </node>",
+      "  </create>",
+      "</osmChange>",
+      "",
+    ].join("\n"));
+  });
+});
+
+import { buildOsmChangeBatch, fetchOsmNodeResult } from "../_osmChange";
+
+describe("fetchOsmNodeResult", () => {
+  const okFetch = (body: unknown) => async () => ({ ok: true, status: 200, json: async () => body });
+  it("parses the node's version, position and tags", async () => {
+    const r = await fetchOsmNodeResult(7, okFetch({ elements: [{ type: "node", version: 4, lat: 51, lon: -1, tags: { amenity: "post_box" } }] }));
+    assert.deepStrictEqual(r, { ok: true, node: { version: 4, lat: 51, lon: -1, tags: { amenity: "post_box" } } });
+  });
+  it("reports the HTTP status for a deleted node (410) so it is not retried", async () => {
+    const r = await fetchOsmNodeResult(7, async () => ({ ok: false, status: 410, json: async () => ({}) }));
+    assert.deepStrictEqual(r, { ok: false, status: 410 });
+  });
+  it("reports network failures distinctly", async () => {
+    const r = await fetchOsmNodeResult(7, async () => { throw new Error("offline"); });
+    assert.deepStrictEqual(r, { ok: false, status: "network" });
+  });
+  it("treats a body with no usable node as malformed", async () => {
+    const r = await fetchOsmNodeResult(7, okFetch({ elements: [{ type: "way" }] }));
+    assert.deepStrictEqual(r, { ok: false, status: "malformed" });
+  });
+  it("defaults a missing version to 1 and missing tags to {}", async () => {
+    const r = await fetchOsmNodeResult(7, okFetch({ elements: [{ type: "node", lat: 1, lon: 2 }] }));
+    assert.deepStrictEqual(r, { ok: true, node: { version: 1, lat: 1, lon: 2, tags: {} } });
+  });
 });
 
 describe("repointClaimsForPostbox (unit, mock Firestore)", () => {
@@ -3905,6 +4086,18 @@ describe("repointClaimsForPostbox (unit, mock Firestore)", () => {
     assert.strictEqual(writes[0].update.points, 4);
   });
 
+  it("rewrites anonymised claims without recomputing a 'deleted' user", async () => {
+    const claims: ClaimDoc[] = [
+      { id: "c1", userid: "deleted", points: 9, monarch: "EVIIR", postboxes: "/postbox/osm_42" },
+      { id: "c2", userid: "u1", points: 9, monarch: "EVIIR", postboxes: "/postbox/osm_42" },
+    ];
+    const { db, writes } = makeMockDb(claims);
+    const result = await repointClaimsForPostbox(db, "osm_42", "GR");
+    assert.strictEqual(result.claimCount, 2);
+    assert.strictEqual(writes.length, 2, "the anonymised claim's points are still corrected");
+    assert.deepStrictEqual([...result.deltaByUid.keys()], ["u1"]);
+  });
+
   it("skips claims already at the target monarch+points (idempotent retry)", async () => {
     // Simulates an admin re-running reviewReport after a partial-success run:
     // some claims were already rewritten on the first attempt. The retry must
@@ -3931,6 +4124,50 @@ describe("repointClaimsForPostbox (unit, mock Firestore)", () => {
   });
 });
 
+describe("planRepointClaims (pure)", () => {
+  it("plans a rewrite for every claim not already at the target, with per-user deltas", () => {
+    const plan = planRepointClaims([
+      { userid: "u1", points: 9, monarch: "EVIIR" },
+      { userid: "u1", points: 4, monarch: "GR" }, // already corrected → skipped
+      { userid: "u2", points: 9, monarch: "EVIIR" },
+    ], "GR", 4);
+    assert.deepStrictEqual(plan.rewrite, [0, 2]);
+    assert.strictEqual(plan.deltaByUid.get("u1"), -5);
+    assert.strictEqual(plan.deltaByUid.get("u2"), -5);
+  });
+  it("treats empty-string and null monarchs as plain", () => {
+    const plan = planRepointClaims([
+      { userid: "u1", points: 2, monarch: "" },
+      { userid: "u2", points: 2 },
+    ], null, 2);
+    assert.deepStrictEqual(plan.rewrite, []);
+    assert.strictEqual(plan.deltaByUid.size, 0);
+  });
+  it("keeps a zero-delta entry when only the monarch changes", () => {
+    const plan = planRepointClaims([{ userid: "u1", points: 4, monarch: "GR" }], "GVR", 4);
+    assert.deepStrictEqual(plan.rewrite, [0]);
+    assert.strictEqual(plan.deltaByUid.get("u1"), 0);
+  });
+  it("counts a claim with no numeric points as 0 old points", () => {
+    const plan = planRepointClaims([{ userid: "u1", monarch: "VR" }], "EVIIIR", 12);
+    assert.strictEqual(plan.deltaByUid.get("u1"), 12);
+  });
+  it("rewrites but never attributes an anonymised (deleted-account) claim", () => {
+    const plan = planRepointClaims([
+      { userid: "deleted", points: 9, monarch: "EVIIR" },
+      { userid: "u1", points: 9, monarch: "EVIIR" },
+    ], "GR", 4);
+    assert.deepStrictEqual(plan.rewrite, [0, 1]);
+    assert.strictEqual(plan.deltaByUid.has("deleted"), false);
+    assert.strictEqual(plan.deltaByUid.get("u1"), -5);
+  });
+  it("rewrites but does not attribute a claim with no usable userid", () => {
+    const plan = planRepointClaims([{ points: 9, monarch: "EVIIR" }, { userid: 42, points: 9, monarch: "EVIIR" }], "GR", 4);
+    assert.deepStrictEqual(plan.rewrite, [0, 1]);
+    assert.strictEqual(plan.deltaByUid.size, 0);
+  });
+});
+
 describe("maxDailyFromClaims", () => {
   it("returns 0 for no claims", () => assert.strictEqual(maxDailyFromClaims([]), 0));
   it("sums points per day and returns the busiest day's total", () => {
@@ -3951,6 +4188,209 @@ describe("maxDailyFromClaims", () => {
   });
   it("ignores entries with no dailyDate", () => {
     assert.strictEqual(maxDailyFromClaims([{ points: 99 }, { dailyDate: "d1", points: 3 }]), 3);
+  });
+});
+
+import { performReview, type PerformReviewOptions } from "../reports";
+
+describe("performReview (unit, mock Firestore)", () => {
+  type Doc = Record<string, unknown>;
+  type SetCall = { path: string; data: Doc; merge: boolean };
+
+  function makeReviewDb(initial: Record<string, Doc>) {
+    const store = new Map<string, Doc>(Object.entries(initial));
+    const sets: SetCall[] = [];
+    const db = {
+      collection: (c: string) => ({
+        doc: (id: string) => {
+          const path = `${c}/${id}`;
+          return {
+            id,
+            path,
+            async get() {
+              const d = store.get(path);
+              return { exists: d !== undefined, data: () => d };
+            },
+            async set(data: Doc, opts?: { merge?: boolean }) {
+              const merge = opts?.merge === true;
+              sets.push({ path, data, merge });
+              store.set(path, merge ? { ...(store.get(path) ?? {}), ...data } : data);
+            },
+          };
+        },
+      }),
+    };
+    return { db: db as unknown as import("firebase-admin").firestore.Firestore, sets, store };
+  }
+
+  function makeBucket() {
+    const saved: Array<{ path: string; data: string; contentType: string }> = [];
+    return {
+      saved,
+      bucket: { file: (path: string) => ({ save: async (data: string, o: { contentType: string }) => { saved.push({ path, data, contentType: o.contentType }); } }) },
+    };
+  }
+
+  const isDelete = (v: unknown) => admin.firestore.FieldValue.delete().isEqual(v as admin.firestore.FieldValue);
+  const code = async (p: Promise<unknown>) => {
+    try { await p; return "resolved"; } catch (e) { return (e as { code?: string }).code; }
+  };
+
+  const pendingMissing = { type: "missing_postbox", status: "pending", reporterUid: "rep", lat: 51.5, lng: -0.12, photos: [], suggestedMonarch: "VR", suggestedReference: "SW1 9" };
+  const pendingCypher = { type: "wrong_cypher", status: "pending", reporterUid: "rep", postboxId: "osm_77", overpassId: 77, currentMonarch: "EIIR", photos: [], suggestedMonarch: "GR" };
+  const box77 = { overpass_id: 77, monarch: "EIIR", county: "Greater London", removedFromOsm: true, removedFromOsmAt: 1, geopoint: { latitude: 51.5, longitude: -0.12 } };
+  const opts = (extra: Partial<PerformReviewOptions> = {}): PerformReviewOptions => ({
+    today: "2026-10-17",
+    countyForPoint: () => "Greater London",
+    fetchOsmNode: async () => ({ version: 3, lat: 51.5, lon: -0.12, tags: { amenity: "post_box", royal_cypher: "EIIR", ref: "OLD 1" } }),
+    rescore: async () => ({ rescoredClaims: 5, affectedUsers: 2, totalDelta: 10 }),
+    ...extra,
+  });
+
+  it("rejects: stamps status, reviewer and note, writes nothing else", async () => {
+    const { db, sets } = makeReviewDb({ "reports/r1": { ...pendingMissing } });
+    const { bucket, saved } = makeBucket();
+    const r = await performReview(db, bucket, "admin1", { reportId: "r1", decision: "reject", reviewNote: "Duplicate" }, opts());
+    assert.deepStrictEqual(r, { status: "rejected" });
+    assert.strictEqual(sets.length, 1);
+    assert.strictEqual(sets[0].path, "reports/r1");
+    assert.strictEqual(sets[0].data.status, "rejected");
+    assert.strictEqual(sets[0].data.reviewedBy, "admin1");
+    assert.strictEqual(sets[0].data.reviewNote, "Duplicate");
+    assert.strictEqual(saved.length, 0);
+  });
+
+  it("validates decision and reportId before reading anything", async () => {
+    const { db, sets } = makeReviewDb({});
+    const { bucket } = makeBucket();
+    assert.strictEqual(await code(performReview(db, bucket, "a", { reportId: "r1", decision: "maybe" }, opts())), "invalid-argument");
+    assert.strictEqual(await code(performReview(db, bucket, "a", { reportId: "x/y", decision: "reject" }, opts())), "invalid-argument");
+    assert.strictEqual(sets.length, 0);
+  });
+
+  it("not-found for a missing report, failed-precondition for an already-reviewed one", async () => {
+    const { db } = makeReviewDb({ "reports/done": { ...pendingMissing, status: "accepted" } });
+    const { bucket } = makeBucket();
+    assert.strictEqual(await code(performReview(db, bucket, "a", { reportId: "nope", decision: "reject" }, opts())), "not-found");
+    assert.strictEqual(await code(performReview(db, bucket, "a", { reportId: "done", decision: "reject" }, opts())), "failed-precondition");
+  });
+
+  it("accepts a missing postbox: manual_ doc, meta increment, create .osc, report stamped", async () => {
+    const { db, sets, store } = makeReviewDb({ "reports/r1": { ...pendingMissing } });
+    const { bucket, saved } = makeBucket();
+    const r = await performReview(db, bucket, "admin1", { reportId: "r1", decision: "accept" }, opts());
+    assert.deepStrictEqual(r, {
+      status: "accepted",
+      osmEditUrl: "https://www.openstreetmap.org/edit#map=19/51.5/-0.12",
+      osmChangesetPath: "osm_changesets/r1.osc",
+      rescoredClaims: 0,
+      affectedUsers: 0,
+      rescoreTotalDelta: 0,
+    });
+    const box = store.get("postbox/manual_r1");
+    assert.ok(box, "postbox/manual_r1 created");
+    assert.strictEqual(box.source, "user_report");
+    assert.strictEqual(box.reportId, "r1");
+    assert.strictEqual(box.monarch, "VR", "falls back to the reporter's suggestion");
+    assert.strictEqual(box.reference, "SW1 9");
+    assert.strictEqual(box.county, "Greater London");
+    assert.strictEqual((box.geohash as string).length, MAX_GEOHASH_PRECISION);
+    assert.ok(sets.some((c) => c.path === "meta/stats"), "totalPostboxes incremented for a new box");
+    assert.strictEqual(saved.length, 1);
+    assert.match(saved[0].data, /<create>/);
+    assert.match(saved[0].data, /<tag k="royal_cypher" v="VR"\/>/);
+    const rep = store.get("reports/r1");
+    assert.ok(rep);
+    assert.strictEqual(rep.status, "accepted");
+    assert.strictEqual(rep.osmStatus, "changeset_generated");
+    assert.strictEqual(rep.finalMonarch, "VR");
+    assert.ok(!("rescoredClaims" in rep), "no rescore counts for a missing-postbox accept");
+  });
+
+  it("a missing-postbox retry over an existing manual_ doc does not re-increment meta/stats", async () => {
+    const { db, sets } = makeReviewDb({ "reports/r1": { ...pendingMissing }, "postbox/manual_r1": { source: "user_report" } });
+    const { bucket } = makeBucket();
+    await performReview(db, bucket, "admin1", { reportId: "r1", decision: "accept" }, opts());
+    assert.ok(!sets.some((c) => c.path === "meta/stats"));
+  });
+
+  it("an explicit empty finalReference overrides the reporter's suggested one", async () => {
+    const { db, store } = makeReviewDb({ "reports/r1": { ...pendingMissing } });
+    const { bucket } = makeBucket();
+    await performReview(db, bucket, "admin1", { reportId: "r1", decision: "accept", finalReference: "", finalMonarch: null }, opts());
+    const box = store.get("postbox/manual_r1");
+    assert.ok(box);
+    assert.ok(!("reference" in box));
+    assert.ok(!("monarch" in box), "plain writes no monarch");
+  });
+
+  it("accepts a cypher correction: postbox updated, rescore run, modify .osc, counts persisted", async () => {
+    const { db, store } = makeReviewDb({ "reports/r2": { ...pendingCypher }, "postbox/osm_77": { ...box77 } });
+    const { bucket, saved } = makeBucket();
+    const rescoreCalls: unknown[][] = [];
+    const r = await performReview(db, bucket, "admin1", { reportId: "r2", decision: "accept", finalReference: "NEW 2" }, opts({
+      rescore: async (...args) => { rescoreCalls.push(args.slice(1)); return { rescoredClaims: 5, affectedUsers: 2, totalDelta: 10 }; },
+    }));
+    assert.deepStrictEqual(r, {
+      status: "accepted",
+      osmEditUrl: "https://www.openstreetmap.org/edit?editor=id&node=77",
+      osmChangesetPath: "osm_changesets/r2.osc",
+      rescoredClaims: 5,
+      affectedUsers: 2,
+      rescoreTotalDelta: 10,
+    });
+    const box = store.get("postbox/osm_77");
+    assert.ok(box);
+    assert.strictEqual(box.monarch, "GR");
+    assert.strictEqual(box.reference, "NEW 2");
+    assert.strictEqual(box.correctedBy, "admin1");
+    assert.ok(isDelete(box.removedFromOsm), "a soft-pruned box is restored");
+    assert.deepStrictEqual(rescoreCalls, [["osm_77", "GR", "greater-london", "Greater London", "2026-10-17"]]);
+    assert.strictEqual(saved.length, 1);
+    assert.match(saved[0].data, /<node id="77" version="3"/);
+    assert.match(saved[0].data, /<tag k="royal_cypher" v="GR"\/>/);
+    assert.match(saved[0].data, /<tag k="ref" v="NEW 2"\/>/);
+    const rep = store.get("reports/r2");
+    assert.ok(rep);
+    assert.strictEqual(rep.rescoredClaims, 5);
+    assert.strictEqual(rep.affectedUsers, 2);
+    assert.strictEqual(rep.rescoreTotalDelta, 10);
+  });
+
+  it("a cypher correction to plain deletes the monarch and the OSM royal_cypher tag", async () => {
+    const { db, store } = makeReviewDb({ "reports/r2": { ...pendingCypher }, "postbox/osm_77": { ...box77 } });
+    const { bucket, saved } = makeBucket();
+    await performReview(db, bucket, "admin1", { reportId: "r2", decision: "accept", finalMonarch: null }, opts());
+    assert.ok(isDelete(store.get("postbox/osm_77")?.monarch));
+    assert.ok(!/royal_cypher/.test(saved[0].data));
+  });
+
+  it("a cypher correction needs a resolvable finalMonarch", async () => {
+    const { db, sets } = makeReviewDb({ "reports/r2": { ...pendingCypher, suggestedMonarch: undefined }, "postbox/osm_77": { ...box77 } });
+    const { bucket } = makeBucket();
+    assert.strictEqual(await code(performReview(db, bucket, "a", { reportId: "r2", decision: "accept" }, opts())), "invalid-argument");
+    assert.strictEqual(sets.length, 0);
+  });
+
+  it("records changeset_failed when the OSM node can't be fetched", async () => {
+    const { db, store } = makeReviewDb({ "reports/r2": { ...pendingCypher }, "postbox/osm_77": { ...box77 } });
+    const { bucket, saved } = makeBucket();
+    const r = await performReview(db, bucket, "admin1", { reportId: "r2", decision: "accept" }, opts({ fetchOsmNode: async () => null }));
+    assert.strictEqual(r.status === "accepted" && r.osmChangesetPath, null);
+    assert.strictEqual(saved.length, 0);
+    assert.strictEqual(store.get("reports/r2")?.osmStatus, "changeset_failed");
+  });
+
+  it("aborts before any write when the points config can't be loaded (strict loader)", async () => {
+    const { db, sets } = makeReviewDb({ "reports/r2": { ...pendingCypher }, "postbox/osm_77": { ...box77 } });
+    const { bucket } = makeBucket();
+    setConfigLoader(async () => { throw new Error("rc down"); });
+    try {
+      await assert.rejects(() => performReview(db, bucket, "a", { reportId: "r2", decision: "accept" }, opts()), /rc down/);
+      assert.strictEqual(sets.length, 0);
+    } finally {
+      setConfigLoaderForTest(fallbackGameConfig);
+    }
   });
 });
 
@@ -4111,7 +4551,7 @@ describe("filterToCorridor", () => {
 });
 
 describe("midpoint", () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const planner = require("../_routePlanner") as typeof import("../_routePlanner");
 
   it("averages lat/lng of two points", () => {
@@ -4133,7 +4573,7 @@ describe("midpoint", () => {
 });
 
 describe("metresBetween", () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const planner = require("../_routePlanner") as typeof import("../_routePlanner");
 
   it("returns 0 for coincident points", () => {
@@ -4371,7 +4811,7 @@ describe("routePostboxes pure detour logic", () => {
 describe("finaliseRoute", () => {
   // Pure helper used by the plan_route CLI to compute closing-leg metres /
   // seconds and total route stats after the beam search picks stops.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const planner = require("../_routePlanner") as typeof import("../_routePlanner");
 
   const start = { lat: 51.5000, lng: -0.1000 };
@@ -4632,6 +5072,8 @@ describe("account deletion: deleteUserDocs (mock Firestore)", () => {
     });
     const countyDocs = [makeCollDoc("users/u1/countyStats/avon")];
     const flagDocs = [makeCollDoc("moderationFlags/f1"), makeCollDoc("moderationFlags/f2")];
+    const inviteDocs = [makeCollDoc("invites/ABCD2345")];
+    const referralsMadeDocs = [makeCollDoc("referrals/invitee1")];
 
     const userRef = {
       _path: "users/u1",
@@ -4660,6 +5102,23 @@ describe("account deletion: deleteUserDocs (mock Firestore)", () => {
             }),
           };
         }
+        if (name === "invites") {
+          return {
+            where(field: string, op: string, val: unknown) {
+              assert.deepStrictEqual([field, op, val], ["uid", "==", "u1"]);
+              return { async get() { return { docs: inviteDocs.map((d) => ({ ref: d })) }; } };
+            },
+          };
+        }
+        if (name === "referrals") {
+          return {
+            where(field: string, op: string, val: unknown) {
+              assert.deepStrictEqual([field, op, val], ["inviterUid", "==", "u1"]);
+              return { async get() { return { docs: referralsMadeDocs.map((d) => ({ ref: d })) }; } };
+            },
+            doc: () => makeCollDoc("referrals/u1"),
+          };
+        }
         // fcmTokens / reportQuotas / trustScores
         return { doc: () => makeCollDoc(`${name}/u1`) };
       },
@@ -4684,6 +5143,10 @@ describe("account deletion: deleteUserDocs (mock Firestore)", () => {
     assert.ok(deleted.includes("trustScores/u1"), "trust score deleted");
     assert.ok(deleted.includes("unpacked/2026/players/u1") && deleted.includes("unpacked/2027/players/u1"),
       "annual recap snapshots deleted for every year");
+    assert.ok(deleted.includes("invites/ABCD2345"), "user's invite code deleted");
+    assert.ok(deleted.includes("referrals/u1"), "user's own referral record deleted");
+    assert.ok(deleted.includes("referrals/invitee1"),
+      "referral records naming the user as inviter deleted");
   });
 });
 
@@ -5474,6 +5937,8 @@ describe("exportMyData: buildExportBundle", () => {
     offlineFlushQuota: { id: "u1", date: "2026-07-17", count: 3 },
     fcmTokens: null,
     leaderboards: [{ board: "lifetime", entry: { uid: "u1", totalPoints: 12 } }],
+    invites: [{ id: "ABCD2345", uid: "u1", referralCount: 2 }],
+    referral: { id: "u1", inviterUid: "u9", code: "WXYZ6789" },
   };
 
   it("assembles the versioned bundle with Firestore types serialised", () => {
@@ -5492,6 +5957,10 @@ describe("exportMyData: buildExportBundle", () => {
     const boards = bundle.leaderboards as Array<Record<string, unknown>>;
     assert.strictEqual((boards[0].entry as Record<string, unknown>).totalPoints, 12);
     assert.ok(typeof bundle.notes === "object" && bundle.notes !== null, "explanatory notes present");
+    // GDPR access must mirror erasure: invites and referrals are erased on
+    // deletion, so they are exported too.
+    assert.deepStrictEqual(bundle.invites, [{ id: "ABCD2345", uid: "u1", referralCount: 2 }]);
+    assert.deepStrictEqual(bundle.referral, { id: "u1", inviterUid: "u9", code: "WXYZ6789" });
   });
 
   it("keeps a sane claims cap constant", () => {
@@ -5513,8 +5982,213 @@ describe("exportMyData callable (auth)", () => {
   });
 });
 
+// ── Friend invites (referral loop) ────────────────────────────────────────────
+import {
+  normaliseInviteCode,
+  generateInviteCode,
+  planAcceptInvite,
+  INVITE_CODE_ALPHABET,
+  INVITE_CODE_LENGTH,
+  MAX_FRIENDS,
+  REFERRAL_WINDOW_MS,
+  type AcceptInviteInput,
+} from "../invites";
+
+describe("invites: normaliseInviteCode", () => {
+  it("accepts a canonical code unchanged", () => {
+    assert.strictEqual(normaliseInviteCode("ABCD2345"), "ABCD2345");
+  });
+  it("uppercases and trims", () => {
+    assert.strictEqual(normaliseInviteCode("  abcd2345 \n"), "ABCD2345");
+  });
+  it("strips spaces and hyphens", () => {
+    assert.strictEqual(normaliseInviteCode("ABCD-2345"), "ABCD2345");
+    assert.strictEqual(normaliseInviteCode("ab cd 23 45"), "ABCD2345");
+  });
+  it("maps Crockford aliases I and L to 1, O to 0", () => {
+    assert.strictEqual(normaliseInviteCode("IL0O2345"), "11002345");
+    assert.strictEqual(normaliseInviteCode("il0o2345"), "11002345");
+  });
+  it("rejects U (not in the alphabet)", () => {
+    assert.strictEqual(normaliseInviteCode("ABCU2345"), null);
+  });
+  it("rejects the wrong length", () => {
+    assert.strictEqual(normaliseInviteCode("ABCD234"), null);
+    assert.strictEqual(normaliseInviteCode("ABCD23456"), null);
+    assert.strictEqual(normaliseInviteCode(""), null);
+  });
+  it("rejects punctuation and non-strings", () => {
+    assert.strictEqual(normaliseInviteCode("ABCD!345"), null);
+    assert.strictEqual(normaliseInviteCode(null), null);
+    assert.strictEqual(normaliseInviteCode(undefined), null);
+    assert.strictEqual(normaliseInviteCode(12345678), null);
+  });
+});
+
+describe("invites: generateInviteCode", () => {
+  it("produces 8 symbols from the Crockford alphabet", () => {
+    for (let i = 0; i < 200; i++) {
+      const code = generateInviteCode();
+      assert.strictEqual(code.length, INVITE_CODE_LENGTH);
+      for (const ch of code) assert.ok(INVITE_CODE_ALPHABET.includes(ch), `bad symbol ${ch}`);
+      assert.strictEqual(normaliseInviteCode(code), code, "a generated code round-trips");
+    }
+  });
+  it("is deterministic for injected bytes, masking each byte to 5 bits", () => {
+    const bytes = Uint8Array.from([0, 1, 31, 32, 255, 10, 20, 30]);
+    // 32 & 31 = 0, 255 & 31 = 31.
+    assert.strictEqual(generateInviteCode(() => bytes), "01Z0ZAMY");
+  });
+  it("has a 32-symbol alphabet without I, L, O or U", () => {
+    assert.strictEqual(INVITE_CODE_ALPHABET.length, 32);
+    for (const ch of "ILOU") assert.ok(!INVITE_CODE_ALPHABET.includes(ch));
+  });
+});
+
+describe("invites: planAcceptInvite", () => {
+  const base: AcceptInviteInput = {
+    callerUid: "me",
+    inviterUid: "them",
+    callerFriends: [],
+    inviterFriends: [],
+    referralExists: false,
+    accountAgeMs: 60_000,
+  };
+  const full = (prefix: string) => Array.from({ length: MAX_FRIENDS }, (_, i) => `${prefix}${i}`);
+
+  it("rejects redeeming your own code", () => {
+    assert.deepStrictEqual(
+      planAcceptInvite({ ...base, inviterUid: "me" }),
+      { ok: false, error: "self_invite" },
+    );
+  });
+
+  it("adds both directions and records the referral for a new account", () => {
+    assert.deepStrictEqual(planAcceptInvite(base), {
+      ok: true,
+      alreadyFriends: false,
+      addInviterToCaller: true,
+      addCallerToInviter: true,
+      inviterListFull: false,
+      recordReferral: true,
+    });
+  });
+
+  it("skips the add the caller already has", () => {
+    const plan = planAcceptInvite({ ...base, callerFriends: ["them"] });
+    assert.ok(plan.ok);
+    if (!plan.ok) return;
+    assert.strictEqual(plan.alreadyFriends, true);
+    assert.strictEqual(plan.addInviterToCaller, false);
+    assert.strictEqual(plan.addCallerToInviter, true, "the reverse add still happens");
+  });
+
+  it("refuses when the caller's list is full", () => {
+    assert.deepStrictEqual(
+      planAcceptInvite({ ...base, callerFriends: full("f") }),
+      { ok: false, error: "friend_limit" },
+    );
+  });
+
+  it("allows a full caller who already has the inviter", () => {
+    const plan = planAcceptInvite({ ...base, callerFriends: [...full("f").slice(1), "them"] });
+    assert.ok(plan.ok);
+  });
+
+  it("still adds the inviter when the inviter's own list is full", () => {
+    const plan = planAcceptInvite({ ...base, inviterFriends: full("g") });
+    assert.ok(plan.ok);
+    if (!plan.ok) return;
+    assert.strictEqual(plan.addInviterToCaller, true);
+    assert.strictEqual(plan.addCallerToInviter, false);
+    assert.strictEqual(plan.inviterListFull, true);
+  });
+
+  it("doesn't call a full inviter list full when the caller is already on it", () => {
+    const plan = planAcceptInvite({ ...base, inviterFriends: [...full("g").slice(1), "me"] });
+    assert.ok(plan.ok);
+    if (!plan.ok) return;
+    assert.strictEqual(plan.inviterListFull, false);
+    assert.strictEqual(plan.addCallerToInviter, false);
+  });
+
+  it("records the referral only for accounts younger than the window", () => {
+    const old = planAcceptInvite({ ...base, accountAgeMs: REFERRAL_WINDOW_MS });
+    const fresh = planAcceptInvite({ ...base, accountAgeMs: REFERRAL_WINDOW_MS - 1 });
+    assert.ok(old.ok && fresh.ok);
+    if (!old.ok || !fresh.ok) return;
+    assert.strictEqual(old.recordReferral, false);
+    assert.strictEqual(fresh.recordReferral, true);
+  });
+
+  it("never records a referral when the account age is unknown", () => {
+    const plan = planAcceptInvite({ ...base, accountAgeMs: null });
+    assert.ok(plan.ok);
+    if (!plan.ok) return;
+    assert.strictEqual(plan.recordReferral, false);
+  });
+
+  it("records the referral at most once", () => {
+    const plan = planAcceptInvite({ ...base, referralExists: true });
+    assert.ok(plan.ok);
+    if (!plan.ok) return;
+    assert.strictEqual(plan.recordReferral, false);
+  });
+
+  it("writes nothing on a retry after a successful redeem", () => {
+    const plan = planAcceptInvite({
+      ...base,
+      callerFriends: ["them"],
+      inviterFriends: ["me"],
+      referralExists: true,
+    });
+    assert.deepStrictEqual(plan, {
+      ok: true,
+      alreadyFriends: true,
+      addInviterToCaller: false,
+      addCallerToInviter: false,
+      inviterListFull: false,
+      recordReferral: false,
+    });
+  });
+});
+
+describe("getInviteCode / acceptInvite (onCall) — auth & validation", function (this: Mocha.Suite) {
+  this.timeout(10000);
+  const wrappedGet = testEnv.wrap(myFunctions.getInviteCode) as (data: unknown) => Promise<unknown>;
+  const wrappedAccept = testEnv.wrap(myFunctions.acceptInvite) as (data: unknown) => Promise<unknown>;
+
+  it("getInviteCode throws unauthenticated with no auth", async () => {
+    try {
+      await wrappedGet({ data: {} });
+      assert.fail("expected unauthenticated");
+    } catch (e) {
+      assert.strictEqual((e as { code?: string }).code, "unauthenticated");
+    }
+  });
+  it("acceptInvite throws unauthenticated with no auth", async () => {
+    try {
+      await wrappedAccept({ data: { code: "ABCD2345" } });
+      assert.fail("expected unauthenticated");
+    } catch (e) {
+      assert.strictEqual((e as { code?: string }).code, "unauthenticated");
+    }
+  });
+  it("acceptInvite throws invalid-argument for a malformed code", async () => {
+    for (const code of ["nope", "ABCU2345", 12345678, undefined]) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        await wrappedAccept({ data: { code, confirm: true }, auth: { uid: "u1" } });
+        assert.fail(`expected invalid-argument for ${String(code)}`);
+      } catch (e) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    }
+  });
+});
+
 describe("plan_route CLI helpers", () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const cli = require("../scripts/plan_route") as typeof import("../scripts/plan_route");
 
   describe("parseLatLng", () => {
@@ -5737,7 +6411,7 @@ describe("plan_route CLI helpers", () => {
 });
 
 describe("route alternatives (_routePlanner)", () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const planner = require("../_routePlanner") as typeof import("../_routePlanner");
   type S = import("../_routePlanner").SearchState;
   const state = (ids: string[], score: number, timeUsed = 0): S => ({
@@ -6174,5 +6848,921 @@ describe("rebuildUnpacked (onCall) — auth", function (this: Mocha.Suite) {
     } catch (e) {
       assert.strictEqual((e as { code?: string }).code, "permission-denied");
     }
+  });
+});
+
+// ── local review dashboard: domain modules ──────────────────────────────────
+
+import * as ngeohash from "ngeohash";
+import { queryPostboxesNear } from "../_postboxQuery";
+import {
+  buildOverpassAroundQuery,
+  buildOverpassMultiPointQuery,
+  clampOverpassRadius,
+  parseOverpassNodes,
+  OverpassClient,
+  OverpassError,
+} from "../_overpass";
+import {
+  buildStreetViewMetadataUrl,
+  parseStreetViewMetadata,
+  bearingDegrees,
+  buildStreetViewEmbedUrl,
+  googleMapsStreetViewUrl,
+  describeStreetView,
+  StreetViewClient,
+  StreetViewError,
+} from "../_streetView";
+import { previewCypherImpact } from "../_cypherImpact";
+import {
+  toMs,
+  parseExifDateTime,
+  photoDistances,
+  assessDuplicates,
+  assessOsmNodes,
+  summariseReporterHistory,
+  accountSummary,
+  buildMapContext,
+  buildReporterContext,
+  type StoredReport,
+} from "../_reportContext";
+import { planOsmBatch, suggestedChangesetComment, type OsmBatchCandidate } from "../_osmBatch";
+import { REJECT_PRESETS, parseNote } from "../reports";
+import type { NearbyPostboxDto, OsmNearbyNodeDto } from "../_reviewTypes";
+
+/**
+ * In-memory Firestore fake covering the read surface the review-dashboard
+ * modules use: doc get, equality where (+ limit), geohash range scans,
+ * getAll and batched set. Collections are { docId: data }.
+ */
+function makeFakeDb(collections: Record<string, Record<string, Record<string, unknown>>>) {
+  const writes: Array<{ path: string; data: Record<string, unknown> }> = [];
+  const snapOf = (coll: string, id: string) => {
+    const data = collections[coll]?.[id];
+    return { id, exists: data !== undefined, data: () => data, ref: { id, path: `${coll}/${id}` } };
+  };
+  const query = (coll: string, filters: Array<[string, unknown]>, range?: { start: string; end: string }, limit?: number) => ({
+    where: (field: string, op: string, value: unknown) => {
+      if (op !== "==") throw new Error(`fake db: unsupported op ${op}`);
+      return query(coll, [...filters, [field, value]], range, limit);
+    },
+    limit: (n: number) => query(coll, filters, range, n),
+    orderBy: (field: string) => {
+      if (field !== "geohash") throw new Error(`fake db: unsupported orderBy ${field}`);
+      return {
+        startAt: (start: string) => ({ endAt: (end: string) => query(coll, filters, { start, end }, limit) }),
+      };
+    },
+    get: async () => {
+      let docs = Object.keys(collections[coll] ?? {})
+        .filter((id) => filters.every(([f, v]) => collections[coll][id][f] === v))
+        .filter((id) => {
+          if (!range) return true;
+          const gh = collections[coll][id].geohash;
+          return typeof gh === "string" && gh >= range.start && gh <= range.end;
+        })
+        .map((id) => snapOf(coll, id));
+      if (limit !== undefined) docs = docs.slice(0, limit);
+      return { docs, size: docs.length };
+    },
+  });
+  const db = {
+    collection: (coll: string) => ({
+      ...query(coll, []),
+      doc: (id: string) => ({ id, path: `${coll}/${id}`, get: async () => snapOf(coll, id) }),
+    }),
+    getAll: async (...refs: Array<{ path: string }>) => refs.map((r) => {
+      const [coll, id] = r.path.split("/");
+      return snapOf(coll, id);
+    }),
+    batch: () => {
+      const pending: Array<{ path: string; data: Record<string, unknown> }> = [];
+      return {
+        set: (ref: { path: string }, data: Record<string, unknown>) => { pending.push({ path: ref.path, data }); },
+        commit: async () => { writes.push(...pending); },
+      };
+    },
+  };
+  return { db: db as unknown as import("firebase-admin").firestore.Firestore, writes };
+}
+
+const boxAt = (lat: number, lng: number, extra: Record<string, unknown> = {}) => ({
+  geohash: ngeohash.encode(lat, lng, 9),
+  geopoint: { latitude: lat, longitude: lng },
+  ...extra,
+});
+
+describe("queryPostboxesNear", () => {
+  const centre = { lat: 51.5, lng: -0.12 };
+  const { db } = makeFakeDb({
+    postbox: {
+      osm_1: boxAt(51.50005, -0.12, { monarch: "VR" }), // ~6 m
+      osm_2: boxAt(51.5009, -0.12, { removedFromOsm: true }), // ~100 m
+      manual_r9: boxAt(51.5001, -0.1201, { source: "user_report" }),
+      osm_far: boxAt(51.6, -0.12), // ~11 km
+      osm_nogeo: { geohash: ngeohash.encode(51.5, -0.12, 9) },
+    },
+  });
+
+  it("returns boxes within the radius, including pruned and manual ones", async () => {
+    const r = await queryPostboxesNear(db, centre.lat, centre.lng, 150);
+    assert.deepStrictEqual(r.map((b) => b.id).sort(), ["manual_r9", "osm_1", "osm_2"]);
+    const one = r.find((b) => b.id === "osm_1");
+    assert.ok(one && one.distanceM > 0 && one.distanceM < 10);
+  });
+  it("drops boxes outside the radius", async () => {
+    const r = await queryPostboxesNear(db, centre.lat, centre.lng, 50);
+    assert.deepStrictEqual(r.map((b) => b.id).sort(), ["manual_r9", "osm_1"]);
+  });
+  it("filterToRadius:false returns the whole 9-cell set, still de-duplicated", async () => {
+    const r = await queryPostboxesNear(db, centre.lat, centre.lng, 50, { filterToRadius: false });
+    assert.strictEqual(new Set(r.map((b) => b.id)).size, r.length);
+    assert.ok(r.some((b) => b.id === "osm_1"));
+    assert.ok(!r.some((b) => b.id === "osm_far"));
+  });
+});
+
+describe("_overpass", () => {
+  it("builds an around query for active and lifecycle-prefixed post boxes", () => {
+    const q = buildOverpassAroundQuery(51.5, -0.123456789, 150);
+    assert.match(q, /^\[out:json\]\[timeout:25\];/);
+    assert.match(q, /node\(around:150,51\.500000,-0\.123457\)\[amenity=post_box\];/);
+    assert.match(q, /\["disused:amenity"=post_box\]/);
+    assert.match(q, /\["was:amenity"=post_box\]/);
+    assert.match(q, /out meta;$/);
+  });
+  it("builds one union query for several points", () => {
+    const q = buildOverpassMultiPointQuery([{ lat: 1, lng: 2 }, { lat: 3.1234567, lng: -4 }], 30);
+    assert.strictEqual((q.match(/node\(around:30,/g) ?? []).length, 2);
+    assert.match(q, /around:30,3\.123457,-4\.000000\)\[amenity=post_box\]/);
+  });
+  it("clamps the radius into 1..500 m", () => {
+    assert.strictEqual(clampOverpassRadius(0), 1);
+    assert.strictEqual(clampOverpassRadius(10_000), 500);
+    assert.strictEqual(clampOverpassRadius(Number.NaN), 150);
+  });
+  it("parses nodes, classifies lifecycle and drops malformed elements", () => {
+    const nodes = parseOverpassNodes({
+      elements: [
+        { type: "node", id: 1, lat: 1, lon: 2, version: 3, user: "x", timestamp: "t", tags: { amenity: "post_box", royal_cypher: "VR" } },
+        { type: "node", id: 2, lat: 1, lon: 2, tags: { "disused:amenity": "post_box" } },
+        { type: "node", id: 3, lat: 1, lon: 2, tags: { "was:amenity": "post_box", n: 5 } },
+        { type: "way", id: 4 },
+        { type: "node", id: 5 },
+      ],
+    });
+    assert.deepStrictEqual(nodes.map((n) => [n.id, n.lifecycle]), [[1, "active"], [2, "disused"], [3, "was"]]);
+    assert.strictEqual(nodes[0].version, 3);
+    assert.deepStrictEqual(nodes[2].tags, { "was:amenity": "post_box" }, "non-string tag values dropped");
+    assert.deepStrictEqual(parseOverpassNodes("nope"), []);
+  });
+  it("caches within the TTL, serialises requests and sends the User-Agent", async () => {
+    let t = 1_000;
+    let calls = 0;
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const fetchImpl = async (_url: string, init: { headers: Record<string, string> }) => {
+      calls++;
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      assert.match(init.headers["User-Agent"], /^PostboxGame\//);
+      await new Promise((r) => setTimeout(r, 5));
+      inFlight--;
+      return { ok: true, status: 200, json: async () => ({ elements: [{ type: "node", id: 9, lat: 1, lon: 1, tags: { amenity: "post_box" } }] }) };
+    };
+    const client = new OverpassClient(fetchImpl, () => t, 60_000);
+    const [a, b, c] = await Promise.all([client.nodesAround(1, 1, 100), client.nodesAround(1, 1, 100), client.nodesAround(2, 2, 100)]);
+    assert.strictEqual(maxInFlight, 1, "one request in flight at a time");
+    assert.strictEqual(calls, 2, "the duplicate query is answered from the cache");
+    assert.strictEqual(a.cached, false);
+    assert.strictEqual(b.cached, true);
+    assert.strictEqual(c.nodes[0].id, 9);
+    t += 61_000;
+    await client.nodesAround(1, 1, 100);
+    assert.strictEqual(calls, 3, "refetched after the TTL");
+  });
+  it("bounds each request with a timeout signal and reports a timeout plainly", async () => {
+    let sawSignal = false;
+    const client = new OverpassClient(
+      async (_url, init) => {
+        sawSignal = init.signal instanceof AbortSignal;
+        const e = new Error("The operation was aborted due to timeout");
+        e.name = "TimeoutError";
+        throw e;
+      },
+      Date.now,
+      60_000,
+      async () => undefined,
+      45_000,
+    );
+    await assert.rejects(() => client.nodesAround(1, 1, 50), (e: unknown) => e instanceof OverpassError && e.status === "network" && /within 45 s/.test(e.message));
+    assert.ok(sawSignal);
+  });
+  it("retries a busy answer once after backing off", async () => {
+    const statuses = [502, 200];
+    const slept: number[] = [];
+    const client = new OverpassClient(
+      async () => {
+        const status = statuses.shift() ?? 200;
+        return { ok: status === 200, status, json: async () => ({ elements: [{ type: "node", id: 1, lat: 0, lon: 0, tags: { amenity: "post_box" } }] }) };
+      },
+      Date.now,
+      60_000,
+      async (ms) => { slept.push(ms); },
+    );
+    assert.strictEqual((await client.nodesAround(1, 1, 50)).nodes.length, 1);
+    assert.deepStrictEqual(slept, [3_000]);
+  });
+  it("surfaces HTTP and network failures as OverpassError and keeps working afterwards", async () => {
+    let fail: "http" | "net" | null = "http";
+    let calls = 0;
+    const client = new OverpassClient(async () => {
+      calls++;
+      if (fail === "net") throw new Error("down");
+      if (fail === "http") return { ok: false, status: 429, json: async () => ({}) };
+      return { ok: true, status: 200, json: async () => ({ elements: [] }) };
+    }, Date.now, 60_000, async () => undefined);
+    await assert.rejects(() => client.nodesAround(1, 1, 50), (e: unknown) => e instanceof OverpassError && e.status === 429 && /busy/.test(e.message));
+    assert.strictEqual(calls, 2, "a busy answer is retried once, then reported");
+    fail = "net";
+    await assert.rejects(() => client.nodesAround(1, 1, 50), (e: unknown) => e instanceof OverpassError && e.status === "network");
+    fail = null;
+    assert.deepStrictEqual((await client.nodesAround(1, 1, 50)).nodes, []);
+  });
+});
+
+describe("_streetView", () => {
+  const spot = { lat: 51.5, lng: -0.1 };
+  // ~10 m due south of the spot, so the camera should face north.
+  const okBody = { status: "OK", pano_id: "PANO_1", location: { lat: 51.49991, lng: -0.1 }, date: "2023-06", copyright: "© Google" };
+
+  it("asks for the nearest outdoor panorama within the radius", () => {
+    const u = new URL(buildStreetViewMetadataUrl({ lat: 51.123456789, lng: -0.1 }, "K&Y", 40));
+    assert.strictEqual(u.origin + u.pathname, "https://maps.googleapis.com/maps/api/streetview/metadata");
+    assert.strictEqual(u.searchParams.get("location"), "51.123457,-0.100000");
+    assert.strictEqual(u.searchParams.get("radius"), "40");
+    assert.strictEqual(u.searchParams.get("source"), "outdoor");
+    assert.strictEqual(u.searchParams.get("key"), "K&Y", "the key is URL-encoded, not spliced");
+  });
+  it("parses a panorama, treats no imagery as a result and refusals as errors", () => {
+    assert.deepStrictEqual(parseStreetViewMetadata(okBody), { status: "ok", panoId: "PANO_1", lat: 51.49991, lng: -0.1, date: "2023-06", copyright: "© Google" });
+    assert.strictEqual((parseStreetViewMetadata({ ...okBody, date: "June" }) as { date: string | null }).date, null, "odd dates dropped");
+    assert.deepStrictEqual(parseStreetViewMetadata({ status: "ZERO_RESULTS" }), { status: "none" });
+    assert.deepStrictEqual(parseStreetViewMetadata({ status: "NOT_FOUND" }), { status: "none" });
+    assert.throws(() => parseStreetViewMetadata({ status: "REQUEST_DENIED", error_message: "The provided API key is invalid." }), (e: unknown) => e instanceof StreetViewError && /GOOGLE_MAPS_API_KEY/.test(e.message) && /invalid/.test(e.message));
+    assert.throws(() => parseStreetViewMetadata({ status: "OVER_QUERY_LIMIT" }), /quota/);
+    assert.throws(() => parseStreetViewMetadata({ status: "OK" }), StreetViewError);
+    assert.throws(() => parseStreetViewMetadata("nope"), StreetViewError);
+  });
+  it("aims the camera from the panorama at the spot", () => {
+    assert.strictEqual(bearingDegrees({ lat: 51.49991, lng: -0.1 }, spot), 0);
+    assert.strictEqual(bearingDegrees(spot, { lat: 51.5, lng: -0.1001 }), 270);
+    assert.strictEqual(bearingDegrees({ lat: 51.5, lng: -0.1001 }, spot), 90);
+    const d = describeStreetView(spot, "KEY", parseStreetViewMetadata(okBody));
+    assert.strictEqual(d.status, "ok");
+    if (d.status !== "ok") return;
+    assert.strictEqual(d.headingDeg, 0);
+    assert.ok(d.distanceM >= 9 && d.distanceM <= 11, `distance ${d.distanceM}`);
+    const embed = new URL(d.embedUrl);
+    assert.strictEqual(embed.origin + embed.pathname, "https://www.google.com/maps/embed/v1/streetview");
+    assert.deepStrictEqual(
+      ["key", "pano", "heading", "pitch", "fov"].map((k) => embed.searchParams.get(k)),
+      ["KEY", "PANO_1", "0", "-5", "70"],
+    );
+    const maps = new URL(d.mapsUrl);
+    assert.strictEqual(maps.searchParams.get("pano"), "PANO_1");
+    assert.strictEqual(maps.searchParams.get("viewpoint"), "51.499910,-0.100000");
+    assert.strictEqual(maps.searchParams.get("key"), null, "the key never goes into the Google Maps link");
+  });
+  it("falls back to a keyless Google Maps link", () => {
+    const none = describeStreetView(spot, "KEY", { status: "none" });
+    assert.deepStrictEqual(none, { status: "none", radiusM: 50, mapsUrl: googleMapsStreetViewUrl(spot) });
+    const off = describeStreetView(spot, null, null);
+    assert.strictEqual(off.status, "not_configured");
+    const u = new URL(off.mapsUrl);
+    assert.strictEqual(u.origin + u.pathname, "https://www.google.com/maps/@");
+    assert.deepStrictEqual(
+      ["api", "map_action", "viewpoint", "pano"].map((k) => u.searchParams.get(k)),
+      ["1", "pano", "51.500000,-0.100000", null],
+    );
+    assert.strictEqual(buildStreetViewEmbedUrl("K", "P", 12).includes("heading=12"), true);
+  });
+  it("caches lookups per spot and maps failures to StreetViewError", async () => {
+    let t = 0;
+    let calls = 0;
+    let answer: "ok" | "http" | "net" | "timeout" = "ok";
+    let sawSignal = false;
+    const client = new StreetViewClient(
+      "KEY",
+      async (_url, init) => {
+        calls++;
+        sawSignal = init.signal instanceof AbortSignal;
+        if (answer === "net") throw new Error("down");
+        if (answer === "timeout") {
+          const e = new Error("aborted");
+          e.name = "TimeoutError";
+          throw e;
+        }
+        if (answer === "http") return { ok: false, status: 500, json: async () => ({}) };
+        return { ok: true, status: 200, json: async () => okBody };
+      },
+      () => t,
+      1_000,
+      8_000,
+    );
+    assert.strictEqual((await client.lookup(spot)).status, "ok");
+    await client.lookup(spot);
+    assert.strictEqual(calls, 1, "second lookup served from the cache");
+    assert.ok(sawSignal);
+    t += 1_001;
+    answer = "http";
+    await assert.rejects(() => client.lookup(spot), (e: unknown) => e instanceof StreetViewError && /HTTP 500/.test(e.message));
+    answer = "net";
+    await assert.rejects(() => client.lookup(spot), /unreachable/);
+    answer = "timeout";
+    await assert.rejects(() => client.lookup(spot), /within 8 s/);
+    answer = "ok";
+    assert.strictEqual((await client.lookup(spot)).status, "ok", "recovers after failures");
+  });
+});
+
+describe("previewCypherImpact", () => {
+  const claims = (n: number, uid: string, points: number, monarch?: string) =>
+    Object.fromEntries(Array.from({ length: n }, (_, i) => [
+      `${uid}_${i}`,
+      { userid: uid, points, ...(monarch ? { monarch } : {}), postboxes: "/postbox/osm_7", dailyDate: `2026-10-0${i + 1}` },
+    ]));
+  const { db } = makeFakeDb({
+    claims: {
+      ...claims(2, "u1", 2, "EIIR"),
+      ...claims(1, "u2", 2, "EIIR"),
+      ...claims(1, "deleted", 2, "EIIR"),
+      other: { userid: "u3", points: 2, postboxes: "/postbox/osm_8" },
+    },
+    users: { u1: { displayName: "Alice", lifetimePoints: 40 }, u2: { displayName: "Bob" } },
+  });
+
+  it("predicts the rescore: rewritten claims, deltas, lifetime after, deleted-account claims", async () => {
+    const r = await previewCypherImpact(db, "osm_7", "VR"); // 2 → 7 pts
+    assert.strictEqual(r.newPoints, 7);
+    assert.strictEqual(r.totalClaims, 4);
+    assert.strictEqual(r.claimsToRewrite, 4);
+    assert.strictEqual(r.affectedUsers, 2);
+    assert.strictEqual(r.totalDelta, 15);
+    assert.strictEqual(r.deletedAccountClaims, 1);
+    assert.deepStrictEqual(r.users.map((u) => [u.uid, u.claims, u.delta]), [["u1", 2, 10], ["u2", 1, 5]]);
+    assert.strictEqual(r.users[0].displayName, "Alice");
+    assert.strictEqual(r.users[0].lifetimePointsAfter, 50);
+    assert.strictEqual(r.users[1].lifetimePointsBefore, null);
+    assert.strictEqual(r.usersTruncated, false);
+  });
+  it("a correction to an equal-points cypher rewrites claims but affects no totals", async () => {
+    const r = await previewCypherImpact(db, "osm_7", null); // plain = 2 pts
+    assert.strictEqual(r.claimsToRewrite, 4);
+    assert.strictEqual(r.affectedUsers, 0);
+    assert.strictEqual(r.totalDelta, 0);
+  });
+  it("a box with no claims is a no-op", async () => {
+    const r = await previewCypherImpact(db, "osm_none", "VR");
+    assert.strictEqual(r.totalClaims, 0);
+    assert.deepStrictEqual(r.users, []);
+  });
+});
+
+describe("_reportContext pure helpers", () => {
+  it("toMs reads Timestamps, their serialised shapes, Dates and numbers", () => {
+    assert.strictEqual(toMs(admin.firestore.Timestamp.fromMillis(1234)), 1234);
+    assert.strictEqual(toMs({ _seconds: 2, _nanoseconds: 5_000_000 }), 2005);
+    assert.strictEqual(toMs(new Date(99)), 99);
+    assert.strictEqual(toMs(7), 7);
+    assert.strictEqual(toMs("nope"), null);
+    assert.strictEqual(toMs(undefined), null);
+  });
+  it("parseExifDateTime reads EXIF and ISO forms", () => {
+    assert.strictEqual(parseExifDateTime("2026:05:11 10:30:00"), Date.UTC(2026, 4, 11, 10, 30, 0));
+    assert.strictEqual(parseExifDateTime("2026-05-11T10:30:00"), Date.UTC(2026, 4, 11, 10, 30, 0));
+    assert.strictEqual(parseExifDateTime("garbage"), null);
+    assert.strictEqual(parseExifDateTime(undefined), null);
+  });
+  it("photoDistances measures EXIF GPS against the anchor and ignores 0/0", () => {
+    const created = Date.UTC(2026, 4, 11, 12, 30, 0);
+    const p = photoDistances(
+      [
+        { storagePath: "a", exifLat: 51.5001, exifLng: -0.12, takenAt: "2026:05:11 10:30:00" },
+        { storagePath: "b", exifLat: 0, exifLng: 0 },
+        { storagePath: "c" },
+      ],
+      { lat: 51.5, lng: -0.12 },
+      created,
+    );
+    assert.ok(p[0].distanceM !== null && p[0].distanceM > 5 && p[0].distanceM < 20);
+    assert.strictEqual(p[0].hoursBeforeReport, 2);
+    assert.strictEqual(p[1].exifLat, null, "Null Island is treated as no GPS");
+    assert.strictEqual(p[1].distanceM, null);
+    assert.strictEqual(p[2].takenAt, null);
+  });
+
+  const nearBox = (id: string, distanceM: number, extra: Partial<NearbyPostboxDto> = {}): NearbyPostboxDto => ({
+    id, lat: 0, lng: 0, monarch: "EIIR", reference: null, county: null, overpassId: null, source: null,
+    removedFromOsm: false, correctedBy: null, correctedAtMs: null, distanceM, ...extra,
+  });
+  const base = { postboxId: null, currentMonarch: null, hasSuggestedMonarch: false, suggestedMonarch: null, reports: [], sameBoxReports: [] };
+
+  it("assessDuplicates: a stored box within 10 m of a missing report is high", () => {
+    const f = assessDuplicates({ ...base, type: "missing_postbox", postboxes: [nearBox("osm_far", 25), nearBox("osm_1", 4), nearBox("osm_x", 90)] });
+    assert.deepStrictEqual(f.map((x) => [x.severity, x.target?.id]), [["high", "osm_1"], ["medium", "osm_far"]]);
+  });
+  it("assessDuplicates: a pruned box nearby is a medium 'may be this box' flag", () => {
+    const f = assessDuplicates({ ...base, type: "missing_postbox", postboxes: [nearBox("osm_p", 5, { removedFromOsm: true })] });
+    assert.strictEqual(f.length, 1);
+    assert.strictEqual(f[0].severity, "medium");
+    assert.match(f[0].message, /pruned/);
+  });
+  it("assessDuplicates: nearby pending/rejected missing reports", () => {
+    const f = assessDuplicates({
+      ...base,
+      type: "missing_postbox",
+      postboxes: [],
+      reports: [
+        { id: "p", type: "missing_postbox", status: "pending", lat: 0, lng: 0, distanceM: 8, createdAtMs: null },
+        { id: "j", type: "missing_postbox", status: "rejected", lat: 0, lng: 0, distanceM: 8, createdAtMs: null },
+        { id: "far", type: "missing_postbox", status: "pending", lat: 0, lng: 0, distanceM: 80, createdAtMs: null },
+      ],
+    });
+    assert.deepStrictEqual(f.map((x) => [x.severity, x.target?.id]), [["medium", "p"], ["info", "j"]]);
+  });
+  it("assessDuplicates: cypher reports flag other reports on the box and no-op suggestions", () => {
+    const f = assessDuplicates({
+      ...base,
+      type: "wrong_cypher",
+      postboxId: "osm_1",
+      currentMonarch: "VR",
+      hasSuggestedMonarch: true,
+      suggestedMonarch: "VR",
+      postboxes: [nearBox("osm_2", 3)],
+      sameBoxReports: [{ id: "a", status: "pending" }, { id: "b", status: "accepted" }],
+    });
+    assert.deepStrictEqual(f.map((x) => x.severity), ["medium", "info", "info"]);
+    assert.ok(!f.some((x) => x.target?.id === "osm_2"), "nearby boxes don't matter for a cypher report");
+  });
+
+  const osmNode = (id: number, distanceM: number, extra: Partial<OsmNearbyNodeDto> = {}): OsmNearbyNodeDto => ({
+    id, lat: 0, lon: 0, tags: { amenity: "post_box" }, version: 1, timestamp: null, user: null, lifecycle: "active",
+    distanceM, firestoreId: null, ...extra,
+  });
+  it("assessOsmNodes: an un-imported OSM node next to a missing report would be duplicated", () => {
+    const f = assessOsmNodes({ type: "missing_postbox", postboxId: null, hasSuggestedMonarch: false, suggestedMonarch: null }, [
+      osmNode(1, 5),
+      osmNode(2, 5, { firestoreId: "osm_2" }),
+      osmNode(3, 5, { lifecycle: "was" }),
+      osmNode(4, 60),
+    ]);
+    assert.deepStrictEqual(f.map((x) => [x.severity, x.target?.id]), [["high", "1"]]);
+  });
+  it("assessOsmNodes: OSM already agreeing with a cypher suggestion, or marking the box disused", () => {
+    const inp = { type: "wrong_cypher" as const, postboxId: "osm_5", hasSuggestedMonarch: true, suggestedMonarch: "GR" };
+    const agrees = assessOsmNodes(inp, [osmNode(5, 0, { firestoreId: "osm_5", tags: { amenity: "post_box", royal_cypher: "GR" } })]);
+    assert.strictEqual(agrees.length, 1);
+    assert.match(agrees[0].message, /no OSM edit is needed/);
+    const disused = assessOsmNodes(inp, [osmNode(5, 0, { firestoreId: "osm_5", lifecycle: "disused", tags: { "disused:amenity": "post_box" } })]);
+    assert.deepStrictEqual(disused.map((x) => x.severity), ["medium"]);
+  });
+
+  it("summariseReporterHistory counts statuses and computes the acceptance rate", () => {
+    const r = (id: string, status: string, ms: number): StoredReport => ({ id, data: { type: "missing_postbox", status, reporterUid: "u", photos: [], createdAt: ms } as StoredReport["data"] });
+    const s = summariseReporterHistory([r("a", "accepted", 1), r("b", "rejected", 3), r("c", "accepted", 2), r("d", "pending", 4)]);
+    assert.deepStrictEqual([s.total, s.pending, s.accepted, s.rejected], [4, 1, 2, 1]);
+    assert.strictEqual(s.acceptanceRate, 2 / 3);
+    assert.deepStrictEqual(s.recent.map((x) => x.id), ["d", "b", "c", "a"]);
+    assert.strictEqual(summariseReporterHistory([]).acceptanceRate, null);
+  });
+  it("accountSummary never carries contact details", () => {
+    const s = accountSummary({
+      disabled: false,
+      metadata: { creationTime: "Tue, 01 Sep 2026 10:00:00 GMT", lastSignInTime: "bogus" },
+      providerData: [{ providerId: "google.com" }, { providerId: "password" }],
+      email: "someone@example.com",
+      phoneNumber: "+440000",
+      displayName: "Real Name",
+    } as Parameters<typeof accountSummary>[0]);
+    assert.deepStrictEqual(Object.keys(s).sort(), ["createdAtMs", "disabled", "lastSignInMs", "providers"]);
+    assert.strictEqual(s.createdAtMs, Date.UTC(2026, 8, 1, 10, 0, 0));
+    assert.strictEqual(s.lastSignInMs, null);
+    assert.deepStrictEqual(s.providers, ["google.com", "password"]);
+    assert.ok(!JSON.stringify(s).includes("example.com"));
+  });
+});
+
+describe("_reportContext builders (fake Firestore)", () => {
+  const stored = (id: string, data: Record<string, unknown>): StoredReport => ({ id, data: { photos: [], reporterUid: "rep", status: "pending", ...data } as unknown as StoredReport["data"] });
+
+  it("buildMapContext anchors a missing report on its spot and finds what's around it", async () => {
+    const { db } = makeFakeDb({ postbox: { osm_1: boxAt(51.50003, -0.12, { monarch: "VR" }) } });
+    const me = stored("me", { type: "missing_postbox", lat: 51.5, lng: -0.12, accuracyMeters: 8, photos: [{ storagePath: "p", exifLat: 51.5, exifLng: -0.12 }] });
+    const other = stored("other", { type: "missing_postbox", lat: 51.50002, lng: -0.12 });
+    const ctx = await buildMapContext(db, me, [me, other], new Map());
+    assert.deepStrictEqual(ctx.anchor, { lat: 51.5, lng: -0.12, kind: "reported" });
+    assert.strictEqual(ctx.accuracyMeters, 8);
+    assert.deepStrictEqual(ctx.postboxes.map((p) => p.id), ["osm_1"]);
+    assert.deepStrictEqual(ctx.reports.map((r) => r.id), ["other"]);
+    assert.strictEqual(ctx.photos[0].distanceM, 0);
+    assert.strictEqual(ctx.flags[0].severity, "high");
+  });
+  it("buildMapContext anchors a cypher report on its box and remembers box positions", async () => {
+    const { db } = makeFakeDb({ postbox: { osm_7: boxAt(52, -1, { monarch: "EIIR" }) } });
+    const positions = new Map<string, { lat: number; lng: number }>();
+    const me = stored("me", { type: "wrong_cypher", postboxId: "osm_7", currentMonarch: "EIIR", suggestedMonarch: "GR" });
+    const twin = stored("twin", { type: "wrong_cypher", postboxId: "osm_7" });
+    const ctx = await buildMapContext(db, me, [me, twin], positions);
+    assert.deepStrictEqual(ctx.anchor, { lat: 52, lng: -1, kind: "postbox" });
+    assert.deepStrictEqual(positions.get("osm_7"), { lat: 52, lng: -1 });
+    assert.deepStrictEqual(ctx.reports.map((r) => r.id), ["twin"]);
+    assert.ok(ctx.flags.some((f) => /other pending report/.test(f.message)));
+  });
+  it("buildMapContext copes with a cypher report whose box was deleted", async () => {
+    const { db } = makeFakeDb({});
+    const me = stored("me", { type: "wrong_cypher", postboxId: "osm_gone" });
+    const ctx = await buildMapContext(db, me, [me], new Map());
+    assert.strictEqual(ctx.anchor, null);
+    assert.deepStrictEqual(ctx.postboxes, []);
+  });
+  it("buildReporterContext gathers stats, trust, flags, history and claims on the box", async () => {
+    const { db } = makeFakeDb({
+      users: { rep: { displayName: "Rae", lifetimePoints: 33, uniquePostboxesClaimed: 9, streak: 4, lastClaimDate: "2026-10-16" } },
+      trustScores: { rep: { score: 72 } },
+      moderationFlags: {
+        f1: { uid: "rep", severity: "low", reasons: ["clock_skew"], createdAt: 5, reviewed: true },
+        f2: { uid: "rep", severity: "high", reasons: ["speed"], createdAt: 9, reviewed: false },
+        f3: { uid: "someone_else", severity: "high" },
+      },
+      claims: {
+        c1: { userid: "rep", postboxes: "/postbox/osm_7", dailyDate: "2026-10-01" },
+        c2: { userid: "rep", postboxes: "/postbox/osm_7", dailyDate: "2026-10-09" },
+        c3: { userid: "rep", postboxes: "/postbox/osm_8", dailyDate: "2026-10-10" },
+      },
+    });
+    const auth = { getUser: async () => ({ metadata: { creationTime: "Tue, 01 Sep 2026 10:00:00 GMT" }, providerData: [{ providerId: "apple.com" }] }) };
+    const all = [stored("r1", { type: "wrong_cypher", status: "accepted" }), stored("r2", { type: "wrong_cypher" })];
+    const ctx = await buildReporterContext(db, auth, "rep", all, "osm_7");
+    assert.strictEqual(ctx.displayName, "Rae");
+    assert.strictEqual(ctx.stats?.lifetimePoints, 33);
+    assert.strictEqual(ctx.trustScore, 72);
+    assert.strictEqual(ctx.trustScoreIsDefault, false);
+    assert.deepStrictEqual([ctx.flags.total, ctx.flags.unreviewed], [2, 1]);
+    assert.deepStrictEqual(ctx.flags.recent.map((f) => f.id), ["f2", "f1"]);
+    assert.deepStrictEqual(ctx.flags.bySeverity, { low: 1, high: 1 });
+    assert.strictEqual(ctx.reports.total, 2);
+    assert.deepStrictEqual(ctx.claimedThisBox, { count: 2, lastDailyDate: "2026-10-09" });
+    assert.deepStrictEqual(ctx.account?.providers, ["apple.com"]);
+  });
+  it("buildReporterContext survives an Auth lookup failure and defaults the trust score", async () => {
+    const { db } = makeFakeDb({});
+    const ctx = await buildReporterContext(db, { getUser: async () => { throw new Error("no user"); } }, "ghost", [], null);
+    assert.strictEqual(ctx.account, null);
+    assert.strictEqual(ctx.stats, null);
+    assert.strictEqual(ctx.trustScore, 100);
+    assert.strictEqual(ctx.trustScoreIsDefault, true);
+    assert.strictEqual(ctx.claimedThisBox, null);
+  });
+  it("buildReporterContext short-circuits an anonymised (deleted) reporter", async () => {
+    const { db } = makeFakeDb({});
+    const ctx = await buildReporterContext(db, { getUser: async () => { throw new Error("must not be called"); } }, "deleted", [], "osm_1");
+    assert.strictEqual(ctx.deletedAccount, true);
+    assert.strictEqual(ctx.account, null);
+  });
+});
+
+describe("planOsmBatch", () => {
+  const ok = (version: number, tags: Record<string, string>) => ({ ok: true as const, node: { version, lat: 1, lon: 2, tags } });
+  const cand = (reportId: string, c: Partial<OsmBatchCandidate>): OsmBatchCandidate => ({
+    reportId, type: "wrong_cypher", reviewedAtMs: 0, finalMonarch: null, ...c,
+  });
+
+  it("numbers creates -1, -2, … in review order with the final tags", () => {
+    const plan = planOsmBatch([
+      cand("b", { type: "missing_postbox", lat: 2, lng: 2, finalMonarch: "GR", reviewedAtMs: 2 }),
+      cand("a", { type: "missing_postbox", lat: 1, lng: 1, finalMonarch: null, finalReference: "AB1", reviewedAtMs: 1 }),
+    ], new Map());
+    assert.deepStrictEqual(plan.inputs.map((i) => [i.id, i.tags]), [
+      [-1, { amenity: "post_box", ref: "AB1" }],
+      [-2, { amenity: "post_box", royal_cypher: "GR" }],
+    ]);
+    assert.deepStrictEqual(plan.entries.map((e) => [e.reportId, e.status, e.nodeId]), [["b", "included", -2], ["a", "included", -1]]);
+  });
+  it("modifies use the fresh node version and tags; plain removes royal_cypher", () => {
+    const plan = planOsmBatch(
+      [cand("m", { overpassId: 77, finalMonarch: null })],
+      new Map([[77, ok(9, { amenity: "post_box", royal_cypher: "EIIR", collection_times: "Mo-Fr 17:00" })]]),
+    );
+    assert.deepStrictEqual(plan.inputs, [{ action: "modify", id: 77, version: 9, lat: 1, lon: 2, tags: { amenity: "post_box", collection_times: "Mo-Fr 17:00" } }]);
+    assert.strictEqual(plan.entries[0].status, "included");
+  });
+  it("marks a node OSM already agrees with as already_applied", () => {
+    const plan = planOsmBatch([cand("m", { overpassId: 77, finalMonarch: "GR" })], new Map([[77, ok(2, { amenity: "post_box", royal_cypher: "GR" })]]));
+    assert.deepStrictEqual(plan.inputs, []);
+    assert.strictEqual(plan.entries[0].status, "already_applied");
+  });
+  it("tells a deleted node (410) from a failed lookup", () => {
+    const plan = planOsmBatch(
+      [cand("gone", { overpassId: 1, finalMonarch: "GR" }), cand("blip", { overpassId: 2, finalMonarch: "GR" }), cand("unfetched", { overpassId: 3, finalMonarch: "GR" })],
+      new Map([[1, { ok: false as const, status: 410 }], [2, { ok: false as const, status: "network" as const }]]),
+    );
+    assert.deepStrictEqual(plan.entries.map((e) => e.status), ["node_missing", "fetch_failed", "fetch_failed"]);
+  });
+  it("merges agreeing reports on one node and flags disagreeing ones as a conflict", () => {
+    const agree = planOsmBatch(
+      [cand("x", { overpassId: 5, finalMonarch: "VR" }), cand("y", { overpassId: 5, finalMonarch: "VR" })],
+      new Map([[5, ok(1, { amenity: "post_box" })]]),
+    );
+    assert.strictEqual(agree.inputs.length, 1);
+    assert.deepStrictEqual(agree.entries.map((e) => e.status), ["included", "included"]);
+    const clash = planOsmBatch(
+      [cand("x", { overpassId: 5, finalMonarch: "VR" }), cand("y", { overpassId: 5, finalMonarch: "GR" })],
+      new Map([[5, ok(1, { amenity: "post_box" })]]),
+    );
+    assert.strictEqual(clash.inputs.length, 0);
+    assert.deepStrictEqual(clash.entries.map((e) => e.status), ["conflict", "conflict"]);
+  });
+  it("folds a cypher fix on a manual box into that box's create in the same batch", () => {
+    const plan = planOsmBatch([
+      cand("r1", { type: "missing_postbox", lat: 1, lng: 1, finalMonarch: "EIIR", reviewedAtMs: 1 }),
+      cand("fix", { postboxId: "manual_r1", finalMonarch: "GR", finalReference: "N1 1", reviewedAtMs: 2 }),
+    ], new Map());
+    assert.strictEqual(plan.inputs.length, 1);
+    assert.deepStrictEqual(plan.inputs[0].tags, { amenity: "post_box", royal_cypher: "GR", ref: "N1 1" });
+    assert.deepStrictEqual(plan.entries.map((e) => [e.status, e.nodeId]), [["included", -1], ["merged_into_create", -1]]);
+  });
+  it("a cypher fix on a manual box not yet on OSM (and not in the batch) has no target", () => {
+    const plan = planOsmBatch([cand("fix", { postboxId: "manual_old", finalMonarch: "GR" })], new Map());
+    assert.strictEqual(plan.entries[0].status, "no_target");
+    assert.match(plan.entries[0].detail ?? "", /create first/);
+  });
+  it("holds back a create when OSM already has a post box within 30 m, or couldn't be checked", () => {
+    const creates = [
+      cand("near", { type: "missing_postbox", lat: 1, lng: 1, reviewedAtMs: 1 }),
+      cand("clear", { type: "missing_postbox", lat: 2, lng: 2, reviewedAtMs: 2 }),
+      cand("unchecked", { type: "missing_postbox", lat: 3, lng: 3, reviewedAtMs: 3 }),
+      cand("far", { type: "missing_postbox", lat: 4, lng: 4, reviewedAtMs: 4 }),
+    ];
+    const plan = planOsmBatch(creates, new Map(), new Map([
+      ["near", { ok: true as const, nearest: { id: 99, distanceM: 12 } }],
+      ["clear", { ok: true as const, nearest: null }],
+      ["unchecked", { ok: false as const }],
+      ["far", { ok: true as const, nearest: { id: 98, distanceM: 31 } }],
+    ]));
+    assert.deepStrictEqual(plan.entries.map((e) => [e.reportId, e.status, e.nodeId]), [
+      ["near", "already_on_osm", 99],
+      ["clear", "included", -1],
+      ["unchecked", "fetch_failed", null],
+      ["far", "included", -2],
+    ]);
+    assert.strictEqual(plan.inputs.length, 2);
+  });
+  it("suggests a changeset comment counting creates and fixes", () => {
+    const plan = planOsmBatch([
+      cand("a", { type: "missing_postbox", lat: 1, lng: 1 }),
+      cand("m", { overpassId: 7, finalMonarch: "VR" }),
+    ], new Map([[7, ok(1, { amenity: "post_box" })]]));
+    assert.strictEqual(suggestedChangesetComment(plan), "Postbox Game: add 1 post box, fix 1 royal cypher (from player reports, reviewed by hand)");
+  });
+});
+
+describe("REJECT_PRESETS", () => {
+  it("every preset is a valid reviewNote (length + profanity)", () => {
+    assert.ok(REJECT_PRESETS.length >= 3);
+    for (const p of REJECT_PRESETS) assert.strictEqual(parseNote(p), p);
+  });
+  it("presets carry no em-dashes (house style for reporter-facing copy)", () => {
+    for (const p of REJECT_PRESETS) assert.ok(!p.includes("—"), p);
+  });
+});
+
+// ── local review dashboard: server helpers ──────────────────────────────────
+
+import * as nodePath from "path";
+import {
+  allowedOrigins,
+  isAllowedHost,
+  isAllowedOrigin,
+  isAllowedFetchSite,
+  tokenMatches,
+  isJsonContentType,
+  resolveStaticPath,
+  contentTypeFor,
+  isAllowedPhotoType,
+  PAGE_CSP,
+} from "../scripts/review_dashboard/_security";
+import { HttpError, toHttpError, matchRoute, requireId, requireIds, type Route } from "../scripts/review_dashboard/_http";
+import { toSummary, toDetail, pendingOrder, selectHistory, isOsmPending } from "../scripts/review_dashboard/_dto";
+import { parseDashboardArgs, chooseToken, mapsKeyFromEnv } from "../scripts/review_dashboard/main";
+import * as functionsV2 from "firebase-functions";
+
+describe("review dashboard _security", () => {
+  it("accepts only our own loopback Host (DNS-rebinding defence)", () => {
+    assert.strictEqual(isAllowedHost("127.0.0.1:8790", 8790), true);
+    assert.strictEqual(isAllowedHost("localhost:8790", 8790), true);
+    assert.strictEqual(isAllowedHost("evil.example:8790", 8790), false);
+    assert.strictEqual(isAllowedHost("127.0.0.1:9999", 8790), false);
+    assert.strictEqual(isAllowedHost("127.0.0.1", 8790), false);
+    assert.strictEqual(isAllowedHost(undefined, 8790), false);
+  });
+  it("allows the Vite origin only in dev mode", () => {
+    const prod = allowedOrigins(8790, null);
+    const dev = allowedOrigins(8790, 5173);
+    assert.deepStrictEqual(prod, ["http://127.0.0.1:8790", "http://localhost:8790"]);
+    assert.strictEqual(isAllowedOrigin("http://127.0.0.1:5173", prod), false);
+    assert.strictEqual(isAllowedOrigin("http://127.0.0.1:5173", dev), true);
+    assert.strictEqual(isAllowedOrigin("https://evil.example", dev), false);
+    assert.strictEqual(isAllowedOrigin(undefined, dev), false);
+    assert.strictEqual(isAllowedOrigin("null", dev), false);
+  });
+  it("refuses cross-site and same-site fetches", () => {
+    assert.strictEqual(isAllowedFetchSite(undefined), true);
+    assert.strictEqual(isAllowedFetchSite("same-origin"), true);
+    assert.strictEqual(isAllowedFetchSite("same-site"), false);
+    assert.strictEqual(isAllowedFetchSite("cross-site"), false);
+    assert.strictEqual(isAllowedFetchSite("none"), false);
+  });
+  it("compares tokens exactly", () => {
+    const t = "a".repeat(43);
+    assert.strictEqual(tokenMatches(t, t), true);
+    assert.strictEqual(tokenMatches(t.slice(1), t), false);
+    assert.strictEqual(tokenMatches("b" + t.slice(1), t), false);
+    assert.strictEqual(tokenMatches(undefined, t), false);
+  });
+  it("requires a JSON content type on POST bodies", () => {
+    assert.strictEqual(isJsonContentType("application/json"), true);
+    assert.strictEqual(isJsonContentType("application/json; charset=utf-8"), true);
+    assert.strictEqual(isJsonContentType("text/plain"), false);
+    assert.strictEqual(isJsonContentType("application/x-www-form-urlencoded"), false);
+    assert.strictEqual(isJsonContentType("application/jsonp"), false);
+    assert.strictEqual(isJsonContentType(undefined), false);
+  });
+  it("resolves static paths inside the root only, with an SPA fallback", () => {
+    const root = nodePath.resolve("/srv/dist");
+    assert.strictEqual(resolveStaticPath(root, "/"), nodePath.join(root, "index.html"));
+    assert.strictEqual(resolveStaticPath(root, "/history"), nodePath.join(root, "index.html"));
+    assert.strictEqual(resolveStaticPath(root, "/assets/app-1.js"), nodePath.join(root, "assets/app-1.js"));
+    assert.strictEqual(resolveStaticPath(root, "/../secret.json"), null);
+    assert.strictEqual(resolveStaticPath(root, "/%2e%2e/%2e%2e/etc/passwd.txt"), null);
+    assert.strictEqual(resolveStaticPath(root, "/a%00.js"), null);
+    assert.strictEqual(resolveStaticPath(root, "/%E0%A4%A.js"), null, "malformed escapes are refused");
+  });
+  it("serves only raster photo types (never SVG)", () => {
+    assert.strictEqual(isAllowedPhotoType("image/jpeg"), true);
+    assert.strictEqual(isAllowedPhotoType("image/HEIC"), true);
+    assert.strictEqual(isAllowedPhotoType("image/svg+xml"), false);
+    assert.strictEqual(isAllowedPhotoType("text/html"), false);
+    assert.strictEqual(isAllowedPhotoType(undefined), false);
+  });
+  it("maps content types and keeps a script-tight CSP", () => {
+    assert.strictEqual(contentTypeFor("/x/index.html"), "text/html; charset=utf-8");
+    assert.strictEqual(contentTypeFor("/x/a.JS"), "text/javascript; charset=utf-8");
+    assert.strictEqual(contentTypeFor("/x/blob"), "application/octet-stream");
+    assert.match(PAGE_CSP, /script-src 'self'(;|$)/);
+    assert.match(PAGE_CSP, /frame-ancestors 'none'/);
+    assert.match(PAGE_CSP, /frame-src https:\/\/www\.google\.com\/maps\/embed\/(;|$)/, "Street View is the only frame");
+    assert.ok(!/unsafe-eval/.test(PAGE_CSP));
+  });
+});
+
+describe("review dashboard _http", () => {
+  it("maps HttpsError codes to their HTTP status", () => {
+    const e = toHttpError(new functionsV2.https.HttpsError("failed-precondition", "Report already accepted"));
+    assert.deepStrictEqual([e.status, e.code, e.message], [400, "failed-precondition", "Report already accepted"]);
+    assert.strictEqual(toHttpError(new functionsV2.https.HttpsError("not-found", "x")).status, 404);
+    assert.strictEqual(toHttpError(new functionsV2.https.HttpsError("permission-denied", "x")).status, 403);
+  });
+  it("maps Overpass and Street View failures to 502 and anything else to 500", () => {
+    assert.strictEqual(toHttpError(new OverpassError("slow down", 429)).status, 502);
+    assert.strictEqual(toHttpError(new StreetViewError("denied")).status, 502);
+    assert.strictEqual(toHttpError(new Error("boom")).status, 500);
+    const own = new HttpError(409, "conflict", "c");
+    assert.strictEqual(toHttpError(own), own);
+  });
+  it("routes by method and anchored pattern, decoding captures", async () => {
+    const hit: string[] = [];
+    const routes: Route[] = [
+      { method: "GET", pattern: /^\/api\/reports\/history$/, handler: async () => { hit.push("history"); } },
+      { method: "GET", pattern: /^\/api\/reports\/([^/]+)$/, handler: async () => { hit.push("one"); } },
+    ];
+    assert.strictEqual(matchRoute(routes, "GET", "/api/reports/history")?.route, routes[0]);
+    assert.deepStrictEqual(matchRoute(routes, "GET", "/api/reports/a%20b")?.params, ["a b"]);
+    assert.strictEqual(matchRoute(routes, "POST", "/api/reports/x"), null);
+    assert.strictEqual(matchRoute(routes, "GET", "/api/reports/x/y"), null);
+    assert.strictEqual(matchRoute(routes, "GET", "/api/reports/%E0%A4%A"), null);
+  });
+  it("validates ids and id lists", () => {
+    assert.strictEqual(requireId("abc"), "abc");
+    assert.throws(() => requireId("a/b"), (e: unknown) => e instanceof HttpError && e.status === 400);
+    assert.throws(() => requireId(""), HttpError);
+    assert.deepStrictEqual(requireIds(["a", "b", "a"], 5), ["a", "b"]);
+    assert.throws(() => requireIds([], 5), HttpError);
+    assert.throws(() => requireIds(["a", "b", "c"], 2), HttpError);
+    assert.throws(() => requireIds("a", 5), HttpError);
+    assert.throws(() => requireIds([1], 5), HttpError);
+  });
+});
+
+describe("review dashboard _dto", () => {
+  const ts = (ms: number) => admin.firestore.Timestamp.fromMillis(ms);
+  const rep = (id: string, data: Record<string, unknown>): StoredReport => ({ id, data: { photos: [], reporterUid: "u1", status: "pending", ...data } as unknown as StoredReport["data"] });
+
+  it("summarises a missing report with its spot, suggestion and names", () => {
+    const s = toSummary(rep("r1", { type: "missing_postbox", lat: 51, lng: -1, createdAt: ts(5), suggestedMonarch: null, note: "by the pub", photos: [{ storagePath: "p" }] }), new Map([["u1", "Una"]]), new Map());
+    assert.strictEqual(s.reporterName, "Una");
+    assert.deepStrictEqual([s.lat, s.lng], [51, -1]);
+    assert.strictEqual(s.createdAtMs, 5);
+    assert.strictEqual(s.hasSuggestedMonarch, true, "null = plain is a suggestion");
+    assert.strictEqual(s.suggestedMonarch, null);
+    assert.strictEqual(s.photoCount, 1);
+    assert.strictEqual(s.hasNote, true);
+  });
+  it("tells 'not sure' (absent) from 'plain' (null)", () => {
+    const s = toSummary(rep("r1", { type: "wrong_cypher", postboxId: "osm_1" }), new Map(), new Map());
+    assert.strictEqual(s.hasSuggestedMonarch, false);
+  });
+  it("places a cypher report at its box's position once known", () => {
+    const s = toSummary(rep("r1", { type: "wrong_cypher", postboxId: "osm_1" }), new Map(), new Map([["osm_1", { lat: 2, lng: 3 }]]));
+    assert.deepStrictEqual([s.lat, s.lng], [2, 3]);
+  });
+  it("carries the review outcome, incl. persisted rescore counts", () => {
+    const s = toSummary(rep("r1", {
+      type: "wrong_cypher", status: "accepted", reviewedBy: "adm", reviewedAt: ts(9), finalMonarch: "GR",
+      osmStatus: "changeset_failed", rescoredClaims: 4, affectedUsers: 2, rescoreTotalDelta: -10,
+    }), new Map([["adm", "Admin"]]), new Map());
+    assert.deepStrictEqual(
+      [s.reviewedByName, s.reviewedAtMs, s.finalMonarch, s.osmStatus, s.rescoredClaims, s.affectedUsers, s.rescoreTotalDelta],
+      ["Admin", 9, "GR", "changeset_failed", 4, 2, -10],
+    );
+  });
+  it("detail: flags media purged by the retention sweep, and maps the box", () => {
+    const purged = toDetail(rep("r1", { type: "missing_postbox", status: "rejected", photos: undefined }), new Map(), new Map(), null);
+    assert.strictEqual(purged.mediaPurged, true);
+    const fresh = toDetail(rep("r2", { type: "wrong_cypher", status: "pending", postboxId: "osm_1" }), new Map(), new Map(), {
+      id: "osm_1", data: { geopoint: { latitude: 1, longitude: 2 }, monarch: "VR", overpass_id: 1 },
+    });
+    assert.strictEqual(fresh.mediaPurged, false);
+    assert.strictEqual(fresh.postbox?.monarch, "VR");
+    assert.strictEqual(fresh.postbox?.overpassId, 1);
+  });
+  it("orders the queue oldest first and pages history newest first", () => {
+    const all = [
+      rep("old", { type: "missing_postbox", createdAt: ts(1) }),
+      rep("new", { type: "missing_postbox", createdAt: ts(2) }),
+      rep("a1", { type: "missing_postbox", status: "accepted", reviewedAt: ts(30) }),
+      rep("a2", { type: "wrong_cypher", status: "accepted", reviewedAt: ts(20) }),
+      rep("j1", { type: "missing_postbox", status: "rejected", reviewedAt: ts(10) }),
+    ];
+    assert.deepStrictEqual(all.filter((r) => r.data.status === "pending").sort(pendingOrder).map((r) => r.id), ["old", "new"]);
+    const p1 = selectHistory(all, { status: "all", type: "all", beforeMs: null, limit: 2 });
+    assert.deepStrictEqual(p1.reports.map((r) => r.id), ["a1", "a2"]);
+    assert.strictEqual(p1.nextBefore, 20);
+    const p2 = selectHistory(all, { status: "all", type: "all", beforeMs: p1.nextBefore, limit: 2 });
+    assert.deepStrictEqual(p2.reports.map((r) => r.id), ["j1"]);
+    assert.strictEqual(p2.nextBefore, null);
+    assert.deepStrictEqual(selectHistory(all, { status: "accepted", type: "wrong_cypher", beforeMs: null, limit: 9 }).reports.map((r) => r.id), ["a2"]);
+  });
+  it("an accepted report is OSM-pending until uploaded or skipped", () => {
+    assert.strictEqual(isOsmPending(rep("a", { status: "accepted" })), true);
+    assert.strictEqual(isOsmPending(rep("a", { status: "accepted", osmUploadedAt: ts(1) })), false);
+    assert.strictEqual(isOsmPending(rep("a", { status: "accepted", osmSkippedAt: ts(1) })), false);
+    assert.strictEqual(isOsmPending(rep("a", { status: "rejected" })), false);
+  });
+});
+
+describe("review dashboard CLI (main.ts)", () => {
+  it("parses flags with defaults", () => {
+    const a = parseDashboardArgs(["--reviewer", "me@example.com", "--port", "9000", "--dev", "--open"]);
+    assert.strictEqual(a.reviewer, "me@example.com");
+    assert.strictEqual(a.port, 9000);
+    assert.strictEqual(a.projectId, "the-postbox-game");
+    assert.strictEqual(a.dev, true);
+    assert.strictEqual(a.devPort, 5173);
+    assert.strictEqual(a.open, true);
+    assert.strictEqual(a.ignoreMaintenance, false);
+    assert.ok(a.staticDir.endsWith(nodePath.join("admin_dashboard", "dist")));
+  });
+  it("rejects unknown flags, missing values and bad ports", () => {
+    assert.throws(() => parseDashboardArgs(["--nope"]), /Unknown argument/);
+    assert.throws(() => parseDashboardArgs(["--reviewer"]), /needs a value/);
+    assert.throws(() => parseDashboardArgs(["--reviewer", "--dev"]), /needs a value/);
+    assert.throws(() => parseDashboardArgs(["--port", "70000"]), /port/);
+    assert.throws(() => parseDashboardArgs(["--dev", "--dev-port", "8790"]), /must differ/);
+  });
+  it("pins the token from the environment only in dev, and only if long enough", () => {
+    const long = "x".repeat(40);
+    assert.strictEqual(chooseToken(true, long), long);
+    assert.notStrictEqual(chooseToken(false, long), long, "ignored outside --dev");
+    assert.throws(() => chooseToken(true, "short"), /at least 32/);
+    const random = chooseToken(false, undefined);
+    assert.ok(random.length >= 43 && /^[A-Za-z0-9_-]+$/.test(random));
+    assert.notStrictEqual(random, chooseToken(false, undefined));
+  });
+  it("takes the Street View key from the environment, blank meaning none", () => {
+    assert.strictEqual(mapsKeyFromEnv(" AIzaKey "), "AIzaKey");
+    assert.strictEqual(mapsKeyFromEnv(""), null);
+    assert.strictEqual(mapsKeyFromEnv("   "), null);
+    assert.strictEqual(mapsKeyFromEnv(undefined), null);
   });
 });

@@ -4,8 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:postbox_game/display_name_utils.dart';
 import 'package:postbox_game/london_date.dart';
+import 'package:postbox_game/maintenance_guard.dart';
+import 'package:postbox_game/services/friends_repository.dart';
 import 'package:postbox_game/streak_service.dart' show freshStreak;
 import 'package:postbox_game/theme.dart';
+import 'package:postbox_game/widgets/share_card.dart';
 
 class UserProfilePage extends StatefulWidget {
   final String uid;
@@ -142,7 +145,42 @@ class _UserProfilePageState extends State<UserProfilePage> {
     final isOwn = currentUid == widget.uid;
 
     return Scaffold(
-      appBar: AppBar(title: Text(isOwn ? 'Your Profile' : 'Player Profile')),
+      appBar: AppBar(
+        title: Text(isOwn ? 'Your Profile' : 'Player Profile'),
+        actions: [
+          // Leaderboard rows and the county map open this page, so it is
+          // where a player meets people worth adding.
+          if (!isOwn && currentUid != null)
+            _AddFriendAction(myUid: currentUid, theirUid: widget.uid),
+          if (isOwn)
+            FutureBuilder<_ProfileData>(
+              future: _profileFuture,
+              builder: (context, snap) {
+                final d = snap.data;
+                return IconButton(
+                  icon: const Icon(Icons.ios_share),
+                  tooltip: 'Share your stats',
+                  onPressed: (d == null || d.uniqueBoxes == 0)
+                      ? null
+                      : () => showShareCardSheet(
+                            context,
+                            data: ShareCardData(
+                              headline: d.uniqueBoxes == 1
+                                  ? "I've claimed my first postbox!"
+                                  : "I've claimed ${NumberFormat.decimalPattern('en_GB').format(d.uniqueBoxes)} postboxes!",
+                              points: d.lifetimePoints,
+                              pointsText:
+                                  '${NumberFormat.decimalPattern('en_GB').format(d.lifetimePoints)} points in total',
+                              streak: d.streak,
+                            ),
+                            contentType: 'profile',
+                            itemId: 'stats',
+                          ),
+                );
+              },
+            ),
+        ],
+      ),
       body: FutureBuilder<_ProfileData>(
         future: _profileFuture,
         builder: (context, snap) {
@@ -500,6 +538,69 @@ class _RankRow extends StatelessWidget {
         ),
         if (!isLast) const Divider(height: 1, indent: 16, endIndent: 16),
       ],
+    );
+  }
+}
+
+/// AppBar action on someone else's profile: add them as a friend, or a
+/// disabled tick once they are one. Follows the player's own friends list
+/// live so it flips straight after the add.
+class _AddFriendAction extends StatefulWidget {
+  const _AddFriendAction({required this.myUid, required this.theirUid});
+
+  final String myUid;
+  final String theirUid;
+
+  @override
+  State<_AddFriendAction> createState() => _AddFriendActionState();
+}
+
+class _AddFriendActionState extends State<_AddFriendAction> {
+  late final Stream<DocumentSnapshot<Map<String, dynamic>>> _me =
+      FirebaseFirestore.instance
+          .collection('users')
+          .doc(widget.myUid)
+          .snapshots();
+  bool _adding = false;
+
+  Future<void> _add() async {
+    if (_adding) return;
+    if (MaintenanceGuard.blocked(context, actionLabel: 'add a friend')) {
+      return;
+    }
+    setState(() => _adding = true);
+    try {
+      final result =
+          await FriendsRepository().addByUid(widget.myUid, widget.theirUid);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(addFriendMessage(result))),
+      );
+    } finally {
+      if (mounted) setState(() => _adding = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: _me,
+      builder: (context, snap) {
+        final friends = (snap.data?.data()?['friends'] as List<dynamic>?) ??
+            const <dynamic>[];
+        if (friends.contains(widget.theirUid)) {
+          return const IconButton(
+            icon: Icon(Icons.how_to_reg),
+            tooltip: 'Already friends',
+            onPressed: null,
+          );
+        }
+        return IconButton(
+          icon: const Icon(Icons.person_add_alt_1_outlined),
+          tooltip: 'Add friend',
+          onPressed: (_adding || !snap.hasData) ? null : _add,
+        );
+      },
     );
   }
 }

@@ -16,6 +16,78 @@ const Set<String> kClaimDeepLinkSources = <String>{
   'complication',
 };
 
+/// Hosting domain that serves the invite landing page and the App Links /
+/// Universal Links verification files (`web/.well-known/`).
+const String kInviteHost = 'the-postbox-game.web.app';
+
+/// Custom scheme the invite page's "Open in the app" button uses. Distinct
+/// from the widget's `postbox://` because iOS lets any app claim a scheme and
+/// `postbox` is generic enough to collide.
+const String kInviteScheme = 'postboxgame';
+
+/// Crockford base32: no I, L, O or U. Must match `functions/src/invites.ts`
+/// and the validation in `web/invite.html`.
+final RegExp _inviteCodePattern = RegExp(r'^[0-9A-HJKMNP-TV-Z]{8}$');
+
+/// Canonical form of a typed or pasted invite code, or null if [raw] isn't
+/// one. Forgiving the way Crockford intends: case, spaces and hyphens are
+/// ignored, and the look-alikes I/L read as 1 and O as 0. Mirrors the
+/// server's `normaliseInviteCode`.
+String? normaliseInviteCode(String? raw) {
+  if (raw == null) return null;
+  final code = raw
+      .trim()
+      .toUpperCase()
+      .replaceAll(RegExp(r'[\s-]'), '')
+      .replaceAll(RegExp('[IL]'), '1')
+      .replaceAll('O', '0');
+  return _inviteCodePattern.hasMatch(code) ? code : null;
+}
+
+/// The shareable invite link for [code].
+String inviteUrlFor(String code) => 'https://$kInviteHost/invite/$code';
+
+/// [code] split for reading aloud or typing: `ABCD-2345`.
+String formatInviteCode(String code) => code.length == 8
+    ? '${code.substring(0, 4)}-${code.substring(4)}'
+    : code;
+
+/// The invite code carried by [uri], or null when it isn't an invite link.
+///
+/// Accepts the https link (`https://the-postbox-game.web.app/invite/CODE`,
+/// opened as an App Link / Universal Link) and the invite page's custom
+/// scheme (`postboxgame://invite/CODE`). Everything else, including the
+/// widget's `postbox://claim`, is not an invite: app_links sees every VIEW
+/// intent, so this must stay strict.
+String? parseInviteLink(Uri? uri) {
+  if (uri == null) return null;
+  final segments = uri.pathSegments.where((s) => s.isNotEmpty).toList();
+  if ((uri.scheme == 'https' || uri.scheme == 'http') &&
+      uri.host == kInviteHost &&
+      segments.length == 2 &&
+      segments[0] == 'invite') {
+    return normaliseInviteCode(segments[1]);
+  }
+  if (uri.scheme == kInviteScheme &&
+      uri.host == 'invite' &&
+      segments.length == 1) {
+    return normaliseInviteCode(segments[0]);
+  }
+  return null;
+}
+
+/// The invite code in what a player typed or pasted into the add-friend
+/// field: a full invite link or a bare code. Null means "not an invite" (it
+/// may still be a friend's UID).
+String? parseInviteInput(String text) {
+  final trimmed = text.trim();
+  if (trimmed.contains('/')) {
+    final withScheme = trimmed.contains('://') ? trimmed : 'https://$trimmed';
+    return parseInviteLink(Uri.tryParse(withScheme));
+  }
+  return normaliseInviteCode(trimmed);
+}
+
 /// Whether [uri] is a claim deep link from any of the app's glanceable
 /// surfaces (`postbox://claim?source=...`).
 bool isClaimDeepLink(Uri? uri) =>

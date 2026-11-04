@@ -173,22 +173,59 @@ export function buildGameConfig(
   };
 }
 
-type ConfigLoader = () => Promise<GameConfig>;
+export type ConfigLoader = () => Promise<GameConfig>;
+
+/** A boolean parameter's default value in a CLIENT Remote Config template
+ *  (admin.remoteConfig().getTemplate()), the template the app reads. Missing,
+ *  in-app-default or non-"true" values read as false. */
+export function clientTemplateFlag(
+  template: { parameters?: Record<string, { defaultValue?: unknown } | undefined> },
+  key: string,
+): boolean {
+  const v = template.parameters?.[key]?.defaultValue as { value?: unknown } | undefined;
+  return typeof v?.value === "string" && v.value.trim().toLowerCase() === "true";
+}
+
+/** True for the Admin SDK error a project with no published SERVER template
+ *  returns (the client template is a separate one). */
+export function isMissingServerTemplate(e: unknown): boolean {
+  return (e as { code?: unknown } | null)?.code === "remote-config/not-found";
+}
+
+/** Read + evaluate the Remote Config server template. Throws on any failure
+ *  except a missing server template, which is a project-wide state every
+ *  caller sees alike, so it yields the fallbacks just as the deployed path
+ *  does. For callers that must not silently score with the fallback points
+ *  when production wouldn't: the local review dashboard installs it via
+ *  setConfigLoader, because a rescore run with fallbacks (say, credentials
+ *  that can't read Remote Config) while production uses overrides would
+ *  mis-point claims with no error anywhere. Deployed functions use the
+ *  never-throw wrapper. */
+export async function loadGameConfigFromRemoteConfig(): Promise<GameConfig> {
+  let template;
+  try {
+    template = await admin.remoteConfig().getServerTemplate();
+  } catch (e) {
+    if (!isMissingServerTemplate(e)) throw e;
+    console.warn("[_config] No Remote Config server template is published; using fallbacks.");
+    return FALLBACK_CONFIG;
+  }
+  const config = template.evaluate();
+  const rawRadius = config.getValue(KEY_CLAIM_RADIUS).asNumber();
+  const rawPoints = config.getValue(KEY_POINTS_BY_MONARCH).asString();
+  return buildGameConfig(rawRadius, rawPoints, {
+    killSwitch: config.getValue(KEY_KILL_SWITCH_OFFLINE).asBoolean(),
+    graceHours: config.getValue(KEY_OFFLINE_GRACE_HOURS).asNumber(),
+    maxPerDay: config.getValue(KEY_MAX_OFFLINE_PER_DAY).asNumber(),
+    maintenanceMode: config.getValue(KEY_MAINTENANCE_MODE).asBoolean(),
+  });
+}
 
 /** Real loader: read + evaluate the Remote Config server template. Never throws
  *  — any failure yields the fallback config. */
 async function fetchGameConfigFromRemoteConfig(): Promise<GameConfig> {
   try {
-    const template = await admin.remoteConfig().getServerTemplate();
-    const config = template.evaluate();
-    const rawRadius = config.getValue(KEY_CLAIM_RADIUS).asNumber();
-    const rawPoints = config.getValue(KEY_POINTS_BY_MONARCH).asString();
-    return buildGameConfig(rawRadius, rawPoints, {
-      killSwitch: config.getValue(KEY_KILL_SWITCH_OFFLINE).asBoolean(),
-      graceHours: config.getValue(KEY_OFFLINE_GRACE_HOURS).asNumber(),
-      maxPerDay: config.getValue(KEY_MAX_OFFLINE_PER_DAY).asNumber(),
-      maintenanceMode: config.getValue(KEY_MAINTENANCE_MODE).asBoolean(),
-    });
+    return await loadGameConfigFromRemoteConfig();
   } catch (e) {
     console.warn("[_config] Remote Config fetch failed; using fallbacks:", e);
     return FALLBACK_CONFIG;
@@ -217,10 +254,16 @@ export async function getPointsForMonarch(monarch: string | null | undefined): P
   return resolvePointsForMonarch(await getGameConfig(), monarch);
 }
 
-/** Test hook: swap the config loader (dependency injection for cache tests). */
-export function setConfigLoaderForTest(l: ConfigLoader): void {
+/** Swap the config loader and drop the cache. Used by the local review
+ *  dashboard (strict loader) and by tests. */
+export function setConfigLoader(l: ConfigLoader): void {
   loader = l;
   cache = null;
+}
+
+/** Test hook: swap the config loader (dependency injection for cache tests). */
+export function setConfigLoaderForTest(l: ConfigLoader): void {
+  setConfigLoader(l);
 }
 
 /** Test hook: clear the in-memory cache (leaves the loader as-is). */

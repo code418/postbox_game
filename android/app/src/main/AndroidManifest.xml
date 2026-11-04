@@ -25,6 +25,15 @@
             <meta-data
                 android:name="io.flutter.app.android.SplashScreenUntilFirstFrame"
                 android:value="true" />
+            <!-- Flutter's built-in deep linking (on by default since 3.27)
+                 would push every VIEW intent into the Navigator as a named
+                 route. Invite links are handled by app_links
+                 (lib/main.dart), and widget/tile/complication taps by
+                 home_widget, so the router copy would only land in
+                 unknownRoute and log a non-fatal per link. -->
+            <meta-data
+                android:name="flutter_deeplinking_enabled"
+                android:value="false" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
