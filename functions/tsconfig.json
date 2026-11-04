@@ -9,7 +9,11 @@
     "target": "ES2020",
     "skipLibCheck": true,
     "esModuleInterop": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    // Pin to this package's own @types: tsc otherwise walks UP the directory
+    // tree and implicitly includes any ancestor node_modules/@types (a stray
+    // half-installed ~/gits/node_modules/@types/minimatch broke the build).
+    "typeRoots": ["./node_modules/@types"]
   },
   "include": ["src/**/*.ts"],
   "exclude": ["node_modules"]

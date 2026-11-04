@@ -11,7 +11,7 @@ description: Find postboxes for megapoints
 # In iOS, build-name is used as CFBundleShortVersionString while build-number used as CFBundleVersion.
 # Read more about iOS versioning at
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
-version: 1.0.0+9
+version: 1.5.3+25
 
 environment:
   sdk: ">=3.0.0 <4.0.0"
@@ -22,16 +22,16 @@ dependencies:
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
-  cupertino_icons: ^1.0.5
-  cloud_functions: ^6.1.0
-  firebase_core: ^4.6.0  # 3.13+ native code uses new Pigeon channel prefix but pubspec still pins platform_interface ^5.x — mismatch breaks initializeApp
-  cloud_firestore: ^6.2.0
-  firebase_auth: ^6.3.0
+  cupertino_icons: ">=1.0.5 <3.0.0"
+  cloud_functions: ">=6.1.0 <8.0.0"
+  firebase_core: ">=4.6.0 <6.0.0"  # 3.13+ native code uses new Pigeon channel prefix but pubspec still pins platform_interface ^5.x — mismatch breaks initializeApp
+  cloud_firestore: ">=6.2.0 <8.0.0"
+  firebase_auth: ">=6.5.6 <8.0.0"
   geolocator: ^14.0.2
   google_sign_in: ^7.2.0
   flutter_compass: ^0.8.1
   flutter_map: ^8.3.0
-  latlong2: ^0.9.1
+  latlong2: ">=0.9.1 <0.11.0"
   bloc: ^9.2.0
   flutter_bloc: ^9.1.1
   equatable: ^2.0.5
@@ -39,28 +39,61 @@ dependencies:
   font_awesome_flutter: ^11.0.0
   animated_text_kit: ^4.2.2
   shared_preferences: ^2.2.2
-  google_fonts: ^8.1.0
+  google_fonts: ">=8.1.0 <10.0.0"
   flutter_svg: ^2.0.10+1
-  firebase_analytics: ^12.2.0
-  firebase_app_check: ^0.4.2
+  firebase_analytics: ">=12.2.0 <14.0.0"
+  firebase_app_check: ">=0.4.2 <0.6.0"
   confetti: ^0.8.0
+  flutter_animate: ^4.5.0
   flutter_staggered_animations: ^1.1.1
   intl: ^0.20.2
-  firebase_messaging: ^16.1.3
-  flutter_local_notifications: ^21.0.0
-  home_widget: ^0.9.1
-  firebase_storage: ^13.0.0
+  firebase_messaging: ">=16.1.3 <18.0.0"
+  flutter_local_notifications: ">=21.0.0 <23.0.0"
+  home_widget: ">=0.9.1 <0.11.0"
+  firebase_storage: ">=13.0.0 <15.0.0"
   image_picker: ^1.1.0
   exif: ^3.3.0
   url_launcher: ^6.3.0
+  share_plus: ^13.1.0
+  http: ^1.2.0
+  firebase_remote_config: ">=6.4.0 <8.0.0"
+  # Custom code traces only (PerfService.traceAsync). We deliberately do NOT add
+  # the com.google.firebase.firebase-perf Gradle plugin — perf-plugin:1.4.2 is
+  # incompatible with AGP 8.x; the plugin is only needed for automatic network/
+  # screen-render traces, which we don't use. See android/app/build.gradle.
+  firebase_performance: ">=0.11.4+2 <0.13.0"
+  # Crashlytics. The native side re-adds the com.google.firebase.crashlytics
+  # Gradle plugin (AGP-8-compatible, unlike firebase-perf) for release mapping-
+  # file upload — see android/build.gradle + android/app/build.gradle.
+  firebase_crashlytics: ">=5.2.3 <7.0.0"
+  # Direct dep so settings_screen can read the running build's version at
+  # runtime (was previously hardcoded to '1.0.0'). Stays in lockstep with the
+  # `^10.1.0` override below — both must move together if the desktop-only
+  # transitive constraint is ever relaxed and the override can be dropped.
+  package_info_plus: ^10.1.0
+  connectivity_plus: ^7.3.0
+  app_links: ^7.2.2
+  in_app_review: ^2.0.12
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
-  firebase_core_platform_interface: ^6.0.0
+  firebase_core_platform_interface: ^8.0.0
   fake_cloud_firestore: ^4.0.0
-  firebase_auth_mocks: ^0.15.0
+  firebase_auth_mocks: ">=0.15.0 <0.17.0"
+
+# win32 and package_info_plus are pulled in ONLY by geolocator_linux /
+# geolocator_windows — endorsed desktop platform packages that pub resolves
+# transitively even though this app ships Android/iOS/web only (see the
+# deleted linux/windows/macos outputs). geolocator_linux pins
+# package_info_plus ^9.0.0 -> win32 ^5.5.3, which capped win32 below 6.0 and
+# thereby blocked share_plus 13 and package_info_plus 10. None of this code is
+# compiled into the mobile builds, so we override the caps. Drop these once
+# geolocator relaxes its desktop constraints upstream.
+dependency_overrides:
+  win32: ^6.0.1
+  package_info_plus: ^10.1.0
 
 
 # For information on the generic Dart part of this file, see the
@@ -77,8 +110,10 @@ flutter:
   # To add assets to your application, add an assets section, like this:
   assets:
     - assets/postman_james.svg
+    - assets/postman_james.png
     - assets/postbox.svg
     - assets/uk_counties_simplified.geojson
+    - assets/legal/privacy_policy.md
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.io/assets-and-images/#resolution-aware.

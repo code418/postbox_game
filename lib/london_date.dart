@@ -16,8 +16,14 @@ String todayLondon() => formatLondon(DateTime.now().toUtc());
 /// 2026-03-30 is UTC 23:30 on 2026-03-29 (BST), and 24h earlier is UTC
 /// 23:30 on 2026-03-28 — GMT — which formats as `2026-03-28`, skipping
 /// the actual yesterday (2026-03-29).
-String yesterdayLondon() {
-  final today = todayLondon();
+String yesterdayLondon() => yesterdayFor(todayLondon());
+
+/// Pure variant of [yesterdayLondon] that derives yesterday from an injected
+/// [today]. Used by callers (e.g. analytics-property buckets) that need to
+/// compute the same boundary against a passed-in "today" without re-reading
+/// the system clock — so a unit test can pin both values without freezing
+/// `DateTime.now`.
+String yesterdayFor(String today) {
   final d = DateTime.utc(
     int.parse(today.substring(0, 4)),
     int.parse(today.substring(5, 7)),

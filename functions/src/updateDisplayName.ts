@@ -1,9 +1,14 @@
 import "./adminInit";
+import { monitorAppCheck } from "./_appCheck";
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions";
 import { getTodayLondon } from "./_dateUtils";
 import { updateUserLeaderboards, mergeLifetimeEntries, LifetimeLeaderboardEntry } from "./_leaderboardUtils";
-import { containsProfanity } from "./_profanityFilter";
+import {
+  containsProfanity,
+  MIN_DISPLAY_NAME_CHARS,
+  MAX_DISPLAY_NAME_CHARS,
+} from "./_profanityFilter";
 
 /**
  * Validates and updates the caller's display name in both Firebase Auth and
@@ -14,6 +19,7 @@ import { containsProfanity } from "./_profanityFilter";
  * Throws invalid-argument if the name fails validation.
  */
 export const updateDisplayName = functions.https.onCall(async (request) => {
+  monitorAppCheck(request, "updateDisplayName");
   const uid = request.auth?.uid;
   if (!uid) {
     throw new functions.https.HttpsError(
@@ -28,16 +34,16 @@ export const updateDisplayName = functions.https.onCall(async (request) => {
   }
 
   const name = raw.trim();
-  if (name.length < 2) {
+  if (name.length < MIN_DISPLAY_NAME_CHARS) {
     throw new functions.https.HttpsError(
       "invalid-argument",
-      "Name must be at least 2 characters"
+      `Name must be at least ${MIN_DISPLAY_NAME_CHARS} characters`
     );
   }
-  if (name.length > 30) {
+  if (name.length > MAX_DISPLAY_NAME_CHARS) {
     throw new functions.https.HttpsError(
       "invalid-argument",
-      "Name must be 30 characters or fewer"
+      `Name must be ${MAX_DISPLAY_NAME_CHARS} characters or fewer`
     );
   }
   if (containsProfanity(name)) {

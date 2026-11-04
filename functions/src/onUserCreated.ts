@@ -1,16 +1,26 @@
 import "./adminInit";
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions/v1";
-import { containsProfanity } from "./_profanityFilter";
+import { FUNCTION_REGION } from "./_region";
+import {
+  containsProfanity,
+  MIN_DISPLAY_NAME_CHARS,
+  MAX_DISPLAY_NAME_CHARS,
+} from "./_profanityFilter";
 
 export function sanitiseName(name: string, uid: string): string {
   const t = name.trim();
-  if (t.length < 2 || t.length > 30) return `Player_${uid.slice(0, 6)}`;
+  if (t.length < MIN_DISPLAY_NAME_CHARS || t.length > MAX_DISPLAY_NAME_CHARS) {
+    return `Player_${uid.slice(0, 6)}`;
+  }
   if (containsProfanity(t)) return `Player_${uid.slice(0, 6)}`;
   return t;
 }
 
-export const onUserCreated = functions.auth.user().onCreate(async (user) => {
+export const onUserCreated = functions
+  .region(FUNCTION_REGION)
+  .auth.user()
+  .onCreate(async (user) => {
   const raw =
     user.displayName ||
     (user.email
@@ -38,6 +48,7 @@ export const onUserCreated = functions.auth.user().onCreate(async (user) => {
       friendFirstScore: true,
       friendOvertakes: true,
       addedAsFriend: true,
+      streakReminder: true,
     },
     // Initialise all numeric fields to 0 so Firestore queries that sort or
     // compare on these fields include new users before their first claim,

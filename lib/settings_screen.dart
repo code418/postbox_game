@@ -1,15 +1,32 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:postbox_game/analytics_service.dart';
+import 'package:postbox_game/analytics_user_properties.dart';
 import 'package:postbox_game/app_preferences.dart';
+import 'package:postbox_game/consent_preferences.dart';
+import 'package:postbox_game/firebase_functions_eu.dart';
+import 'package:postbox_game/legal/privacy_policy_screen.dart';
+import 'package:postbox_game/remote_config_service.dart';
 import 'package:postbox_game/authentication_bloc/bloc.dart';
 import 'package:postbox_game/county_heatmap.dart';
 import 'package:postbox_game/intro.dart';
+import 'package:postbox_game/maintenance_guard.dart';
+import 'package:postbox_game/notification_service.dart';
+import 'package:postbox_game/services/notification_preprompt.dart';
+import 'package:postbox_game/services/telemetry_consent.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/user_repository.dart';
 import 'package:postbox_game/validators.dart';
@@ -17,13 +34,20 @@ import 'package:postbox_game/widgets/postbox_map.dart';
 import 'package:postbox_game/widgets/postbox_marker.dart';
 
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key});
+  const SettingsScreen({
+    super.key,
+    this.notificationPermissionStatus = NotificationService.permissionStatus,
+  });
+
+  /// Reads the OS notification permission. A seam for tests.
+  final Future<AuthorizationStatus?> Function() notificationPermissionStatus;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _SettingsScreenState extends State<SettingsScreen> {
+class _SettingsScreenState extends State<SettingsScreen>
+    with WidgetsBindingObserver {
   DistanceUnit _distanceUnit = DistanceUnit.meters;
   bool _isSaving = false;
   Position? _lastPosition;
@@ -31,8 +55,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
     'friendFirstScore': true,
     'friendOvertakes': true,
     'addedAsFriend': true,
+    'streakReminder': true,
   };
   bool _notifPrefsLoaded = false;
+  AuthorizationStatus? _notifPermission;
+  bool _notifPromptRefused = false;
+  bool _isRequestingNotifPermission = false;
+  bool _analyticsConsent = true;
+  bool _crashReports = true;
+  bool _perfMonitoring = true;
+  bool _privacyPrefsLoaded = false;
+  bool _isExporting = false;
   final _userRepository = UserRepository();
 
   @override
@@ -40,7 +73,149 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.initState();
     _loadPrefs();
     _loadNotifPrefs();
+    _loadNotifPermission();
+    _loadPrivacyPrefs();
     _loadLastPosition();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Pick up a change made in system settings (via "Open Settings").
+    if (state == AppLifecycleState.resumed) _loadNotifPermission();
+  }
+
+  bool get _isIOS => !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+
+  NotificationSettingsAction get _notifAction => notificationSettingsAction(
+        status: _notifPermission,
+        isIOS: _isIOS,
+        promptRefused: _notifPromptRefused,
+      );
+
+  Future<void> _loadNotifPermission() async {
+    final status = await widget.notificationPermissionStatus();
+    if (mounted) setState(() => _notifPermission = status);
+  }
+
+  Future<void> _turnOnNotifications(NotificationSettingsAction action) async {
+    if (action == NotificationSettingsAction.openSettings) {
+      // Re-read on resume (didChangeAppLifecycleState).
+      await Geolocator.openAppSettings();
+      return;
+    }
+    setState(() => _isRequestingNotifPermission = true);
+    // Registers the FCM token too when the player says yes.
+    await NotificationService.requestAndInit();
+    final status = await widget.notificationPermissionStatus();
+    if (!mounted) return;
+    setState(() {
+      _notifPermission = status;
+      _notifPromptRefused =
+          status != null && !NotificationService.isGranted(status);
+      _isRequestingNotifPermission = false;
+    });
+  }
+
+  /// Shown above the notification switches while the OS permission is off,
+  /// since the switches alone can't make a notification arrive.
+  Widget _notificationPermissionTile(NotificationSettingsAction action) {
+    final openSettings = action == NotificationSettingsAction.openSettings;
+    return ListTile(
+      leading: const Icon(Icons.notifications_off_outlined),
+      title: const Text('Notifications are off'),
+      subtitle: Text(!openSettings
+          ? 'Allow them so the alerts below can reach you.'
+          : _isIOS
+              ? 'Turn them on in iPhone Settings so the alerts below can reach you.'
+              : "Turn them on in your phone's settings so the alerts below can reach you."),
+      // The theme gives filled buttons an infinite minimum width (page-level
+      // CTAs); inside a ListTile that is an unbounded layout, so pin a
+      // finite one.
+      trailing: FilledButton.tonal(
+        style: FilledButton.styleFrom(minimumSize: const Size(0, 40)),
+        onPressed: _isRequestingNotifPermission
+            ? null
+            : () => _turnOnNotifications(action),
+        child: Text(openSettings ? 'Open Settings' : 'Allow'),
+      ),
+    );
+  }
+
+  Future<void> _loadPrivacyPrefs() async {
+    final analytics = await ConsentPreferences.analyticsGranted();
+    final crash = await ConsentPreferences.crashReportingEnabled();
+    final perf = await ConsentPreferences.perfMonitoringEnabled();
+    if (!mounted) return;
+    setState(() {
+      _analyticsConsent = analytics;
+      _crashReports = crash;
+      _perfMonitoring = perf;
+      _privacyPrefsLoaded = true;
+    });
+  }
+
+  // Consent toggles persist to SharedPreferences (device-local — unlike the
+  // Firestore-backed notification prefs there's no network write to roll
+  // back), then re-apply the whole telemetry state so the change takes effect
+  // immediately.
+  Future<void> _setAnalyticsConsent(bool v) async {
+    setState(() => _analyticsConsent = v);
+    await ConsentPreferences.setAnalyticsConsent(v);
+    unawaited(applyStoredTelemetryPreferences());
+  }
+
+  Future<void> _setCrashReports(bool v) async {
+    setState(() => _crashReports = v);
+    await ConsentPreferences.setCrashReportingEnabled(v);
+    unawaited(applyStoredTelemetryPreferences());
+  }
+
+  Future<void> _setPerfMonitoring(bool v) async {
+    setState(() => _perfMonitoring = v);
+    await ConsentPreferences.setPerfMonitoringEnabled(v);
+    unawaited(applyStoredTelemetryPreferences());
+  }
+
+  /// GDPR Art. 15/20 self-serve export: fetch the full data bundle from the
+  /// `exportMyData` callable and hand it to the platform share sheet as a
+  /// JSON file.
+  Future<void> _downloadMyData() async {
+    if (MaintenanceGuard.blocked(context, actionLabel: 'export your data')) {
+      return;
+    }
+    setState(() => _isExporting = true);
+    try {
+      final result = await appFunctions.httpsCallable('exportMyData').call();
+      final jsonStr = const JsonEncoder.withIndent('  ').convert(result.data);
+      final date = DateTime.now().toIso8601String().split('T').first;
+      await SharePlus.instance.share(ShareParams(
+        files: [
+          XFile.fromData(
+            utf8.encode(jsonStr),
+            mimeType: 'application/json',
+          ),
+        ],
+        fileNameOverrides: ['postbox-game-export-$date.json'],
+        subject: 'The Postbox Game — my data',
+      ));
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not export your data. Please try again.'),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isExporting = false);
+    }
   }
 
   Future<void> _loadLastPosition() async {
@@ -76,6 +251,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             'friendFirstScore': raw['friendFirstScore'] as bool? ?? true,
             'friendOvertakes': raw['friendOvertakes'] as bool? ?? true,
             'addedAsFriend': raw['addedAsFriend'] as bool? ?? true,
+            'streakReminder': raw['streakReminder'] as bool? ?? true,
           };
         }
         _notifPrefsLoaded = true;
@@ -89,7 +265,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _setNotifPref(String key, bool value) async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
-    final previous = _notifPrefs;
+    if (MaintenanceGuard.blocked(context,
+        actionLabel: 'change notification settings')) {
+      return;
+    }
+    // Snapshot the previous value of *this key only* so a rollback after a
+    // failed write doesn't clobber a concurrent toggle of a different switch.
+    // Capturing the whole map and restoring it would undo any other key's
+    // in-flight optimistic update — and if that other write happened to
+    // succeed, the UI would end up out of sync with the server.
+    final previousValue = _notifPrefs[key];
     setState(() => _notifPrefs = {..._notifPrefs, key: value});
     try {
       // Use dot-notation update so only the toggled key is touched. A nested
@@ -100,8 +285,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
           .doc(uid)
           .update({'notificationPrefs.$key': value});
     } catch (_) {
-      // Rollback optimistic update on write failure.
-      if (mounted) setState(() => _notifPrefs = previous);
+      // Rollback only this key on write failure, and surface a snackbar so
+      // the user knows their toggle didn't take (otherwise the switch
+      // silently snaps back and looks like an unresponsive tap).
+      if (mounted) {
+        if (previousValue != null) {
+          setState(() => _notifPrefs = {..._notifPrefs, key: previousValue});
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not save notification setting. Please try again.'),
+          ),
+        );
+      }
     }
   }
 
@@ -140,7 +336,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               content: TextField(
                 controller: controller,
                 autofocus: true,
-                maxLength: 30,
+                maxLength: Validators.maxDisplayNameChars,
                 decoration: InputDecoration(
                   labelText: 'Name',
                   errorText: errorText,
@@ -161,6 +357,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   child: const Text('Cancel'),
                 ),
                 FilledButton(
+                  style: dialogActionStyle(),
                   onPressed: trySubmit,
                   child: const Text('Save'),
                 ),
@@ -174,6 +371,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
 
     if (newName == null || !mounted) return;
+    if (MaintenanceGuard.blocked(context,
+        actionLabel: 'change display name')) {
+      return;
+    }
 
     setState(() => _isSaving = true);
     try {
@@ -257,8 +458,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             builder: (_, setDialogState) {
               void trySubmit() {
                 final ce = currentPwCtrl.text.isEmpty ? 'Required' : null;
-                final ne = newPwCtrl.text.length < 6
-                    ? 'Password must be at least 6 characters'
+                final ne = newPwCtrl.text.length < Validators.minPasswordChars
+                    ? 'Password must be at least ${Validators.minPasswordChars} characters'
                     : null;
                 final co = confirmPwCtrl.text != newPwCtrl.text
                     ? "Passwords don't match"
@@ -294,6 +495,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             icon: Icon(showCurrent
                                 ? Icons.visibility_off_outlined
                                 : Icons.visibility_outlined),
+                            tooltip:
+                                showCurrent ? 'Hide password' : 'Show password',
                             onPressed: () =>
                                 setDialogState(() => showCurrent = !showCurrent),
                           ),
@@ -311,13 +514,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         textInputAction: TextInputAction.next,
                         decoration: InputDecoration(
                           labelText: 'New password',
-                          helperText: 'At least 6 characters',
+                          helperText:
+                              'At least ${Validators.minPasswordChars} characters',
                           prefixIcon: const Icon(Icons.lock_outline),
                           errorText: newError,
                           suffixIcon: IconButton(
                             icon: Icon(showNew
                                 ? Icons.visibility_off_outlined
                                 : Icons.visibility_outlined),
+                            tooltip: showNew ? 'Hide password' : 'Show password',
                             onPressed: () =>
                                 setDialogState(() => showNew = !showNew),
                           ),
@@ -339,6 +544,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             icon: Icon(showConfirm
                                 ? Icons.visibility_off_outlined
                                 : Icons.visibility_outlined),
+                            tooltip:
+                                showConfirm ? 'Hide password' : 'Show password',
                             onPressed: () =>
                                 setDialogState(() => showConfirm = !showConfirm),
                           ),
@@ -363,6 +570,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     child: const Text('Cancel'),
                   ),
                   FilledButton(
+                    style: dialogActionStyle(),
                     onPressed: trySubmit,
                     child: const Text('Update'),
                   ),
@@ -422,6 +630,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: const Text('Cancel'),
           ),
           FilledButton(
+            style: dialogActionStyle(),
             onPressed: () => Navigator.of(context).pop(true),
             child: const Text('Sign out'),
           ),
@@ -434,11 +643,156 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  void _showAbout() {
+  Future<void> _deleteAccount() async {
+    if (MaintenanceGuard.blocked(context, actionLabel: 'delete your account')) {
+      return;
+    }
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    final isPasswordUser =
+        user.providerData.any((p) => p.providerId == 'password');
+
+    // 1. Strong, irreversible-action confirmation.
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        icon: Icon(Icons.warning_amber_rounded,
+            color: Colors.red.shade700, size: 36),
+        title: const Text('Delete account?'),
+        content: const Text(
+          'This permanently deletes your account and removes your data. Your '
+          'past claims are anonymised and your scores are removed from the '
+          'leaderboards. This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.red.shade700,
+              // Matches dialogActionStyle(); spelled out here so the
+              // destructive red is not lost by overriding the whole style.
+              minimumSize: const Size(0, 44),
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    // 2. Re-auth for password users (Firebase requires a recent login). Google
+    //    and Apple users re-auth inside deleteAccount via their provider's flow.
+    String? password;
+    if (isPasswordUser) {
+      password = await _promptPassword();
+      if (password == null || !mounted) return; // cancelled
+    }
+
+    // 3. Delete + return to the auth gate.
+    setState(() => _isSaving = true);
+    try {
+      final deleted =
+          await _userRepository.deleteAccount(currentPassword: password);
+      // False: a Google user backed out of re-authentication. Nothing was
+      // deleted and nothing went wrong, so just return to idle.
+      if (!deleted || !mounted) return;
+      context.read<AuthenticationBloc>().add(LoggedOut());
+      Navigator.of(context).popUntil((route) => route.isFirst);
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+      final msg = switch (e.code) {
+        'wrong-password' || 'invalid-credential' => 'Password is incorrect.',
+        'requires-recent-login' =>
+          'Please sign out and back in, then try again.',
+        'network-request-failed' => 'No internet connection.',
+        'too-many-requests' => 'Too many attempts. Please wait and try again.',
+        _ => 'Could not delete your account. Please try again.',
+      };
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(msg), backgroundColor: Colors.red.shade700),
+      );
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('Could not delete your account. Please try again.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  /// Prompts for the current password (password-provider re-auth). Returns the
+  /// entered value, or null if the user cancelled.
+  Future<String?> _promptPassword() async {
+    final ctrl = TextEditingController();
+    bool show = false;
+    try {
+      return await showDialog<String>(
+        context: context,
+        builder: (ctx) => StatefulBuilder(
+          builder: (ctx, setDialogState) => AlertDialog(
+            title: const Text('Confirm your password'),
+            content: TextField(
+              controller: ctrl,
+              obscureText: !show,
+              autofocus: true,
+              decoration: InputDecoration(
+                labelText: 'Password',
+                prefixIcon: const Icon(Icons.lock_outline),
+                suffixIcon: IconButton(
+                  icon: Icon(show
+                      ? Icons.visibility_off_outlined
+                      : Icons.visibility_outlined),
+                  tooltip: show ? 'Hide password' : 'Show password',
+                  onPressed: () => setDialogState(() => show = !show),
+                ),
+              ),
+              onSubmitted: (_) => Navigator.pop(ctx, ctrl.text),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                style: dialogActionStyle(),
+                onPressed: () => Navigator.pop(ctx, ctrl.text),
+                child: const Text('Continue'),
+              ),
+            ],
+          ),
+        ),
+      );
+    } finally {
+      ctrl.dispose();
+    }
+  }
+
+  Future<void> _showAbout() async {
+    // Read pubspec version at runtime so the dialog never drifts behind a
+    // released `1.0.0+N` bump. PackageInfo.fromPlatform() is a no-op on
+    // platforms without a native bridge — guard the call so the About dialog
+    // still opens (without a version) on web/desktop.
+    String version = '';
+    try {
+      final info = await PackageInfo.fromPlatform();
+      version = info.buildNumber.isNotEmpty
+          ? '${info.version}+${info.buildNumber}'
+          : info.version;
+    } catch (_) {
+      // Fall through with an empty version rather than blocking the dialog.
+    }
+    if (!mounted) return;
     showAboutDialog(
       context: context,
       applicationName: 'The Postbox Game',
-      applicationVersion: '1.0.0',
+      applicationVersion: version,
       applicationLegalese: 'Find postboxes. Claim them. Score mega points.',
       applicationIcon: const Icon(Icons.mail, size: 48, color: postalRed),
     );
@@ -537,12 +891,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
             subtitle: const Text('Sign out of your account'),
             onTap: _signOut,
           ),
+          ListTile(
+            leading: Icon(Icons.delete_forever, color: Colors.red.shade700),
+            title: Text('Delete account',
+                style: TextStyle(color: Colors.red.shade700)),
+            subtitle: const Text('Permanently delete your account and data'),
+            onTap: _isSaving ? null : _deleteAccount,
+          ),
           const Divider(height: 24),
           _sectionHeader('App'),
           ListTile(
             leading: const Icon(Icons.play_circle_outline),
             title: const Text('Replay intro'),
-            subtitle: const Text('Watch the Postman James intro again'),
+            subtitle: const Text('Watch the introduction again'),
             onTap: () {
               Navigator.of(context).push(
                 MaterialPageRoute<void>(
@@ -564,6 +925,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _mapColourPicker(),
           const Divider(height: 24),
           _sectionHeader('Notifications'),
+          if (_notifAction != NotificationSettingsAction.none)
+            _notificationPermissionTile(_notifAction),
           if (!_notifPrefsLoaded)
             const Padding(
               padding: EdgeInsets.symmetric(
@@ -594,7 +957,73 @@ class _SettingsScreenState extends State<SettingsScreen> {
               value: _notifPrefs['addedAsFriend']!,
               onChanged: (v) => _setNotifPref('addedAsFriend', v),
             ),
+            SwitchListTile(
+              secondary: const Icon(Icons.local_fire_department_outlined),
+              title: const Text('Streak reminder'),
+              subtitle: const Text(
+                  'An evening nudge to claim before you lose your daily streak'),
+              value: _notifPrefs['streakReminder']!,
+              onChanged: (v) => _setNotifPref('streakReminder', v),
+            ),
           ],
+          const Divider(height: 24),
+          _sectionHeader('Privacy'),
+          if (!_privacyPrefsLoaded)
+            const Padding(
+              padding: EdgeInsets.symmetric(
+                  horizontal: AppSpacing.md, vertical: AppSpacing.md),
+              child: LinearProgressIndicator(),
+            )
+          else ...[
+            SwitchListTile(
+              secondary: const Icon(Icons.insights_outlined),
+              title: const Text('Usage analytics'),
+              subtitle: const Text(
+                  'Share anonymous usage statistics to help improve the app'),
+              value: _analyticsConsent,
+              onChanged: _setAnalyticsConsent,
+            ),
+            SwitchListTile(
+              secondary: const Icon(Icons.bug_report_outlined),
+              title: const Text('Crash reports'),
+              subtitle:
+                  const Text('Anonymous crash reports that help us fix bugs'),
+              value: _crashReports,
+              onChanged: _setCrashReports,
+            ),
+            SwitchListTile(
+              secondary: const Icon(Icons.speed_outlined),
+              title: const Text('Performance monitoring'),
+              subtitle: const Text(
+                  'Anonymous timing traces that help us keep the app fast'),
+              value: _perfMonitoring,
+              onChanged: _setPerfMonitoring,
+            ),
+          ],
+          ListTile(
+            leading: const Icon(Icons.privacy_tip_outlined),
+            title: const Text('Privacy policy'),
+            subtitle: const Text('How we handle your data'),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                  builder: (_) => const PrivacyPolicyScreen()),
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.download_outlined),
+            title: const Text('Download my data'),
+            subtitle: const Text(
+                'Export everything we store about you as a JSON file'),
+            trailing: _isExporting
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : null,
+            enabled: !_isExporting,
+            onTap: _downloadMyData,
+          ),
           const Divider(height: 24),
           _sectionHeader('About'),
           ListTile(
@@ -647,7 +1076,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   postalRed.withValues(alpha: 0.6),
                   'Claim range',
                   AppPreferences.formatShortDistance(
-                      AppPreferences.claimRadiusMeters, _distanceUnit),
+                      RemoteConfigService.instance.claimRadiusMeters, _distanceUnit),
                 ),
               ],
             ),
@@ -667,7 +1096,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 CircleMarker(
                   point: center,
-                  radius: AppPreferences.claimRadiusMeters,
+                  radius: RemoteConfigService.instance.claimRadiusMeters,
                   useRadiusInMeter: true,
                   color: postalRed.withValues(alpha: 0.25),
                   borderColor: postalRed.withValues(alpha: 0.9),
@@ -707,10 +1136,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _setMapColour(String? key) async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
+    if (MaintenanceGuard.blocked(context,
+        actionLabel: 'change the map colour')) {
+      return;
+    }
     try {
       await FirebaseFirestore.instance.collection('users').doc(uid).update({
         'mapColor': key ?? FieldValue.delete(),
       });
+      Analytics.setUserProperty(AnalyticsUserProps.kMapColor, mapColorProp(key));
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

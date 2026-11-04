@@ -1,5 +1,8 @@
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
+import 'package:postbox_game/remote_config_service.dart';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // i18n NOTE (future)
 // When adding localisation, replace JamesMessage.resolve() with an
@@ -43,7 +46,9 @@ abstract final class JamesMessages {
           "are... no exact locations, mind.",
       "There is nothing, and I mean nothing, I like more than being on the "
           "lookout for postboxes. I love it.",
-      "Impress your friends and loved ones by finding nearby postboxes!"
+      "Impress your friends and loved ones by finding nearby postboxes!",
+      "The excitement and anticipation of seeing one of those red beauties "
+          "is overwhelming"
     ],
   );
 
@@ -51,6 +56,8 @@ abstract final class JamesMessages {
     'jamesNavClaim',
     [
       "Found one? Get close and claim it. Rarer cyphers are worth more points.",
+      "A postbox can only be claimed once a day. I do not make the rules I just "
+          "enforce them",
       "Can you actually see a postbox? Not that I am saying you are a liar "
           "or anything"
     ],
@@ -62,6 +69,7 @@ abstract final class JamesMessages {
       "Daily, weekly, monthly... see how you stack up against the competition. "
           "The only thing better than spotting postboxes is knowing you have "
           "spotted more than your friends",
+      "You might be top, or even bottom, of the heap today. But there is always tomorrow",
       "There is no prize for second place... or first place for that matter"
     ],
   );
@@ -71,6 +79,8 @@ abstract final class JamesMessages {
     [
       "Add friends by UID to see them here. You do not have to do this alone.",
       "Colour the map with your friends. Seize their territory!",
+      "If you do not share the fun with your friends, maybe they'll stop looking "
+          "at you like you are a crazy person",
       "Don't have any friends? Try hanging out with your local postie."
     ],
   );
@@ -81,6 +91,7 @@ abstract final class JamesMessages {
       "Admiring your handiwork, are we? Every pin is somewhere you've been.",
       "A walk down memory lane... or should I say, pillar-box lane.",
       "Today, this week, this month, all-time. See where you have roamed.",
+      "Oh, such beautiful postboxes you have seen..."
     ],
   );
 
@@ -88,7 +99,8 @@ abstract final class JamesMessages {
     'jamesNavFriendsLeaderboard',
     [
       "See how you and your mates are getting on. Bit of friendly rivalry never hurt anyone.",
-      "The only thing better than having friends is knowing you are better than all of them"
+      "The only thing better than having friends is knowing you are better than all of them",
+      "Playing The Postbox Game with friends has yet to have resulted in a single falling-out"
     ],
   );
 
@@ -97,7 +109,8 @@ abstract final class JamesMessages {
     [
       "This is the all-time tally... unique postboxes ever claimed. "
           "Claiming the same box twice doesn't count, so get out and explore!",
-      "There are over a hundred thousand postboxes out there, gotta spot them all!"
+      "There are over a hundred thousand postboxes out there, gotta spot them all!",
+      "Let's face it, we are all just scraping the surface of what is out there"
     ],
   );
 
@@ -106,7 +119,9 @@ abstract final class JamesMessages {
     [
       "See who is lording it over each county. Tap a region to see the local champion.",
       "Colour the country in your shade. Cornwall is up for grabs, last I checked.",
-      "Each county belongs to whoever has claimed the most postboxes in it. Simple as that."
+      "Each county belongs to whoever has claimed the most postboxes in it. Simple as that.",
+      "Claiming the most postboxes in a county might make you seem like some sort "
+          "of a god in the eyes of locals"
     ],
   );
 
@@ -154,6 +169,7 @@ abstract final class JamesMessages {
     [
       "Arse... nothing nearby. Try a different area... postboxes are everywhere. "
           "Just not here.",
+      "Oh sure, you are getting lots of fresh air, but how are you going to send a postcard?",
       "By my calculations you are in the middle of nowhere, try not being there.",
       "An area without postboxes tears me up inside."
     ],
@@ -165,7 +181,8 @@ abstract final class JamesMessages {
     'jamesNearbyErrorPermission',
     [
       "I'll need your location for this bit, I'm afraid. Worth it, I promise.",
-      "Come on, let me know where you are, I won't tell the police."
+      "Come on, let me know where you are, I won't tell the police.",
+      "If you don't want to share your location, this might not be the game for you"
     ],
   );
 
@@ -173,7 +190,8 @@ abstract final class JamesMessages {
     'jamesNearbyErrorGeneral',
     [
       "Something went wrong there. Give it another go.",
-      "An error occurred. I will contact tech support to get their arses in gear"
+      "An error occurred. I will contact tech support to get their arses in gear",
+      "Someone has urinated in the proverbial postbox. Try again later"
     ],
   );
 
@@ -181,7 +199,53 @@ abstract final class JamesMessages {
 
   static const errorOffline = JamesMessage(
     'jamesErrorOffline',
-    ["No signal out here. Find some Wi-Fi and give it another go."],
+    [
+      "No signal out here. Find some Wi-Fi and give it another go.",
+      "The line's gone quiet. We'll try again when the bars come back.",
+      "Not a whisper of signal. Have you reflected on the fact you are trying to "
+          "play in the middle of nowhere?",
+      "I love the beauty of our postal service, but I need the connectivity "
+          "of our mobile network right about now"
+    ],
+  );
+
+  /// Shown when a claim is banked to the offline outbox (v1.5 offline play).
+  static const offlineBanked = JamesMessage(
+    'jamesOfflineBanked',
+    [
+      "In the satchel it goes... I'll post it the moment we're back in signal.",
+      "Signed, sealed, not yet delivered. It'll post itself when the bars return.",
+      "Mate, I'll make a note of it, and I'll see what I can do once we are back "
+          "with civilisation"
+    ],
+  );
+
+  /// Shown when the offline scan rescue serves results from the last scan.
+  static const offlineFromLastScan = JamesMessage(
+    'jamesOfflineFromLastScan',
+    [
+      "No signal, but I remember this spot from the last scan. Carry on.",
+      "Here again? Looks like the mobile signal hasn't gotten any better..."
+    ],
+  );
+
+  /// Dynamic: banked claims settled after reconnecting. [claimed] boxes,
+  /// [points] points.
+  static String offlineFlushed(int claimed, int points) {
+    final box = claimed == 1 ? 'claim' : 'claims';
+    return 'Post office rung up... $claimed banked $box delivered '
+        'for $points points. Lovely.';
+  }
+
+  /// Shown when a banked claim was rejected at flush (expired, too far...).
+  static const offlineFlushRejected = JamesMessage(
+    'jamesOfflineFlushRejected',
+    [
+      "One of the banked claims didn't make it past the sorting office. "
+          "The rest went through.",
+      "Look, I tried, but some of the reported claims when you didn't have "
+          "a signal didn't make the cut. You can't win them all, sometimes."
+    ],
   );
 
   // ── Claim scan found nothing (30 m radius empty) ─────────────────────────
@@ -192,6 +256,7 @@ abstract final class JamesMessages {
       "Nothing within range. You need to be right next to a postbox.",
       "No postboxes in your immediate area. A few steps might make all the difference.",
       "I'm not detecting any postboxes here. Move closer and try again.",
+      "Mate, I appreciate your enthusiasm but it looks like there is nothing here"
     ],
   );
 
@@ -201,6 +266,8 @@ abstract final class JamesMessages {
     'jamesClaimOutOfRange',
     [
       "Hmm, I can't see a postbox at your location. Move closer and try again.",
+      "Sometimes the location I have might be a little off. Don't blame me, blame the "
+          "freely available dataset I am stealing from.",
       "No postboxes nearby? Sounds crazy, no?"
     ],
   );
@@ -209,10 +276,28 @@ abstract final class JamesMessages {
 
   static const claimSuccessRare = JamesMessage(
     'jamesClaimSuccessRare',
-    ["Oh ho... a rare one! That's a find. Well done.", "Nice, big points"],
+    [
+      "Oh ho... a rare one! That's a find. Well done.",
+      "Nice, big points",
+      "You love to see it"
+    ],
   );
 
   /// Dynamic: multiple postboxes claimed in a single scan.
+  /// After a rare claim: points the player at the Share button.
+  static const shareNudgeRare = JamesMessage(
+    'jamesShareNudgeRare',
+    [
+      "A find like that deserves an audience. Give the Share button a prod.",
+      "Go on, show it off. Nobody believes a rare one without a picture.",
+      "Rare as hen's teeth, that. Worth telling your mates about.",
+    ],
+  );
+
+  /// After a claim that lands on a streak milestone.
+  static String shareNudgeStreak(int days) =>
+      "$days days on the trot! That's worth a brag... hit Share.";
+
   static String claimSuccessMulti(int count, int pts) =>
       "Blimey... $count at once! That's $pts points in one go. Impressive.";
 
@@ -220,6 +305,7 @@ abstract final class JamesMessages {
   static const claimSuccessStandard = JamesMessage(
     'jamesClaimSuccessStandard',
     [
+      "How far did you go out of your way to claim this one?",
       "Claimed! Every one counts. Keep going.",
       "Nicely done. On to the next.",
       "That's another one in the bag.",
@@ -232,8 +318,8 @@ abstract final class JamesMessages {
   static const claimErrorAlreadyClaimed = JamesMessage(
     'jamesClaimErrorAlreadyClaimed',
     [
-      "You've already had that one today. It'll reset tomorrow.",
-      "Calm down, you've already claimed that one today.",
+      "We've already had that one today. It'll reset tomorrow.",
+      "Calm down, we've already claimed that one today.",
       "You know you do need to move around a bit to get different postboxes."
     ],
   );
@@ -251,7 +337,17 @@ abstract final class JamesMessages {
     'jamesClaimErrorGeneral',
     [
       "Hmm, something went wrong there. Give it another go.",
-      "Whoops, messed up there, try again."
+      "Whoops, messed up there, try again.",
+      "Bums! I don't know what happened, but it wasn't good."
+    ],
+  );
+
+  static const claimErrorTooFast = JamesMessage(
+    'jamesClaimErrorTooFast',
+    [
+      "Steady on, my old legs only go so fast. Slow down and try again.",
+      "Blimey, you're shifting a bit quick for me. Catch your breath, then claim.",
+      "Going a bit fast there, I hope you are sticking to the local speed limits."
     ],
   );
 
@@ -260,6 +356,7 @@ abstract final class JamesMessages {
   static const quizFailed = JamesMessage(
     'jamesQuizFailed',
     [
+      "Next time, look at the postbox before jabbing your finger wildly at the screen",
       "Not quite. Have another look at the cipher on the postbox.",
       "Ooh, unlucky. The cipher is the emblem stamped on the front.",
       "That's not it. Each monarch had their own design... worth a second look.",
@@ -272,18 +369,124 @@ abstract final class JamesMessages {
   static const reportSent = JamesMessage(
     'jamesReportSent',
     [
+      "OK, if you insist. I'll ask the boss.",
       "Report logged. I'll have a word with the sorting office.",
       "Noted, and passed up the chain. Cheers for keeping the records straight.",
       "Good spot. If it checks out we'll fix the data... and re-score your claims where it matters.",
     ],
   );
 
+  // ── Route mode ───────────────────────────────────────────────────────────
+
+  /// Fires when the user enters Live Route mode.
+  static const routeStart = JamesMessage(
+    'jamesRouteStart',
+    [
+      "Right then, off we trot.",
+      "Best foot forward, eh?",
+      "Don't dawdle, there are postboxes to claim.",
+      "On your marks. Plenty out there, let's go.",
+      "A fine day for a walk. Let's make it count.",
+      "Right, I'll keep you company. Off we go.",
+      "Step lively, the postboxes won't claim themselves.",
+      "Ready when you are. Lead the way.",
+    ],
+  );
+
+  /// Fires when an unclaimed postbox is within ~50 m (one-shot per postbox).
+  static const routePostboxNearby = JamesMessage(
+    'jamesRoutePostboxNearby',
+    [
+      "Oi, there's one within whistling distance.",
+      "Look sharp, a claim is just around the corner.",
+      "Eyes peeled, we're getting close.",
+      "Hold on... there's one very nearby.",
+      "Can you smell that? That's the scent of points.",
+      "Nearly there, keep going.",
+      "Just a smidge further. You've got this.",
+      "Almost in range. Don't stop now.",
+    ],
+  );
+
+  /// Returns a direction hint phrase for one of "ahead", "left", "right",
+  /// "behind". Falls back to the "ahead" pool for unrecognised directions.
+  static String routeHint(String direction) {
+    final lists = <String, List<String>>{
+      'ahead': [
+        "Just keep ploughing on, mate.",
+        "Bit further straight on.",
+        "You're heading the right way. Carry on.",
+        "Straight ahead. Simple as that.",
+        "Keep going, you're on the right track.",
+      ],
+      'left': [
+        "Veer leftward, if you've the time.",
+        "Bear left a bit, I reckon.",
+        "Slight left from where you're standing.",
+        "Left a touch. Trust me on this one.",
+        "Nudge left and you should be in luck.",
+      ],
+      'right': [
+        "Right a bit, I reckon.",
+        "Bear right from here.",
+        "Try veering right, see how you get on.",
+        "Bit to the right. Off you go.",
+        "Right-ish. You'll figure it out.",
+      ],
+      'behind': [
+        "You're past it. Backtrack if you fancy.",
+        "It was behind you! Turn around.",
+        "Looks like you overshot. Worth doubling back.",
+        "Retrace your steps a little. It's back there.",
+        "Behind you, I'm afraid. No shame in it.",
+      ],
+    };
+    final pool = lists[direction];
+    if (pool == null) {
+      debugPrint(
+          'JamesMessages.routeHint: unrecognised direction "$direction", defaulting to "ahead"');
+      return routeHint('ahead');
+    }
+    return pool[_random.nextInt(pool.length)];
+  }
+
+  /// Fires when the user arrives at the destination.
+  static const routeArrival = JamesMessage(
+    'jamesRouteArrival',
+    [
+      "Tidy work, that.",
+      "Well there you go.",
+      "Right, that's a tidy round.",
+      "Made it! Not bad at all.",
+      "You got there in the end. Nicely done.",
+      "Destination reached. I am quietly impressed.",
+      "All the way there. Top effort.",
+      "Finally!",
+      "Job done. Time for a sit-down and a cup of tea, I'd say.",
+    ],
+  );
+
   // ── Intro dialogue ───────────────────────────────────────────────────────
 
-  static const introStep2 = JamesMessage(
+  static const _introStep2Classic = JamesMessage(
     'jamesIntroStep2',
     ['Ah, you found one!\nWhat you see here is a perfectly ordinary postbox.'],
   );
+
+  static const _introStep2Cheeky = JamesMessage(
+    'jamesIntroStep2Cheeky',
+    ['Oi oi... look who it is.\nNow that, my friend, is a proper postbox.'],
+  );
+
+  /// First-launch greeting. The variant is driven by the
+  /// `james_welcome_variant` Remote Config flag — defaults to the classic
+  /// copy. Future variants can be added without changing call sites.
+  static JamesMessage get introStep2 {
+    final variant = RemoteConfigService.instance.jamesWelcomeVariant;
+    return variant == RemoteConfigService.welcomeVariantCheeky
+        ? _introStep2Cheeky
+        : _introStep2Classic;
+  }
 
   static const introStep3 = JamesMessage(
     'jamesIntroStep3',

@@ -37,6 +37,8 @@ class RegisterScreen extends StatelessWidget {
                     postalRed,
                     BlendMode.srcIn,
                   ),
+                  // Decorative — the "Join the hunt" title carries the meaning.
+                  excludeFromSemantics: true,
                 ),
                 const SizedBox(height: AppSpacing.md),
                 Text(

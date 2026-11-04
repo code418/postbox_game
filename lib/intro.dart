@@ -1,8 +1,17 @@
+import 'dart:async';
+
 import 'package:animated_text_kit/animated_text_kit.dart';
+import 'package:confetti/confetti.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:postbox_game/analytics_service.dart';
+import 'package:postbox_game/consent_preferences.dart';
+import 'package:postbox_game/consent_screen.dart';
 import 'package:postbox_game/james_messages.dart';
-import 'package:postbox_game/postman_james_svg.dart';
+import 'package:postbox_game/postman_james.dart';
+import 'package:postbox_game/remote_config_service.dart';
+import 'package:postbox_game/services/perf_service.dart';
 import 'package:postbox_game/theme.dart';
 
 /// First-run cinematic intro: postbox on stage, Postman James, dialogue, then app overview.
@@ -22,40 +31,74 @@ class Intro extends StatefulWidget {
   State<Intro> createState() => _IntroState();
 }
 
-class _IntroState extends State<Intro> with TickerProviderStateMixin {
+class _IntroState extends State<Intro> {
   int _step = 0;
-  static const int _totalSteps = 7;
+  static const int _totalSteps = 8;
 
-  late AnimationController _jamesWalkController;
-  late Animation<double> _jamesSlide;
+  /// Analytics choice made on the final (disclosure) step. Default ON —
+  /// opt-out model; the switch lets the user turn it off before starting.
+  bool _analyticsOptIn = true;
+
+  /// Settings replay skips the consent step (consent is managed from
+  /// Settings → Privacy once the choice exists), so the replay run terminates
+  /// one step earlier.
+  int get _lastStep => widget.replay ? _totalSteps - 2 : _totalSteps - 1;
+
+  /// True once [_advance] has fired the terminal-step branch (pop / onDone)
+  /// so a double-tap on "Get started" can't pop the screen twice or invoke
+  /// [Intro.onDone] more than once. Without this guard, a rapid second tap
+  /// before the navigator transition completes would re-enter the else
+  /// branch with `_step` unchanged and either pop the screen below Intro
+  /// (replay mode) or mark intro-seen twice.
+  bool _completed = false;
+
+  late final ConfettiController _confettiController;
+
+  // First-run onboarding trace (skipped on Settings replay). Started in
+  // initState, stopped when the user reaches the terminal "Get started" step.
+  // `variant` records which welcome-copy A/B variant they saw.
+  Future<TraceHandle>? _onboardingTrace;
 
   @override
   void initState() {
     super.initState();
-    _jamesWalkController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1200),
-    );
-    _jamesSlide = Tween<double>(begin: -1.0, end: 0.0).animate(
-      CurvedAnimation(parent: _jamesWalkController, curve: Curves.easeOut),
-    );
+    _confettiController =
+        ConfettiController(duration: const Duration(seconds: 4));
+    if (!widget.replay) {
+      _onboardingTrace = PerfService.start(
+        PerfTraces.introOnboarding,
+        attributes: {
+          PerfTraces.attrVariant: RemoteConfigService.instance.jamesWelcomeVariant,
+        },
+      );
+    }
   }
 
   @override
   void dispose() {
-    _jamesWalkController.dispose();
+    _confettiController.dispose();
     super.dispose();
   }
 
   void _advance() {
-    // Start the walk animation when entering step 1 (James slides in from left).
-    if (_step == 0) _jamesWalkController.forward();
-    if (_step < _totalSteps - 1) {
+    if (_completed) return;
+    // Fire confetti as the user enters the Mega Points step.
+    if (_step == 3) _confettiController.play();
+    if (_step < _lastStep) {
       setState(() => _step++);
     } else {
+      _completed = true;
+      final trace = _onboardingTrace;
+      if (trace != null) {
+        unawaited(trace.then((h) => h.stop()));
+      }
       if (widget.replay) {
         Navigator.of(context).pop();
       } else {
+        // Persist the consent-step choice and apply it immediately so
+        // analytics starts (or stays off) without waiting for a restart.
+        unawaited(ConsentPreferences.setAnalyticsConsent(_analyticsOptIn));
+        unawaited(Analytics.setCollectionEnabled(_analyticsOptIn));
         widget.onDone?.call();
       }
     }
@@ -84,8 +127,7 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
                   width: double.infinity,
                   child: FilledButton(
                     onPressed: _advance,
-                    child:
-                        Text(_step == _totalSteps - 1 ? 'Get started' : 'Next'),
+                    child: Text(_step == _lastStep ? 'Get started' : 'Next'),
                   ),
                 ),
               ),
@@ -112,14 +154,44 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
         return _buildOverview();
       case 6:
         return _buildOverviewEnd();
+      case 7:
+        return _buildConsent();
       default:
         return _buildStageWithPostbox();
     }
   }
 
+  /// Final first-run step: GDPR telemetry disclosure + analytics opt-in.
+  /// Never reached on replay (see [_lastStep]).
+  Widget _buildConsent() {
+    return _scrollCentre(
+      ConsentContent(
+        analyticsOptIn: _analyticsOptIn,
+        onAnalyticsChanged: (v) => setState(() => _analyticsOptIn = v),
+      ),
+    );
+  }
+
+  // Wraps a step's content so it scrolls (and stays centred when there's room)
+  // instead of overflowing the Expanded slot. Matters in landscape, where the
+  // step area is only a few hundred logical pixels tall.
+  Widget _scrollCentre(Widget child) {
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.xl, vertical: AppSpacing.lg),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+              minHeight: constraints.maxHeight - 2 * AppSpacing.lg),
+          child: Center(child: child),
+        ),
+      ),
+    );
+  }
+
   Widget _buildStageWithPostbox() {
-    return Center(
-      child: Column(
+    return _scrollCentre(
+      Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Text(
@@ -128,7 +200,10 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
                   color: Colors.white,
                   fontWeight: FontWeight.bold,
                 ),
-          ),
+          )
+              .animate()
+              .fadeIn(duration: 500.ms)
+              .slideY(begin: -0.2, end: 0, duration: 500.ms, curve: Curves.easeOut),
           const SizedBox(height: AppSpacing.xxl),
           Container(
             padding: const EdgeInsets.symmetric(
@@ -140,12 +215,25 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
             ),
             child: Column(
               children: [
-                SvgPicture.asset('assets/postbox.svg', width: 120, height: 120),
+                SvgPicture.asset(
+                  'assets/postbox.svg',
+                  width: 120,
+                  height: 120,
+                  // Decorative — dialogue text below carries the content.
+                  excludeFromSemantics: true,
+                )
+                    .animate()
+                    .fadeIn(duration: 600.ms)
+                    .scale(
+                      begin: const Offset(0.6, 0.6),
+                      duration: 600.ms,
+                      curve: Curves.elasticOut,
+                    ),
                 const SizedBox(height: AppSpacing.sm),
                 const Text(
                   'A brief introduction to postboxes...',
                   style: TextStyle(color: Colors.white70, fontSize: 18),
-                ),
+                ).animate(delay: 300.ms).fadeIn(duration: 400.ms),
               ],
             ),
           ),
@@ -155,40 +243,46 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
   }
 
   Widget _buildJamesWalksIn() {
-    return AnimatedBuilder(
-      animation: _jamesSlide,
-      builder: (context, child) {
-        return Center(
-          child: Column(
+    return _scrollCentre(
+      Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const SizedBox(height: 40),
+          Row(
             mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              const SizedBox(height: 40),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  SvgPicture.asset('assets/postbox.svg', width: 80, height: 80),
-                  const SizedBox(width: AppSpacing.lg),
-                  FractionalTranslation(
-                    translation: Offset(_jamesSlide.value, 0),
-                    child: const PostmanJamesSvg(size: 100),
-                  ),
-                ],
+              SvgPicture.asset(
+                'assets/postbox.svg',
+                width: 80,
+                height: 80,
+                excludeFromSemantics: true,
               ),
-              const SizedBox(height: AppSpacing.lg),
-              const Text(
-                'Look, it\'s a Postie!',
-                style: TextStyle(color: Colors.white70, fontSize: 20),
-              ),
+              const SizedBox(width: AppSpacing.lg),
+              const PostmanJames(size: 100)
+                  .animate()
+                  .slideX(
+                    begin: -1.5,
+                    end: 0,
+                    duration: 900.ms,
+                    curve: Curves.easeOutBack,
+                  )
+                  .fadeIn(duration: 400.ms),
             ],
           ),
-        );
-      },
+          const SizedBox(height: AppSpacing.lg),
+          const Text(
+            'Look, it\'s a Postie!',
+            style: TextStyle(color: Colors.white70, fontSize: 20),
+          ).animate(delay: 900.ms).fadeIn(duration: 400.ms),
+        ],
+      ),
     );
   }
 
   Widget _buildDialogue(String text) {
     return LayoutBuilder(
+      key: ValueKey(text),
       builder: (context, constraints) => SingleChildScrollView(
         padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
         child: ConstrainedBox(
@@ -200,11 +294,19 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                SvgPicture.asset('assets/postbox.svg', width: 64, height: 64),
+                SvgPicture.asset(
+                  'assets/postbox.svg',
+                  width: 64,
+                  height: 64,
+                  excludeFromSemantics: true,
+                ),
                 const SizedBox(width: AppSpacing.md),
-                const PostmanJamesSvg(size: 90, isTalking: true),
+                const PostmanJames(size: 90, isTalking: true),
               ],
-            ),
+            )
+                .animate()
+                .fadeIn(duration: 400.ms)
+                .slideY(begin: -0.15, end: 0, duration: 400.ms, curve: Curves.easeOut),
             const SizedBox(height: AppSpacing.xl),
             Container(
               padding: const EdgeInsets.all(AppSpacing.lg),
@@ -226,7 +328,10 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
                 totalRepeatCount: 1,
                 displayFullTextOnTap: true,
               ),
-            ),
+            )
+                .animate(delay: 200.ms)
+                .fadeIn(duration: 400.ms)
+                .slideY(begin: 0.2, end: 0, duration: 400.ms, curve: Curves.easeOut),
           ],
           ),
         ),
@@ -235,25 +340,45 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
   }
 
   Widget _buildMegaPoints() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const PostmanJamesSvg(
-                size: 160, showStarEyes: true, isTalking: true),
-            const SizedBox(height: AppSpacing.lg),
-            Text(
-              'Points, baby! Sweet, beautiful, points!',
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    color: postalGold,
-                    fontWeight: FontWeight.bold,
+    return Stack(
+      alignment: Alignment.topCenter,
+      children: [
+        _scrollCentre(
+          Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const PostmanJames(size: 160, showStarEyes: true, isTalking: true),
+              const SizedBox(height: AppSpacing.lg),
+              Text(
+                'Points, baby! Sweet, beautiful, points!',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      color: postalGold,
+                      fontWeight: FontWeight.bold,
+                    ),
+              )
+                  .animate(onPlay: (c) => c.repeat())
+                  .shimmer(
+                    duration: 1200.ms,
+                    color: Colors.white.withValues(alpha: 0.85),
                   ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
+        // Confetti is drawn on top, anchored to the top so particles spray
+        // outwards as the user lands on this step.
+        Align(
+          alignment: Alignment.topCenter,
+          child: ConfettiWidget(
+            confettiController: _confettiController,
+            blastDirectionality: BlastDirectionality.explosive,
+            colors: const [postalGold, postalRed, Colors.white],
+            numberOfParticles: 24,
+            gravity: 0.25,
+            emissionFrequency: 0.04,
+          ),
+        ),
+      ],
     );
   }
 
@@ -263,7 +388,7 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
         padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg + 4),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
-          children: [
+          children: <Widget>[
             Text(
               'How it works',
               style: Theme.of(context)
@@ -277,7 +402,10 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
                 'Claim them when you\'re there to score points'),
             _overviewRow(Icons.leaderboard,
                 'Climb the leaderboard and compete with friends'),
-          ],
+          ]
+              .animate(interval: 120.ms)
+              .fadeIn(duration: 400.ms)
+              .slideX(begin: 0.15, end: 0, duration: 400.ms, curve: Curves.easeOut),
         ),
       ),
     );
@@ -304,26 +432,33 @@ class _IntroState extends State<Intro> with TickerProviderStateMixin {
   }
 
   Widget _buildOverviewEnd() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.thumb_up, size: 64, color: postalGold),
-            const SizedBox(height: AppSpacing.lg),
-            Text(
-              widget.replay
-                  ? 'Get out there and find some mega-rare postboxes!'
-                  : 'Sign in or create an account to start collecting mega points.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.9),
-                  fontSize: 20,
-                  height: 1.4),
-            ),
-          ],
-        ),
+    return _scrollCentre(
+      Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.thumb_up, size: 64, color: postalGold)
+              .animate()
+              .scale(
+                begin: const Offset(0.5, 0.5),
+                duration: 500.ms,
+                curve: Curves.elasticOut,
+              )
+              .fadeIn(duration: 300.ms),
+          const SizedBox(height: AppSpacing.lg),
+          Text(
+            widget.replay
+                ? 'Get out there and find some mega-rare postboxes!'
+                : 'Sign in or create an account to start collecting mega points.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.9),
+                fontSize: 20,
+                height: 1.4),
+          )
+              .animate(delay: 300.ms)
+              .fadeIn(duration: 400.ms)
+              .slideY(begin: 0.2, end: 0, duration: 400.ms, curve: Curves.easeOut),
+        ],
       ),
     );
   }

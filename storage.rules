@@ -11,13 +11,23 @@ service firebase.storage {
 
     // Report evidence photos: a user may upload to and read their own folder;
     // admins may read any photo (to verify reports). Max 10 MB, images only.
+    //
+    // create/update carry the size + content-type checks; delete is split out
+    // with an owner-only check because on a delete `request.resource` is null,
+    // so a combined `allow write` that references `request.resource.size` errors
+    // and denies. That denial silently broke the client's best-effort cleanup
+    // (ReportRepository._deleteUploaded) of orphaned photos when a submitReport
+    // call fails after the upload succeeds. Owner-delete is low-risk: the photo
+    // is the reporter's own evidence and its EXIF is already copied into the
+    // report doc at submit time.
     match /report_photos/{uid}/{fileName} {
       allow read: if request.auth != null
         && (request.auth.uid == uid || request.auth.token.admin == true);
-      allow write: if request.auth != null
+      allow create, update: if request.auth != null
         && request.auth.uid == uid
         && request.resource.size < 10 * 1024 * 1024
         && request.resource.contentType.matches('image/.*');
+      allow delete: if request.auth != null && request.auth.uid == uid;
     }
 
     // Generated osmChange (.osc) files for accepted reports — server-written,

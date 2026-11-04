@@ -21,22 +21,46 @@ Marker postboxMarker(
       ? Colors.grey
       : (cipher != null ? MonarchInfo.colors[cipher] : null) ?? postalRed;
 
+  // Rare and historic badges paint in the same top-right slot, so guard
+  // against accidental overlap defensively here too — the cross-platform pin
+  // test already asserts the two sets are disjoint, but if a future cipher
+  // ever drifts into both, rare wins (more visually distinctive). Claimed
+  // suppresses both because the checkmark also lives in that slot.
   final isRare = cipher != null && MonarchInfo.rareCiphers.contains(cipher);
-  final isHistoric =
-      cipher != null && MonarchInfo.historicCiphers.contains(cipher);
+  final isHistoric = cipher != null &&
+      !isRare &&
+      MonarchInfo.historicCiphers.contains(cipher);
+
+  // Build a human-readable label for screen readers. Markers were previously
+  // invisible to TalkBack/VoiceOver, so a visually-impaired player using the
+  // map view of the history / heatmap screens had no way to identify
+  // individual pins. Labels reflect what the visual badges convey.
+  final cipherLabel = cipher != null ? (MonarchInfo.labels[cipher] ?? cipher) : null;
+  final parts = <String>[
+    'Postbox',
+    if (cipherLabel != null) cipherLabel,
+    if (isRare && !claimed) 'rare',
+    if (isHistoric && !claimed) 'historic',
+    if (claimed) 'claimed',
+  ];
+  final semanticsLabel = parts.join(', ');
 
   return Marker(
     point: point,
     width: size,
     height: size,
-    child: GestureDetector(
-      onTap: onTap,
-      child: _PostboxPin(
-        color: color,
-        size: size,
-        claimed: claimed,
-        showStar: isRare && !claimed,
-        showHistoric: isHistoric && !claimed,
+    child: Semantics(
+      button: onTap != null,
+      label: semanticsLabel,
+      child: GestureDetector(
+        onTap: onTap,
+        child: _PostboxPin(
+          color: color,
+          size: size,
+          claimed: claimed,
+          showStar: isRare && !claimed,
+          showHistoric: isHistoric && !claimed,
+        ),
       ),
     ),
   );

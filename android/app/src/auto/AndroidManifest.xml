@@ -1,0 +1,54 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Phone build: require touchscreen, exclude TV. -->
+    <uses-feature android:name="android.hardware.touchscreen" android:required="true"/>
+    <uses-feature android:name="android.software.leanback" android:required="false"/>
+
+    <application>
+        <!-- Android Auto surface (quick-claim + stats/leaderboard panes),
+             rendered by the Car App Library. Lives ONLY in the `auto` flavour,
+             which is distributed OUTSIDE Google Play: Play rejected the car app
+             twice under the Auto app-quality guidelines ("no meaningful
+             functionality relevant to driving"), so the Play-bound `phone`
+             flavour ships without it. The `wear` AAB likewise never carries the
+             Car App runtime. -->
+        <meta-data
+            android:name="com.google.android.gms.car.application"
+            android:resource="@xml/automotive_app_desc" />
+        <meta-data
+            android:name="androidx.car.app.minCarApiLevel"
+            android:value="1" />
+        <service
+            android:name=".car.PostboxCarAppService"
+            android:exported="true"
+            android:foregroundServiceType="location">
+            <intent-filter>
+                <action android:name="androidx.car.app.CarAppService" />
+                <category android:name="androidx.car.app.category.POI" />
+            </intent-filter>
+        </service>
+
+        <!-- Invite links (docs/marketing-plan.md, Referral). Phone-side
+             flavours only: the watch never receives a shared link. Merged
+             into MainActivity from src/main. The https filter is an App Link,
+             verified against web/.well-known/assetlinks.json; the custom
+             scheme is the invite page's "Open in the app" fallback. -->
+        <activity
+            android:name="com.code418.postbox_game.MainActivity"
+            android:exported="true">
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" />
+                <data android:host="the-postbox-game.web.app" />
+                <data android:pathPrefix="/invite/" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="postboxgame" android:host="invite" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

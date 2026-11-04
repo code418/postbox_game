@@ -3,9 +3,24 @@ class Validators {
     r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$',
   );
 
-  // Minimum 6 characters, any characters — matches Firebase Auth minimum
+  /// Minimum length for a password. Mirrors Firebase Auth's minimum — emitting
+  /// a "Password must be at least N characters" UI hint when below this also
+  /// matches what `createUserWithEmailAndPassword` would reject server-side
+  /// (`weak-password`). Used by login, register, and settings password fields.
+  static const int minPasswordChars = 6;
+
+  // Minimum N characters, any characters — matches Firebase Auth minimum
   // and the helper text shown in the registration form.
-  static final RegExp _passwordRegExp = RegExp(r'^.{6,}$');
+  static final RegExp _passwordRegExp = RegExp('^.{$minPasswordChars,}\$');
+
+  /// Minimum length for a display name. MUST match the server-side check in
+  /// functions/src/updateDisplayName.ts (`name.length < 2 → invalid-argument`).
+  static const int minDisplayNameChars = 2;
+
+  /// Maximum length for a display name. MUST match the server-side check in
+  /// functions/src/updateDisplayName.ts (`name.length > 30 → invalid-argument`).
+  /// The settings screen's TextField uses this as its `maxLength`.
+  static const int maxDisplayNameChars = 30;
 
   static bool isValidEmail(String email) {
     return _emailRegExp.hasMatch(email);
@@ -39,7 +54,9 @@ class Validators {
 
   static bool isValidDisplayName(String name) {
     final t = name.trim();
-    if (t.length < 2 || t.length > 30) return false;
+    if (t.length < minDisplayNameChars || t.length > maxDisplayNameChars) {
+      return false;
+    }
     final lower = t.toLowerCase();
     for (final word in _blockedWords) {
       if (lower.contains(word)) return false;
@@ -50,8 +67,12 @@ class Validators {
   /// Returns a human-readable reason why a display name is invalid, or null if valid.
   static String? displayNameError(String name) {
     final t = name.trim();
-    if (t.length < 2) return 'Name must be at least 2 characters';
-    if (t.length > 30) return 'Name must be 30 characters or fewer';
+    if (t.length < minDisplayNameChars) {
+      return 'Name must be at least $minDisplayNameChars characters';
+    }
+    if (t.length > maxDisplayNameChars) {
+      return 'Name must be $maxDisplayNameChars characters or fewer';
+    }
     final lower = t.toLowerCase();
     for (final word in _blockedWords) {
       if (lower.contains(word)) return 'That name isn\'t allowed';

@@ -1,9 +1,20 @@
-import { getPoints } from "./_getPoints";
+import { pointsForMonarch } from "./_getPoints";
 import { LookupResult } from "./types";
 
 export interface SlimPostbox {
   monarch?: string;
   claimedToday: boolean;
+  /** Metres from the user's scan position. Present whenever the underlying
+   *  LookupResult computed a distance (always, in current callers). Omitted
+   *  only as a defensive fallback — clients must treat absence as "unknown".
+   *
+   *  Required for the Route Mode auto-claim trigger: it scans at 1 km radius
+   *  for the fuzzy compass, then opens the claim sheet when any returned box
+   *  is within the 30 m claim radius. Privacy impact is bounded — the user
+   *  is at most `meters` from the box (≤ 2 km server cap), and they already
+   *  have their own GPS fix, so multiple coordinated scans would be needed
+   *  to triangulate exact postbox coordinates. */
+  distance?: number;
 }
 
 export interface UserSpecificResult {
@@ -23,17 +34,28 @@ export interface UserSpecificResult {
  * - Recomputes cipher `_claimed` counts and `claimedToday` total for this user.
  * - Recomputes `points` range and `compass` directions using only unclaimed
  *   postboxes so the UI reflects what this user can still claim.
+ *
+ * [pointsFor] resolves a monarch to its point value. It defaults to the
+ * hard-coded table ([pointsForMonarch]); callers pass a Remote-Config-driven
+ * resolver so the displayed "Worth X-Y pts" range matches what startScoring
+ * would actually AWARD (both use resolvePointsForMonarch). Without this, a
+ * Remote Config points rebalance would leave the range headline showing stale
+ * hard-coded values while the per-cipher breakdown and the award both moved.
  */
 export function applyUserClaims(
   full: LookupResult,
-  userClaimedKeys: Set<string>
+  userClaimedKeys: Set<string>,
+  pointsFor: (monarch: string | undefined) => number = pointsForMonarch
 ): UserSpecificResult {
-  // Strip precise location fields; override claimedToday per-user.
+  // Strip precise location fields; override claimedToday per-user. Distance is
+  // carried over so the client can show range cues and so Route Mode can detect
+  // when an unclaimed box is within the claim radius.
   const slimPostboxes: Record<string, SlimPostbox> = {};
   for (const [id, pb] of Object.entries(full.postboxes)) {
     slimPostboxes[id] = {
       ...(pb.monarch !== undefined ? { monarch: pb.monarch } : {}),
       claimedToday: userClaimedKeys.has(id),
+      ...(typeof pb.distance === "number" ? { distance: pb.distance } : {}),
     };
   }
 
@@ -62,7 +84,7 @@ export function applyUserClaims(
   let unclaimedMax = 0;
   for (const [id, pb] of Object.entries(full.postboxes)) {
     if (!userClaimedKeys.has(id)) {
-      const pts = pb.monarch !== undefined ? getPoints(pb.monarch) : 2;
+      const pts = pointsFor(pb.monarch);
       if (pts < unclaimedMin) unclaimedMin = pts;
       if (pts > unclaimedMax) unclaimedMax = pts;
     }

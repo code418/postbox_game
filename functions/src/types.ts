@@ -14,9 +14,20 @@ export interface PostboxDoc {
   /** Admin uid that applied the last accepted cypher correction. */
   correctedBy?: string;
   correctedAt?: unknown;
+  /** True when import_postboxes.js --prune marked this OSM node as no longer
+   *  present in the upstream Overpass extract. Soft-marker only; cleared by any
+   *  subsequent normal write to the doc. Runtime lookups skip these so users
+   *  can't claim a postbox the OSM data says has gone. */
+  removedFromOsm?: boolean;
+  removedFromOsmAt?: unknown;
   distance?: number;
   compass?: { exact?: string };
-  dailyClaim?: { date: string; by: string };
+  // Only the last-claimed London date. The claimant uid is intentionally NOT
+  // stored here — postbox docs are world-readable and carry the exact geopoint,
+  // so a uid would leak claimer location PII (see dailyClaimPatch in
+  // startScoring.ts). Legacy docs may still carry a `by` field until the
+  // scripts/strip_dailyclaim_by cleanup runs; nothing reads it.
+  dailyClaim?: { date: string };
   claimedToday?: boolean;  // attached at query time by lookupPostboxes
   [key: string]: unknown;
 }
@@ -66,4 +77,20 @@ export interface ReportDoc {
   osmStatus?: "not_started" | "changeset_generated" | "changeset_failed";
   osmChangesetPath?: string;
   osmEditUrl?: string;
+  finalMonarch?: string | null;
+  finalReference?: string;
+  // wrong_cypher accept only: what the retroactive rescore did.
+  rescoredClaims?: number;
+  affectedUsers?: number;
+  rescoreTotalDelta?: number;
+  // OSM follow-up bookkeeping (local review dashboard, never the app):
+  osmUploadedAt?: unknown;
+  osmUploadedBy?: string;
+  osmChangesetId?: number;
+  /** The OSM node created from a missing_postbox report, once known, so a
+   *  later import's osm_<id> doc can be matched to its manual_<reportId>. */
+  osmNodeId?: number;
+  osmSkippedAt?: unknown;
+  osmSkippedBy?: string;
+  osmSkipReason?: string;
 }

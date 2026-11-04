@@ -1,16 +1,87 @@
 import assert from "assert";
+import * as admin from "firebase-admin";
 import test from "firebase-functions-test";
 import * as myFunctions from "../index";
+import { filterToCorridor, filterToEllipse, beamSearchOrienteering, metresBetween } from "../_routePlanner";
 import { getPoints } from "../_getPoints";
-import { getTodayLondon } from "../_dateUtils";
+import {
+  sanitiseClaimRadius,
+  parsePointsOverride,
+  resolvePointsForMonarch,
+  getGameConfig,
+  getClaimRadiusMeters,
+  getPointsForMonarch,
+  setConfigLoaderForTest,
+  setConfigLoader,
+  isMissingServerTemplate,
+  clientTemplateFlag,
+  DEFAULT_CLAIM_RADIUS_METERS,
+  sanitiseGraceHours,
+  sanitiseMaxOfflinePerDay,
+  DEFAULT_OFFLINE_GRACE_HOURS,
+  DEFAULT_MAX_OFFLINE_CLAIMS_PER_DAY,
+  type GameConfig,
+} from "../_config";
+
+// Keep every test offline: the real _config loader reads the Remote Config
+// server template over the network. Install a deterministic fallback loader for
+// the whole run so startScoring / _recomputeScores paths resolve to the
+// hard-coded points+radius without a network call; the _config caching tests
+// override it per-test and restore this in afterEach.
+// Offline-tunable defaults for GameConfig stubs (fields added in v1.5).
+const offlineDefaults = {
+  offlineClaimsKilled: false,
+  offlineGraceHours: DEFAULT_OFFLINE_GRACE_HOURS,
+  maxOfflineClaimsPerDay: DEFAULT_MAX_OFFLINE_CLAIMS_PER_DAY,
+  maintenanceMode: false,
+} as const;
+
+const fallbackGameConfig = async (): Promise<GameConfig> => ({
+  claimRadiusMeters: DEFAULT_CLAIM_RADIUS_METERS,
+  pointsOverride: null,
+  ...offlineDefaults,
+});
+before(() => setConfigLoaderForTest(fallbackGameConfig));
+import { getTodayLondon, previousDay, getLondonHourMinute, getLondonDayOf } from "../_dateUtils";
+import { signScanToken, verifyScanToken } from "../_scanToken";
+import {
+  validateFlushBatch,
+  nextQuotaStateBy,
+  MAX_FLUSH_BATCH,
+  MAX_SCAN_DISTANCE_M,
+} from "../flushOfflineClaims";
+import {
+  decideFire,
+  slotForLondonTime,
+  shouldNotifyStreakReminder,
+  streakReminderBody,
+  findStreakReminderRecipients,
+  sendStreakReminders,
+  STREAK_REMINDER_SLOTS,
+} from "../streakReminder";
 import { getWeekStart, getMonthStart, getPeriodKey, mergePeriodEntries, mergeLifetimeEntries, updateUserLeaderboards, countySlug } from "../_leaderboardUtils";
-import { setPrecision, getLatLng } from "../_lookupPostboxes";
+import { setPrecision, getLatLng, MAX_GEOHASH_PRECISION } from "../_lookupPostboxes";
 import { applyUserClaims } from "../_nearbyUtils";
-import { computeNewStreak } from "../_streakUtils";
+import { computeNewStreak, streakFromClaimDays } from "../_streakUtils";
+import { checkNeighbourSpeeds } from "../_travelSpeed";
+import { buildClaimData, travelSpeedEnforcementEnabled, TRAVEL_SPEED_ENFORCEMENT_ENABLED } from "../_claimCore";
 import { containsProfanity } from "../_profanityFilter";
 import { sanitiseName } from "../onUserCreated";
 import { checkTravelSpeed, MAX_METRES_PER_MIN } from "../_travelSpeed";
+import { requireAppCheck, monitorAppCheck, BREAK_GLASS_ENV } from "../_appCheck";
+import {
+  decideAttempt,
+  beginAttempt,
+  completeAttempt,
+  failAttempt,
+  runInAttempt,
+  validateAttemptId,
+  ATTEMPT_IN_PROGRESS_STALE_MS,
+  ATTEMPT_TTL_MS,
+  type AttemptDoc,
+} from "../_attempts";
 import { aggregateClaimHistory, periodStartDate } from "../userClaimHistory";
+import { diffSnapshots, type MigrationSnapshot } from "../_migrationVerify";
 
 // ── Pure utility unit tests (no Firebase required) ────────────────────────────
 
@@ -26,6 +97,202 @@ describe("getPoints", () => {
   it("returns 12 for EVIIIR", () => assert.strictEqual(getPoints("EVIIIR"), 12));
   it("returns 2 (default) for unknown cipher", () => assert.strictEqual(getPoints("UNKNOWN"), 2));
   it("returns 2 (default) for empty string", () => assert.strictEqual(getPoints(""), 2));
+});
+
+describe("_config: sanitiseClaimRadius", () => {
+  it("accepts an in-band value", () => assert.strictEqual(sanitiseClaimRadius(45), 45));
+  it("accepts the lower bound 10", () => assert.strictEqual(sanitiseClaimRadius(10), 10));
+  it("accepts the upper bound 100", () => assert.strictEqual(sanitiseClaimRadius(100), 100));
+  it("falls back below the lower bound", () =>
+    assert.strictEqual(sanitiseClaimRadius(5), DEFAULT_CLAIM_RADIUS_METERS));
+  it("falls back above the upper bound", () =>
+    assert.strictEqual(sanitiseClaimRadius(500), DEFAULT_CLAIM_RADIUS_METERS));
+  it("falls back for non-numbers", () =>
+    assert.strictEqual(sanitiseClaimRadius("30"), DEFAULT_CLAIM_RADIUS_METERS));
+  it("falls back for NaN", () =>
+    assert.strictEqual(sanitiseClaimRadius(NaN), DEFAULT_CLAIM_RADIUS_METERS));
+});
+
+describe("_config: parsePointsOverride", () => {
+  it("parses a valid partial override", () =>
+    assert.deepStrictEqual(parsePointsOverride('{"VR":8}'), { VR: 8 }));
+  it("drops unknown monarch keys", () =>
+    assert.deepStrictEqual(parsePointsOverride('{"VR":8,"BOGUS":3}'), { VR: 8 }));
+  it("rejects wholesale when a value is out of range", () =>
+    assert.strictEqual(parsePointsOverride('{"VR":999}'), null));
+  it("rejects wholesale when a value is below 1", () =>
+    assert.strictEqual(parsePointsOverride('{"VR":0}'), null));
+  it("rejects wholesale for non-integer values", () =>
+    assert.strictEqual(parsePointsOverride('{"VR":7.5}'), null));
+  it("returns null for invalid JSON", () =>
+    assert.strictEqual(parsePointsOverride("not json"), null));
+  it("returns null for an empty string", () =>
+    assert.strictEqual(parsePointsOverride(""), null));
+  it("returns null for a JSON array", () =>
+    assert.strictEqual(parsePointsOverride("[1,2,3]"), null));
+  it("returns an empty map for an empty object", () =>
+    assert.deepStrictEqual(parsePointsOverride("{}"), {}));
+});
+
+describe("_config: resolvePointsForMonarch", () => {
+  const cfg = (pointsOverride: Record<string, number> | null): GameConfig => ({
+    claimRadiusMeters: 30,
+    pointsOverride,
+    ...offlineDefaults,
+  });
+  it("uses the override when present for the monarch", () =>
+    assert.strictEqual(resolvePointsForMonarch(cfg({ VR: 8 }), "VR"), 8));
+  it("falls back to hard-coded when the monarch is not overridden", () =>
+    assert.strictEqual(resolvePointsForMonarch(cfg({ EIIR: 3 }), "VR"), 7));
+  it("falls back to hard-coded when there is no override map", () =>
+    assert.strictEqual(resolvePointsForMonarch(cfg(null), "VR"), 7));
+  it("returns the default 2 for an unknown monarch with no override", () =>
+    assert.strictEqual(resolvePointsForMonarch(cfg(null), "ZZZ"), 2));
+  it("returns 2 for a null monarch", () =>
+    assert.strictEqual(resolvePointsForMonarch(cfg(null), null), 2));
+});
+
+describe("_config: getGameConfig caching", () => {
+  afterEach(() => setConfigLoaderForTest(fallbackGameConfig));
+
+  it("caches within the TTL and refetches after it", async () => {
+    let calls = 0;
+    setConfigLoaderForTest(async () => {
+      calls++;
+      return { claimRadiusMeters: 40 + calls, pointsOverride: null, ...offlineDefaults };
+    });
+    const t0 = 1_000_000;
+    const a = await getGameConfig(t0);
+    const b = await getGameConfig(t0 + 60_000); // within the 5-min TTL
+    assert.strictEqual(calls, 1);
+    assert.strictEqual(a.claimRadiusMeters, b.claimRadiusMeters);
+    const c = await getGameConfig(t0 + 5 * 60 * 1000 + 1); // past the TTL
+    assert.strictEqual(calls, 2);
+    assert.strictEqual(c.claimRadiusMeters, 42);
+  });
+
+  it("getClaimRadiusMeters / getPointsForMonarch read the cached config", async () => {
+    setConfigLoaderForTest(async () => ({
+      claimRadiusMeters: 55,
+      pointsOverride: { VR: 8 },
+      ...offlineDefaults,
+    }));
+    assert.strictEqual(await getClaimRadiusMeters(), 55);
+    assert.strictEqual(await getPointsForMonarch("VR"), 8);
+    assert.strictEqual(await getPointsForMonarch("EIIR"), 2);
+  });
+});
+
+describe("_config: strict loader", () => {
+  afterEach(() => setConfigLoaderForTest(fallbackGameConfig));
+
+  it("a throwing loader propagates through getGameConfig and getPointsForMonarch (no silent fallback)", async () => {
+    setConfigLoader(async () => { throw new Error("remote config unreachable"); });
+    await assert.rejects(() => getGameConfig(), /remote config unreachable/);
+    await assert.rejects(() => getPointsForMonarch("VR"), /remote config unreachable/);
+  });
+
+  it("a failed load is not cached, so the next call retries", async () => {
+    let calls = 0;
+    setConfigLoader(async () => {
+      calls++;
+      if (calls === 1) throw new Error("blip");
+      return { claimRadiusMeters: 30, pointsOverride: { VR: 9 }, ...offlineDefaults };
+    });
+    await assert.rejects(() => getGameConfig(1_000));
+    assert.strictEqual((await getGameConfig(2_000)).pointsOverride?.VR, 9);
+    assert.strictEqual(calls, 2);
+  });
+
+  it("setConfigLoader drops a cached config immediately", async () => {
+    setConfigLoader(async () => ({ claimRadiusMeters: 31, pointsOverride: null, ...offlineDefaults }));
+    assert.strictEqual((await getGameConfig(5_000)).claimRadiusMeters, 31);
+    setConfigLoader(async () => ({ claimRadiusMeters: 32, pointsOverride: null, ...offlineDefaults }));
+    assert.strictEqual((await getGameConfig(5_001)).claimRadiusMeters, 32);
+  });
+});
+
+describe("_config: template helpers", () => {
+  it("isMissingServerTemplate matches only the not-found code", () => {
+    assert.strictEqual(isMissingServerTemplate({ code: "remote-config/not-found" }), true);
+    assert.strictEqual(isMissingServerTemplate({ code: "remote-config/permission-denied" }), false);
+    assert.strictEqual(isMissingServerTemplate(new Error("x")), false);
+    assert.strictEqual(isMissingServerTemplate(null), false);
+  });
+  it("clientTemplateFlag reads an explicit 'true' default only", () => {
+    const t = (defaultValue: unknown) => ({ parameters: { maintenance_mode: { defaultValue } } });
+    assert.strictEqual(clientTemplateFlag(t({ value: "true" }), "maintenance_mode"), true);
+    assert.strictEqual(clientTemplateFlag(t({ value: " TRUE " }), "maintenance_mode"), true);
+    assert.strictEqual(clientTemplateFlag(t({ value: "false" }), "maintenance_mode"), false);
+    assert.strictEqual(clientTemplateFlag(t({ useInAppDefault: true }), "maintenance_mode"), false);
+    assert.strictEqual(clientTemplateFlag({ parameters: {} }, "maintenance_mode"), false);
+    assert.strictEqual(clientTemplateFlag({}, "maintenance_mode"), false);
+  });
+});
+
+describe("diffSnapshots (migration verification)", () => {
+  const snap = (
+    roots: Record<string, number>,
+    groups: Record<string, number> = {},
+  ): MigrationSnapshot => ({
+    project: "the-postbox-game",
+    generatedAt: "2026-06-14T00:00:00.000Z",
+    roots,
+    groups,
+  });
+
+  it("reports ok when every count matches", () => {
+    const r = diffSnapshots(
+      snap({ postbox: 100, claims: 50 }, { entries: 12 }),
+      snap({ postbox: 100, claims: 50 }, { entries: 12 }),
+    );
+    assert.strictEqual(r.ok, true);
+    assert.ok(r.rows.every((row) => row.status === "ok"));
+    assert.ok(r.rows.every((row) => row.delta === 0));
+  });
+
+  it("flags a changed count as a mismatch with the right delta", () => {
+    const r = diffSnapshots(
+      snap({ postbox: 100, claims: 50 }),
+      snap({ postbox: 100, claims: 47 }),
+    );
+    assert.strictEqual(r.ok, false);
+    const claims = r.rows.find((row) => row.name === "claims");
+    assert.strictEqual(claims?.status, "mismatch");
+    assert.strictEqual(claims?.delta, -3);
+    assert.strictEqual(
+      r.rows.find((row) => row.name === "postbox")?.status,
+      "ok",
+    );
+  });
+
+  it("flags a collection present on only one side as missing", () => {
+    const dropped = diffSnapshots(
+      snap({ postbox: 100, reportQuotas: 4 }),
+      snap({ postbox: 100 }),
+    );
+    assert.strictEqual(dropped.ok, false);
+    const rq = dropped.rows.find((row) => row.name === "reportQuotas");
+    assert.strictEqual(rq?.status, "missing");
+    assert.strictEqual(rq?.before, 4);
+    assert.strictEqual(rq?.after, null);
+
+    const added = diffSnapshots(snap({ postbox: 100 }), snap({ postbox: 100, surprise: 1 }));
+    assert.strictEqual(added.ok, false);
+    assert.strictEqual(added.rows.find((row) => row.name === "surprise")?.status, "missing");
+  });
+
+  it("diffs collection groups the same way as root collections", () => {
+    const r = diffSnapshots(
+      snap({}, { entries: 30, countyStats: 9 }),
+      snap({}, { entries: 30, countyStats: 8 }),
+    );
+    assert.strictEqual(r.ok, false);
+    const cs = r.rows.find((row) => row.name === "countyStats");
+    assert.strictEqual(cs?.scope, "group");
+    assert.strictEqual(cs?.status, "mismatch");
+    assert.strictEqual(cs?.delta, -1);
+  });
 });
 
 describe("getTodayLondon", () => {
@@ -140,6 +407,56 @@ describe("mergePeriodEntries", () => {
     const result = mergePeriodEntries(existing, "extra", "Extra", 1);
     assert.strictEqual(result.length, 100);
   });
+
+  it("a new low-score user is excluded when the list is full and they don't make the cut", () => {
+    // The "extra" user at 1 pt is below every existing entry (all at 100..1
+    // descending), so after sort + cap they should be the one sliced off —
+    // not visible in the result at all. Defends against a refactor that
+    // accidentally keeps the upserted user regardless of rank.
+    const existing = Array.from({ length: 100 }, (_, i) => ({
+      uid: `u${i}`, displayName: `U${i}`, points: 100 - i, // 100, 99, ..., 1
+    }));
+    const result = mergePeriodEntries(existing, "extra", "Extra", 1);
+    // Tied with the bottom entry (u99 at 1pt); uid tiebreaker is ascending,
+    // so "extra" sorts BEFORE "u99" and u99 is dropped instead. Either way,
+    // the resulting list has exactly 100 entries.
+    assert.strictEqual(result.length, 100);
+    // Stricter: drop the entry whose uid sorts last — u99 < "extra" so u99
+    // remains and "extra" is excluded.
+    // (Verifying by checking that the bottom-most kept entry is "extra"
+    // would assume the opposite tiebreaker — pin the actual ordering.)
+    const uids = new Set(result.map((e) => e.uid));
+    assert.ok(uids.has("extra"), '"extra" sorts before "u99" by uid asc and is kept');
+    assert.ok(!uids.has("u99"), '"u99" is dropped because "extra" beats it on uid asc tiebreak');
+  });
+
+  it("a NEW user well below the cut is excluded entirely", () => {
+    // 100 existing users all tied at 10 pts. A new user at 5 pts sorts below
+    // every existing one (lower score) — after the cap they should not appear.
+    const existing = Array.from({ length: 100 }, (_, i) => ({
+      uid: `u${i.toString().padStart(2, "0")}`, displayName: `U${i}`, points: 10,
+    }));
+    const result = mergePeriodEntries(existing, "newcomer", "Newcomer", 5);
+    assert.strictEqual(result.length, 100);
+    assert.ok(!result.some((e) => e.uid === "newcomer"),
+      "newcomer below the cap should not appear at all");
+  });
+
+  it("breaks point ties deterministically by uid ascending", () => {
+    // Three users on identical points — ordering must be stable across
+    // repeated merge calls so the leaderboard does not visibly reshuffle on
+    // every refresh.
+    const charlie = { uid: "c", displayName: "Charlie", points: 10 };
+    const alice   = { uid: "a", displayName: "Alice",   points: 10 };
+    const result = mergePeriodEntries([charlie], "a", "Alice", 10);
+    assert.strictEqual(result[0].uid, "a");
+    assert.strictEqual(result[1].uid, "c");
+    // And it is order-independent: inserting in the reverse direction yields
+    // the same ranking.
+    const result2 = mergePeriodEntries([alice], "c", "Charlie", 10);
+    assert.strictEqual(result2[0].uid, "a");
+    assert.strictEqual(result2[1].uid, "c");
+  });
 });
 
 describe("mergeLifetimeEntries", () => {
@@ -191,6 +508,17 @@ describe("mergeLifetimeEntries", () => {
     assert.strictEqual(result[1].uid, "c");   // 10 boxes, 30 pts
   });
 
+  it("uniqueBoxes outranks totalPoints (collection beats grinding)", () => {
+    // The lifetime sort is "most unique boxes first, points only as tiebreaker"
+    // — pin the priority so a future change to mergeLifetimeEntries can't
+    // silently flip it back to points-first without failing a test.
+    // grinder has fewer unique boxes but vastly more points.
+    const grinder = { uid: "g", displayName: "Grinder", uniquePostboxesClaimed: 3, totalPoints: 999 };
+    const result = mergeLifetimeEntries([grinder], "c", "Collector", 10, 30);
+    assert.strictEqual(result[0].uid, "c", "Collector (10 boxes) ranks above Grinder (3 boxes, 999 pts)");
+    assert.strictEqual(result[1].uid, "g");
+  });
+
   it("caps at the given limit", () => {
     const existing = Array.from({ length: 3 }, (_, i) => ({
       uid: `u${i}`, displayName: `User${i}`,
@@ -201,9 +529,35 @@ describe("mergeLifetimeEntries", () => {
     assert.strictEqual(result[0].uid, "new");
   });
 
+  it("a new low-score user is excluded entirely when below the cap", () => {
+    // 3 existing users with 10/9/8 boxes; a newcomer with 1 box sorts last
+    // and must be dropped by the cap rather than displacing a higher-ranked
+    // entry. Mirrors the equivalent mergePeriodEntries regression.
+    const existing = Array.from({ length: 3 }, (_, i) => ({
+      uid: `u${i}`, displayName: `User${i}`,
+      uniquePostboxesClaimed: 10 - i, totalPoints: 100 - i * 10,
+    }));
+    const result = mergeLifetimeEntries(existing, "newcomer", "Newcomer", 1, 5, 3);
+    assert.strictEqual(result.length, 3);
+    assert.ok(!result.some((e) => e.uid === "newcomer"),
+      "newcomer below the cap should not appear at all");
+  });
+
   it("updates displayName when upserted", () => {
     const result = mergeLifetimeEntries([alice], "a", "Alice v2", 10, 50);
     assert.strictEqual(result[0].displayName, "Alice v2");
+  });
+
+  it("breaks full ties (boxes and points) deterministically by uid ascending", () => {
+    // Two users on identical boxes AND identical points — order must be
+    // stable across repeated merges so the leaderboard does not reshuffle.
+    const carol = { uid: "c", displayName: "Carol", uniquePostboxesClaimed: 10, totalPoints: 50 };
+    const result = mergeLifetimeEntries([carol], "a", "Alice", 10, 50);
+    assert.strictEqual(result[0].uid, "a");
+    assert.strictEqual(result[1].uid, "c");
+    const result2 = mergeLifetimeEntries([{ uid: "a", displayName: "Alice", uniquePostboxesClaimed: 10, totalPoints: 50 }], "c", "Carol", 10, 50);
+    assert.strictEqual(result2[0].uid, "a");
+    assert.strictEqual(result2[1].uid, "c");
   });
 });
 
@@ -463,6 +817,37 @@ describe("setPrecision", () => {
   it("returns 4 for 10 km radius", () => assert.strictEqual(setPrecision(10), 4));
   it("returns 2 for 500 km radius", () => assert.strictEqual(setPrecision(500), 2));
   it("returns 1 for very large radius (>625 km)", () => assert.strictEqual(setPrecision(1000), 1));
+
+  // Defensive edge cases — callers shouldn't pass these but the function
+  // must degrade safely rather than throw or pick a wide-open precision.
+  it("returns 9 (max) for radius 0 — narrow query is safer than wide", () => {
+    assert.strictEqual(setPrecision(0), 9);
+  });
+  it("returns 9 (max) for a tiny negative radius — same defensive narrow query", () => {
+    // A negative radius is nonsense but mustn't blow up; precision-9 is the
+    // safest choice (smallest cell, fewest reads).
+    assert.strictEqual(setPrecision(-0.001), 9);
+  });
+  it("returns 1 (max-coverage fallback) for NaN — NaN<=x is always false", () => {
+    // Comparisons against NaN are always false, so the cascade falls through
+    // to the final return-1 branch. Documents that the function is
+    // conservatively wide-open for unparseable input rather than throwing.
+    assert.strictEqual(setPrecision(Number.NaN), 1);
+  });
+
+  it("MAX_GEOHASH_PRECISION === 9 (the canonical stored precision)", () => {
+    // Pin the export. import_postboxes.js and reports.ts both rely on this
+    // being 9 — drift here means prefix queries silently miss documents
+    // (their fixed 9-char prefix can't match stored 8-char hashes, etc.).
+    assert.strictEqual(MAX_GEOHASH_PRECISION, 9);
+  });
+
+  it("MAX_GEOHASH_PRECISION equals setPrecision's smallest-radius return", () => {
+    // setPrecision's first branch returns MAX_GEOHASH_PRECISION; if anyone
+    // bumps the constant they MUST update the branch (and the comment
+    // talking about 4.77m × 4.77m cells).
+    assert.strictEqual(setPrecision(0.001), MAX_GEOHASH_PRECISION);
+  });
 });
 
 describe("getLatLng", () => {
@@ -554,6 +939,28 @@ describe("sanitiseName", () => {
   });
 });
 
+// ── Display-name length pin ──────────────────────────────────────────────────
+// Cross-platform contract: lib/validators.dart's minDisplayNameChars and
+// maxDisplayNameChars MUST match these. The Dart side has its own pinning
+// test against the literal values 2 and 30 (and so does sanitiseName above);
+// pinning the named TS constants here means the values can only be changed
+// by editing this assertion, which is a much louder signal than editing an
+// implicit literal.
+//
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const profanityModule = require("../_profanityFilter") as {
+  MIN_DISPLAY_NAME_CHARS: number;
+  MAX_DISPLAY_NAME_CHARS: number;
+};
+describe("display-name length constants (cross-platform contract)", () => {
+  it("MIN_DISPLAY_NAME_CHARS is 2", () => {
+    assert.strictEqual(profanityModule.MIN_DISPLAY_NAME_CHARS, 2);
+  });
+  it("MAX_DISPLAY_NAME_CHARS is 30", () => {
+    assert.strictEqual(profanityModule.MAX_DISPLAY_NAME_CHARS, 30);
+  });
+});
+
 describe("containsProfanity", () => {
   it("returns false for a clean name", () => assert.strictEqual(containsProfanity("Alice"), false));
   it("returns false for a clean multi-word name", () => assert.strictEqual(containsProfanity("Postbox Pete"), false));
@@ -565,6 +972,39 @@ describe("containsProfanity", () => {
   it("returns false for an empty string", () => assert.strictEqual(containsProfanity(""), false));
   it("returns false for whitespace-only string", () => assert.strictEqual(containsProfanity("   "), false));
   it("returns true for slur 'paki'", () => assert.strictEqual(containsProfanity("paki"), true));
+
+  // ── Scunthorpe-problem regressions ─────────────────────────────────────────
+  // The comment in _profanityFilter.ts explicitly lists "arse", "cock",
+  // "dick", "mong", and "spic" as words that were REMOVED from the block
+  // list because their substring match flagged legitimate names. Pin those
+  // legitimate names so a future "tighten the filter" PR can't silently
+  // re-block real users.
+  it("allows 'Richard' (would trip an old 'dick' rule)", () =>
+    assert.strictEqual(containsProfanity("Richard"), false));
+  it("allows 'Dickson' surname", () =>
+    assert.strictEqual(containsProfanity("Dickson"), false));
+  it("allows 'Cockburn' surname (Scottish)", () =>
+    assert.strictEqual(containsProfanity("Cockburn"), false));
+  it("allows 'Hancock' surname", () =>
+    assert.strictEqual(containsProfanity("Hancock"), false));
+  it("allows 'peacock' (and Peacock surname)", () => {
+    assert.strictEqual(containsProfanity("peacock"), false);
+    assert.strictEqual(containsProfanity("Peacock"), false);
+  });
+  it("allows 'Arsenal'", () =>
+    assert.strictEqual(containsProfanity("Arsenal"), false));
+  it("allows 'parser' (would trip an old 'arse' rule)", () =>
+    assert.strictEqual(containsProfanity("parser"), false));
+  it("allows 'Mongolia' (would trip an old 'mong' rule)", () =>
+    assert.strictEqual(containsProfanity("Mongolia"), false));
+  it("allows 'among' and 'monger'", () => {
+    assert.strictEqual(containsProfanity("among"), false);
+    assert.strictEqual(containsProfanity("monger"), false);
+  });
+  it("allows 'spice' and 'suspicion' (would trip an old 'spic' rule)", () => {
+    assert.strictEqual(containsProfanity("spice"), false);
+    assert.strictEqual(containsProfanity("suspicion"), false);
+  });
 });
 
 describe("checkTravelSpeed", () => {
@@ -638,18 +1078,832 @@ describe("checkTravelSpeed", () => {
   });
 });
 
+describe("offline abuse signals (v1.5, shadow mode)", () => {
+  describe("queuedTooLongSignal", () => {
+    const GRACE = 36 * 3600_000;
+    it("does not flag a promptly-flushed capture", () => {
+      const r = queuedTooLongSignal(3600_000, GRACE);
+      assert.strictEqual(r.flagged, false);
+    });
+    it("flags a capture flushed near the grace ceiling", () => {
+      const r = queuedTooLongSignal(GRACE - 3600_000, GRACE);
+      assert.strictEqual(r.flagged, true);
+    });
+    it("is unflagged when inputs are absent/invalid", () => {
+      assert.strictEqual(queuedTooLongSignal(undefined, GRACE).flagged, false);
+      assert.strictEqual(queuedTooLongSignal(NaN, GRACE).flagged, false);
+    });
+  });
+
+  describe("computeBatchSpeedCv + constantBatchSpeedSignal", () => {
+    const mPerDegLat = 111_320;
+    const pt = (northM: number, tMs: number) =>
+      ({ lat: 51.5 + northM / mPerDegLat, lng: -0.1, tMs });
+
+    it("returns undefined for fewer than 3 points", () => {
+      assert.strictEqual(computeBatchSpeedCv([pt(0, 0), pt(100, 60_000)]), undefined);
+    });
+
+    it("a synthesised constant-speed trace has near-zero CV and flags", () => {
+      // 100 m per minute, four legs, metronome-regular.
+      const cv = computeBatchSpeedCv([
+        pt(0, 0), pt(100, 60_000), pt(200, 120_000), pt(300, 180_000), pt(400, 240_000),
+      ]);
+      assert.ok(cv !== undefined && cv < 0.05, `cv=${cv}`);
+      assert.strictEqual(constantBatchSpeedSignal(cv, 5).flagged, true);
+    });
+
+    it("a human-shaped trace (stops, varying pace) does not flag", () => {
+      // Walk, long pause at a box, brisk leg, dawdle.
+      const cv = computeBatchSpeedCv([
+        pt(0, 0), pt(80, 60_000), pt(90, 600_000), pt(400, 780_000), pt(430, 1_000_000),
+      ]);
+      assert.ok(cv !== undefined && cv > 0.3, `cv=${cv}`);
+      assert.strictEqual(constantBatchSpeedSignal(cv, 5).flagged, false);
+    });
+
+    it("a stationary batch (all captures at one spot) never flags", () => {
+      const cv = computeBatchSpeedCv([pt(0, 0), pt(1, 60_000), pt(0, 120_000), pt(1, 180_000)]);
+      // Zero-ish speeds: cv is undefined (mean too small) or the signal
+      // declines to flag.
+      if (cv !== undefined) {
+        assert.strictEqual(constantBatchSpeedSignal(cv, 4).flagged, false);
+      }
+    });
+
+    it("small batches never flag regardless of CV", () => {
+      assert.strictEqual(constantBatchSpeedSignal(0.0, 2).flagged, false);
+    });
+  });
+
+  describe("evaluateClaimSignals offline wiring", () => {
+    it("offline claims use flushClientTsMs for the out-of-window signal", () => {
+      const serverTs = 1_800_000_000_000;
+      // Capture-time clientTsMs is HOURS off serverTs (that's the point of
+      // offline) but the flush-time clock agrees — must NOT flag.
+      const r = evaluateClaimSignals({
+        travelSpeedMPerMin: 50,
+        serverTsMs: serverTs,
+        clientTsMs: serverTs - 10 * 3600_000,
+        offline: true,
+        flushClientTsMs: serverTs + 5_000,
+        coordRepeatCount: 0,
+        distinctDeviceAccounts: 0,
+      });
+      assert.ok(!r.reasons.includes("out_of_window"));
+    });
+
+    it("offline claims with a skewed flush clock DO flag out_of_window", () => {
+      const serverTs = 1_800_000_000_000;
+      const r = evaluateClaimSignals({
+        serverTsMs: serverTs,
+        offline: true,
+        flushClientTsMs: serverTs - 3 * 3600_000, // tampered device clock
+        coordRepeatCount: 0,
+        distinctDeviceAccounts: 0,
+      });
+      assert.ok(r.reasons.includes("out_of_window"));
+    });
+
+    it("new offline signals surface as reasons", () => {
+      const r = evaluateClaimSignals({
+        serverTsMs: 1_800_000_000_000,
+        offline: true,
+        queuedForMs: 35 * 3600_000,
+        graceMs: 36 * 3600_000,
+        batchSize: 5,
+        batchSpeedCv: 0.02,
+        coordRepeatCount: 0,
+        distinctDeviceAccounts: 0,
+      });
+      assert.ok(r.reasons.includes("queued_near_ceiling"), r.reasons.join(","));
+      assert.ok(r.reasons.includes("constant_batch_speed"), r.reasons.join(","));
+    });
+
+    it("live claims are untouched by the offline inputs", () => {
+      const serverTs = 1_800_000_000_000;
+      const r = evaluateClaimSignals({
+        serverTsMs: serverTs,
+        clientTsMs: serverTs + 1_000,
+        coordRepeatCount: 0,
+        distinctDeviceAccounts: 0,
+      });
+      assert.deepStrictEqual(r.reasons, []);
+    });
+  });
+});
+
+describe("getLondonDayOf (v1.5 backdated claim days)", () => {
+  it("formats an arbitrary instant as a London calendar day", () => {
+    // 2026-01-15 23:30 UTC in GMT (winter) is still Jan 15 in London.
+    assert.strictEqual(getLondonDayOf(new Date("2026-01-15T23:30:00Z")), "2026-01-15");
+  });
+  it("handles the BST offset (summer): 23:30 UTC is the NEXT London day", () => {
+    assert.strictEqual(getLondonDayOf(new Date("2026-07-15T23:30:00Z")), "2026-07-16");
+  });
+  it("agrees with getTodayLondon for now", () => {
+    assert.strictEqual(getLondonDayOf(new Date()), getTodayLondon());
+  });
+});
+
+describe("scan token sign/verify (v1.5 offline capture token)", () => {
+  const SECRET = "test-secret-0123456789abcdef";
+  const payload = {
+    uid: "u1",
+    lat: 51.5,
+    lng: -0.12,
+    issuedAtMs: 1_800_000_000_000,
+    nonce: "abc123",
+  };
+
+  it("round-trips a signed token back to its payload", () => {
+    const token = signScanToken(payload, SECRET);
+    assert.strictEqual(typeof token, "string");
+    const back = verifyScanToken(token, "u1", SECRET);
+    assert.deepStrictEqual(back, payload);
+  });
+
+  it("rejects a tampered token", () => {
+    const token = signScanToken(payload, SECRET);
+    // Flip a character in the body half.
+    const tampered = token.replace(/^./, token[0] === "A" ? "B" : "A");
+    assert.strictEqual(verifyScanToken(tampered, "u1", SECRET), null);
+  });
+
+  it("rejects a token signed with a different secret", () => {
+    const token = signScanToken(payload, "other-secret");
+    assert.strictEqual(verifyScanToken(token, "u1", SECRET), null);
+  });
+
+  it("rejects a token presented by a different uid", () => {
+    const token = signScanToken(payload, SECRET);
+    assert.strictEqual(verifyScanToken(token, "u2", SECRET), null);
+  });
+
+  it("rejects garbage tokens without throwing", () => {
+    for (const junk of ["", "not-a-token", "a.b.c", "AA.BB"]) {
+      assert.strictEqual(verifyScanToken(junk, "u1", SECRET), null);
+    }
+  });
+});
+
+describe("offline config sanitisers (v1.5)", () => {
+  it("grace hours: in-band values pass, out-of-band fall back", () => {
+    assert.strictEqual(sanitiseGraceHours(48), 48);
+    assert.strictEqual(sanitiseGraceHours(0), DEFAULT_OFFLINE_GRACE_HOURS);
+    assert.strictEqual(sanitiseGraceHours(1000), DEFAULT_OFFLINE_GRACE_HOURS);
+    assert.strictEqual(sanitiseGraceHours(NaN), DEFAULT_OFFLINE_GRACE_HOURS);
+    assert.strictEqual(sanitiseGraceHours("36"), DEFAULT_OFFLINE_GRACE_HOURS);
+    assert.strictEqual(sanitiseGraceHours(undefined), DEFAULT_OFFLINE_GRACE_HOURS);
+  });
+  it("max offline claims/day: in-band passes, out-of-band falls back", () => {
+    assert.strictEqual(sanitiseMaxOfflinePerDay(50), 50);
+    assert.strictEqual(sanitiseMaxOfflinePerDay(0), DEFAULT_MAX_OFFLINE_CLAIMS_PER_DAY);
+    assert.strictEqual(sanitiseMaxOfflinePerDay(9999), DEFAULT_MAX_OFFLINE_CLAIMS_PER_DAY);
+    assert.strictEqual(sanitiseMaxOfflinePerDay(1.5), DEFAULT_MAX_OFFLINE_CLAIMS_PER_DAY);
+  });
+});
+
+describe("validateFlushBatch (v1.5 flush pre-checks, pure)", () => {
+  const SECRET = "flush-test-secret";
+  const NOW = 1_800_000_000_000;
+  const GRACE_MS = 36 * 3600_000;
+  const scanAt = (issuedAtMs: number, lat = 51.5, lng = -0.12) =>
+    signScanToken({ uid: "u1", lat, lng, issuedAtMs, nonce: "n1" }, SECRET);
+  const ctx = {
+    uid: "u1",
+    nowMs: NOW,
+    graceMs: GRACE_MS,
+    verifyToken: (t: string) => verifyScanToken(t, "u1", SECRET),
+  };
+
+  it("accepts a plausible in-window batch", () => {
+    const t = scanAt(NOW - 600_000);
+    const verdicts = validateFlushBatch([
+      { scanId: t, lat: 51.5, lng: -0.12, capturedAtMs: NOW - 500_000 },
+      { scanId: t, lat: 51.5005, lng: -0.12, capturedAtMs: NOW - 400_000 },
+    ], ctx);
+    assert.deepStrictEqual(verdicts.map((v) => v.ok), [true, true]);
+  });
+
+  it("rejects an invalid token", () => {
+    const verdicts = validateFlushBatch([
+      { scanId: "garbage", lat: 51.5, lng: -0.12, capturedAtMs: NOW - 500 },
+    ], ctx);
+    assert.strictEqual(verdicts[0].ok, false);
+    assert.strictEqual(verdicts[0].reason, "bad_token");
+  });
+
+  it("rejects a capture before the token was issued (timeline shift attack)", () => {
+    const t = scanAt(NOW - 600_000);
+    const verdicts = validateFlushBatch([
+      { scanId: t, lat: 51.5, lng: -0.12, capturedAtMs: NOW - 700_000 },
+    ], ctx);
+    assert.strictEqual(verdicts[0].reason, "before_scan");
+  });
+
+  it("rejects a capture from the future", () => {
+    const t = scanAt(NOW - 600_000);
+    const verdicts = validateFlushBatch([
+      { scanId: t, lat: 51.5, lng: -0.12, capturedAtMs: NOW + 60_000 },
+    ], ctx);
+    assert.strictEqual(verdicts[0].reason, "future_capture");
+  });
+
+  it("rejects a capture older than the grace window", () => {
+    const t = scanAt(NOW - GRACE_MS - 7_200_000);
+    const verdicts = validateFlushBatch([
+      { scanId: t, lat: 51.5, lng: -0.12, capturedAtMs: NOW - GRACE_MS - 3_600_000 },
+    ], ctx);
+    assert.strictEqual(verdicts[0].reason, "expired");
+  });
+
+  it("rejects a capture far from the scan position", () => {
+    const t = scanAt(NOW - 600_000, 51.5, -0.12);
+    const verdicts = validateFlushBatch([
+      // ~1.1 km north of the scan point.
+      { scanId: t, lat: 51.51, lng: -0.12, capturedAtMs: NOW - 500_000 },
+    ], ctx);
+    assert.strictEqual(verdicts[0].reason, "too_far_from_scan");
+  });
+
+  it("flags non-monotonic capture ordering", () => {
+    const t = scanAt(NOW - 600_000);
+    const verdicts = validateFlushBatch([
+      { scanId: t, lat: 51.5, lng: -0.12, capturedAtMs: NOW - 300_000 },
+      { scanId: t, lat: 51.5005, lng: -0.12, capturedAtMs: NOW - 400_000 },
+    ], ctx);
+    assert.strictEqual(verdicts[0].ok, true);
+    assert.strictEqual(verdicts[1].reason, "non_monotonic");
+  });
+});
+
+describe("nextQuotaStateBy (v1.5 flush quota, pure)", () => {
+  it("fresh day: grants up to the requested count", () => {
+    const r = nextQuotaStateBy(undefined, "2026-07-21", 30, 5);
+    assert.strictEqual(r.allowed, 5);
+    assert.deepStrictEqual(r.state, { date: "2026-07-21", count: 5 });
+  });
+
+  it("rolls the counter on a new day", () => {
+    const r = nextQuotaStateBy({ date: "2026-07-20", count: 29 }, "2026-07-21", 30, 3);
+    assert.strictEqual(r.allowed, 3);
+    assert.deepStrictEqual(r.state, { date: "2026-07-21", count: 3 });
+  });
+
+  it("grants partially when the batch would cross the cap", () => {
+    const r = nextQuotaStateBy({ date: "2026-07-21", count: 28 }, "2026-07-21", 30, 5);
+    assert.strictEqual(r.allowed, 2);
+    assert.deepStrictEqual(r.state, { date: "2026-07-21", count: 30 });
+  });
+
+  it("grants nothing at the cap and does not overrun the counter", () => {
+    const r = nextQuotaStateBy({ date: "2026-07-21", count: 30 }, "2026-07-21", 30, 4);
+    assert.strictEqual(r.allowed, 0);
+    assert.deepStrictEqual(r.state, { date: "2026-07-21", count: 30 });
+  });
+});
+
+describe("flushOfflineClaims callable shape (v1.5)", () => {
+  it("caps the batch size constant sensibly", () => {
+    assert.ok(MAX_FLUSH_BATCH >= 5 && MAX_FLUSH_BATCH <= 50);
+    assert.ok(MAX_SCAN_DISTANCE_M >= 100 && MAX_SCAN_DISTANCE_M <= 1000);
+  });
+});
+
+describe("streakFromClaimDays (v1.5 offline flush streak repair)", () => {
+  // computeNewStreak is forward-only: a live claim on Wed landing BEFORE a
+  // Tue-dated flush resets the streak to 1 with no repair. The flush path
+  // recomputes from the user's distinct claim days instead.
+  it("returns zero state for no claim days", () => {
+    assert.deepStrictEqual(
+      streakFromClaimDays([], "2026-07-21"),
+      { lastClaimDate: undefined, streak: 0 });
+  });
+
+  it("single day yields a streak of 1", () => {
+    assert.deepStrictEqual(
+      streakFromClaimDays(["2026-07-20"], "2026-07-21"),
+      { lastClaimDate: "2026-07-20", streak: 1 });
+  });
+
+  it("counts a consecutive run ending at the most recent day", () => {
+    assert.deepStrictEqual(
+      streakFromClaimDays(["2026-07-18", "2026-07-19", "2026-07-20"], "2026-07-21"),
+      { lastClaimDate: "2026-07-20", streak: 3 });
+  });
+
+  it("a gap resets the run (only the trailing run counts)", () => {
+    assert.deepStrictEqual(
+      streakFromClaimDays(["2026-07-15", "2026-07-16", "2026-07-19", "2026-07-20"], "2026-07-21"),
+      { lastClaimDate: "2026-07-20", streak: 2 });
+  });
+
+  it("input order does not matter (out-of-order flush arrival)", () => {
+    assert.deepStrictEqual(
+      streakFromClaimDays(["2026-07-20", "2026-07-18", "2026-07-19"], "2026-07-21"),
+      { lastClaimDate: "2026-07-20", streak: 3 });
+  });
+
+  it("the backdated-fill scenario: a flush plugs the hole and SAVES the streak", () => {
+    // Live claims Mon+Wed, then a Tue-dated offline claim flushes late.
+    assert.deepStrictEqual(
+      streakFromClaimDays(["2026-07-20", "2026-07-22", "2026-07-21"], "2026-07-22"),
+      { lastClaimDate: "2026-07-22", streak: 3 });
+  });
+
+  it("deduplicates repeated days (multiple boxes claimed the same day)", () => {
+    assert.deepStrictEqual(
+      streakFromClaimDays(["2026-07-20", "2026-07-20", "2026-07-19"], "2026-07-21"),
+      { lastClaimDate: "2026-07-20", streak: 2 });
+  });
+
+  it("ignores days after today (defensive against bad data)", () => {
+    assert.deepStrictEqual(
+      streakFromClaimDays(["2026-07-20", "2026-07-25"], "2026-07-21"),
+      { lastClaimDate: "2026-07-20", streak: 1 });
+  });
+
+  it("crosses a month boundary correctly", () => {
+    assert.deepStrictEqual(
+      streakFromClaimDays(["2026-06-30", "2026-07-01"], "2026-07-02"),
+      { lastClaimDate: "2026-07-01", streak: 2 });
+  });
+});
+
+describe("travelSpeedEnforcementEnabled (2026-07-24 kill switch)", () => {
+  // The hard travel-speed reject was gated behind this flag so its real-world
+  // behaviour could be observed before re-enabling. Only the pure
+  // checkNeighbourSpeeds helper had tests, which still pass whether the reject
+  // is wired up or not — so nothing pinned the flag itself. These do, in both
+  // directions, so that re-enabling is a deliberate and verified act rather
+  // than a hopeful one.
+  it("is OFF when the env var is absent — the shipped default", () => {
+    assert.strictEqual(travelSpeedEnforcementEnabled({}), false);
+  });
+
+  it('is ON only for "on", case-insensitively', () => {
+    for (const v of ["on", "ON", "On", "oN"]) {
+      assert.strictEqual(travelSpeedEnforcementEnabled({ TRAVEL_SPEED_ENFORCEMENT: v }), true, v);
+    }
+  });
+
+  it("treats anything else as off rather than guessing", () => {
+    // "true"/"1"/"yes" deliberately do NOT enable it: a half-recognised value
+    // silently enforcing would be worse than one that visibly does nothing.
+    for (const v of ["off", "", "true", "1", "yes", "enabled", " on "]) {
+      assert.strictEqual(travelSpeedEnforcementEnabled({ TRAVEL_SPEED_ENFORCEMENT: v }), false, v);
+    }
+  });
+
+  it("the module-level constant matches the resolved env at load time", () => {
+    assert.strictEqual(TRAVEL_SPEED_ENFORCEMENT_ENABLED, travelSpeedEnforcementEnabled(process.env));
+  });
+});
+
+describe("checkNeighbourSpeeds (v1.5 two-sided travel check)", () => {
+  // ~degree of latitude in metres, matching the checkTravelSpeed suite.
+  const mPerDegLat = 111_320;
+  const at = (metresNorth: number, tMs: number) => ({
+    lat: 51.5 + metresNorth / mPerDegLat,
+    lng: -0.1,
+    tMs,
+  });
+
+  it("accepts with no neighbours (first claim)", () => {
+    const r = checkNeighbourSpeeds(at(0, 1_000_000));
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(r.speedPrev, undefined);
+    assert.strictEqual(r.speedNext, undefined);
+  });
+
+  it("accepts a plausible insert between two neighbours", () => {
+    // 80 m in 60 s on each side — walking pace.
+    const r = checkNeighbourSpeeds(
+      at(80, 1_060_000),
+      at(0, 1_000_000),
+      at(160, 1_120_000),
+    );
+    assert.strictEqual(r.ok, true);
+    assert.ok(r.speedPrev !== undefined && r.speedPrev < 100);
+    assert.ok(r.speedNext !== undefined && r.speedNext < 100);
+  });
+
+  it("rejects an implausible speed against the PREVIOUS neighbour", () => {
+    // 50 km in one minute from the previous claim.
+    const r = checkNeighbourSpeeds(at(50_000, 1_060_000), at(0, 1_000_000));
+    assert.strictEqual(r.ok, false);
+  });
+
+  it("rejects an implausible speed against the NEXT neighbour (backdating)", () => {
+    // Claim backdated to just before a known distant live claim: 50 km gap,
+    // one minute apart. One-sided checks miss exactly this.
+    const r = checkNeighbourSpeeds(
+      at(0, 1_000_000),
+      undefined,
+      at(50_000, 1_060_000),
+    );
+    assert.strictEqual(r.ok, false);
+  });
+
+  it("prev-only check still enforces (the live-claim shape)", () => {
+    const r = checkNeighbourSpeeds(at(80, 1_060_000), at(0, 1_000_000));
+    assert.strictEqual(r.ok, true);
+    assert.ok(r.speedPrev !== undefined);
+    assert.strictEqual(r.speedNext, undefined);
+  });
+});
+
+describe("buildClaimData (v1.5 claim doc construction)", () => {
+  const ts = admin.firestore.Timestamp.fromMillis(1_800_000_000_000);
+  const base = {
+    userid: "u1",
+    postboxKey: "osm_123",
+    points: 7,
+    claimDate: "2026-07-21",
+    lat: 51.5,
+    lng: -0.1,
+    timestamp: ts,
+    eventTime: ts,
+  };
+
+  it("live claim: eventTime equals the server timestamp, no offline fields", () => {
+    const d = buildClaimData(base);
+    assert.strictEqual(d.timestamp, ts);
+    assert.strictEqual(d.eventTime, ts);
+    assert.strictEqual(d.userid, "u1");
+    assert.strictEqual(d.postboxes, "/postbox/osm_123");
+    assert.strictEqual(d.points, 7);
+    assert.strictEqual(d.dailyDate, "2026-07-21");
+    assert.ok(!("offline" in d));
+    assert.ok(!("queuedForMs" in d));
+    assert.ok(!("monarch" in d), "absent monarch must be omitted");
+    assert.ok(!("clientTsMs" in d));
+    assert.ok(!("deviceIdHash" in d));
+    assert.ok(!("travelSpeed" in d));
+  });
+
+  it("includes optional shadow-signal fields only when provided", () => {
+    const d = buildClaimData({
+      ...base,
+      monarch: "VR",
+      clientTsMs: 123,
+      travelSpeed: 45.6,
+      deviceIdHash: "abc",
+    });
+    assert.strictEqual(d.monarch, "VR");
+    assert.strictEqual(d.clientTsMs, 123);
+    assert.strictEqual(d.travelSpeed, 45.6);
+    assert.strictEqual(d.deviceIdHash, "abc");
+  });
+
+  it("offline claim: server-derived offline flag + queue metadata", () => {
+    const evt = admin.firestore.Timestamp.fromMillis(1_799_990_000_000);
+    const d = buildClaimData({
+      ...base,
+      eventTime: evt,
+      offline: {
+        queuedForMs: 10_000_000,
+        batchSize: 3,
+        batchSpanMs: 600_000,
+        flushClientTsMs: 1_800_000_000_500,
+      },
+    });
+    assert.strictEqual(d.offline, true);
+    assert.strictEqual(d.eventTime, evt);
+    assert.strictEqual(d.queuedForMs, 10_000_000);
+    assert.strictEqual(d.batchSize, 3);
+    assert.strictEqual(d.batchSpanMs, 600_000);
+    assert.strictEqual(d.flushClientTsMs, 1_800_000_000_500);
+  });
+
+  it("writes the rounded coordKey6 for the clustering signal", () => {
+    const d = buildClaimData(base);
+    assert.strictEqual(d.coordKey6, "51.500000,-0.100000");
+  });
+});
+
+describe("requireAppCheck / monitorAppCheck (v1.5 App Check enforcement)", () => {
+  it("passes silently when the request carries a verified app", () => {
+    assert.doesNotThrow(() => requireAppCheck({ app: { appId: "1:2:android:abc" } }, {}));
+  });
+
+  it("throws failed-precondition when request.app is absent", () => {
+    try {
+      requireAppCheck({}, {});
+      assert.fail("expected failed-precondition");
+    } catch (e: unknown) {
+      assert.strictEqual((e as { code?: string }).code, "failed-precondition");
+    }
+  });
+
+  it("throws failed-precondition when request.app is null/undefined-ish", () => {
+    try {
+      requireAppCheck({ app: undefined }, {});
+      assert.fail("expected failed-precondition");
+    } catch (e: unknown) {
+      assert.strictEqual((e as { code?: string }).code, "failed-precondition");
+    }
+  });
+
+  it("break-glass env allows a tokenless request through", () => {
+    assert.doesNotThrow(() =>
+      requireAppCheck({}, { [BREAK_GLASS_ENV]: "1" }));
+  });
+
+  it("break-glass requires exactly '1' (not merely set)", () => {
+    try {
+      requireAppCheck({}, { [BREAK_GLASS_ENV]: "true" });
+      assert.fail("expected failed-precondition");
+    } catch (e: unknown) {
+      assert.strictEqual((e as { code?: string }).code, "failed-precondition");
+    }
+  });
+
+  it("monitorAppCheck never throws, with or without an app", () => {
+    assert.doesNotThrow(() => monitorAppCheck({}, "someCallable"));
+    assert.doesNotThrow(() => monitorAppCheck({ app: { appId: "x" } }, "someCallable"));
+  });
+});
+
+describe("attempts idempotency (v1.5 offline play, Phase 1)", () => {
+  const NOW = 1_800_000_000_000;
+
+  describe("validateAttemptId", () => {
+    it("accepts a UUID-ish id", () => {
+      assert.doesNotThrow(() => validateAttemptId("3f2a9c1e-77aa-4a0b-9c9f-1234567890ab"));
+    });
+    it("accepts undefined (legacy clients skip the mechanism)", () => {
+      assert.doesNotThrow(() => validateAttemptId(undefined));
+    });
+    it("rejects non-strings", () => {
+      try {
+        validateAttemptId(42);
+        assert.fail("expected invalid-argument");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+    it("rejects empty, over-long, and path-traversing ids", () => {
+      for (const bad of ["", "x".repeat(200), "a/b"]) {
+        try {
+          validateAttemptId(bad);
+          assert.fail(`expected invalid-argument for ${JSON.stringify(bad)}`);
+        } catch (e: unknown) {
+          assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+        }
+      }
+    });
+  });
+
+  describe("decideAttempt (pure)", () => {
+    it("proceeds when no attempt doc exists", () => {
+      assert.deepStrictEqual(decideAttempt(undefined, "u1", NOW), { kind: "proceed" });
+    });
+
+    it("replays the stored result verbatim when done", () => {
+      const doc: AttemptDoc = {
+        uid: "u1", status: "done",
+        result: { found: true, claimed: 2, points: 9, allClaimedToday: false, dailyDate: "2026-07-21" },
+        createdAtMs: NOW - 5000,
+      };
+      const d = decideAttempt(doc, "u1", NOW);
+      assert.strictEqual(d.kind, "replay");
+      assert.deepStrictEqual(
+        (d as { kind: string; result: unknown }).result,
+        doc.result,
+      );
+    });
+
+    it("reports in_progress for a fresh concurrent attempt", () => {
+      const doc: AttemptDoc = { uid: "u1", status: "in_progress", createdAtMs: NOW - 1000 };
+      assert.deepStrictEqual(decideAttempt(doc, "u1", NOW), { kind: "in_progress" });
+    });
+
+    it("proceeds (retakes) a stale in_progress attempt", () => {
+      const doc: AttemptDoc = {
+        uid: "u1", status: "in_progress",
+        createdAtMs: NOW - ATTEMPT_IN_PROGRESS_STALE_MS - 1,
+      };
+      assert.deepStrictEqual(decideAttempt(doc, "u1", NOW), { kind: "proceed" });
+    });
+
+    it("reports foreign when another uid owns the attempt id", () => {
+      const doc: AttemptDoc = { uid: "u2", status: "done", result: {}, createdAtMs: NOW };
+      assert.deepStrictEqual(decideAttempt(doc, "u1", NOW), { kind: "foreign" });
+    });
+  });
+
+  describe("beginAttempt / completeAttempt / failAttempt (mock Firestore)", () => {
+    interface StoredDoc { data: Record<string, unknown> }
+
+    function makeAttemptsMockDb() {
+      const store = new Map<string, StoredDoc>();
+      const db = {
+        collection(name: string) {
+          assert.strictEqual(name, "attempts");
+          return {
+            doc(id: string) {
+              return {
+                id,
+                async get() {
+                  const cur = store.get(id);
+                  return { exists: cur !== undefined, data: () => cur?.data };
+                },
+                async set(data: Record<string, unknown>) {
+                  store.set(id, { data });
+                },
+                async delete() {
+                  store.delete(id);
+                },
+              };
+            },
+          };
+        },
+        async runTransaction<T>(fn: (tx: unknown) => Promise<T>): Promise<T> {
+          const tx = {
+            async get(ref: { get: () => Promise<unknown> }) {
+              return ref.get();
+            },
+            set(ref: { id: string }, data: Record<string, unknown>) {
+              store.set(ref.id, { data });
+            },
+          };
+          return fn(tx);
+        },
+      };
+      return { db: db as never, store };
+    }
+
+    it("first begin proceeds and writes an in_progress marker", async () => {
+      const { db, store } = makeAttemptsMockDb();
+      const d = await beginAttempt(db, "att-1", "u1", NOW);
+      assert.deepStrictEqual(d, { kind: "proceed" });
+      const doc = store.get("att-1")!.data;
+      assert.strictEqual(doc.status, "in_progress");
+      assert.strictEqual(doc.uid, "u1");
+    });
+
+    it("begin after complete replays the stored result", async () => {
+      const { db } = makeAttemptsMockDb();
+      await beginAttempt(db, "att-1", "u1", NOW);
+      const result = { found: true, claimed: 1, points: 7, allClaimedToday: false, dailyDate: "2026-07-21" };
+      await completeAttempt(db, "att-1", "u1", result, NOW + 2000);
+      const d = await beginAttempt(db, "att-1", "u1", NOW + 5000);
+      assert.strictEqual(d.kind, "replay");
+      assert.deepStrictEqual((d as { kind: string; result: unknown }).result, result);
+    });
+
+    it("concurrent begin sees in_progress", async () => {
+      const { db } = makeAttemptsMockDb();
+      await beginAttempt(db, "att-1", "u1", NOW);
+      const d = await beginAttempt(db, "att-1", "u1", NOW + 1000);
+      assert.deepStrictEqual(d, { kind: "in_progress" });
+    });
+
+    it("failAttempt clears the marker so an immediate retry proceeds", async () => {
+      const { db, store } = makeAttemptsMockDb();
+      await beginAttempt(db, "att-1", "u1", NOW);
+      await failAttempt(db, "att-1");
+      assert.strictEqual(store.has("att-1"), false);
+      const d = await beginAttempt(db, "att-1", "u1", NOW + 1000);
+      assert.deepStrictEqual(d, { kind: "proceed" });
+    });
+
+    it("runInAttempt stores the response and replays it without re-running", async () => {
+      const { db } = makeAttemptsMockDb();
+      let runs = 0;
+      const handler = async () => ({ claimed: 1, points: 7, run: ++runs });
+      const first = await runInAttempt(db, "att-1", "u1", handler);
+      const second = await runInAttempt(db, "att-1", "u1", handler);
+      assert.strictEqual(runs, 1);
+      assert.deepStrictEqual(second, first);
+    });
+
+    it("runInAttempt clears the marker and rethrows when the handler fails", async () => {
+      const { db, store } = makeAttemptsMockDb();
+      await assert.rejects(
+        runInAttempt(db, "att-1", "u1", async () => {
+          throw new Error("boom");
+        }),
+        /boom/,
+      );
+      assert.strictEqual(store.has("att-1"), false);
+    });
+
+    it("runInAttempt returns a committed response even if storing it fails", async () => {
+      // The claim is already written by then: reporting failure would show a
+      // successful claim as failed, and the retry would hit the already-claimed
+      // fast path and show nothing.
+      const { db, store } = makeAttemptsMockDb();
+      const docFn = (db as unknown as {
+        collection(n: string): { doc(id: string): { set(d: Record<string, unknown>): Promise<void> } };
+      }).collection("attempts").doc;
+      (db as unknown as { collection: (n: string) => unknown }).collection = () => ({
+        doc(id: string) {
+          const ref = docFn(id);
+          return {
+            ...ref,
+            async set(data: Record<string, unknown>) {
+              if (data.status === "done") throw new Error("unavailable");
+              return ref.set(data);
+            },
+          };
+        },
+      });
+      const response = { claimed: 1, points: 12 };
+      const got = await runInAttempt(db, "att-1", "u1", async () => response);
+      assert.deepStrictEqual(got, response);
+      assert.strictEqual(store.get("att-1")?.data.status, "in_progress");
+    });
+
+    it("completeAttempt stamps a TTL expiry", async () => {
+      const { db, store } = makeAttemptsMockDb();
+      await beginAttempt(db, "att-1", "u1", NOW);
+      await completeAttempt(db, "att-1", "u1", { ok: true }, NOW);
+      const doc = store.get("att-1")!.data;
+      const expires = doc.expiresAt as { toMillis(): number };
+      assert.strictEqual(typeof expires.toMillis, "function");
+      assert.strictEqual(expires.toMillis(), NOW + ATTEMPT_TTL_MS);
+    });
+  });
+});
+
 // ── Cloud Function integration tests (require Firebase emulator) ─────────────
 
 const testEnv = test();
 
+// ── Region pinning (EU region migration, v1.3) ──────────────────────────────
+// Every exported Cloud Function must be pinned to an EU region co-located with
+// the eur3 Firestore so UK round-trips stay in-region. Most sit in
+// europe-west2. onFriendAdded is the exception: eur3 has NO Gen1 Firestore
+// triggers (neither europe-west2 nor europe-west1 deploys), so it must be a
+// 2nd-gen trigger and Eventarc maps eur3 -> europe-west4. Auth triggers
+// (onUserCreated) are global and stay on europe-west2. Iterating over all
+// exports means a newly added function that forgets its region trips this guard.
+describe("region pinning", () => {
+  const DEFAULT_REGION = "europe-west2";
+  const REGION_OVERRIDES: Record<string, string> = {
+    onFriendAdded: "europe-west4",
+    onClaimCreated: "europe-west4",
+  };
+  type WithEndpoint = { __endpoint?: { region?: string[]; platform?: string } };
+
+  for (const name of Object.keys(myFunctions)) {
+    const expected = REGION_OVERRIDES[name] ?? DEFAULT_REGION;
+    it(`${name} is pinned to ${expected}`, () => {
+      const endpoint = (myFunctions as Record<string, WithEndpoint>)[name].__endpoint;
+      assert.ok(endpoint, `${name} has no __endpoint — is it a Cloud Function?`);
+      assert.ok(
+        Array.isArray(endpoint.region) && endpoint.region.includes(expected),
+        `${name} region is ${JSON.stringify(endpoint.region)}, expected ${expected}`,
+      );
+    });
+  }
+
+  it("onFriendAdded is a 2nd-gen trigger (eur3 has no Gen1 Firestore triggers)", () => {
+    const endpoint = (myFunctions as Record<string, WithEndpoint>)["onFriendAdded"]
+      .__endpoint;
+    assert.strictEqual(endpoint?.platform, "gcfv2");
+  });
+
+  it("onClaimCreated is a 2nd-gen trigger (eur3 has no Gen1 Firestore triggers)", () => {
+    const endpoint = (myFunctions as Record<string, WithEndpoint>)["onClaimCreated"]
+      .__endpoint;
+    assert.strictEqual(endpoint?.platform, "gcfv2");
+  });
+});
+
 describe("Cloud Functions", function (this: Mocha.Suite) {
   this.timeout(15000);
+
+  /** True when a Firestore emulator is configured for this run.
+   *
+   *  The "valid request" tests below reach Firestore. With no emulator (CI, a
+   *  fresh clone) they were written to swallow the resulting credential error
+   *  and pass — but swallowing happens only AFTER the Admin SDK has exhausted
+   *  its metadata-server credential lookups, which retry with backoff. On an
+   *  unlucky runner that overruns Mocha's timeout and the test fails instead of
+   *  skipping: `Timeout of 10000ms exceeded`, seen intermittently on CI
+   *  (run 30108830201 failed on a comment-only commit, having passed on the two
+   *  before it). Flaky red is worse than honest yellow — it teaches people to
+   *  ignore CI.
+   *
+   *  Gating explicitly loses no coverage: without an emulator these assertions
+   *  never ran anyway, they were just reached slowly and then discarded. With
+   *  one, they run exactly as before. Same `(cond ? it : it.skip)` idiom the
+   *  geojson and county_lookup suites already use. */
+  const hasFirestoreEmulator = Boolean(
+    process.env.FIRESTORE_EMULATOR_HOST ?? process.env.FIREBASE_EMULATOR_HUB
+  );
+  const itWithEmulator = hasFirestoreEmulator ? it : it.skip;
 
   const wrappedNearby = testEnv.wrap(myFunctions.nearbyPostboxes) as (data: unknown, context?: unknown) => Promise<unknown>;
   const wrappedStartScoring = testEnv.wrap(myFunctions.startScoring) as (data: unknown, context?: unknown) => Promise<unknown>;
   const wrappedUpdateDisplayName = testEnv.wrap(myFunctions.updateDisplayName) as (data: unknown, context?: unknown) => Promise<unknown>;
   const wrappedRegisterFcmToken = testEnv.wrap(myFunctions.registerFcmToken) as (data: unknown, context?: unknown) => Promise<unknown>;
   const wrappedUserClaimHistory = testEnv.wrap(myFunctions.userClaimHistory) as (data: unknown, context?: unknown) => Promise<unknown>;
+  const wrappedRoutePostboxes = testEnv.wrap(myFunctions.routePostboxes) as (data: unknown, context?: unknown) => Promise<unknown>;
 
   after(() => {
     testEnv.cleanup();
@@ -660,9 +1914,22 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
   // argument is ignored for v2 functions.
 
   describe("nearbyPostboxes (onCall)", () => {
-    it("should return an object with postboxes and counts when given lat, lng, meters", async function (this: Mocha.Context) {
-      this.timeout(10000);
+    it("should reject a request without an App Check token (failed-precondition)", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      // Authenticated but unattested — in-code defence-in-depth must reject
+      // even where platform enforceAppCheck is bypassed (e.g. test wrappers).
       const req = { data: { lat: 51.45, lng: -0.95, meters: 500 }, auth: { uid: "test-uid" } };
+      try {
+        await wrappedNearby(req);
+        assert.fail("Expected failed-precondition error");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "failed-precondition");
+      }
+    });
+
+    itWithEmulator("should return an object with postboxes and counts when given lat, lng, meters", async function (this: Mocha.Context) {
+      this.timeout(10000);
+      const req = { data: { lat: 51.45, lng: -0.95, meters: 500 }, auth: { uid: "test-uid" }, app: { appId: "test-app" } };
       try {
         const result = (await wrappedNearby(req)) as Record<string, unknown>;
         assert.strictEqual(typeof result, "object");
@@ -675,27 +1942,49 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
         const err = e as { code?: string; message?: string };
         // PERMISSION_DENIED is acceptable when Firebase emulator is not running.
         // Any other error is unexpected.
-        if (!(err.message ?? "").includes("PERMISSION_DENIED") && err.code !== "permission-denied") {
+        if (
+          !(err.message ?? "").includes("PERMISSION_DENIED") &&
+          !(err.message ?? "").includes("Could not load the default credentials") &&
+          err.code !== "permission-denied"
+        ) {
           throw e;
         }
       }
     });
 
-    it("should throw unauthenticated when no auth context", async function (this: Mocha.Context) {
-      this.timeout(5000);
-      const req = { data: { lat: 51.45, lng: -0.95, meters: 500 } };
+    it("allows a signed-out discovery scan (no auth context)", async function (this: Mocha.Context) {
+      // The pre-login "find nearby postboxes" loop (watch and phone) scans
+      // without a uid; only claiming requires auth. App Check is still
+      // enforced (the request carries `app`).
+      this.timeout(10000);
+      const req = { data: { lat: 51.45, lng: -0.95, meters: 500 }, app: { appId: "test-app" } };
       try {
-        await wrappedNearby(req);
-        assert.fail("Expected unauthenticated error");
+        const result = (await wrappedNearby(req)) as Record<string, unknown>;
+        assert.ok("postboxes" in result);
+        assert.ok("counts" in result);
+        // The offline-capture token is uid-bound — a signed-out scan must
+        // never mint one.
+        assert.ok(!("scanId" in result), "scanId must not be issued signed-out");
       } catch (e: unknown) {
-        const err = e as { code?: string };
-        assert.strictEqual(err.code, "unauthenticated");
+        const err = e as { code?: string; message?: string };
+        // Without the emulator the Firestore lookup fails with a credentials /
+        // permission error — acceptable here. What this test pins is that the
+        // rejection is never `unauthenticated`.
+        assert.notStrictEqual(err.code, "unauthenticated",
+          "signed-out scan must not be rejected as unauthenticated");
+        if (
+          !(err.message ?? "").includes("PERMISSION_DENIED") &&
+          !(err.message ?? "").includes("Could not load the default credentials") &&
+          err.code !== "permission-denied"
+        ) {
+          throw e;
+        }
       }
     });
 
     it("should throw invalid-argument when lat/lng are missing", async function (this: Mocha.Context) {
       this.timeout(5000);
-      const req = { data: {}, auth: { uid: "test-uid" } };
+      const req = { data: {}, auth: { uid: "test-uid" }, app: { appId: "test-app" } };
       try {
         await wrappedNearby(req);
         assert.fail("Expected invalid-argument error");
@@ -707,7 +1996,7 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
 
     it("should throw invalid-argument when lat is out of range", async function (this: Mocha.Context) {
       this.timeout(5000);
-      const req = { data: { lat: 999, lng: -0.95, meters: 500 }, auth: { uid: "test-uid" } };
+      const req = { data: { lat: 999, lng: -0.95, meters: 500 }, auth: { uid: "test-uid" }, app: { appId: "test-app" } };
       try {
         await wrappedNearby(req);
         assert.fail("Expected invalid-argument error");
@@ -719,7 +2008,7 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
 
     it("should throw invalid-argument when lng is out of range", async function (this: Mocha.Context) {
       this.timeout(5000);
-      const req = { data: { lat: 51.45, lng: 999, meters: 500 }, auth: { uid: "test-uid" } };
+      const req = { data: { lat: 51.45, lng: 999, meters: 500 }, auth: { uid: "test-uid" }, app: { appId: "test-app" } };
       try {
         await wrappedNearby(req);
         assert.fail("Expected invalid-argument error");
@@ -732,7 +2021,7 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
     it("should clamp meters to 2000 without error", async function (this: Mocha.Context) {
       this.timeout(10000);
       // This will still hit Firestore but at least validates the clamping path doesn't throw
-      const req = { data: { lat: 51.45, lng: -0.95, meters: 999999 }, auth: { uid: "test-uid" } };
+      const req = { data: { lat: 51.45, lng: -0.95, meters: 999999 }, auth: { uid: "test-uid" }, app: { appId: "test-app" } };
       try {
         await wrappedNearby(req);
         // If emulator is running, this succeeds. Without emulator, PERMISSION_DENIED is expected.
@@ -745,7 +2034,7 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
 
     it("should throw invalid-argument when meters is zero", async function (this: Mocha.Context) {
       this.timeout(5000);
-      const req = { data: { lat: 51.45, lng: -0.95, meters: 0 }, auth: { uid: "test-uid" } };
+      const req = { data: { lat: 51.45, lng: -0.95, meters: 0 }, auth: { uid: "test-uid" }, app: { appId: "test-app" } };
       try {
         await wrappedNearby(req);
         assert.fail("Expected invalid-argument error");
@@ -756,7 +2045,7 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
 
     it("should throw invalid-argument when meters is negative", async function (this: Mocha.Context) {
       this.timeout(5000);
-      const req = { data: { lat: 51.45, lng: -0.95, meters: -100 }, auth: { uid: "test-uid" } };
+      const req = { data: { lat: 51.45, lng: -0.95, meters: -100 }, auth: { uid: "test-uid" }, app: { appId: "test-app" } };
       try {
         await wrappedNearby(req);
         assert.fail("Expected invalid-argument error");
@@ -767,9 +2056,20 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
   });
 
   describe("startScoring (onCall)", () => {
-    it("should return an object with found, claimed, points, allClaimedToday", async function (this: Mocha.Context) {
-      this.timeout(10000);
+    it("should reject a request without an App Check token (failed-precondition)", async function (this: Mocha.Context) {
+      this.timeout(5000);
       const req = { data: { lat: 51.45, lng: -0.95 }, auth: { uid: "test-uid" } };
+      try {
+        await wrappedStartScoring(req);
+        assert.fail("Expected failed-precondition error");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "failed-precondition");
+      }
+    });
+
+    itWithEmulator("should return an object with found, claimed, points, allClaimedToday", async function (this: Mocha.Context) {
+      this.timeout(10000);
+      const req = { data: { lat: 51.45, lng: -0.95 }, auth: { uid: "test-uid" }, app: { appId: "test-app" } };
       try {
         const result = (await wrappedStartScoring(req)) as Record<string, unknown>;
         assert.strictEqual(typeof result, "object");
@@ -782,7 +2082,11 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
       } catch (e: unknown) {
         const err = e as { code?: string; message?: string };
         // PERMISSION_DENIED is acceptable when Firebase emulator is not running.
-        if (!(err.message ?? "").includes("PERMISSION_DENIED") && err.code !== "permission-denied") {
+        if (
+          !(err.message ?? "").includes("PERMISSION_DENIED") &&
+          !(err.message ?? "").includes("Could not load the default credentials") &&
+          err.code !== "permission-denied"
+        ) {
           throw e;
         }
       }
@@ -790,7 +2094,7 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
 
     it("should throw unauthenticated when no auth context", async function (this: Mocha.Context) {
       this.timeout(5000);
-      const req = { data: { lat: 51.45, lng: -0.95 } };
+      const req = { data: { lat: 51.45, lng: -0.95 }, app: { appId: "test-app" } };
       try {
         await wrappedStartScoring(req);
         assert.fail("Expected unauthenticated error");
@@ -802,7 +2106,30 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
 
     it("should throw invalid-argument when lat/lng are missing", async function (this: Mocha.Context) {
       this.timeout(5000);
-      const req = { data: {}, auth: { uid: "test-uid" } };
+      const req = { data: {}, auth: { uid: "test-uid" }, app: { appId: "test-app" } };
+      try {
+        await wrappedStartScoring(req);
+        assert.fail("Expected invalid-argument error");
+      } catch (e: unknown) {
+        const err = e as { code?: string };
+        assert.strictEqual(err.code, "invalid-argument");
+      }
+    });
+
+    it("should throw invalid-argument when clientTsMs is not finite", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      const req = { data: { lat: 51.45, lng: -0.95, clientTsMs: "nope" }, auth: { uid: "test-uid" }, app: { appId: "test-app" } };
+      try {
+        await wrappedStartScoring(req);
+        assert.fail("Expected invalid-argument error");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("should throw invalid-argument for a malformed attemptId", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      const req = { data: { lat: 51.45, lng: -0.95, attemptId: 42 }, auth: { uid: "test-uid" }, app: { appId: "test-app" } };
       try {
         await wrappedStartScoring(req);
         assert.fail("Expected invalid-argument error");
@@ -814,7 +2141,7 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
 
     it("should throw invalid-argument when lat is out of range", async function (this: Mocha.Context) {
       this.timeout(5000);
-      const req = { data: { lat: 999, lng: -0.95 }, auth: { uid: "test-uid" } };
+      const req = { data: { lat: 999, lng: -0.95 }, auth: { uid: "test-uid" }, app: { appId: "test-app" } };
       try {
         await wrappedStartScoring(req);
         assert.fail("Expected invalid-argument error");
@@ -826,7 +2153,7 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
 
     it("should throw invalid-argument when lng is out of range", async function (this: Mocha.Context) {
       this.timeout(5000);
-      const req = { data: { lat: 51.45, lng: 999 }, auth: { uid: "test-uid" } };
+      const req = { data: { lat: 51.45, lng: 999 }, auth: { uid: "test-uid" }, app: { appId: "test-app" } };
       try {
         await wrappedStartScoring(req);
         assert.fail("Expected invalid-argument error");
@@ -836,9 +2163,9 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
       }
     });
 
-    it("should return dailyDate string on success", async function (this: Mocha.Context) {
+    itWithEmulator("should return dailyDate string on success", async function (this: Mocha.Context) {
       this.timeout(10000);
-      const req = { data: { lat: 51.45, lng: -0.95 }, auth: { uid: "test-uid" } };
+      const req = { data: { lat: 51.45, lng: -0.95 }, auth: { uid: "test-uid" }, app: { appId: "test-app" } };
       try {
         const result = (await wrappedStartScoring(req)) as Record<string, unknown>;
         // dailyDate is on every return path so callers don't have to special-case
@@ -847,7 +2174,11 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
         assert.match(result.dailyDate as string, /^\d{4}-\d{2}-\d{2}$/);
       } catch (e: unknown) {
         const err = e as { code?: string; message?: string };
-        if (!(err.message ?? "").includes("PERMISSION_DENIED") && err.code !== "permission-denied") {
+        if (
+          !(err.message ?? "").includes("PERMISSION_DENIED") &&
+          !(err.message ?? "").includes("Could not load the default credentials") &&
+          err.code !== "permission-denied"
+        ) {
           throw e;
         }
       }
@@ -1020,7 +2351,7 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
       }
     });
 
-    it("should return an object with entries and period for a valid request", async function (this: Mocha.Context) {
+    itWithEmulator("should return an object with entries and period for a valid request", async function (this: Mocha.Context) {
       this.timeout(10000);
       const req = { data: { period: "daily" }, auth: { uid: "test-uid" } };
       try {
@@ -1033,7 +2364,11 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
       } catch (e: unknown) {
         const err = e as { code?: string; message?: string };
         // PERMISSION_DENIED is acceptable when Firebase emulator is not running.
-        if (!(err.message ?? "").includes("PERMISSION_DENIED") && err.code !== "permission-denied") {
+        if (
+          !(err.message ?? "").includes("PERMISSION_DENIED") &&
+          !(err.message ?? "").includes("Could not load the default credentials") &&
+          err.code !== "permission-denied"
+        ) {
           throw e;
         }
       }
@@ -1052,6 +2387,247 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
           assert.notStrictEqual(err.code, "invalid-argument", `period '${periods[i]}' must not be rejected as invalid`);
         }
       });
+    });
+  });
+
+  describe("routePostboxes (onCall)", () => {
+    // Valid corridor request used as a baseline throughout.
+    const validCorridorReq = {
+      data: {
+        startLat: 51.45, startLng: -0.95,
+        destLat:  51.46, destLng: -0.94,
+        mode: "corridor", corridorMetres: 100,
+      },
+      auth: { uid: "test-uid" },
+    };
+
+    it("throws unauthenticated when no auth context", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      try {
+        await wrappedRoutePostboxes({ data: validCorridorReq.data });
+        assert.fail("Expected unauthenticated error");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "unauthenticated");
+      }
+    });
+
+    it("throws invalid-argument when lat/lng are missing", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      try {
+        await wrappedRoutePostboxes({ data: {}, auth: { uid: "test-uid" } });
+        assert.fail("Expected invalid-argument");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("throws invalid-argument for startLat out of range", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      try {
+        await wrappedRoutePostboxes({
+          data: { ...validCorridorReq.data, startLat: 999 },
+          auth: { uid: "test-uid" },
+        });
+        assert.fail("Expected invalid-argument");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("throws invalid-argument for destLng out of range", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      try {
+        await wrappedRoutePostboxes({
+          data: { ...validCorridorReq.data, destLng: 999 },
+          auth: { uid: "test-uid" },
+        });
+        assert.fail("Expected invalid-argument");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("throws invalid-argument for invalid mode", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      try {
+        await wrappedRoutePostboxes({
+          data: { startLat: 51.45, startLng: -0.95, destLat: 51.46, destLng: -0.94, mode: "turbo" },
+          auth: { uid: "test-uid" },
+        });
+        assert.fail("Expected invalid-argument");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("throws invalid-argument for corridor mode without corridorMetres", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      try {
+        await wrappedRoutePostboxes({
+          data: { startLat: 51.45, startLng: -0.95, destLat: 51.46, destLng: -0.94, mode: "corridor" },
+          auth: { uid: "test-uid" },
+        });
+        assert.fail("Expected invalid-argument");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("throws invalid-argument for corridorMetres below 50", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      try {
+        await wrappedRoutePostboxes({
+          data: { ...validCorridorReq.data, corridorMetres: 10 },
+          auth: { uid: "test-uid" },
+        });
+        assert.fail("Expected invalid-argument");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("throws invalid-argument for corridorMetres above 500", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      try {
+        await wrappedRoutePostboxes({
+          data: { ...validCorridorReq.data, corridorMetres: 999 },
+          auth: { uid: "test-uid" },
+        });
+        assert.fail("Expected invalid-argument");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("throws invalid-argument for detour mode without detourMinutes", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      try {
+        await wrappedRoutePostboxes({
+          data: { startLat: 51.45, startLng: -0.95, destLat: 51.46, destLng: -0.94, mode: "detour" },
+          auth: { uid: "test-uid" },
+        });
+        assert.fail("Expected invalid-argument");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("throws invalid-argument for detourMinutes above 120", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      try {
+        await wrappedRoutePostboxes({
+          data: { startLat: 51.45, startLng: -0.95, destLat: 51.46, destLng: -0.94, mode: "detour", detourMinutes: 200 },
+          auth: { uid: "test-uid" },
+        });
+        assert.fail("Expected invalid-argument");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("throws invalid-argument for speedKmh out of range", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      try {
+        await wrappedRoutePostboxes({
+          data: { ...validCorridorReq.data, speedKmh: 100 },
+          auth: { uid: "test-uid" },
+        });
+        assert.fail("Expected invalid-argument");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("throws invalid-argument for perClaimSeconds out of range", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      try {
+        await wrappedRoutePostboxes({
+          data: { ...validCorridorReq.data, perClaimSeconds: 999 },
+          auth: { uid: "test-uid" },
+        });
+        assert.fail("Expected invalid-argument");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    it("throws invalid-argument when direct distance exceeds 30 km", async function (this: Mocha.Context) {
+      this.timeout(5000);
+      // London to Manchester (~260 km apart) — well over 30 km.
+      try {
+        await wrappedRoutePostboxes({
+          data: {
+            startLat: 51.5074, startLng: -0.1278,
+            destLat:  53.4808, destLng: -2.2426,
+            mode: "corridor", corridorMetres: 100,
+          },
+          auth: { uid: "test-uid" },
+        });
+        assert.fail("Expected invalid-argument");
+      } catch (e: unknown) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    });
+
+    itWithEmulator("returns correct response shape and no per-postbox detail on valid corridor request", async function (this: Mocha.Context) {
+      this.timeout(10000);
+      try {
+        const result = (await wrappedRoutePostboxes(validCorridorReq)) as Record<string, unknown>;
+        assert.ok("count" in result, "response must have count");
+        assert.ok("points" in result, "response must have points");
+        assert.ok("directDistanceM" in result, "response must have directDistanceM");
+        assert.ok("budgetDistanceM" in result, "response must have budgetDistanceM");
+        assert.ok("warnings" in result, "response must have warnings");
+        assert.strictEqual(typeof result.count, "number");
+        assert.strictEqual(typeof result.points, "number");
+        assert.ok(Array.isArray(result.warnings));
+        // Must NOT expose per-postbox fields.
+        assert.ok(!("postboxes" in result), "must not leak postbox list");
+        assert.ok(!("ids" in result), "must not leak IDs");
+        assert.ok(!("locations" in result), "must not leak locations");
+      } catch (e: unknown) {
+        const err = e as { code?: string; message?: string };
+        // Acceptable: permission-denied when Firebase emulator is not running.
+        if (
+          !(err.message ?? "").includes("PERMISSION_DENIED") &&
+          !(err.message ?? "").includes("Could not load the default credentials") &&
+          err.code !== "permission-denied"
+        ) {
+          throw e;
+        }
+      }
+    });
+
+    itWithEmulator("returns correct response shape on valid detour request", async function (this: Mocha.Context) {
+      this.timeout(10000);
+      const req = {
+        data: {
+          startLat: 51.45, startLng: -0.95,
+          destLat:  51.46, destLng: -0.94,
+          mode: "detour", detourMinutes: 30,
+        },
+        auth: { uid: "test-uid" },
+      };
+      try {
+        const result = (await wrappedRoutePostboxes(req)) as Record<string, unknown>;
+        assert.ok("count" in result);
+        assert.ok("points" in result);
+        assert.ok("directDistanceM" in result);
+        assert.ok("budgetDistanceM" in result);
+        assert.ok("warnings" in result);
+        assert.strictEqual(typeof result.count, "number");
+        assert.strictEqual(typeof result.points, "number");
+        assert.ok(Array.isArray(result.warnings));
+      } catch (e: unknown) {
+        const err = e as { code?: string; message?: string };
+        if (
+          !(err.message ?? "").includes("PERMISSION_DENIED") &&
+          !(err.message ?? "").includes("Could not load the default credentials") &&
+          err.code !== "permission-denied"
+        ) {
+          throw e;
+        }
+      }
     });
   });
 });
@@ -1202,6 +2778,37 @@ describe("applyUserClaims", () => {
     assert.strictEqual(updatedPoints.max, 0);
   });
 
+  it("carries through distance on slim postboxes when present on input", () => {
+    // Route Mode auto-claim trigger reads box['distance'] from this callable
+    // to detect when a postbox is within the 30 m claim radius. Without it the
+    // trigger never fires.
+    const full = {
+      postboxes: {
+        near: { monarch: "EIIR", compass: { exact: "N" }, distance: 12 },
+        far:  { monarch: "VR",   compass: { exact: "S" }, distance: 450 },
+      },
+      counts: { total: 2, claimedToday: 0, EIIR: 1, VR: 1 },
+      points: { min: 2, max: 7 },
+      compass: { N: 1, S: 1 },
+    };
+    const { slimPostboxes } = applyUserClaims(full, new Set());
+    assert.strictEqual(slimPostboxes.near.distance, 12);
+    assert.strictEqual(slimPostboxes.far.distance, 450);
+  });
+
+  it("omits distance on slim postboxes when missing on input", () => {
+    const full = {
+      postboxes: {
+        noDistance: { monarch: "EIIR", compass: { exact: "N" } },
+      },
+      counts: { total: 1, claimedToday: 0 },
+      points: { min: 2, max: 2 },
+      compass: { N: 1 },
+    };
+    const { slimPostboxes } = applyUserClaims(full, new Set());
+    assert.strictEqual("distance" in slimPostboxes.noDistance, false);
+  });
+
   it("slim postbox for no-monarch has no monarch field", () => {
     const full = {
       postboxes: {
@@ -1302,6 +2909,27 @@ describe("applyUserClaims", () => {
     };
     const { claimedCompass } = applyUserClaims(full, new Set(["noCompass"]));
     assert.strictEqual(Object.keys(claimedCompass).length, 0);
+  });
+
+  it("points range uses the injected resolver, not the hard-coded table", () => {
+    // A Remote Config points rebalance must move the displayed "Worth X-Y pts"
+    // range in lockstep with what startScoring awards. nearbyPostboxes passes a
+    // resolvePointsForMonarch-bound resolver; here we simulate an RC override
+    // that doubles every value and assert the range follows it (EIIR 2->4,
+    // VR 7->14) rather than the hard-coded 2/7.
+    const doubled = (m: string | undefined) =>
+      m === "EIIR" ? 4 : m === "VR" ? 14 : 2;
+    const { updatedPoints } = applyUserClaims(makeFull(), new Set(), doubled);
+    assert.strictEqual(updatedPoints.min, 4);
+    assert.strictEqual(updatedPoints.max, 14);
+  });
+
+  it("default resolver preserves the hard-coded points range", () => {
+    // Omitting the resolver must be identical to the pre-RC behaviour so
+    // existing call sites (and the current RC==hard-coded state) are unchanged.
+    const { updatedPoints } = applyUserClaims(makeFull(), new Set());
+    assert.strictEqual(updatedPoints.min, 2);
+    assert.strictEqual(updatedPoints.max, 7);
   });
 });
 
@@ -1444,6 +3072,21 @@ describe("rebuildPeriodLeaderboard (unit, mock Firestore)", () => {
     assert.strictEqual(entries[0].displayName, "Player_abc123");
   });
 
+  it("skips anonymised (deleted) claims so no 'deleted' entry resurrects", async () => {
+    const { db, getWrittenLb } = makeMockDb(
+      [
+        { userid: "deleted", dailyDate: "2026-04-13", points: 50 }, // anonymised
+        { userid: "u1", dailyDate: "2026-04-13", points: 5 },
+      ],
+      { u1: { displayName: "Alice" } }
+    );
+    await rebuildPeriodLeaderboard("daily", "2026-04-13", "2026-04-13", db);
+    const entries = getWrittenLb()!.entries as Array<{ uid: string }>;
+    assert.strictEqual(entries.length, 1);
+    assert.strictEqual(entries[0].uid, "u1");
+    assert.ok(!entries.some((e) => e.uid === "deleted"));
+  });
+
   it("excludes claims outside the date range", async () => {
     const { db, getWrittenLb } = makeMockDb(
       [
@@ -1489,7 +3132,41 @@ describe("rebuildPeriodLeaderboard (unit, mock Firestore)", () => {
   });
 });
 
-import { updateFcmTokens, diffFriends, shouldNotifyFirstClaim, shouldNotifyOvertake } from "../_notifications";
+import {
+  updateFcmTokens,
+  diffFriends,
+  shouldNotifyFirstClaim,
+  shouldNotifyOvertake,
+  buildPushMessage,
+  isStaleTokenError,
+} from "../_notifications";
+
+describe("buildPushMessage", () => {
+  it("carries the title, body and every token", () => {
+    const msg = buildPushMessage(["a", "b"], "Overtaken!", "Sam overtook you");
+    assert.deepStrictEqual(msg.tokens, ["a", "b"]);
+    assert.deepStrictEqual(msg.notification, { title: "Overtaken!", body: "Sam overtook you" });
+  });
+  it("asks APNs for the default sound (iOS alerts are silent without one)", () => {
+    const msg = buildPushMessage(["a"], "t", "b");
+    assert.strictEqual(msg.apns?.payload?.aps?.sound, "default");
+  });
+});
+
+describe("isStaleTokenError", () => {
+  it("prunes only the two permanent token codes", () => {
+    assert.strictEqual(isStaleTokenError("messaging/registration-token-not-registered"), true);
+    assert.strictEqual(isStaleTokenError("messaging/invalid-registration-token"), true);
+  });
+  it("keeps tokens on credential, quota and unknown failures", () => {
+    // third-party-auth-error is a server-side APNs credential problem, not a
+    // dead token: pruning on it would wipe every iOS token at once.
+    assert.strictEqual(isStaleTokenError("messaging/third-party-auth-error"), false);
+    assert.strictEqual(isStaleTokenError("messaging/message-rate-exceeded"), false);
+    assert.strictEqual(isStaleTokenError("messaging/internal-error"), false);
+    assert.strictEqual(isStaleTokenError(undefined), false);
+  });
+});
 
 describe("updateFcmTokens", () => {
   it("adds a token to an empty list", () => {
@@ -1510,6 +3187,26 @@ describe("updateFcmTokens", () => {
   it("result never exceeds the default cap of 5", () => {
     const result = updateFcmTokens(["a", "b", "c", "d", "e"], "f");
     assert.strictEqual(result.length, 5);
+  });
+  it("returns the SAME array reference when the token is already present", () => {
+    // registerFcmToken relies on this reference-equality semantic to skip the
+    // Firestore transaction commit in the no-op case (see _notifications.ts).
+    // A reallocating implementation would silently regress write-throttling.
+    const existing = ["tok1", "tok2"];
+    const result = updateFcmTokens(existing, "tok1");
+    assert.strictEqual(result, existing, "must return the exact same array reference");
+  });
+  it("returns a new array reference when a token is appended", () => {
+    // Sanity counterpart to the above: when work actually happens, we return
+    // a fresh array so the caller writes a fresh value.
+    const existing = ["tok1", "tok2"];
+    const result = updateFcmTokens(existing, "tok3");
+    assert.notStrictEqual(result, existing, "appending must return a new array");
+  });
+  it("respects a custom max cap", () => {
+    // The default is 5 but the cap is parameterised; verify the parameter is
+    // honoured rather than ignored.
+    assert.deepStrictEqual(updateFcmTokens(["a", "b"], "c", 2), ["b", "c"]);
   });
 });
 
@@ -1619,6 +3316,29 @@ describe("shouldNotifyFirstClaim", () => {
       shouldNotifyFirstClaim({ lastFirstClaimNotifiedDate: "2026-04-17" }),
       true
     ));
+
+  // The streak tx writes lastClaimDate; the lifetime tx writes dailyDate (+
+  // dailyPoints). If the lifetime half succeeds but the streak half fails,
+  // dailyDate=today while lastClaimDate is yesterday — the friend HAS
+  // claimed today and we must not send them a "first claim of the day"
+  // notification about someone else.
+  it("returns false when dailyDate matches today (lifetime tx succeeded, streak tx didn't)", () =>
+    assert.strictEqual(
+      shouldNotifyFirstClaim(
+        { dailyDate: "2026-04-17", dailyPoints: 5, lastClaimDate: "2026-04-16" },
+        "2026-04-17"
+      ),
+      false
+    ));
+
+  it("returns false when lastClaimDate matches today (streak tx succeeded, lifetime tx didn't)", () =>
+    assert.strictEqual(
+      shouldNotifyFirstClaim(
+        { lastClaimDate: "2026-04-17", dailyDate: "2026-04-16", dailyPoints: 50 },
+        "2026-04-17"
+      ),
+      false
+    ));
 });
 
 describe("shouldNotifyOvertake", () => {
@@ -1697,6 +3417,34 @@ describe("shouldNotifyOvertake", () => {
     assert.strictEqual(
       shouldNotifyOvertake({ dailyPoints: 5 }, 0, 10, "2026-04-17"),
       false
+    ));
+
+  // Regression: lifetime tx writes both dailyDate and dailyPoints; streak tx
+  // writes lastClaimDate. If the streak tx commits but the lifetime tx fails,
+  // lastClaimDate is today while dailyPoints is yesterday's stale value.
+  // Prefer dailyDate when present so we don't compare against the stale total.
+  it("trusts dailyDate over lastClaimDate when both are present", () =>
+    assert.strictEqual(
+      shouldNotifyOvertake(
+        // dailyDate=yesterday, lastClaimDate=today (streak ok, lifetime tx
+        // failed): the 50 is stale, friend hasn't actually scored today.
+        { dailyPoints: 50, dailyDate: "2026-04-16", lastClaimDate: "2026-04-17" },
+        0,
+        10,
+        "2026-04-17"
+      ),
+      false
+    ));
+
+  it("uses dailyDate when present and lastClaimDate is missing (legacy field absent)", () =>
+    assert.strictEqual(
+      shouldNotifyOvertake(
+        { dailyPoints: 3, dailyDate: "2026-04-17" },
+        0,
+        5,
+        "2026-04-17"
+      ),
+      true
     ));
 });
 
@@ -1821,12 +3569,58 @@ describe("countySlug", () => {
     assert.strictEqual(countySlug("   "), null);
     assert.strictEqual(countySlug("---"), null);
   });
-  it("matches the slug stored in the simplified geojson asset", () => {
-    // Sanity: must agree with the slugs baked into
-    // assets/uk_counties_simplified.geojson and util/county_lookup.js. If
-    // these drift, the heatmap polygons stop joining to leaderboard docs.
-    assert.strictEqual(countySlug("City of Edinburgh"), "city-of-edinburgh");
-    assert.strictEqual(countySlug("Birmingham"), "birmingham");
+  // The three-way coupling this function sits in the middle of:
+  //   importer      -> postbox.county = <county NAME>            (county_lookup.js)
+  //   claim scoring -> countySlug(name) = leaderboards/.../counties/{slug}
+  //   heatmap       -> reads properties.slug straight out of the geojson asset
+  // So the invariant is countySlug(feature.name) === feature.slug for EVERY
+  // feature. Break it and that county's polygon silently joins to nothing:
+  // claims still score, the heatmap just shows no leader, with no error
+  // anywhere. Checked exhaustively against the real asset rather than by
+  // spot-checking two names, so regenerating the geojson can't slip past.
+  describe("agrees with every slug baked into the geojson asset", () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const fs = require("fs");
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const path = require("path");
+    const assetPath = path.join(__dirname, "../../../assets/uk_counties_simplified.geojson");
+    let features: Array<{ properties?: { name?: string; slug?: string } }> = [];
+    let loaded: boolean;
+    try {
+      features = JSON.parse(fs.readFileSync(assetPath, "utf8")).features;
+      loaded = Array.isArray(features) && features.length > 0;
+    } catch (_) {
+      loaded = false;
+    }
+
+    (loaded ? it : it.skip)("every feature's name slugifies to its baked slug", () => {
+      const mismatches = features
+        .map((f) => ({ name: f.properties?.name, slug: f.properties?.slug }))
+        .filter((f) => typeof f.name === "string" && typeof f.slug === "string")
+        .filter((f) => countySlug(f.name as string) !== f.slug)
+        .map((f) => `${f.name}: baked=${f.slug} countySlug=${countySlug(f.name as string)}`);
+      assert.deepStrictEqual(mismatches, [],
+        "these counties would join to no leaderboard doc on the heatmap");
+    });
+
+    (loaded ? it : it.skip)("no two counties collide onto one slug", () => {
+      // A collision would merge two counties' leaderboards into one doc.
+      const byslug = new Map<string, Set<string>>();
+      for (const f of features) {
+        const { name, slug } = f.properties ?? {};
+        if (typeof name !== "string" || typeof slug !== "string") continue;
+        if (!byslug.has(slug)) byslug.set(slug, new Set());
+        (byslug.get(slug) as Set<string>).add(name);
+      }
+      const collisions = [...byslug.entries()]
+        .filter(([, names]) => names.size > 1)
+        .map(([slug, names]) => `${slug} <- ${[...names].join(", ")}`);
+      assert.deepStrictEqual(collisions, []);
+    });
+
+    (loaded ? it : it.skip)("the asset actually parsed (guards the guard)", () => {
+      assert.ok(features.length >= 200, `only ${features.length} features parsed`);
+    });
   });
 });
 
@@ -1834,9 +3628,9 @@ describe("county_lookup (point-in-polygon)", () => {
   // Lazy-require so test discovery doesn't load 1MB of geojson when the file
   // isn't present (e.g. fresh clone before backfill prep). Tests skip
   // gracefully in that case.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const counties = require("../../util/county_lookup");
-  let loaded = false;
+  let loaded: boolean;
   try {
     counties.load();
     loaded = true;
@@ -1874,7 +3668,7 @@ describe("county_lookup (point-in-polygon)", () => {
 
 import { KNOWN_MONARCHS, pointsForMonarch } from "../_getPoints";
 import { parsePhotos, buildOsmChange, nextQuotaState } from "../reports";
-import { maxDailyFromClaims } from "../_recomputeScores";
+import { maxDailyFromClaims, repointClaimsForPostbox, planRepointClaims } from "../_recomputeScores";
 
 describe("pointsForMonarch", () => {
   it("treats null as plain (2 points)", () => assert.strictEqual(pointsForMonarch(null), 2));
@@ -1890,6 +3684,16 @@ describe("pointsForMonarch", () => {
       if (m === "EIIR") assert.strictEqual(getPoints(m), 2);
       else assert.ok(getPoints(m) > 2, `${m} should score > 2`);
     }
+  });
+  it("KNOWN_MONARCHS exactly matches the cross-platform contract", () => {
+    // Pin the exact set so adding or removing a monarch on the TS side
+    // breaks this test loudly. The Dart side has a mirror test against
+    // MonarchInfo.all — both must match this same set to be cross-platform
+    // consistent. Order-independent.
+    assert.deepStrictEqual(
+      [...KNOWN_MONARCHS].sort(),
+      ["CIIIR", "EIIR", "EVIIIR", "EVIIR", "GR", "GVIR", "GVR", "SCOTTISH_CROWN", "VR"],
+    );
   });
 });
 
@@ -1910,6 +3714,16 @@ describe("parsePhotos", () => {
   it("rejects more than 3 photos", () => {
     assert.throws(() => parsePhotos(Array.from({ length: 4 }, (_, i) => ({ storagePath: `report_photos/${uid}/${i}.jpg` })), uid));
   });
+  it("accepts exactly 3 photos (the cap boundary)", () => {
+    // Mirror of the rejection-at-4 test: 3 must succeed. Pins the cap so a
+    // future change to MAX_PHOTOS (currently private) doesn't drift silently
+    // away from ReportRepository.maxPhotos on the Flutter side.
+    const out = parsePhotos(
+      Array.from({ length: 3 }, (_, i) => ({ storagePath: `report_photos/${uid}/${i}.jpg` })),
+      uid,
+    );
+    assert.strictEqual(out.length, 3);
+  });
   it("rejects a path outside the user's prefix", () => {
     assert.throws(() => parsePhotos([{ storagePath: "report_photos/otheruser/a.jpg" }], uid));
     assert.throws(() => parsePhotos([{ storagePath: "osm_changesets/x.osc" }], uid));
@@ -1920,6 +3734,52 @@ describe("parsePhotos", () => {
   });
   it("rejects implausible EXIF coordinates", () => {
     assert.throws(() => parsePhotos([{ storagePath: `report_photos/${uid}/a.jpg`, exifLat: 200 }], uid));
+  });
+  it("rejects implausible EXIF longitude", () => {
+    assert.throws(() => parsePhotos([{ storagePath: `report_photos/${uid}/a.jpg`, exifLng: 999 }], uid));
+  });
+  it("rejects non-array input", () => {
+    assert.throws(() => parsePhotos("not an array", uid));
+    assert.throws(() => parsePhotos({ storagePath: `report_photos/${uid}/a.jpg` }, uid));
+  });
+  it("rejects non-object array entries", () => {
+    assert.throws(() => parsePhotos(["just a string"], uid));
+    assert.throws(() => parsePhotos([null], uid));
+    assert.throws(() => parsePhotos([42], uid));
+  });
+  it("rejects an empty file name (path is exactly the prefix)", () => {
+    assert.throws(() => parsePhotos([{ storagePath: `report_photos/${uid}/` }], uid));
+  });
+  it("rejects a takenAt longer than 40 chars", () => {
+    const longTakenAt = "a".repeat(41);
+    assert.throws(() => parsePhotos(
+      [{ storagePath: `report_photos/${uid}/a.jpg`, takenAt: longTakenAt }],
+      uid,
+    ));
+  });
+  it("accepts a takenAt at the 40-char boundary", () => {
+    const maxTakenAt = "a".repeat(40);
+    const out = parsePhotos(
+      [{ storagePath: `report_photos/${uid}/a.jpg`, takenAt: maxTakenAt }],
+      uid,
+    );
+    assert.strictEqual(out[0].takenAt, maxTakenAt);
+  });
+  it("rejects a non-string takenAt", () => {
+    assert.throws(() => parsePhotos(
+      [{ storagePath: `report_photos/${uid}/a.jpg`, takenAt: 12345 }],
+      uid,
+    ));
+  });
+  it("accepts a photo with no EXIF metadata at all", () => {
+    // Browsers strip EXIF on upload; iOS without "Camera location" returns
+    // no GPS. The reporter must still be able to attach evidence photos.
+    const out = parsePhotos([{ storagePath: `report_photos/${uid}/no-exif.jpg` }], uid);
+    assert.strictEqual(out.length, 1);
+    assert.strictEqual(out[0].storagePath, `report_photos/${uid}/no-exif.jpg`);
+    assert.strictEqual(out[0].exifLat, undefined);
+    assert.strictEqual(out[0].exifLng, undefined);
+    assert.strictEqual(out[0].takenAt, undefined);
   });
 });
 
@@ -1981,6 +3841,331 @@ describe("buildOsmChange", () => {
     const osc = buildOsmChange({ action: "create", id: -1, lat: 0, lon: 0, tags: { amenity: "post_box", royal_cypher: "" } });
     assert.ok(!/royal_cypher/.test(osc));
   });
+  // Golden outputs: pin the exact bytes so refactors (the batch builder in
+  // _osmChange.ts) can't drift the single-node format JOSM has been fed.
+  it("matches the golden modify output byte-for-byte", () => {
+    const osc = buildOsmChange({ action: "modify", id: 12345, version: 7, lat: 51.5, lon: -0.1, tags: { amenity: "post_box", royal_cypher: "VR", ref: "SW1A 1" } });
+    assert.strictEqual(osc, [
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      '<osmChange version="0.6" generator="PostboxGame">',
+      "  <modify>",
+      '    <node id="12345" version="7" lat="51.5" lon="-0.1" changeset="0">',
+      '      <tag k="amenity" v="post_box"/>',
+      '      <tag k="royal_cypher" v="VR"/>',
+      '      <tag k="ref" v="SW1A 1"/>',
+      "    </node>",
+      "  </modify>",
+      "</osmChange>",
+      "",
+    ].join("\n"));
+  });
+  it("matches the golden create output byte-for-byte", () => {
+    const osc = buildOsmChange({ action: "create", id: -1, lat: 52, lon: -1.5, tags: { amenity: "post_box", royal_cypher: "EIIR" } });
+    assert.strictEqual(osc, [
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      '<osmChange version="0.6" generator="PostboxGame">',
+      "  <create>",
+      '    <node id="-1" lat="52" lon="-1.5" changeset="0">',
+      '      <tag k="amenity" v="post_box"/>',
+      '      <tag k="royal_cypher" v="EIIR"/>',
+      "    </node>",
+      "  </create>",
+      "</osmChange>",
+      "",
+    ].join("\n"));
+  });
+  it("buildOsmChangeBatch of one node is identical to buildOsmChange", () => {
+    const mod = { action: "modify" as const, id: 9, version: 3, lat: 1, lon: 2, tags: { amenity: "post_box" } };
+    const cre = { action: "create" as const, id: -1, lat: 1, lon: 2, tags: { amenity: "post_box" } };
+    assert.strictEqual(buildOsmChangeBatch([mod]), buildOsmChange(mod));
+    assert.strictEqual(buildOsmChangeBatch([cre]), buildOsmChange(cre));
+  });
+  it("buildOsmChangeBatch groups creates before modifies, preserving input order", () => {
+    const osc = buildOsmChangeBatch([
+      { action: "modify", id: 100, version: 2, lat: 1, lon: 1, tags: { royal_cypher: "VR" } },
+      { action: "create", id: -1, lat: 2, lon: 2, tags: { amenity: "post_box" } },
+      { action: "modify", id: 200, version: 5, lat: 3, lon: 3, tags: { royal_cypher: "GR" } },
+      { action: "create", id: -2, lat: 4, lon: 4, tags: { amenity: "post_box" } },
+    ]);
+    assert.strictEqual((osc.match(/<create>/g) ?? []).length, 1);
+    assert.strictEqual((osc.match(/<modify>/g) ?? []).length, 1);
+    const order = [...osc.matchAll(/<node id="(-?\d+)"/g)].map((m) => m[1]);
+    assert.deepStrictEqual(order, ["-1", "-2", "100", "200"]);
+    assert.ok(osc.indexOf("</create>") < osc.indexOf("<modify>"));
+  });
+  it("buildOsmChangeBatch of nothing is a valid empty osmChange", () => {
+    assert.strictEqual(
+      buildOsmChangeBatch([]),
+      '<?xml version="1.0" encoding="UTF-8"?>\n<osmChange version="0.6" generator="PostboxGame">\n</osmChange>\n',
+    );
+  });
+  it("matches the golden tagless output byte-for-byte", () => {
+    const osc = buildOsmChange({ action: "create", id: -1, lat: 0, lon: 0, tags: {} });
+    assert.strictEqual(osc, [
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      '<osmChange version="0.6" generator="PostboxGame">',
+      "  <create>",
+      '    <node id="-1" lat="0" lon="0" changeset="0">',
+      "    </node>",
+      "  </create>",
+      "</osmChange>",
+      "",
+    ].join("\n"));
+  });
+});
+
+import { buildOsmChangeBatch, fetchOsmNodeResult } from "../_osmChange";
+
+describe("fetchOsmNodeResult", () => {
+  const okFetch = (body: unknown) => async () => ({ ok: true, status: 200, json: async () => body });
+  it("parses the node's version, position and tags", async () => {
+    const r = await fetchOsmNodeResult(7, okFetch({ elements: [{ type: "node", version: 4, lat: 51, lon: -1, tags: { amenity: "post_box" } }] }));
+    assert.deepStrictEqual(r, { ok: true, node: { version: 4, lat: 51, lon: -1, tags: { amenity: "post_box" } } });
+  });
+  it("reports the HTTP status for a deleted node (410) so it is not retried", async () => {
+    const r = await fetchOsmNodeResult(7, async () => ({ ok: false, status: 410, json: async () => ({}) }));
+    assert.deepStrictEqual(r, { ok: false, status: 410 });
+  });
+  it("reports network failures distinctly", async () => {
+    const r = await fetchOsmNodeResult(7, async () => { throw new Error("offline"); });
+    assert.deepStrictEqual(r, { ok: false, status: "network" });
+  });
+  it("treats a body with no usable node as malformed", async () => {
+    const r = await fetchOsmNodeResult(7, okFetch({ elements: [{ type: "way" }] }));
+    assert.deepStrictEqual(r, { ok: false, status: "malformed" });
+  });
+  it("defaults a missing version to 1 and missing tags to {}", async () => {
+    const r = await fetchOsmNodeResult(7, okFetch({ elements: [{ type: "node", lat: 1, lon: 2 }] }));
+    assert.deepStrictEqual(r, { ok: true, node: { version: 1, lat: 1, lon: 2, tags: {} } });
+  });
+});
+
+describe("repointClaimsForPostbox (unit, mock Firestore)", () => {
+  // Minimal mock of the Admin SDK surface used by repointClaimsForPostbox:
+  //   db.collection("claims").where(...).get()  → returns docs with data() + ref
+  //   db.batch().set(ref, update, { merge: true })  → records writes
+  //   batch.commit() → resolves
+  type ClaimDoc = {
+    id: string;
+    userid?: string;
+    points?: number;
+    monarch?: string;
+    postboxes?: string;
+  };
+
+  type CapturedWrite = {
+    ref: { id: string };
+    update: Record<string, unknown>;
+  };
+
+  function makeMockDb(claims: ClaimDoc[]) {
+    const writes: CapturedWrite[] = [];
+    const commits: number[] = [];
+
+    const db = {
+      collection: (name: string) => {
+        if (name !== "claims") throw new Error(`unexpected collection ${name}`);
+        let postboxFilter: string | undefined;
+        const q = {
+          where(field: string, op: string, val: unknown) {
+            if (field !== "postboxes" || op !== "==") {
+              throw new Error(`unexpected where ${field} ${op}`);
+            }
+            postboxFilter = val as string;
+            return q;
+          },
+          async get() {
+            const docs = claims
+              .filter((c) => c.postboxes === postboxFilter)
+              .map((c) => ({
+                ref: { id: c.id },
+                data: () => c as Record<string, unknown>,
+              }));
+            return { docs };
+          },
+        };
+        return q;
+      },
+      batch() {
+        const batchWrites: CapturedWrite[] = [];
+        return {
+          set(ref: { id: string }, update: Record<string, unknown>) {
+            batchWrites.push({ ref, update });
+          },
+          async commit() {
+            writes.push(...batchWrites);
+            commits.push(batchWrites.length);
+          },
+        };
+      },
+    };
+    return {
+      db: db as unknown as import("firebase-admin").firestore.Firestore,
+      writes,
+      commits,
+    };
+  }
+
+  it("returns empty result for a postbox with no claims", async () => {
+    const { db } = makeMockDb([]);
+    const result = await repointClaimsForPostbox(db, "osm_42", "VR");
+    assert.strictEqual(result.claimCount, 0);
+    assert.strictEqual(result.deltaByUid.size, 0);
+  });
+
+  it("rewrites every claim's points and tracks deltas per user", async () => {
+    const claims: ClaimDoc[] = [
+      { id: "c1", userid: "u1", points: 9, monarch: "EVIIR", postboxes: "/postbox/osm_42" },
+      { id: "c2", userid: "u1", points: 9, monarch: "EVIIR", postboxes: "/postbox/osm_42" },
+      { id: "c3", userid: "u2", points: 9, monarch: "EVIIR", postboxes: "/postbox/osm_42" },
+      // Unrelated postbox — must not be touched.
+      { id: "c4", userid: "u3", points: 7, monarch: "VR", postboxes: "/postbox/osm_99" },
+    ];
+    const { db, writes } = makeMockDb(claims);
+
+    // Correct the cypher from EVIIR (9 pts) to GR (4 pts). Delta per claim = -5.
+    const result = await repointClaimsForPostbox(db, "osm_42", "GR");
+
+    assert.strictEqual(result.claimCount, 3);
+    // u1 had 2 claims: delta = 2 * -5 = -10; u2 had 1: -5; u3 untouched.
+    assert.strictEqual(result.deltaByUid.get("u1"), -10);
+    assert.strictEqual(result.deltaByUid.get("u2"), -5);
+    assert.strictEqual(result.deltaByUid.has("u3"), false);
+
+    // Every rewrite carries the new points and the audit fields.
+    assert.strictEqual(writes.length, 3);
+    for (const w of writes) {
+      assert.strictEqual(w.update.points, 4);
+      assert.strictEqual(w.update.monarch, "GR");
+      assert.strictEqual(w.update.correctedFromMonarch, "EVIIR");
+      assert.strictEqual(w.update.correctedFromPoints, 9);
+      assert.ok(w.update.correctedAt, "correctedAt timestamp present");
+    }
+    // None of the writes target the unrelated postbox's claim.
+    assert.ok(!writes.some((w) => w.ref.id === "c4"));
+  });
+
+  it("deletes the monarch field when correcting to plain (null)", async () => {
+    const claims: ClaimDoc[] = [
+      { id: "c1", userid: "u1", points: 9, monarch: "EVIIR", postboxes: "/postbox/osm_42" },
+    ];
+    const { db, writes } = makeMockDb(claims);
+    await repointClaimsForPostbox(db, "osm_42", null);
+    assert.strictEqual(writes.length, 1);
+    // The monarch field is set to a FieldValue sentinel — we just check it
+    // isn't a plain string, since the test runner has Admin SDK loaded and
+    // the sentinel is an object.
+    assert.notStrictEqual(typeof writes[0].update.monarch, "string");
+    assert.strictEqual(writes[0].update.points, 2); // plain → 2 pts
+  });
+
+  it("preserves a null delta entry when the new points equal the old (no-op correction)", async () => {
+    // E.g. correcting from one cypher worth 2 to another cypher worth 2 — the
+    // claims' points don't change but the audit fields and monarch field do.
+    const claims: ClaimDoc[] = [
+      { id: "c1", userid: "u1", points: 2, monarch: "EIIR", postboxes: "/postbox/osm_42" },
+    ];
+    const { db, writes } = makeMockDb(claims);
+    // Use null (plain, 2 pts) — delta = 0.
+    const result = await repointClaimsForPostbox(db, "osm_42", null);
+    assert.strictEqual(result.claimCount, 1);
+    assert.strictEqual(result.deltaByUid.get("u1"), 0);
+    assert.strictEqual(writes[0].update.points, 2);
+  });
+
+  it("ignores claims missing a userid (no delta entry written)", async () => {
+    const claims: ClaimDoc[] = [
+      { id: "c1", points: 9, monarch: "EVIIR", postboxes: "/postbox/osm_42" },
+    ];
+    const { db, writes } = makeMockDb(claims);
+    const result = await repointClaimsForPostbox(db, "osm_42", "GR");
+    assert.strictEqual(result.claimCount, 1);
+    assert.strictEqual(result.deltaByUid.size, 0);
+    // The claim is still rewritten — just not attributed to any uid.
+    assert.strictEqual(writes.length, 1);
+    assert.strictEqual(writes[0].update.points, 4);
+  });
+
+  it("rewrites anonymised claims without recomputing a 'deleted' user", async () => {
+    const claims: ClaimDoc[] = [
+      { id: "c1", userid: "deleted", points: 9, monarch: "EVIIR", postboxes: "/postbox/osm_42" },
+      { id: "c2", userid: "u1", points: 9, monarch: "EVIIR", postboxes: "/postbox/osm_42" },
+    ];
+    const { db, writes } = makeMockDb(claims);
+    const result = await repointClaimsForPostbox(db, "osm_42", "GR");
+    assert.strictEqual(result.claimCount, 2);
+    assert.strictEqual(writes.length, 2, "the anonymised claim's points are still corrected");
+    assert.deepStrictEqual([...result.deltaByUid.keys()], ["u1"]);
+  });
+
+  it("skips claims already at the target monarch+points (idempotent retry)", async () => {
+    // Simulates an admin re-running reviewReport after a partial-success run:
+    // some claims were already rewritten on the first attempt. The retry must
+    // not re-stamp those claims' correctedFromMonarch with the new (post-
+    // correction) monarch, which would erase the original pre-correction
+    // value from the audit trail.
+    const claims: ClaimDoc[] = [
+      // Already rewritten on the first run: monarch === target, points === target.
+      { id: "c1", userid: "u1", points: 4, monarch: "GR", postboxes: "/postbox/osm_42" },
+      // Not yet rewritten — still on the old cypher.
+      { id: "c2", userid: "u2", points: 9, monarch: "EVIIR", postboxes: "/postbox/osm_42" },
+    ];
+    const { db, writes } = makeMockDb(claims);
+    const result = await repointClaimsForPostbox(db, "osm_42", "GR");
+    // Only the unrewritten claim is touched.
+    assert.strictEqual(result.claimCount, 1);
+    assert.strictEqual(writes.length, 1);
+    assert.strictEqual(writes[0].ref.id, "c2");
+    assert.strictEqual(writes[0].update.correctedFromMonarch, "EVIIR",
+      "audit trail preserves the real pre-correction monarch on the still-old claim");
+    // u1 contributes no delta — its claim already matches; u2 contributes -5.
+    assert.strictEqual(result.deltaByUid.has("u1"), false);
+    assert.strictEqual(result.deltaByUid.get("u2"), -5);
+  });
+});
+
+describe("planRepointClaims (pure)", () => {
+  it("plans a rewrite for every claim not already at the target, with per-user deltas", () => {
+    const plan = planRepointClaims([
+      { userid: "u1", points: 9, monarch: "EVIIR" },
+      { userid: "u1", points: 4, monarch: "GR" }, // already corrected → skipped
+      { userid: "u2", points: 9, monarch: "EVIIR" },
+    ], "GR", 4);
+    assert.deepStrictEqual(plan.rewrite, [0, 2]);
+    assert.strictEqual(plan.deltaByUid.get("u1"), -5);
+    assert.strictEqual(plan.deltaByUid.get("u2"), -5);
+  });
+  it("treats empty-string and null monarchs as plain", () => {
+    const plan = planRepointClaims([
+      { userid: "u1", points: 2, monarch: "" },
+      { userid: "u2", points: 2 },
+    ], null, 2);
+    assert.deepStrictEqual(plan.rewrite, []);
+    assert.strictEqual(plan.deltaByUid.size, 0);
+  });
+  it("keeps a zero-delta entry when only the monarch changes", () => {
+    const plan = planRepointClaims([{ userid: "u1", points: 4, monarch: "GR" }], "GVR", 4);
+    assert.deepStrictEqual(plan.rewrite, [0]);
+    assert.strictEqual(plan.deltaByUid.get("u1"), 0);
+  });
+  it("counts a claim with no numeric points as 0 old points", () => {
+    const plan = planRepointClaims([{ userid: "u1", monarch: "VR" }], "EVIIIR", 12);
+    assert.strictEqual(plan.deltaByUid.get("u1"), 12);
+  });
+  it("rewrites but never attributes an anonymised (deleted-account) claim", () => {
+    const plan = planRepointClaims([
+      { userid: "deleted", points: 9, monarch: "EVIIR" },
+      { userid: "u1", points: 9, monarch: "EVIIR" },
+    ], "GR", 4);
+    assert.deepStrictEqual(plan.rewrite, [0, 1]);
+    assert.strictEqual(plan.deltaByUid.has("deleted"), false);
+    assert.strictEqual(plan.deltaByUid.get("u1"), -5);
+  });
+  it("rewrites but does not attribute a claim with no usable userid", () => {
+    const plan = planRepointClaims([{ points: 9, monarch: "EVIIR" }, { userid: 42, points: 9, monarch: "EVIIR" }], "GR", 4);
+    assert.deepStrictEqual(plan.rewrite, [0, 1]);
+    assert.strictEqual(plan.deltaByUid.size, 0);
+  });
 });
 
 describe("maxDailyFromClaims", () => {
@@ -2003,6 +4188,209 @@ describe("maxDailyFromClaims", () => {
   });
   it("ignores entries with no dailyDate", () => {
     assert.strictEqual(maxDailyFromClaims([{ points: 99 }, { dailyDate: "d1", points: 3 }]), 3);
+  });
+});
+
+import { performReview, type PerformReviewOptions } from "../reports";
+
+describe("performReview (unit, mock Firestore)", () => {
+  type Doc = Record<string, unknown>;
+  type SetCall = { path: string; data: Doc; merge: boolean };
+
+  function makeReviewDb(initial: Record<string, Doc>) {
+    const store = new Map<string, Doc>(Object.entries(initial));
+    const sets: SetCall[] = [];
+    const db = {
+      collection: (c: string) => ({
+        doc: (id: string) => {
+          const path = `${c}/${id}`;
+          return {
+            id,
+            path,
+            async get() {
+              const d = store.get(path);
+              return { exists: d !== undefined, data: () => d };
+            },
+            async set(data: Doc, opts?: { merge?: boolean }) {
+              const merge = opts?.merge === true;
+              sets.push({ path, data, merge });
+              store.set(path, merge ? { ...(store.get(path) ?? {}), ...data } : data);
+            },
+          };
+        },
+      }),
+    };
+    return { db: db as unknown as import("firebase-admin").firestore.Firestore, sets, store };
+  }
+
+  function makeBucket() {
+    const saved: Array<{ path: string; data: string; contentType: string }> = [];
+    return {
+      saved,
+      bucket: { file: (path: string) => ({ save: async (data: string, o: { contentType: string }) => { saved.push({ path, data, contentType: o.contentType }); } }) },
+    };
+  }
+
+  const isDelete = (v: unknown) => admin.firestore.FieldValue.delete().isEqual(v as admin.firestore.FieldValue);
+  const code = async (p: Promise<unknown>) => {
+    try { await p; return "resolved"; } catch (e) { return (e as { code?: string }).code; }
+  };
+
+  const pendingMissing = { type: "missing_postbox", status: "pending", reporterUid: "rep", lat: 51.5, lng: -0.12, photos: [], suggestedMonarch: "VR", suggestedReference: "SW1 9" };
+  const pendingCypher = { type: "wrong_cypher", status: "pending", reporterUid: "rep", postboxId: "osm_77", overpassId: 77, currentMonarch: "EIIR", photos: [], suggestedMonarch: "GR" };
+  const box77 = { overpass_id: 77, monarch: "EIIR", county: "Greater London", removedFromOsm: true, removedFromOsmAt: 1, geopoint: { latitude: 51.5, longitude: -0.12 } };
+  const opts = (extra: Partial<PerformReviewOptions> = {}): PerformReviewOptions => ({
+    today: "2026-10-17",
+    countyForPoint: () => "Greater London",
+    fetchOsmNode: async () => ({ version: 3, lat: 51.5, lon: -0.12, tags: { amenity: "post_box", royal_cypher: "EIIR", ref: "OLD 1" } }),
+    rescore: async () => ({ rescoredClaims: 5, affectedUsers: 2, totalDelta: 10 }),
+    ...extra,
+  });
+
+  it("rejects: stamps status, reviewer and note, writes nothing else", async () => {
+    const { db, sets } = makeReviewDb({ "reports/r1": { ...pendingMissing } });
+    const { bucket, saved } = makeBucket();
+    const r = await performReview(db, bucket, "admin1", { reportId: "r1", decision: "reject", reviewNote: "Duplicate" }, opts());
+    assert.deepStrictEqual(r, { status: "rejected" });
+    assert.strictEqual(sets.length, 1);
+    assert.strictEqual(sets[0].path, "reports/r1");
+    assert.strictEqual(sets[0].data.status, "rejected");
+    assert.strictEqual(sets[0].data.reviewedBy, "admin1");
+    assert.strictEqual(sets[0].data.reviewNote, "Duplicate");
+    assert.strictEqual(saved.length, 0);
+  });
+
+  it("validates decision and reportId before reading anything", async () => {
+    const { db, sets } = makeReviewDb({});
+    const { bucket } = makeBucket();
+    assert.strictEqual(await code(performReview(db, bucket, "a", { reportId: "r1", decision: "maybe" }, opts())), "invalid-argument");
+    assert.strictEqual(await code(performReview(db, bucket, "a", { reportId: "x/y", decision: "reject" }, opts())), "invalid-argument");
+    assert.strictEqual(sets.length, 0);
+  });
+
+  it("not-found for a missing report, failed-precondition for an already-reviewed one", async () => {
+    const { db } = makeReviewDb({ "reports/done": { ...pendingMissing, status: "accepted" } });
+    const { bucket } = makeBucket();
+    assert.strictEqual(await code(performReview(db, bucket, "a", { reportId: "nope", decision: "reject" }, opts())), "not-found");
+    assert.strictEqual(await code(performReview(db, bucket, "a", { reportId: "done", decision: "reject" }, opts())), "failed-precondition");
+  });
+
+  it("accepts a missing postbox: manual_ doc, meta increment, create .osc, report stamped", async () => {
+    const { db, sets, store } = makeReviewDb({ "reports/r1": { ...pendingMissing } });
+    const { bucket, saved } = makeBucket();
+    const r = await performReview(db, bucket, "admin1", { reportId: "r1", decision: "accept" }, opts());
+    assert.deepStrictEqual(r, {
+      status: "accepted",
+      osmEditUrl: "https://www.openstreetmap.org/edit#map=19/51.5/-0.12",
+      osmChangesetPath: "osm_changesets/r1.osc",
+      rescoredClaims: 0,
+      affectedUsers: 0,
+      rescoreTotalDelta: 0,
+    });
+    const box = store.get("postbox/manual_r1");
+    assert.ok(box, "postbox/manual_r1 created");
+    assert.strictEqual(box.source, "user_report");
+    assert.strictEqual(box.reportId, "r1");
+    assert.strictEqual(box.monarch, "VR", "falls back to the reporter's suggestion");
+    assert.strictEqual(box.reference, "SW1 9");
+    assert.strictEqual(box.county, "Greater London");
+    assert.strictEqual((box.geohash as string).length, MAX_GEOHASH_PRECISION);
+    assert.ok(sets.some((c) => c.path === "meta/stats"), "totalPostboxes incremented for a new box");
+    assert.strictEqual(saved.length, 1);
+    assert.match(saved[0].data, /<create>/);
+    assert.match(saved[0].data, /<tag k="royal_cypher" v="VR"\/>/);
+    const rep = store.get("reports/r1");
+    assert.ok(rep);
+    assert.strictEqual(rep.status, "accepted");
+    assert.strictEqual(rep.osmStatus, "changeset_generated");
+    assert.strictEqual(rep.finalMonarch, "VR");
+    assert.ok(!("rescoredClaims" in rep), "no rescore counts for a missing-postbox accept");
+  });
+
+  it("a missing-postbox retry over an existing manual_ doc does not re-increment meta/stats", async () => {
+    const { db, sets } = makeReviewDb({ "reports/r1": { ...pendingMissing }, "postbox/manual_r1": { source: "user_report" } });
+    const { bucket } = makeBucket();
+    await performReview(db, bucket, "admin1", { reportId: "r1", decision: "accept" }, opts());
+    assert.ok(!sets.some((c) => c.path === "meta/stats"));
+  });
+
+  it("an explicit empty finalReference overrides the reporter's suggested one", async () => {
+    const { db, store } = makeReviewDb({ "reports/r1": { ...pendingMissing } });
+    const { bucket } = makeBucket();
+    await performReview(db, bucket, "admin1", { reportId: "r1", decision: "accept", finalReference: "", finalMonarch: null }, opts());
+    const box = store.get("postbox/manual_r1");
+    assert.ok(box);
+    assert.ok(!("reference" in box));
+    assert.ok(!("monarch" in box), "plain writes no monarch");
+  });
+
+  it("accepts a cypher correction: postbox updated, rescore run, modify .osc, counts persisted", async () => {
+    const { db, store } = makeReviewDb({ "reports/r2": { ...pendingCypher }, "postbox/osm_77": { ...box77 } });
+    const { bucket, saved } = makeBucket();
+    const rescoreCalls: unknown[][] = [];
+    const r = await performReview(db, bucket, "admin1", { reportId: "r2", decision: "accept", finalReference: "NEW 2" }, opts({
+      rescore: async (...args) => { rescoreCalls.push(args.slice(1)); return { rescoredClaims: 5, affectedUsers: 2, totalDelta: 10 }; },
+    }));
+    assert.deepStrictEqual(r, {
+      status: "accepted",
+      osmEditUrl: "https://www.openstreetmap.org/edit?editor=id&node=77",
+      osmChangesetPath: "osm_changesets/r2.osc",
+      rescoredClaims: 5,
+      affectedUsers: 2,
+      rescoreTotalDelta: 10,
+    });
+    const box = store.get("postbox/osm_77");
+    assert.ok(box);
+    assert.strictEqual(box.monarch, "GR");
+    assert.strictEqual(box.reference, "NEW 2");
+    assert.strictEqual(box.correctedBy, "admin1");
+    assert.ok(isDelete(box.removedFromOsm), "a soft-pruned box is restored");
+    assert.deepStrictEqual(rescoreCalls, [["osm_77", "GR", "greater-london", "Greater London", "2026-10-17"]]);
+    assert.strictEqual(saved.length, 1);
+    assert.match(saved[0].data, /<node id="77" version="3"/);
+    assert.match(saved[0].data, /<tag k="royal_cypher" v="GR"\/>/);
+    assert.match(saved[0].data, /<tag k="ref" v="NEW 2"\/>/);
+    const rep = store.get("reports/r2");
+    assert.ok(rep);
+    assert.strictEqual(rep.rescoredClaims, 5);
+    assert.strictEqual(rep.affectedUsers, 2);
+    assert.strictEqual(rep.rescoreTotalDelta, 10);
+  });
+
+  it("a cypher correction to plain deletes the monarch and the OSM royal_cypher tag", async () => {
+    const { db, store } = makeReviewDb({ "reports/r2": { ...pendingCypher }, "postbox/osm_77": { ...box77 } });
+    const { bucket, saved } = makeBucket();
+    await performReview(db, bucket, "admin1", { reportId: "r2", decision: "accept", finalMonarch: null }, opts());
+    assert.ok(isDelete(store.get("postbox/osm_77")?.monarch));
+    assert.ok(!/royal_cypher/.test(saved[0].data));
+  });
+
+  it("a cypher correction needs a resolvable finalMonarch", async () => {
+    const { db, sets } = makeReviewDb({ "reports/r2": { ...pendingCypher, suggestedMonarch: undefined }, "postbox/osm_77": { ...box77 } });
+    const { bucket } = makeBucket();
+    assert.strictEqual(await code(performReview(db, bucket, "a", { reportId: "r2", decision: "accept" }, opts())), "invalid-argument");
+    assert.strictEqual(sets.length, 0);
+  });
+
+  it("records changeset_failed when the OSM node can't be fetched", async () => {
+    const { db, store } = makeReviewDb({ "reports/r2": { ...pendingCypher }, "postbox/osm_77": { ...box77 } });
+    const { bucket, saved } = makeBucket();
+    const r = await performReview(db, bucket, "admin1", { reportId: "r2", decision: "accept" }, opts({ fetchOsmNode: async () => null }));
+    assert.strictEqual(r.status === "accepted" && r.osmChangesetPath, null);
+    assert.strictEqual(saved.length, 0);
+    assert.strictEqual(store.get("reports/r2")?.osmStatus, "changeset_failed");
+  });
+
+  it("aborts before any write when the points config can't be loaded (strict loader)", async () => {
+    const { db, sets } = makeReviewDb({ "reports/r2": { ...pendingCypher }, "postbox/osm_77": { ...box77 } });
+    const { bucket } = makeBucket();
+    setConfigLoader(async () => { throw new Error("rc down"); });
+    try {
+      await assert.rejects(() => performReview(db, bucket, "a", { reportId: "r2", decision: "accept" }, opts()), /rc down/);
+      assert.strictEqual(sets.length, 0);
+    } finally {
+      setConfigLoaderForTest(fallbackGameConfig);
+    }
   });
 });
 
@@ -2042,5 +4430,2979 @@ describe("submitReport / reviewReport (onCall) — auth & validation", function 
     } catch (e) {
       assert.strictEqual((e as { code?: string }).code, "permission-denied");
     }
+  });
+});
+
+describe("reviewFlag (onCall) — auth & validation", function (this: Mocha.Suite) {
+  this.timeout(10000);
+  const wrappedReviewFlag = testEnv.wrap(myFunctions.reviewFlag) as (data: unknown) => Promise<unknown>;
+
+  it("throws permission-denied for a non-admin caller", async () => {
+    try {
+      await wrappedReviewFlag({ data: { flagId: "f1" }, auth: { uid: "u1" } });
+      assert.fail("expected permission-denied");
+    } catch (e) {
+      assert.strictEqual((e as { code?: string }).code, "permission-denied");
+    }
+  });
+
+  it("throws permission-denied with auth but admin claim false", async () => {
+    try {
+      await wrappedReviewFlag({ data: { flagId: "f1" }, auth: { uid: "u1", token: { admin: false } } });
+      assert.fail("expected permission-denied");
+    } catch (e) {
+      assert.strictEqual((e as { code?: string }).code, "permission-denied");
+    }
+  });
+
+  it("throws invalid-argument for a missing flagId (admin caller)", async () => {
+    try {
+      await wrappedReviewFlag({ data: {}, auth: { uid: "admin1", token: { admin: true } } });
+      assert.fail("expected invalid-argument");
+    } catch (e) {
+      // invalid-argument is reached only for admins; non-emulator runs may also
+      // surface permission-denied on the subsequent Firestore read, but the
+      // arg check runs first so invalid-argument is expected here.
+      assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+    }
+  });
+});
+
+// ── filterToCorridor ──────────────────────────────────────────────────────────
+//
+// Fixture: start = (0, 0), end = (0, 0.01)  (roughly ~1.1 km due-east at equator)
+// halfWidthMetres = 200 m
+//
+//   pb_on    (0, 0.005)  — lies on the segment midpoint, perp dist ≈ 0 m  → IN
+//   pb_near  (0.001, 0.005) — slightly north of midpoint, perp dist ≈ 111 m  → IN
+//   pb_far   (0.01,  0.005) — well north (~1.1 km), perp dist ≈ 1110 m  → OUT
+
+describe("filterToCorridor", () => {
+  const start = { lat: 0, lng: 0 };
+  const end   = { lat: 0, lng: 0.01 };
+  const halfWidth = 200;
+
+  const makeCandidates = () => [
+    { id: "pb_on",   lat: 0,     lng: 0.005, monarch: "EIIR", points: 2 },
+    { id: "pb_near", lat: 0.001, lng: 0.005, monarch: "EIIR", points: 2 },
+    { id: "pb_far",  lat: 0.01,  lng: 0.005, monarch: "EIIR", points: 2 },
+  ];
+
+  it("returns candidates within the corridor half-width", () => {
+    const result = filterToCorridor(makeCandidates(), start, end, halfWidth);
+    assert.strictEqual(result.length, 2);
+    const ids = result.map((c) => c.id);
+    assert.ok(ids.includes("pb_on"),   "pb_on should be included");
+    assert.ok(ids.includes("pb_near"), "pb_near should be included");
+  });
+
+  it("excludes the candidate beyond the half-width", () => {
+    const result = filterToCorridor(makeCandidates(), start, end, halfWidth);
+    assert.ok(!result.map((c) => c.id).includes("pb_far"), "pb_far should be excluded");
+  });
+
+  it("excludes candidates whose projection falls outside [0,1] (before start)", () => {
+    const behind = [{ id: "pb_behind", lat: 0, lng: -0.005, monarch: "EIIR", points: 2 }];
+    const result = filterToCorridor(behind, start, end, halfWidth);
+    assert.strictEqual(result.length, 0);
+  });
+
+  it("excludes candidates whose projection falls outside [0,1] (beyond end)", () => {
+    const beyond = [{ id: "pb_beyond", lat: 0, lng: 0.015, monarch: "EIIR", points: 2 }];
+    const result = filterToCorridor(beyond, start, end, halfWidth);
+    assert.strictEqual(result.length, 0);
+  });
+
+  it("returns all candidates when half-width is very large", () => {
+    const result = filterToCorridor(makeCandidates(), start, end, 50_000);
+    assert.strictEqual(result.length, 3);
+  });
+
+  it("returns empty array when half-width is 0 and no candidate is exactly on-line", () => {
+    // pb_near is 0.001° off; pb_on lies exactly on the segment so its perp dist is 0.
+    const result = filterToCorridor(makeCandidates(), start, end, 0);
+    // Exactly one candidate (pb_on) has zero perpendicular distance.
+    assert.strictEqual(result.length, 1);
+  });
+
+  it("returns empty array when half-width is negative", () => {
+    // A negative half-width is nonsense (caller shouldn't pass it) but the
+    // function must degrade safely: no perpDist can be <= a negative number,
+    // so nothing should be included rather than throwing.
+    const result = filterToCorridor(makeCandidates(), start, end, -100);
+    assert.strictEqual(result.length, 0);
+  });
+
+  it("degenerate segment (start == end): includes candidates within halfWidth of start", () => {
+    // When start and end coincide, segLenSq is 0 and t falls back to 0 —
+    // every candidate gets t=0 (no rejection by the projection bounds) and
+    // perpDist becomes the great-circle distance from start. This is the
+    // explicitly-documented degenerate-segment behaviour.
+    const here = { lat: 0, lng: 0 };
+    const candidates = [
+      { id: "pb_near_start", lat: 0,     lng: 0.001, monarch: null, points: 2 }, // ~111 m east
+      { id: "pb_far_start",  lat: 0,     lng: 0.01,  monarch: null, points: 2 }, // ~1.1 km east
+    ];
+    // 200 m half-width — pb_near_start fits, pb_far_start does not.
+    const result = filterToCorridor(candidates, here, here, 200);
+    assert.strictEqual(result.length, 1);
+    assert.strictEqual(result[0].id, "pb_near_start");
+  });
+});
+
+describe("midpoint", () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const planner = require("../_routePlanner") as typeof import("../_routePlanner");
+
+  it("averages lat/lng of two points", () => {
+    const m = planner.midpoint({ lat: 0, lng: 0 }, { lat: 10, lng: 20 });
+    assert.strictEqual(m.lat, 5);
+    assert.strictEqual(m.lng, 10);
+  });
+
+  it("midpoint of coincident points is the same point", () => {
+    const p = { lat: 51.5, lng: -0.1 };
+    assert.deepStrictEqual(planner.midpoint(p, p), p);
+  });
+
+  it("handles negative coordinates symmetrically", () => {
+    const m = planner.midpoint({ lat: -1, lng: -2 }, { lat: 1, lng: 2 });
+    assert.strictEqual(m.lat, 0);
+    assert.strictEqual(m.lng, 0);
+  });
+});
+
+describe("metresBetween", () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const planner = require("../_routePlanner") as typeof import("../_routePlanner");
+
+  it("returns 0 for coincident points", () => {
+    assert.strictEqual(
+      planner.metresBetween({ lat: 51.5, lng: -0.1 }, { lat: 51.5, lng: -0.1 }),
+      0,
+    );
+  });
+
+  it("approximates 1° of latitude ≈ 111 km", () => {
+    // The Earth's polar radius is approximately constant for latitude lines.
+    // 1° of latitude ≈ 111.32 km; geolib returns ~111,195 m at sea level.
+    const d = planner.metresBetween({ lat: 0, lng: 0 }, { lat: 1, lng: 0 });
+    assert.ok(d > 110_000 && d < 112_000,
+      `expected ~111 km, got ${d} m`);
+  });
+
+  it("symmetric: d(a,b) == d(b,a)", () => {
+    const a = { lat: 51.5, lng: -0.1 };
+    const b = { lat: 52.5, lng: -1.1 };
+    assert.strictEqual(planner.metresBetween(a, b), planner.metresBetween(b, a));
+  });
+});
+
+describe("filterToEllipse (boundary cases)", () => {
+  // start→end is roughly 1.1 km east (1° of longitude at the equator is
+  // ~111.32 km; 0.01° ≈ 1.11 km).
+  const start = { lat: 0, lng: 0 };
+  const end   = { lat: 0, lng: 0.01 };
+  const candidates = [
+    // On the segment midpoint — start→p + p→end equals direct distance.
+    { id: "pb_on", lat: 0,     lng: 0.005, monarch: null, points: 2 },
+    // Slightly north — start→p + p→end is greater (a bit of a detour).
+    { id: "pb_off", lat: 0.001, lng: 0.005, monarch: null, points: 2 },
+  ];
+
+  it("returns empty for budget 0 (impossible to even reach any point)", () => {
+    const result = filterToEllipse(candidates, start, end, 0);
+    assert.strictEqual(result.length, 0);
+  });
+
+  it("returns empty when budget < direct distance (degenerate ellipse)", () => {
+    // Direct distance is ~1100m; budget of 500m means even reaching the
+    // segment midpoint would exceed budget (start→mid + mid→end ≈ 1100m).
+    const result = filterToEllipse(candidates, start, end, 500);
+    assert.strictEqual(result.length, 0);
+  });
+
+  it("budget == direct distance includes only on-segment candidates", () => {
+    // The ellipse collapses to the segment itself; only pb_on (on the line)
+    // satisfies start→p + p→end == direct distance. pb_off requires a detour.
+    // 0.01° lng ≈ 1113 m at the equator, with a few metres slack for the
+    // great-circle vs equirectangular discrepancy and floating-point.
+    const direct = 1115;
+    const result = filterToEllipse(candidates, start, end, direct);
+    const ids = result.map((c) => c.id);
+    assert.ok(ids.includes("pb_on"), "pb_on must be included at the segment-budget");
+    assert.ok(!ids.includes("pb_off"), "pb_off detour exceeds the segment-budget");
+  });
+
+  it("returns empty for an empty candidates list", () => {
+    assert.deepStrictEqual(filterToEllipse([], start, end, 10000), []);
+  });
+
+  it("degenerate start==end ellipse collapses to a disc of radius budget/2", () => {
+    // start→p + p→end = 2 * distance(start, p). Candidates with
+    // distance(start,p) <= budget/2 are included.
+    const here = { lat: 0, lng: 0 };
+    const candidates = [
+      { id: "near", lat: 0, lng: 0.001, monarch: null, points: 2 }, // ~111 m east
+      { id: "far",  lat: 0, lng: 0.01,  monarch: null, points: 2 }, // ~1.1 km east
+    ];
+    // Budget 400m → disc radius 200m → only "near" fits.
+    const result = filterToEllipse(candidates, here, here, 400);
+    assert.strictEqual(result.length, 1);
+    assert.strictEqual(result[0].id, "near");
+  });
+});
+
+// ── routePostboxes pure logic tests ──────────────────────────────────────────
+//
+// Fixture: start=51.5000,-0.1000  end=51.5000,-0.0900  (~780 m due east)
+//
+//   box_a  EVIIIR (12 pts) — on the line, lng midpoint  → IN corridor 100m
+//   box_b  VR     ( 7 pts) — on the line, 3/4 along     → IN corridor 100m
+//   box_c  EIIR   ( 2 pts) — 200 m north of midpoint    → OUT corridor 100m, IN ellipse (generous budget)
+//   box_d  GR     ( 4 pts) — 200 m south of midpoint    → OUT corridor 100m, IN ellipse (generous budget)
+//   box_far EIIR  ( 2 pts) — far away (0.5° lat north)  → OUT both
+//
+describe("routePostboxes pure corridor logic", () => {
+  const start = { lat: 51.5000, lng: -0.1000 };
+  const end   = { lat: 51.5000, lng: -0.0900 };
+  // ~0.0011° ≈ 75m at this latitude; well within 100m corridor
+  const midLng = (start.lng + end.lng) / 2; // -0.0950
+
+  const candidates = [
+    { id: "box_a",   lat: 51.5000, lng: midLng,    monarch: "EVIIIR", points: 12 },
+    { id: "box_b",   lat: 51.5000, lng: -0.0925,   monarch: "VR",     points: 7  },
+    { id: "box_c",   lat: 51.5018, lng: midLng,    monarch: "EIIR",   points: 2  }, // ~200m north
+    { id: "box_d",   lat: 51.4982, lng: midLng,    monarch: "GR",     points: 4  }, // ~200m south
+    { id: "box_far", lat: 52.0000, lng: midLng,    monarch: "EIIR",   points: 2  }, // far away
+  ];
+
+  it("corridor 100m: count=2, points=19 (12+7)", () => {
+    const filtered = filterToCorridor(candidates, start, end, 100);
+    assert.strictEqual(filtered.length, 2);
+    const ids = filtered.map(c => c.id).sort();
+    assert.deepStrictEqual(ids, ["box_a", "box_b"]);
+    const points = filtered.reduce((s, c) => s + c.points, 0);
+    assert.strictEqual(points, 19);
+  });
+
+  it("corridor result contains no coordinates or IDs beyond the count/points aggregate", () => {
+    const filtered = filterToCorridor(candidates, start, end, 100);
+    const count = filtered.length;
+    const points = filtered.reduce((s, c) => s + c.points, 0);
+    // Simulate what routePostboxes returns — only aggregate fields.
+    const response = { count, points, directDistanceM: 780, budgetDistanceM: 780, warnings: [] };
+    assert.ok(!("postboxes" in response));
+    assert.ok(!("ids" in response));
+    assert.ok(!("locations" in response));
+    assert.strictEqual(response.count, 2);
+    assert.strictEqual(response.points, 19);
+  });
+
+  it("claimed-today filter reduces corridor count by 1 when one in-corridor box is claimed", () => {
+    const claimedIds = new Set(["box_a"]);
+    const unclaimed = candidates.filter(c => !claimedIds.has(c.id));
+    const filtered = filterToCorridor(unclaimed, start, end, 100);
+    assert.strictEqual(filtered.length, 1);
+    assert.strictEqual(filtered[0].id, "box_b");
+    assert.strictEqual(filtered.reduce((s, c) => s + c.points, 0), 7);
+  });
+});
+
+describe("routePostboxes pure detour logic", () => {
+  const start = { lat: 51.5000, lng: -0.1000 };
+  const end   = { lat: 51.5000, lng: -0.0900 };
+  const midLng = (start.lng + end.lng) / 2;
+
+  const candidates = [
+    { id: "box_a",   lat: 51.5000, lng: midLng,    monarch: "EVIIIR", points: 12 },
+    { id: "box_b",   lat: 51.5000, lng: -0.0925,   monarch: "VR",     points: 7  },
+    { id: "box_c",   lat: 51.5018, lng: midLng,    monarch: "EIIR",   points: 2  },
+    { id: "box_d",   lat: 51.4982, lng: midLng,    monarch: "GR",     points: 4  },
+    { id: "box_far", lat: 52.0000, lng: midLng,    monarch: "EIIR",   points: 2  },
+  ];
+
+  // A generous detour budget: direct ~780 m + 60 min detour at 4.5 km/h
+  const speedMps = 4.5 * 1000 / 3600; // 1.25 m/s
+  const directM = 780;
+  const budgetSeconds = directM / speedMps + 60 * 60; // huge budget
+  const budgetM = speedMps * budgetSeconds;
+
+  it("ellipse filter with generous budget includes in-corridor boxes and nearby off-line boxes", () => {
+    const filtered = filterToEllipse(candidates, start, end, budgetM);
+    const ids = filtered.map(c => c.id).sort();
+    // box_far is 55km away — excluded regardless.
+    assert.ok(!ids.includes("box_far"), "box_far should be excluded");
+    // box_a, box_b, box_c, box_d should all be inside the generous ellipse.
+    assert.ok(ids.includes("box_a"), "box_a should be included");
+    assert.ok(ids.includes("box_b"), "box_b should be included");
+    assert.ok(ids.includes("box_c"), "box_c should be included");
+    assert.ok(ids.includes("box_d"), "box_d should be included");
+  });
+
+  it("beam search returns count and score consistent with filtered candidates", () => {
+    const filtered = filterToEllipse(candidates.filter(c => c.id !== "box_far"), start, end, budgetM);
+    const result = beamSearchOrienteering(start, end, filtered, budgetSeconds, speedMps, 60, 50);
+    // With a huge budget all 4 near candidates should be visitable.
+    assert.strictEqual(typeof result.score, "number");
+    assert.ok(result.score >= 12, "should score at least 12 (EVIIIR alone)");
+    assert.ok(result.visited.size >= 1, "should visit at least one box");
+  });
+
+  it("detour with zero budget visits no boxes (just the direct walk)", () => {
+    // Budget = direct walk time only; no time to detour.
+    const tightBudget = directM / speedMps;
+    const tightBudgetM = speedMps * tightBudget;
+    // With the tight budget the ellipse degenerates to the segment — only exactly
+    // on-line boxes qualify. box_c and box_d are off-line; box_a and box_b are on it.
+    const filtered = filterToEllipse(candidates, start, end, tightBudgetM);
+    const result = beamSearchOrienteering(start, end, filtered, tightBudget, speedMps, 60, 50);
+    // Beam search can't add dwell time when budget is exactly the walk time.
+    assert.strictEqual(typeof result.visited.size, "number");
+  });
+
+  it("empty candidates returns the initial state with score 0", () => {
+    // No postboxes in range at all — the search must terminate cleanly with
+    // the initial state (no visits, no score), not loop or throw.
+    const result = beamSearchOrienteering(start, end, [], budgetSeconds, speedMps, 60, 50);
+    assert.strictEqual(result.score, 0);
+    assert.strictEqual(result.visited.size, 0);
+    assert.strictEqual(result.route.length, 0);
+    assert.strictEqual(result.timeUsed, 0);
+    assert.deepStrictEqual(result.current, start);
+  });
+
+  it("candidate beyond the time budget is not visited", () => {
+    // Synthetic candidate far enough that even reaching it eats more than the
+    // budget; beam search should report 0 visits despite the candidate being
+    // present.
+    const farAway = [
+      { id: "unreachable", lat: 52.5, lng: -0.5, monarch: null, points: 100 },
+    ];
+    // Tight budget = just the direct walk time, no detour room.
+    const tight = directM / speedMps;
+    const result = beamSearchOrienteering(start, end, farAway, tight, speedMps, 60, 50);
+    assert.strictEqual(result.score, 0);
+    assert.strictEqual(result.visited.size, 0);
+  });
+
+  it("maximises score: with budget for only one detour, picks the higher-value box", () => {
+    // Loop route (start === end) with two boxes the same distance away in
+    // opposite directions. The budget affords a detour to exactly ONE of them.
+    // The orienteering objective must pick the 12-pt box over the 2-pt box —
+    // the core property that distinguishes this from "visit whatever fits".
+    const s = { lat: 51.5, lng: -0.1 };
+    const e = { lat: 51.5, lng: -0.1 };
+    const high = { id: "box_high", lat: 51.51, lng: -0.1, monarch: "EVIIIR", points: 12 };
+    const low = { id: "box_low", lat: 51.49, lng: -0.1, monarch: "EIIR", points: 2 };
+    const v = 4.5 * 1000 / 3600; // 1.25 m/s
+    // Round trip to one box (there and back, since start === end), one dwell,
+    // plus a little slack. Visiting both would need ~2x the travel and is
+    // infeasible, so the search can only afford one box.
+    const oneBoxBudget = (2 * metresBetween(s, high)) / v + 60 + 30;
+    const result = beamSearchOrienteering(s, e, [high, low], oneBoxBudget, v, 60, 50);
+    assert.strictEqual(result.score, 12, "should pick the 12-pt box, not the 2-pt one");
+    assert.strictEqual(result.visited.size, 1, "budget only affords one detour");
+    assert.ok(result.visited.has("box_high"), "the visited box must be the high-value one");
+    assert.ok(!result.visited.has("box_low"), "the low-value box must not be chosen");
+  });
+});
+
+describe("finaliseRoute", () => {
+  // Pure helper used by the plan_route CLI to compute closing-leg metres /
+  // seconds and total route stats after the beam search picks stops.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const planner = require("../_routePlanner") as typeof import("../_routePlanner");
+
+  const start = { lat: 51.5000, lng: -0.1000 };
+  const end   = { lat: 51.5000, lng: -0.0900 }; // ~780 m due east
+
+  it("computes closing leg and totals from an empty route", () => {
+    // No intermediate stops — we walk straight from start to end.
+    const initial = {
+      current: start,
+      currentId: "__START__",
+      visited: new Set<string>(),
+      timeUsed: 0,
+      score: 0,
+      route: [],
+    };
+    const speedMps = 1.25; // 4.5 km/h
+    const r = planner.finaliseRoute(initial, end, speedMps);
+    // Distance from start to end (~780 m at this latitude).
+    assert.ok(r.closingMetres > 600 && r.closingMetres < 900,
+      `closingMetres should be ~780, got ${r.closingMetres}`);
+    assert.ok(Math.abs(r.closingSeconds - r.closingMetres / speedMps) < 0.001);
+    // No stops → totalMetres equals closing leg, totalSeconds equals closing.
+    assert.strictEqual(r.totalMetres, r.closingMetres);
+    assert.strictEqual(r.totalSeconds, r.closingSeconds);
+  });
+
+  it("adds the closing leg on top of accumulated leg distances", () => {
+    // Two synthetic stops with known leg distances. The "current" position is
+    // wherever the second stop sits; finaliseRoute should add the leg from
+    // there to end on top of legMeters.reduce.
+    const stopA = { id: "a", lat: 51.5000, lng: -0.0950, monarch: null, points: 5 };
+    const stopB = { id: "b", lat: 51.5000, lng: -0.0925, monarch: null, points: 5 };
+    const state = {
+      current: { lat: stopB.lat, lng: stopB.lng },
+      currentId: "b",
+      visited: new Set<string>(["a", "b"]),
+      timeUsed: 300, // arbitrary cumulative seconds
+      score: 10,
+      route: [
+        { postbox: stopA, legMeters: 350, cumSeconds: 200 },
+        { postbox: stopB, legMeters: 180, cumSeconds: 300 },
+      ],
+    };
+    const speedMps = 1.25;
+    const r = planner.finaliseRoute(state, end, speedMps);
+    // totalMetres == sum(legMeters) + closing leg.
+    assert.strictEqual(r.totalMetres, 350 + 180 + r.closingMetres);
+    // totalSeconds == timeUsed + closingSeconds (NOT cumSeconds — that's just
+    // an inner annotation; the authoritative running total is timeUsed).
+    assert.strictEqual(r.totalSeconds, state.timeUsed + r.closingSeconds);
+  });
+});
+
+// ── Abuse-detection signals (pure, shadow mode) ───────────────────────────────
+import {
+  coordKey,
+  impossibleTravelSignal,
+  outOfWindowSignal,
+  coordClusterSignal,
+  repeatedDeviceSignal,
+  queuedTooLongSignal,
+  computeBatchSpeedCv,
+  constantBatchSpeedSignal,
+  evaluateClaimSignals,
+  summariseFlags,
+  applyTrustDecay,
+  SHADOW_TRAVEL_FLAG_M_PER_MIN,
+  OUT_OF_WINDOW_MS,
+  CLUSTER_MIN_REPEATS,
+  REPEATED_DEVICE_MIN_ACCOUNTS,
+  DEFAULT_TRUST_SCORE,
+} from "../_abuseSignals";
+
+describe("abuse signals: coordKey", () => {
+  it("rounds to 6 dp and joins lat,lng", () => {
+    assert.strictEqual(coordKey(51.4532109, -0.9543201), "51.453211,-0.954320");
+  });
+  it("two positions that agree to 6 dp produce the same key", () => {
+    assert.strictEqual(coordKey(51.4532104, -0.9543204), coordKey(51.4532101, -0.9543198));
+  });
+  it("positions differing at 6 dp produce different keys", () => {
+    assert.notStrictEqual(coordKey(51.453210, -0.954320), coordKey(51.453219, -0.954320));
+  });
+});
+
+describe("abuse signals: impossibleTravelSignal", () => {
+  it("flags a speed at or above the shadow threshold", () => {
+    const r = impossibleTravelSignal(SHADOW_TRAVEL_FLAG_M_PER_MIN);
+    assert.strictEqual(r.flagged, true);
+    assert.strictEqual(r.value, SHADOW_TRAVEL_FLAG_M_PER_MIN);
+  });
+  it("does not flag a speed below the threshold", () => {
+    assert.strictEqual(impossibleTravelSignal(SHADOW_TRAVEL_FLAG_M_PER_MIN - 1).flagged, false);
+  });
+  it("does not flag when no travel speed is available (first claim)", () => {
+    assert.strictEqual(impossibleTravelSignal(undefined).flagged, false);
+  });
+});
+
+describe("abuse signals: outOfWindowSignal", () => {
+  const server = 1_000_000_000_000;
+  it("flags when client clock is off by more than the window", () => {
+    const r = outOfWindowSignal(server, server - (OUT_OF_WINDOW_MS + 1));
+    assert.strictEqual(r.flagged, true);
+    assert.strictEqual(r.value, OUT_OF_WINDOW_MS + 1);
+  });
+  it("does not flag when within the window", () => {
+    assert.strictEqual(outOfWindowSignal(server, server + OUT_OF_WINDOW_MS).flagged, false);
+  });
+  it("does not flag when client timestamp is absent", () => {
+    assert.strictEqual(outOfWindowSignal(server, undefined).flagged, false);
+  });
+});
+
+describe("abuse signals: coordClusterSignal", () => {
+  it("flags once repeats reach the minimum", () => {
+    assert.strictEqual(coordClusterSignal(CLUSTER_MIN_REPEATS).flagged, true);
+  });
+  it("does not flag below the minimum", () => {
+    assert.strictEqual(coordClusterSignal(CLUSTER_MIN_REPEATS - 1).flagged, false);
+  });
+});
+
+describe("abuse signals: repeatedDeviceSignal", () => {
+  it("flags once distinct accounts reach the minimum", () => {
+    assert.strictEqual(repeatedDeviceSignal(REPEATED_DEVICE_MIN_ACCOUNTS).flagged, true);
+  });
+  it("does not flag below the minimum", () => {
+    assert.strictEqual(repeatedDeviceSignal(REPEATED_DEVICE_MIN_ACCOUNTS - 1).flagged, false);
+  });
+  it("reports the distinct-account count as the value", () => {
+    assert.strictEqual(repeatedDeviceSignal(5).value, 5);
+  });
+});
+
+describe("abuse signals: evaluateClaimSignals", () => {
+  const base = { serverTsMs: 1_000_000_000_000, coordRepeatCount: 0, distinctDeviceAccounts: 0 };
+
+  it("flags nothing for a clean claim", () => {
+    const r = evaluateClaimSignals(base);
+    assert.deepStrictEqual(r.reasons, []);
+    assert.strictEqual(r.severity, "low");
+  });
+
+  it("flags repeated_device once distinct accounts reach the minimum", () => {
+    const r = evaluateClaimSignals({ ...base, distinctDeviceAccounts: REPEATED_DEVICE_MIN_ACCOUNTS });
+    assert.deepStrictEqual(r.reasons, ["repeated_device"]);
+    assert.strictEqual(r.severity, "low");
+    assert.strictEqual(r.signals.deviceAccountCount, REPEATED_DEVICE_MIN_ACCOUNTS);
+  });
+
+  it("escalates severity as signals co-occur (device + travel = med)", () => {
+    const r = evaluateClaimSignals({
+      ...base,
+      travelSpeedMPerMin: SHADOW_TRAVEL_FLAG_M_PER_MIN,
+      distinctDeviceAccounts: REPEATED_DEVICE_MIN_ACCOUNTS,
+    });
+    assert.strictEqual(r.reasons.length, 2);
+    assert.ok(r.reasons.includes("repeated_device"));
+    assert.ok(r.reasons.includes("impossible_travel"));
+    assert.strictEqual(r.severity, "med");
+  });
+
+  it("reports all four signals with high severity when everything fires", () => {
+    const r = evaluateClaimSignals({
+      travelSpeedMPerMin: SHADOW_TRAVEL_FLAG_M_PER_MIN,
+      serverTsMs: base.serverTsMs,
+      clientTsMs: base.serverTsMs - (OUT_OF_WINDOW_MS + 1),
+      coordRepeatCount: CLUSTER_MIN_REPEATS,
+      distinctDeviceAccounts: REPEATED_DEVICE_MIN_ACCOUNTS,
+    });
+    assert.strictEqual(r.reasons.length, 4);
+    assert.strictEqual(r.severity, "high");
+    assert.strictEqual(r.signals.coordRepeatCount, CLUSTER_MIN_REPEATS);
+    assert.strictEqual(r.signals.deviceAccountCount, REPEATED_DEVICE_MIN_ACCOUNTS);
+  });
+});
+
+describe("abuse signals: summariseFlags", () => {
+  it("collects only the fired reasons", () => {
+    const r = summariseFlags([
+      { reason: "impossible_travel", flagged: true },
+      { reason: "out_of_window", flagged: false },
+      { reason: "coord_cluster", flagged: true },
+    ]);
+    assert.deepStrictEqual(r.reasons, ["impossible_travel", "coord_cluster"]);
+  });
+  it("escalates severity with the number of co-occurring signals", () => {
+    const sig = (n: number) =>
+      summariseFlags(
+        ["a", "b", "c"].slice(0, n).map((reason) => ({ reason, flagged: true })),
+      ).severity;
+    assert.strictEqual(sig(1), "low");
+    assert.strictEqual(sig(2), "med");
+    assert.strictEqual(sig(3), "high");
+  });
+});
+
+describe("abuse signals: applyTrustDecay", () => {
+  it("decrements more for higher severity", () => {
+    assert.ok(
+      applyTrustDecay(DEFAULT_TRUST_SCORE, "high") <
+        applyTrustDecay(DEFAULT_TRUST_SCORE, "low"),
+    );
+  });
+  it("never drops below zero", () => {
+    assert.strictEqual(applyTrustDecay(0, "high"), 0);
+  });
+  it("never rises above the default ceiling", () => {
+    assert.ok(applyTrustDecay(DEFAULT_TRUST_SCORE, "low") <= DEFAULT_TRUST_SCORE);
+  });
+});
+
+// ── dailyClaimPatch: the postbox claim patch must never carry claimant PII ─────
+import { dailyClaimPatch } from "../startScoring";
+
+describe("dailyClaimPatch (postbox claim patch)", () => {
+  it("writes only the London date", () => {
+    assert.deepStrictEqual(dailyClaimPatch("2026-07-03"), {
+      dailyClaim: { date: "2026-07-03" },
+    });
+  });
+  it("never includes a `by` uid (location-PII regression guard)", () => {
+    // postbox docs are world-readable + carry the exact geopoint, so a claimant
+    // uid here would leak "who was at this location on this date". Pin that it
+    // is never reintroduced.
+    assert.strictEqual("by" in dailyClaimPatch("2026-07-03").dailyClaim, false);
+  });
+});
+
+// ── Account deletion (GDPR) helpers (unit, mock Firestore) ─────────────────────
+import {
+  DELETED_UID,
+  anonymiseClaimsForUser,
+  anonymiseReportsForUser,
+  removeUserFromFriends,
+  removeUserFromLeaderboards,
+  deleteUserDocs,
+} from "../_accountDeletion";
+import { storagePrefixesForUser } from "../onUserDeleted";
+
+describe("account deletion: storagePrefixesForUser", () => {
+  it("covers report photos and (future-proof) claim photos for the uid", () => {
+    assert.deepStrictEqual(storagePrefixesForUser("u1"), [
+      "report_photos/u1/",
+      "claims-photos/u1/",
+    ]);
+  });
+});
+
+describe("account deletion: deleteUserDocs (mock Firestore)", () => {
+  it("deletes the profile, per-uid docs, countyStats, and the user's flags", async () => {
+    const deleted: string[] = [];
+    const makeCollDoc = (path: string) => ({
+      // A DocumentReference stand-in; deleteUserDocs only reads .id via batch.
+      id: path,
+      _path: path,
+    });
+    const countyDocs = [makeCollDoc("users/u1/countyStats/avon")];
+    const flagDocs = [makeCollDoc("moderationFlags/f1"), makeCollDoc("moderationFlags/f2")];
+    const inviteDocs = [makeCollDoc("invites/ABCD2345")];
+    const referralsMadeDocs = [makeCollDoc("referrals/invitee1")];
+
+    const userRef = {
+      _path: "users/u1",
+      collection: (name: string) => {
+        if (name !== "countyStats") throw new Error(`unexpected subcollection ${name}`);
+        return { async get() { return { docs: countyDocs.map((d) => ({ ref: d })) }; } };
+      },
+    };
+    const db = {
+      collection: (name: string) => {
+        if (name === "users") return { doc: () => userRef };
+        if (name === "moderationFlags") {
+          return {
+            where(field: string, op: string, val: unknown) {
+              assert.strictEqual(field, "uid");
+              assert.strictEqual(op, "==");
+              assert.strictEqual(val, "u1");
+              return { async get() { return { docs: flagDocs.map((d) => ({ ref: d })) }; } };
+            },
+          };
+        }
+        if (name === "invites") {
+          return {
+            where(field: string, op: string, val: unknown) {
+              assert.deepStrictEqual([field, op, val], ["uid", "==", "u1"]);
+              return { async get() { return { docs: inviteDocs.map((d) => ({ ref: d })) }; } };
+            },
+          };
+        }
+        if (name === "referrals") {
+          return {
+            where(field: string, op: string, val: unknown) {
+              assert.deepStrictEqual([field, op, val], ["inviterUid", "==", "u1"]);
+              return { async get() { return { docs: referralsMadeDocs.map((d) => ({ ref: d })) }; } };
+            },
+            doc: () => makeCollDoc("referrals/u1"),
+          };
+        }
+        // fcmTokens / reportQuotas / trustScores
+        return { doc: () => makeCollDoc(`${name}/u1`) };
+      },
+      batch() {
+        return {
+          delete(ref: { _path: string }) { deleted.push(ref._path); },
+          async commit() {},
+        };
+      },
+    };
+
+    await deleteUserDocs(db as unknown as import("firebase-admin").firestore.Firestore, "u1");
+
+    assert.ok(deleted.includes("users/u1"), "profile doc deleted");
+    assert.ok(deleted.includes("users/u1/countyStats/avon"), "countyStats deleted");
+    assert.ok(deleted.includes("moderationFlags/f1") && deleted.includes("moderationFlags/f2"),
+      "user's moderation flags deleted");
+    assert.ok(deleted.includes("fcmTokens/u1"), "fcm token deleted");
+    assert.ok(deleted.includes("reportQuotas/u1"), "report quota deleted");
+    assert.ok(deleted.includes("offlineFlushQuotas/u1"),
+      "offline-flush quota deleted (GDPR: analogue of reportQuotas)");
+    assert.ok(deleted.includes("trustScores/u1"), "trust score deleted");
+    assert.ok(deleted.includes("invites/ABCD2345"), "user's invite code deleted");
+    assert.ok(deleted.includes("referrals/u1"), "user's own referral record deleted");
+    assert.ok(deleted.includes("referrals/invitee1"),
+      "referral records naming the user as inviter deleted");
+  });
+});
+
+describe("account deletion: anonymiseClaimsForUser (mock Firestore)", () => {
+  type Doc = { id: string; userid?: string; points?: number };
+  function makeDb(claims: Doc[]) {
+    const writes: Array<{ id: string; update: Record<string, unknown> }> = [];
+    const db = {
+      collection: (name: string) => {
+        if (name !== "claims") throw new Error(`unexpected collection ${name}`);
+        let filter: unknown;
+        const q = {
+          where(field: string, op: string, val: unknown) {
+            if (field !== "userid" || op !== "==") throw new Error(`unexpected where ${field} ${op}`);
+            filter = val;
+            return q;
+          },
+          async get() {
+            return {
+              docs: claims
+                .filter((c) => c.userid === filter)
+                .map((c) => ({ ref: { id: c.id }, data: () => c as Record<string, unknown> })),
+            };
+          },
+        };
+        return q;
+      },
+      batch() {
+        const bw: Array<{ id: string; update: Record<string, unknown> }> = [];
+        return {
+          set(ref: { id: string }, update: Record<string, unknown>) { bw.push({ id: ref.id, update }); },
+          async commit() { writes.push(...bw); },
+        };
+      },
+    };
+    return { db: db as unknown as import("firebase-admin").firestore.Firestore, writes };
+  }
+
+  it("rewrites userid to the deleted sentinel and strips location PII", async () => {
+    const { db, writes } = makeDb([
+      { id: "c1", userid: "u1", points: 9 },
+      { id: "c2", userid: "u1", points: 4 },
+      { id: "c3", userid: "u2", points: 7 }, // different user — untouched
+    ]);
+    const n = await anonymiseClaimsForUser(db, "u1");
+    assert.strictEqual(n, 2);
+    assert.strictEqual(writes.length, 2);
+    assert.ok(!writes.some((w) => w.id === "c3"));
+    for (const w of writes) {
+      assert.strictEqual(w.update.userid, DELETED_UID);
+      // points is preserved (not part of the update).
+      assert.strictEqual("points" in w.update, false);
+      // Location fields are FieldValue.delete() sentinels (objects, not values).
+      for (const f of ["userLat", "userLng", "coordKey6", "clientTsMs", "travelSpeed", "deviceIdHash"]) {
+        assert.ok(f in w.update, `${f} should be in the update`);
+        assert.notStrictEqual(typeof w.update[f], "number");
+        assert.notStrictEqual(typeof w.update[f], "string");
+      }
+    }
+  });
+});
+
+describe("account deletion: anonymiseReportsForUser (mock Firestore)", () => {
+  function makeDb(reports: Array<{ id: string; reporterUid?: string }>) {
+    const writes: Array<{ id: string; update: Record<string, unknown> }> = [];
+    const db = {
+      collection: (name: string) => {
+        if (name !== "reports") throw new Error(`unexpected collection ${name}`);
+        let filter: unknown;
+        const q = {
+          where(field: string, op: string, val: unknown) {
+            if (field !== "reporterUid" || op !== "==") throw new Error(`unexpected where ${field} ${op}`);
+            filter = val;
+            return q;
+          },
+          async get() {
+            return {
+              docs: reports
+                .filter((r) => r.reporterUid === filter)
+                .map((r) => ({ ref: { id: r.id }, data: () => r as Record<string, unknown> })),
+            };
+          },
+        };
+        return q;
+      },
+      batch() {
+        const bw: Array<{ id: string; update: Record<string, unknown> }> = [];
+        return {
+          set(ref: { id: string }, update: Record<string, unknown>) { bw.push({ id: ref.id, update }); },
+          async commit() { writes.push(...bw); },
+        };
+      },
+    };
+    return { db: db as unknown as import("firebase-admin").firestore.Firestore, writes };
+  }
+
+  it("rewrites reporterUid to the deleted sentinel for the user's reports only", async () => {
+    const { db, writes } = makeDb([
+      { id: "r1", reporterUid: "u1" },
+      { id: "r2", reporterUid: "u2" },
+    ]);
+    const n = await anonymiseReportsForUser(db, "u1");
+    assert.strictEqual(n, 1);
+    assert.strictEqual(writes.length, 1);
+    assert.strictEqual(writes[0].id, "r1");
+    assert.strictEqual(writes[0].update.reporterUid, DELETED_UID);
+  });
+
+  it("strips note and photos (PII) but keeps lat/lng/status/type for data integrity", async () => {
+    const { db, writes } = makeDb([
+      { id: "r1", reporterUid: "u1" },
+    ]);
+    await anonymiseReportsForUser(db, "u1");
+    assert.strictEqual(writes.length, 1);
+    const update = writes[0].update;
+    // note (free text) and photos (EXIF GPS + uid-bearing storage paths) must be
+    // FieldValue.delete() sentinels (objects, not values).
+    for (const f of ["note", "photos"]) {
+      assert.ok(f in update, `${f} should be in the update`);
+      assert.notStrictEqual(typeof update[f], "string");
+      assert.ok(!Array.isArray(update[f]), `${f} must not survive as an array`);
+    }
+    // lat/lng stay: reviewReport needs them to create the postbox for a
+    // still-pending missing-box report, and post-anonymisation they describe a
+    // public postbox site, unlinkable to a person. status/type also untouched.
+    for (const f of ["lat", "lng", "status", "type"]) {
+      assert.ok(!(f in update), `${f} must not be touched by anonymisation`);
+    }
+  });
+});
+
+describe("account deletion: removeUserFromFriends (mock Firestore)", () => {
+  function makeDb(users: Array<{ id: string; friends: string[] }>) {
+    const writes: Array<{ id: string; update: Record<string, unknown> }> = [];
+    const db = {
+      collection: (name: string) => {
+        if (name !== "users") throw new Error(`unexpected collection ${name}`);
+        let val: unknown;
+        const q = {
+          where(field: string, op: string, v: unknown) {
+            if (field !== "friends" || op !== "array-contains") throw new Error(`unexpected where ${field} ${op}`);
+            val = v;
+            return q;
+          },
+          async get() {
+            return {
+              docs: users
+                .filter((u) => u.friends.includes(val as string))
+                .map((u) => ({ ref: { id: u.id }, data: () => u as Record<string, unknown> })),
+            };
+          },
+        };
+        return q;
+      },
+      batch() {
+        const bw: Array<{ id: string; update: Record<string, unknown> }> = [];
+        return {
+          set(ref: { id: string }, update: Record<string, unknown>) { bw.push({ id: ref.id, update }); },
+          async commit() { writes.push(...bw); },
+        };
+      },
+    };
+    return { db: db as unknown as import("firebase-admin").firestore.Firestore, writes };
+  }
+
+  it("removes the uid from each friend list containing it, and only those", async () => {
+    const { db, writes } = makeDb([
+      { id: "a", friends: ["u1", "x"] },
+      { id: "b", friends: ["y"] },
+      { id: "c", friends: ["u1"] },
+    ]);
+    const n = await removeUserFromFriends(db, "u1");
+    assert.strictEqual(n, 2);
+    assert.deepStrictEqual(writes.map((w) => w.id).sort(), ["a", "c"]);
+    // friends is set to an arrayRemove() sentinel (object, not an array).
+    assert.ok(!Array.isArray(writes[0].update.friends));
+  });
+});
+
+describe("account deletion: removeUserFromLeaderboards (mock Firestore)", () => {
+  function makeDb(initial: Record<string, { entries: Array<{ uid: string }> }>) {
+    const store = new Map(Object.entries(initial));
+    const db = {
+      collection: (name: string) => {
+        if (name !== "leaderboards") throw new Error(`unexpected collection ${name}`);
+        return {
+          doc: (id: string) => ({
+            _id: id,
+            collection: (sub: string) => ({ doc: (slug: string) => ({ _id: `${id}/${sub}/${slug}` }) }),
+          }),
+        };
+      },
+      runTransaction: async (fn: (tx: unknown) => Promise<void>) => {
+        const pending: Array<[string, Record<string, unknown>]> = [];
+        await fn({
+          get: async (r: { _id: string }) => ({ data: () => store.get(r._id) }),
+          set: (r: { _id: string }, data: Record<string, unknown>) => pending.push([r._id, data]),
+        });
+        for (const [id, data] of pending) {
+          store.set(id, { ...(store.get(id) ?? { entries: [] }), ...data } as { entries: Array<{ uid: string }> });
+        }
+      },
+    };
+    return { db: db as unknown as import("firebase-admin").firestore.Firestore, store };
+  }
+
+  it("filters the uid out of every period and county board, keeping others", async () => {
+    const { db, store } = makeDb({
+      daily: { entries: [{ uid: "u1" }, { uid: "u2" }] },
+      weekly: { entries: [{ uid: "u2" }] },
+      monthly: { entries: [{ uid: "u1" }] },
+      lifetime: { entries: [{ uid: "u1" }, { uid: "u3" }] },
+      "lifetime_by_county/counties/avon": { entries: [{ uid: "u1" }, { uid: "u2" }] },
+    });
+    await removeUserFromLeaderboards(db, "u1", ["avon"]);
+    const ids = (k: string) => (store.get(k)?.entries ?? []).map((e) => e.uid);
+    assert.deepStrictEqual(ids("daily"), ["u2"]);
+    assert.deepStrictEqual(ids("weekly"), ["u2"]);
+    assert.deepStrictEqual(ids("monthly"), []);
+    assert.deepStrictEqual(ids("lifetime"), ["u3"]);
+    assert.deepStrictEqual(ids("lifetime_by_county/counties/avon"), ["u2"]);
+  });
+});
+
+// ── Streak reminder (scheduled notification) ──────────────────────────────────
+
+describe("previousDay", () => {
+  it("subtracts one day", () => {
+    assert.strictEqual(previousDay("2026-07-05"), "2026-07-04");
+  });
+  it("crosses a month boundary", () => {
+    assert.strictEqual(previousDay("2026-07-01"), "2026-06-30");
+  });
+  it("crosses a year boundary", () => {
+    assert.strictEqual(previousDay("2026-01-01"), "2025-12-31");
+  });
+  it("handles a leap day", () => {
+    assert.strictEqual(previousDay("2024-03-01"), "2024-02-29");
+  });
+});
+
+describe("getLondonHourMinute", () => {
+  it("returns in-range hour and minute", () => {
+    const { hour, minute } = getLondonHourMinute();
+    assert.ok(Number.isInteger(hour) && hour >= 0 && hour <= 23, `hour ${hour}`);
+    assert.ok(Number.isInteger(minute) && minute >= 0 && minute <= 59, `minute ${minute}`);
+  });
+});
+
+describe("slotForLondonTime", () => {
+  it("maps 17:00 to slot 0 and 20:45 to the last slot", () => {
+    assert.strictEqual(slotForLondonTime(17, 0), 0);
+    assert.strictEqual(slotForLondonTime(20, 45), STREAK_REMINDER_SLOTS - 1);
+  });
+  it("maps quarter-hours within an hour", () => {
+    assert.strictEqual(slotForLondonTime(17, 14), 0);
+    assert.strictEqual(slotForLondonTime(17, 15), 1);
+    assert.strictEqual(slotForLondonTime(18, 30), 6);
+  });
+  it("clamps below the window to 0 and above to the last slot", () => {
+    assert.strictEqual(slotForLondonTime(9, 0), 0);
+    assert.strictEqual(slotForLondonTime(23, 59), STREAK_REMINDER_SLOTS - 1);
+  });
+});
+
+describe("shouldNotifyStreakReminder", () => {
+  it("is enabled when no prefs exist", () => {
+    assert.strictEqual(shouldNotifyStreakReminder({}), true);
+    assert.strictEqual(shouldNotifyStreakReminder(undefined), true);
+  });
+  it("is enabled when the key is absent from prefs", () => {
+    assert.strictEqual(
+      shouldNotifyStreakReminder({ notificationPrefs: { friendOvertakes: false } }),
+      true
+    );
+  });
+  it("is disabled only when explicitly false", () => {
+    assert.strictEqual(
+      shouldNotifyStreakReminder({ notificationPrefs: { streakReminder: false } }),
+      false
+    );
+    assert.strictEqual(
+      shouldNotifyStreakReminder({ notificationPrefs: { streakReminder: true } }),
+      true
+    );
+  });
+});
+
+describe("streakReminderBody", () => {
+  it("includes the streak length when known", () => {
+    assert.ok(streakReminderBody(12).includes("12-day streak"));
+  });
+  it("omits the number for a missing or zero streak", () => {
+    assert.ok(!/\d/.test(streakReminderBody(undefined)));
+    assert.ok(!/\d/.test(streakReminderBody(0)));
+  });
+});
+
+describe("decideFire", () => {
+  const TODAY = "2026-07-05";
+
+  it("rolls a random target slot on the first run of a new day", () => {
+    // rng 0.5 * 16 = 8 → floor → slot 8
+    const { fire, newState } = decideFire(undefined, TODAY, 0, 16, () => 0.5);
+    assert.strictEqual(newState.day, TODAY);
+    assert.strictEqual(newState.targetSlot, 8);
+    assert.strictEqual(fire, false, "slot 0 is before target 8");
+  });
+
+  it("re-rolls and drops a stale sentDay when the stored state is from a previous day", () => {
+    const prev = { day: "2026-07-04", targetSlot: 2, sentDay: "2026-07-04" };
+    // rng 0.5 * 16 = 8 → target slot 8; current slot 0 is before it, so no fire
+    // and we can observe the re-rolled target. The stale sentDay is dropped so
+    // the persisted state never carries an undefined field into Firestore.
+    const { fire, newState } = decideFire(prev, TODAY, 0, 16, () => 0.5);
+    assert.strictEqual(fire, false);
+    assert.strictEqual(newState.day, TODAY);
+    assert.strictEqual(newState.targetSlot, 8);
+    assert.strictEqual(newState.sentDay, undefined, "stale sentDay dropped");
+    assert.ok(!("sentDay" in newState), "sentDay key omitted entirely, not set to undefined");
+  });
+
+  it("does not fire before the target slot", () => {
+    const state = { day: TODAY, targetSlot: 10 };
+    const { fire, newState } = decideFire(state, TODAY, 9, 16, () => 0);
+    assert.strictEqual(fire, false);
+    assert.strictEqual(newState.sentDay, undefined);
+  });
+
+  it("fires when the current slot reaches the target and stamps sentDay", () => {
+    const state = { day: TODAY, targetSlot: 10 };
+    const { fire, newState } = decideFire(state, TODAY, 10, 16, () => 0);
+    assert.strictEqual(fire, true);
+    assert.strictEqual(newState.sentDay, TODAY);
+  });
+
+  it("fires when the current slot has passed the target (robust to skipped runs)", () => {
+    const state = { day: TODAY, targetSlot: 5 };
+    const { fire } = decideFire(state, TODAY, 12, 16, () => 0);
+    assert.strictEqual(fire, true);
+  });
+
+  it("never fires twice on the same day", () => {
+    const state = { day: TODAY, targetSlot: 5, sentDay: TODAY };
+    const { fire, newState } = decideFire(state, TODAY, 15, 16, () => 0);
+    assert.strictEqual(fire, false);
+    assert.strictEqual(newState.sentDay, TODAY);
+  });
+});
+
+describe("findStreakReminderRecipients (unit, mock Firestore)", () => {
+  type UserDoc = { lastClaimDate?: string; streak?: number; notificationPrefs?: Record<string, boolean> };
+
+  function makeMockDb(users: Record<string, UserDoc>) {
+    const db = {
+      collection: (name: string) => {
+        if (name !== "users") throw new Error(`Unexpected collection: ${name}`);
+        let preds: Array<{ field: string; op: string; val: unknown }> = [];
+        const q = {
+          where(f: string, o: string, v: unknown) {
+            preds = [...preds, { field: f, op: o, val: v }];
+            return q;
+          },
+          async get() {
+            return {
+              docs: Object.entries(users)
+                .filter(([, d]) =>
+                  preds.every(({ field, op, val }) => {
+                    const v = (d as Record<string, unknown>)[field];
+                    return op === "==" ? v === val : false;
+                  })
+                )
+                .map(([id, d]) => ({ id, data: () => d as Record<string, unknown> })),
+            };
+          },
+        };
+        return q;
+      },
+    };
+    return db as unknown as import("firebase-admin").firestore.Firestore;
+  }
+
+  it("returns only users whose lastClaimDate equals yesterday", async () => {
+    const db = makeMockDb({
+      u1: { lastClaimDate: "2026-07-04", streak: 3 },
+      u2: { lastClaimDate: "2026-07-05", streak: 9 }, // claimed today — excluded
+      u3: { lastClaimDate: "2026-07-04", streak: 1 },
+      u4: { streak: 0 }, // never claimed — excluded
+    });
+    const recipients = await findStreakReminderRecipients("2026-07-04", db);
+    const uids = recipients.map((r) => r.uid).sort();
+    assert.deepStrictEqual(uids, ["u1", "u3"]);
+    assert.strictEqual(recipients.find((r) => r.uid === "u1")!.streak, 3);
+  });
+});
+
+describe("sendStreakReminders", () => {
+  function recipient(uid: string, streak: number, prefs?: Record<string, boolean>) {
+    return { uid, streak, fdata: { streak, notificationPrefs: prefs } as Record<string, unknown> };
+  }
+
+  it("sends to eligible recipients and skips opted-out ones", async () => {
+    const sent: string[] = [];
+    const count = await sendStreakReminders(
+      [
+        recipient("u1", 5),
+        recipient("u2", 2, { streakReminder: false }),
+        recipient("u3", 8, { streakReminder: true }),
+      ],
+      async (uid) => { sent.push(uid); }
+    );
+    assert.strictEqual(count, 2);
+    assert.deepStrictEqual(sent.sort(), ["u1", "u3"]);
+  });
+
+  it("continues past a failing send (allSettled)", async () => {
+    const sent: string[] = [];
+    const count = await sendStreakReminders(
+      [recipient("u1", 5), recipient("u2", 3)],
+      async (uid) => {
+        if (uid === "u1") throw new Error("push failed");
+        sent.push(uid);
+      }
+    );
+    assert.strictEqual(count, 2, "both are eligible even if one send throws");
+    assert.deepStrictEqual(sent, ["u2"]);
+  });
+});
+
+// ── Data retention (GDPR) sweep (unit, mock Firestore) ────────────────────────
+import * as adminRet from "firebase-admin";
+import {
+  claimNeedsPiiStrip,
+  reportNeedsMediaPurge,
+  reportStoragePaths,
+  sweepClaimPii,
+  sweepReportMedia,
+  sweepModerationFlags,
+  CLAIM_PII_RETENTION_DAYS,
+  REPORT_MEDIA_RETENTION_DAYS,
+  FLAG_RETENTION_DAYS,
+} from "../dataRetention";
+
+const RET_NOW = 1_800_000_000_000; // fixed "now" for deterministic cutoffs
+const RET_DAY = 24 * 60 * 60 * 1000;
+const retTs = (daysAgo: number) => adminRet.firestore.Timestamp.fromMillis(RET_NOW - daysAgo * RET_DAY);
+
+type RetDoc = Record<string, unknown> & { id: string };
+
+/** Shared mock Firestore for the sweeps: a single swept collection filtered on
+ *  one timestamp field (range + orderBy + limit + startAfter cursor), plus the
+ *  `retention` watermark-state collection, plus batch set/delete that mutate
+ *  the live doc array so re-reads observe strips/deletes (as Firestore would). */
+function makeRetentionDb(config: {
+  collectionName: string;
+  tsField: string;
+  docs: RetDoc[];
+  initialState?: Record<string, unknown>;
+}) {
+  const writes: Array<{ id: string; update: Record<string, unknown> }> = [];
+  const deletes: string[] = [];
+  const stateWrites: Array<Record<string, unknown>> = [];
+  let state: Record<string, unknown> | undefined = config.initialState;
+  let docs = config.docs.map((d) => ({ ...d }));
+
+  const tsMillis = (d: RetDoc) =>
+    (d[config.tsField] as adminRet.firestore.Timestamp | undefined)?.toMillis?.();
+
+  const db = {
+    collection(name: string) {
+      if (name === "retention") {
+        return {
+          doc: () => ({
+            async get() {
+              return { exists: state !== undefined, data: () => state };
+            },
+            async set(v: Record<string, unknown>) {
+              state = { ...(state ?? {}), ...v };
+              stateWrites.push(v);
+            },
+          }),
+        };
+      }
+      if (name !== config.collectionName) throw new Error(`unexpected collection ${name}`);
+      let gte: number | undefined;
+      let lt: number | undefined;
+      let lim = Infinity;
+      let afterId: string | undefined;
+      const q = {
+        where(field: string, op: string, val: unknown) {
+          assert.strictEqual(field, config.tsField);
+          const ms = (val as adminRet.firestore.Timestamp).toMillis();
+          if (op === ">=") gte = ms;
+          else if (op === "<") lt = ms;
+          else throw new Error(`unexpected op ${op}`);
+          return q;
+        },
+        orderBy(field: string) {
+          assert.strictEqual(field, config.tsField);
+          return q;
+        },
+        limit(n: number) {
+          lim = n;
+          return q;
+        },
+        startAfter(snap: { id: string }) {
+          afterId = snap.id;
+          return q;
+        },
+        async get() {
+          let matched = docs
+            .filter((d) => tsMillis(d) !== undefined)
+            .filter(
+              (d) =>
+                (gte === undefined || (tsMillis(d) as number) >= gte) &&
+                (lt === undefined || (tsMillis(d) as number) < lt),
+            )
+            .sort((a, b) => (tsMillis(a) as number) - (tsMillis(b) as number));
+          if (afterId !== undefined) {
+            const idx = matched.findIndex((d) => d.id === afterId);
+            matched = matched.slice(idx + 1);
+          }
+          matched = matched.slice(0, lim);
+          return {
+            docs: matched.map((d) => ({ ref: { id: d.id }, id: d.id, data: () => d })),
+          };
+        },
+      };
+      return q;
+    },
+    batch() {
+      const ops: Array<() => void> = [];
+      return {
+        set(ref: { id: string }, update: Record<string, unknown>) {
+          ops.push(() => {
+            writes.push({ id: ref.id, update });
+            const doc = docs.find((d) => d.id === ref.id);
+            if (doc) {
+              for (const [k, v] of Object.entries(update)) {
+                // FieldValue.delete() sentinel = plain object (not a Timestamp).
+                if (v !== null && typeof v === "object" && !(v instanceof adminRet.firestore.Timestamp)) {
+                  delete doc[k];
+                } else {
+                  doc[k] = v;
+                }
+              }
+            }
+          });
+        },
+        delete(ref: { id: string }) {
+          ops.push(() => {
+            deletes.push(ref.id);
+            docs = docs.filter((d) => d.id !== ref.id);
+          });
+        },
+        async commit() {
+          for (const f of ops) f();
+        },
+      };
+    },
+  };
+  return {
+    db: db as unknown as import("firebase-admin").firestore.Firestore,
+    writes,
+    deletes,
+    stateWrites,
+    getState: () => state,
+    getDocs: () => docs,
+  };
+}
+
+describe("data retention: policy constants", () => {
+  it("pins the documented retention windows", () => {
+    assert.strictEqual(CLAIM_PII_RETENTION_DAYS, 90);
+    assert.strictEqual(REPORT_MEDIA_RETENTION_DAYS, 30);
+    assert.strictEqual(FLAG_RETENTION_DAYS, 180);
+  });
+});
+
+describe("data retention: claimNeedsPiiStrip", () => {
+  it("true when any claim PII field is present", () => {
+    assert.strictEqual(claimNeedsPiiStrip({ userLat: 51.4, points: 9 }), true);
+    assert.strictEqual(claimNeedsPiiStrip({ deviceIdHash: "ab" }), true);
+    assert.strictEqual(claimNeedsPiiStrip({ clientTsMs: 5 }), true);
+  });
+  it("false for already-clean / already-anonymised claims", () => {
+    assert.strictEqual(claimNeedsPiiStrip({ userid: "deleted", points: 9, monarch: "VR" }), false);
+    assert.strictEqual(claimNeedsPiiStrip({}), false);
+  });
+});
+
+describe("data retention: reportNeedsMediaPurge / reportStoragePaths", () => {
+  it("needs purge when note or photos survive", () => {
+    assert.strictEqual(reportNeedsMediaPurge({ note: "hi" }), true);
+    assert.strictEqual(reportNeedsMediaPurge({ photos: [] }), true);
+    assert.strictEqual(reportNeedsMediaPurge({ lat: 51, lng: -2, status: "accepted" }), false);
+  });
+  it("extracts storage paths, ignoring malformed entries", () => {
+    assert.deepStrictEqual(
+      reportStoragePaths({
+        photos: [
+          { storagePath: "report_photos/u1/a.jpg", exifLat: 51 },
+          { storagePath: "" },
+          "junk",
+          { other: 1 },
+          { storagePath: "report_photos/u1/b.png" },
+        ],
+      }),
+      ["report_photos/u1/a.jpg", "report_photos/u1/b.png"],
+    );
+    assert.deepStrictEqual(reportStoragePaths({}), []);
+    assert.deepStrictEqual(reportStoragePaths({ photos: "nope" }), []);
+  });
+});
+
+describe("data retention: sweepClaimPii (mock Firestore)", () => {
+  it("strips PII from claims past 90 days only, skips clean docs, advances the watermark", async () => {
+    const { db, writes, getState } = makeRetentionDb({
+      collectionName: "claims",
+      tsField: "timestamp",
+      docs: [
+        { id: "old-dirty", timestamp: retTs(100), userLat: 51.4, userLng: -2.6, deviceIdHash: "ab", points: 9 },
+        { id: "old-clean", timestamp: retTs(95), userid: "deleted", points: 4 },
+        { id: "recent-dirty", timestamp: retTs(10), userLat: 51.5, points: 2 },
+      ],
+    });
+    const r = await sweepClaimPii(db, RET_NOW);
+    assert.strictEqual(r.scanned, 2, "only the two >90d docs are scanned");
+    assert.strictEqual(r.stripped, 1, "only the dirty old doc is written");
+    assert.strictEqual(r.pagesRemaining, false);
+    assert.strictEqual(writes.length, 1);
+    assert.strictEqual(writes[0].id, "old-dirty");
+    for (const f of ["userLat", "userLng", "coordKey6", "clientTsMs", "travelSpeed", "deviceIdHash"]) {
+      assert.ok(f in writes[0].update, `${f} in strip update`);
+    }
+    assert.strictEqual("points" in writes[0].update, false, "points untouched");
+    const wm = getState()?.watermark as adminRet.firestore.Timestamp;
+    assert.ok(wm, "watermark persisted");
+    assert.strictEqual(wm.toMillis(), retTs(95).toMillis(), "watermark = newest processed doc");
+  });
+
+  it("pages with a cursor, honours maxPages, and resumes from the watermark next run", async () => {
+    const mk = () =>
+      makeRetentionDb({
+        collectionName: "claims",
+        tsField: "timestamp",
+        docs: [
+          { id: "a", timestamp: retTs(120), userLat: 1 },
+          { id: "b", timestamp: retTs(110), userLat: 2 },
+          { id: "c", timestamp: retTs(100), userLat: 3 },
+        ],
+      });
+    const { db, writes, getState } = mk();
+    const r1 = await sweepClaimPii(db, RET_NOW, { pageSize: 1, maxPages: 2 });
+    assert.strictEqual(r1.stripped, 2);
+    assert.strictEqual(r1.pagesRemaining, true);
+    assert.deepStrictEqual(writes.map((w) => w.id), ["a", "b"]);
+
+    // Second run resumes from the persisted watermark and finishes the backlog.
+    const r2 = await sweepClaimPii(db, RET_NOW, { pageSize: 1, maxPages: 5 });
+    assert.strictEqual(r2.stripped, 1);
+    assert.strictEqual(r2.pagesRemaining, false);
+    assert.deepStrictEqual(writes.map((w) => w.id), ["a", "b", "c"]);
+    const wm = getState()?.watermark as adminRet.firestore.Timestamp;
+    assert.strictEqual(wm.toMillis(), retTs(100).toMillis());
+  });
+});
+
+describe("data retention: sweepReportMedia (mock Firestore + fake bucket)", () => {
+  it("purges photos+note of reports reviewed >30 days ago; pending and recent untouched", async () => {
+    const { db, writes, getDocs } = makeRetentionDb({
+      collectionName: "reports",
+      tsField: "reviewedAt",
+      docs: [
+        {
+          id: "old-reviewed",
+          reviewedAt: retTs(40),
+          status: "accepted",
+          lat: 51.4,
+          note: "cypher looks like GR",
+          photos: [
+            { storagePath: "report_photos/u1/a.jpg", exifLat: 51.4 },
+            { storagePath: "report_photos/u1/gone.jpg" },
+          ],
+        },
+        { id: "recent-reviewed", reviewedAt: retTs(5), status: "rejected", note: "n" },
+        { id: "pending", status: "pending", note: "n", photos: [] }, // no reviewedAt
+      ],
+    });
+    const deleted: string[] = [];
+    const bucket = {
+      file: (p: string) => ({
+        async delete() {
+          if (p.endsWith("gone.jpg")) throw Object.assign(new Error("No such object"), { code: 404 });
+          deleted.push(p);
+        },
+      }),
+    };
+    const r = await sweepReportMedia(db, bucket, RET_NOW);
+    assert.strictEqual(r.scanned, 1);
+    assert.strictEqual(r.purged, 1);
+    assert.strictEqual(r.filesDeleted, 1, "the 404 blob is tolerated, the other deleted");
+    assert.deepStrictEqual(deleted, ["report_photos/u1/a.jpg"]);
+    assert.strictEqual(writes.length, 1);
+    assert.strictEqual(writes[0].id, "old-reviewed");
+    assert.ok("note" in writes[0].update && "photos" in writes[0].update);
+    assert.ok(writes[0].update.mediaPurgedAt instanceof adminRet.firestore.Timestamp);
+    const oldDoc = getDocs().find((d) => d.id === "old-reviewed");
+    assert.ok(oldDoc && !("note" in oldDoc) && !("photos" in oldDoc), "live doc stripped");
+    assert.strictEqual(oldDoc?.lat, 51.4, "postbox coordinate kept");
+    const pending = getDocs().find((d) => d.id === "pending");
+    assert.ok(pending && "note" in pending, "pending report untouched");
+  });
+
+  it("skips already-purged reports on watermark-boundary re-reads (idempotent)", async () => {
+    const { db, writes } = makeRetentionDb({
+      collectionName: "reports",
+      tsField: "reviewedAt",
+      docs: [{ id: "r1", reviewedAt: retTs(40), status: "accepted", mediaPurgedAt: retTs(1) }],
+    });
+    const bucket = { file: () => ({ async delete() {} }) };
+    const r = await sweepReportMedia(db, bucket, RET_NOW);
+    assert.strictEqual(r.purged, 0);
+    assert.strictEqual(writes.length, 0, "no rewrite of an already-clean report");
+  });
+});
+
+describe("data retention: sweepModerationFlags (mock Firestore)", () => {
+  it("deletes flags older than 180 days, keeps newer ones, pages until drained", async () => {
+    const { db, deletes, getDocs } = makeRetentionDb({
+      collectionName: "moderationFlags",
+      tsField: "createdAt",
+      docs: [
+        { id: "f-old-1", createdAt: retTs(200), uid: "u1" },
+        { id: "f-old-2", createdAt: retTs(190), uid: "u2" },
+        { id: "f-new", createdAt: retTs(20), uid: "u1" },
+      ],
+    });
+    const r = await sweepModerationFlags(db, RET_NOW, { pageSize: 1, maxPages: 10 });
+    assert.strictEqual(r.deleted, 2);
+    assert.strictEqual(r.pagesRemaining, false);
+    assert.deepStrictEqual(deletes.sort(), ["f-old-1", "f-old-2"]);
+    assert.deepStrictEqual(getDocs().map((d) => d.id), ["f-new"]);
+  });
+});
+
+// ── exportMyData (GDPR access/portability) ────────────────────────────────────
+import { serialiseForExport, buildExportBundle, EXPORT_CLAIMS_CAP, type ExportParts } from "../exportMyData";
+
+describe("exportMyData: serialiseForExport", () => {
+  it("converts Timestamps to ISO strings and GeoPoints to {lat,lng}, recursively", () => {
+    const ts = adminRet.firestore.Timestamp.fromMillis(1_800_000_000_000);
+    const gp = new adminRet.firestore.GeoPoint(51.45, -2.59);
+    const out = serialiseForExport({
+      when: ts,
+      where: gp,
+      nested: { list: [ts, { deep: gp }] },
+      n: 7,
+      s: "x",
+      b: true,
+      nothing: null,
+    }) as Record<string, unknown>;
+    assert.strictEqual(out.when, new Date(1_800_000_000_000).toISOString());
+    assert.deepStrictEqual(out.where, { lat: 51.45, lng: -2.59 });
+    const nested = out.nested as { list: unknown[] };
+    assert.strictEqual(nested.list[0], new Date(1_800_000_000_000).toISOString());
+    assert.deepStrictEqual((nested.list[1] as Record<string, unknown>).deep, { lat: 51.45, lng: -2.59 });
+    assert.strictEqual(out.n, 7);
+    assert.strictEqual(out.s, "x");
+    assert.strictEqual(out.b, true);
+    assert.strictEqual(out.nothing, null);
+  });
+});
+
+describe("exportMyData: buildExportBundle", () => {
+  const baseParts: ExportParts = {
+    uid: "u1",
+    generatedAtIso: "2026-07-17T10:00:00.000Z",
+    account: { email: "a@b.c", providers: ["google.com"] },
+    profile: { id: "u1", displayName: "Richy", friends: ["u2"] },
+    countyStats: [{ id: "avon", totalPoints: 12 }],
+    claims: [{ id: "c1", timestamp: adminRet.firestore.Timestamp.fromMillis(1_800_000_000_000) }],
+    claimsTruncated: false,
+    reports: [{ id: "r1", note: "n" }],
+    moderationFlags: [{ id: "f1", severity: "low" }],
+    trustScore: { score: 95 },
+    reportQuota: null,
+    offlineFlushQuota: { id: "u1", date: "2026-07-17", count: 3 },
+    fcmTokens: null,
+    leaderboards: [{ board: "lifetime", entry: { uid: "u1", totalPoints: 12 } }],
+    invites: [{ id: "ABCD2345", uid: "u1", referralCount: 2 }],
+    referral: { id: "u1", inviterUid: "u9", code: "WXYZ6789" },
+  };
+
+  it("assembles the versioned bundle with Firestore types serialised", () => {
+    const bundle = buildExportBundle(baseParts) as Record<string, unknown>;
+    assert.strictEqual(bundle.exportVersion, 1);
+    assert.strictEqual(bundle.generatedAt, "2026-07-17T10:00:00.000Z");
+    assert.strictEqual(bundle.uid, "u1");
+    assert.deepStrictEqual(bundle.trustScore, { score: 95 });
+    assert.strictEqual(bundle.reportQuota, null);
+    // GDPR access must mirror erasure: offlineFlushQuotas is erased on deletion
+    // (72d00ea), so it must also be exported.
+    assert.deepStrictEqual(bundle.offlineFlushQuota, { id: "u1", date: "2026-07-17", count: 3 });
+    const claims = bundle.claims as Array<Record<string, unknown>>;
+    assert.strictEqual(claims[0].timestamp, new Date(1_800_000_000_000).toISOString());
+    assert.strictEqual(bundle.claimsTruncated, false);
+    const boards = bundle.leaderboards as Array<Record<string, unknown>>;
+    assert.strictEqual((boards[0].entry as Record<string, unknown>).totalPoints, 12);
+    assert.ok(typeof bundle.notes === "object" && bundle.notes !== null, "explanatory notes present");
+    // GDPR access must mirror erasure: invites and referrals are erased on
+    // deletion, so they are exported too.
+    assert.deepStrictEqual(bundle.invites, [{ id: "ABCD2345", uid: "u1", referralCount: 2 }]);
+    assert.deepStrictEqual(bundle.referral, { id: "u1", inviterUid: "u9", code: "WXYZ6789" });
+  });
+
+  it("keeps a sane claims cap constant", () => {
+    assert.ok(EXPORT_CLAIMS_CAP >= 1000 && EXPORT_CLAIMS_CAP <= 30000);
+  });
+});
+
+describe("exportMyData callable (auth)", () => {
+  it("throws unauthenticated when no auth context", async function (this: Mocha.Context) {
+    this.timeout(5000);
+    const wrapped = testEnv.wrap(myFunctions.exportMyData) as (data: unknown, context?: unknown) => Promise<unknown>;
+    try {
+      await wrapped({ data: {} });
+      assert.fail("Expected unauthenticated error");
+    } catch (e: unknown) {
+      const err = e as { code?: string };
+      assert.strictEqual(err.code, "unauthenticated");
+    }
+  });
+});
+
+// ── Friend invites (referral loop) ────────────────────────────────────────────
+import {
+  normaliseInviteCode,
+  generateInviteCode,
+  planAcceptInvite,
+  INVITE_CODE_ALPHABET,
+  INVITE_CODE_LENGTH,
+  MAX_FRIENDS,
+  REFERRAL_WINDOW_MS,
+  type AcceptInviteInput,
+} from "../invites";
+
+describe("invites: normaliseInviteCode", () => {
+  it("accepts a canonical code unchanged", () => {
+    assert.strictEqual(normaliseInviteCode("ABCD2345"), "ABCD2345");
+  });
+  it("uppercases and trims", () => {
+    assert.strictEqual(normaliseInviteCode("  abcd2345 \n"), "ABCD2345");
+  });
+  it("strips spaces and hyphens", () => {
+    assert.strictEqual(normaliseInviteCode("ABCD-2345"), "ABCD2345");
+    assert.strictEqual(normaliseInviteCode("ab cd 23 45"), "ABCD2345");
+  });
+  it("maps Crockford aliases I and L to 1, O to 0", () => {
+    assert.strictEqual(normaliseInviteCode("IL0O2345"), "11002345");
+    assert.strictEqual(normaliseInviteCode("il0o2345"), "11002345");
+  });
+  it("rejects U (not in the alphabet)", () => {
+    assert.strictEqual(normaliseInviteCode("ABCU2345"), null);
+  });
+  it("rejects the wrong length", () => {
+    assert.strictEqual(normaliseInviteCode("ABCD234"), null);
+    assert.strictEqual(normaliseInviteCode("ABCD23456"), null);
+    assert.strictEqual(normaliseInviteCode(""), null);
+  });
+  it("rejects punctuation and non-strings", () => {
+    assert.strictEqual(normaliseInviteCode("ABCD!345"), null);
+    assert.strictEqual(normaliseInviteCode(null), null);
+    assert.strictEqual(normaliseInviteCode(undefined), null);
+    assert.strictEqual(normaliseInviteCode(12345678), null);
+  });
+});
+
+describe("invites: generateInviteCode", () => {
+  it("produces 8 symbols from the Crockford alphabet", () => {
+    for (let i = 0; i < 200; i++) {
+      const code = generateInviteCode();
+      assert.strictEqual(code.length, INVITE_CODE_LENGTH);
+      for (const ch of code) assert.ok(INVITE_CODE_ALPHABET.includes(ch), `bad symbol ${ch}`);
+      assert.strictEqual(normaliseInviteCode(code), code, "a generated code round-trips");
+    }
+  });
+  it("is deterministic for injected bytes, masking each byte to 5 bits", () => {
+    const bytes = Uint8Array.from([0, 1, 31, 32, 255, 10, 20, 30]);
+    // 32 & 31 = 0, 255 & 31 = 31.
+    assert.strictEqual(generateInviteCode(() => bytes), "01Z0ZAMY");
+  });
+  it("has a 32-symbol alphabet without I, L, O or U", () => {
+    assert.strictEqual(INVITE_CODE_ALPHABET.length, 32);
+    for (const ch of "ILOU") assert.ok(!INVITE_CODE_ALPHABET.includes(ch));
+  });
+});
+
+describe("invites: planAcceptInvite", () => {
+  const base: AcceptInviteInput = {
+    callerUid: "me",
+    inviterUid: "them",
+    callerFriends: [],
+    inviterFriends: [],
+    referralExists: false,
+    accountAgeMs: 60_000,
+  };
+  const full = (prefix: string) => Array.from({ length: MAX_FRIENDS }, (_, i) => `${prefix}${i}`);
+
+  it("rejects redeeming your own code", () => {
+    assert.deepStrictEqual(
+      planAcceptInvite({ ...base, inviterUid: "me" }),
+      { ok: false, error: "self_invite" },
+    );
+  });
+
+  it("adds both directions and records the referral for a new account", () => {
+    assert.deepStrictEqual(planAcceptInvite(base), {
+      ok: true,
+      alreadyFriends: false,
+      addInviterToCaller: true,
+      addCallerToInviter: true,
+      inviterListFull: false,
+      recordReferral: true,
+    });
+  });
+
+  it("skips the add the caller already has", () => {
+    const plan = planAcceptInvite({ ...base, callerFriends: ["them"] });
+    assert.ok(plan.ok);
+    if (!plan.ok) return;
+    assert.strictEqual(plan.alreadyFriends, true);
+    assert.strictEqual(plan.addInviterToCaller, false);
+    assert.strictEqual(plan.addCallerToInviter, true, "the reverse add still happens");
+  });
+
+  it("refuses when the caller's list is full", () => {
+    assert.deepStrictEqual(
+      planAcceptInvite({ ...base, callerFriends: full("f") }),
+      { ok: false, error: "friend_limit" },
+    );
+  });
+
+  it("allows a full caller who already has the inviter", () => {
+    const plan = planAcceptInvite({ ...base, callerFriends: [...full("f").slice(1), "them"] });
+    assert.ok(plan.ok);
+  });
+
+  it("still adds the inviter when the inviter's own list is full", () => {
+    const plan = planAcceptInvite({ ...base, inviterFriends: full("g") });
+    assert.ok(plan.ok);
+    if (!plan.ok) return;
+    assert.strictEqual(plan.addInviterToCaller, true);
+    assert.strictEqual(plan.addCallerToInviter, false);
+    assert.strictEqual(plan.inviterListFull, true);
+  });
+
+  it("doesn't call a full inviter list full when the caller is already on it", () => {
+    const plan = planAcceptInvite({ ...base, inviterFriends: [...full("g").slice(1), "me"] });
+    assert.ok(plan.ok);
+    if (!plan.ok) return;
+    assert.strictEqual(plan.inviterListFull, false);
+    assert.strictEqual(plan.addCallerToInviter, false);
+  });
+
+  it("records the referral only for accounts younger than the window", () => {
+    const old = planAcceptInvite({ ...base, accountAgeMs: REFERRAL_WINDOW_MS });
+    const fresh = planAcceptInvite({ ...base, accountAgeMs: REFERRAL_WINDOW_MS - 1 });
+    assert.ok(old.ok && fresh.ok);
+    if (!old.ok || !fresh.ok) return;
+    assert.strictEqual(old.recordReferral, false);
+    assert.strictEqual(fresh.recordReferral, true);
+  });
+
+  it("never records a referral when the account age is unknown", () => {
+    const plan = planAcceptInvite({ ...base, accountAgeMs: null });
+    assert.ok(plan.ok);
+    if (!plan.ok) return;
+    assert.strictEqual(plan.recordReferral, false);
+  });
+
+  it("records the referral at most once", () => {
+    const plan = planAcceptInvite({ ...base, referralExists: true });
+    assert.ok(plan.ok);
+    if (!plan.ok) return;
+    assert.strictEqual(plan.recordReferral, false);
+  });
+
+  it("writes nothing on a retry after a successful redeem", () => {
+    const plan = planAcceptInvite({
+      ...base,
+      callerFriends: ["them"],
+      inviterFriends: ["me"],
+      referralExists: true,
+    });
+    assert.deepStrictEqual(plan, {
+      ok: true,
+      alreadyFriends: true,
+      addInviterToCaller: false,
+      addCallerToInviter: false,
+      inviterListFull: false,
+      recordReferral: false,
+    });
+  });
+});
+
+describe("getInviteCode / acceptInvite (onCall) — auth & validation", function (this: Mocha.Suite) {
+  this.timeout(10000);
+  const wrappedGet = testEnv.wrap(myFunctions.getInviteCode) as (data: unknown) => Promise<unknown>;
+  const wrappedAccept = testEnv.wrap(myFunctions.acceptInvite) as (data: unknown) => Promise<unknown>;
+
+  it("getInviteCode throws unauthenticated with no auth", async () => {
+    try {
+      await wrappedGet({ data: {} });
+      assert.fail("expected unauthenticated");
+    } catch (e) {
+      assert.strictEqual((e as { code?: string }).code, "unauthenticated");
+    }
+  });
+  it("acceptInvite throws unauthenticated with no auth", async () => {
+    try {
+      await wrappedAccept({ data: { code: "ABCD2345" } });
+      assert.fail("expected unauthenticated");
+    } catch (e) {
+      assert.strictEqual((e as { code?: string }).code, "unauthenticated");
+    }
+  });
+  it("acceptInvite throws invalid-argument for a malformed code", async () => {
+    for (const code of ["nope", "ABCU2345", 12345678, undefined]) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        await wrappedAccept({ data: { code, confirm: true }, auth: { uid: "u1" } });
+        assert.fail(`expected invalid-argument for ${String(code)}`);
+      } catch (e) {
+        assert.strictEqual((e as { code?: string }).code, "invalid-argument");
+      }
+    }
+  });
+});
+
+describe("plan_route CLI helpers", () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const cli = require("../scripts/plan_route") as typeof import("../scripts/plan_route");
+
+  describe("parseLatLng", () => {
+    it("parses plain lat,lng", () => {
+      assert.deepStrictEqual(cli.parseLatLng("51.5,-0.1", "--start"), { lat: 51.5, lng: -0.1 });
+    });
+
+    it("parses a Google Maps paste with a space after the comma", () => {
+      assert.deepStrictEqual(
+        cli.parseLatLng("51.54160849129697, -2.4235417532308885", "--start"),
+        { lat: 51.54160849129697, lng: -2.4235417532308885 },
+      );
+    });
+
+    it("parses space-separated lat lng", () => {
+      assert.deepStrictEqual(cli.parseLatLng("51.5 -0.1", "--end"), { lat: 51.5, lng: -0.1 });
+    });
+
+    it("rejects a trailing comma instead of reading lng as 0", () => {
+      assert.throws(() => cli.parseLatLng("51.5,", "--start"), /--start/);
+    });
+
+    it("rejects a single number", () => {
+      assert.throws(() => cli.parseLatLng("51.5", "--start"), /--start/);
+    });
+
+    it("rejects three numbers", () => {
+      assert.throws(() => cli.parseLatLng("51.5,-0.1,7", "--start"), /--start/);
+    });
+
+    it("rejects non-numeric parts", () => {
+      assert.throws(() => cli.parseLatLng("north,west", "--end"), /--end/);
+    });
+
+    it("rejects out-of-range coordinates", () => {
+      assert.throws(() => cli.parseLatLng("91,0", "--start"), /out of range/);
+      assert.throws(() => cli.parseLatLng("0,181", "--start"), /out of range/);
+    });
+  });
+
+  describe("parseArgs", () => {
+    const rest = ["--end", "51.5,-0.1", "--source", "file", "--input", "x.json"];
+
+    it("joins a shell-split 'lat, lng' pair into one coordinate", () => {
+      const o = cli.parseArgs(["--start", "51.54,", "-2.42", "--km", "5", ...rest]);
+      assert.deepStrictEqual(o.start, { lat: 51.54, lng: -2.42 });
+      assert.deepStrictEqual(o.end, { lat: 51.5, lng: -0.1 });
+    });
+
+    it("joins a three-token 'lat , lng' pair", () => {
+      const o = cli.parseArgs(["--start", "51.54", ",", "-2.42", "--km", "5", ...rest]);
+      assert.deepStrictEqual(o.start, { lat: 51.54, lng: -2.42 });
+    });
+
+    it("does not swallow the next flag when a coordinate is incomplete", () => {
+      assert.throws(() => cli.parseArgs(["--start", "51.54", "--end", "51.5,-0.1", "--km", "5"]), /--start/);
+    });
+
+    it("records a km budget", () => {
+      const o = cli.parseArgs(["--start", "51.5,-0.1", "--km", "5", ...rest]);
+      assert.deepStrictEqual(o.budget, { kind: "km", km: 5 });
+    });
+
+    it("records a minutes budget", () => {
+      const o = cli.parseArgs(["--start", "51.5,-0.1", "--minutes", "60", ...rest]);
+      assert.deepStrictEqual(o.budget, { kind: "minutes", minutes: 60 });
+    });
+
+    it("rejects --minutes together with --km", () => {
+      assert.throws(
+        () => cli.parseArgs(["--start", "51.5,-0.1", "--minutes", "60", "--km", "5", ...rest]),
+        /--minutes[\s\S]*--km|--km[\s\S]*--minutes/,
+      );
+    });
+
+    it("requires one of --minutes or --km", () => {
+      assert.throws(() => cli.parseArgs(["--start", "51.5,-0.1", ...rest]), /--minutes[\s\S]*--km|--km[\s\S]*--minutes/);
+    });
+
+    it("rejects a non-positive --km", () => {
+      assert.throws(() => cli.parseArgs(["--start", "51.5,-0.1", "--km", "0", ...rest]), /--km/);
+      assert.throws(() => cli.parseArgs(["--start", "51.5,-0.1", "--km", "-1", ...rest]), /--km/);
+    });
+  });
+
+  describe("resolveBudget", () => {
+    it("treats a km budget as pure walking distance with no dwell", () => {
+      const b = cli.resolveBudget({ kind: "km", km: 5 }, 4.5, 60);
+      assert.strictEqual(b.budgetMetres, 5000);
+      assert.strictEqual(b.budgetSeconds, 4000);
+      assert.strictEqual(b.searchPerClaimSeconds, 0);
+    });
+
+    it("converts a minutes budget to distance at pace and keeps dwell", () => {
+      const b = cli.resolveBudget({ kind: "minutes", minutes: 60 }, 4.5, 60);
+      assert.strictEqual(b.budgetSeconds, 3600);
+      assert.strictEqual(b.budgetMetres, 4500);
+      assert.strictEqual(b.searchPerClaimSeconds, 60);
+    });
+  });
+
+  describe("candidatesFromJson", () => {
+    const noWarn = (): void => undefined;
+    const overpass = {
+      version: 0.6,
+      elements: [
+        { type: "node", id: 271462, lat: 51.04, lon: -1.54, tags: { amenity: "post_box", royal_cypher: "scottish_crown", ref: "SO51 123" } },
+        { type: "node", id: 2, lat: 51.05, lon: -1.55, tags: { royal_cypher: "ER" } },
+        { type: "node", id: 3, lat: 51.06, lon: -1.56 },
+        { type: "way", id: 4, nodes: [1, 2] },
+      ],
+    };
+
+    it("maps Overpass nodes to candidates with osm_ ids and lng from lon", () => {
+      const out = cli.candidatesFromJson(overpass, noWarn);
+      assert.deepStrictEqual(out.map((c) => c.id), ["osm_271462", "osm_2", "osm_3"]);
+      assert.strictEqual(out[0].lat, 51.04);
+      assert.strictEqual(out[0].lng, -1.54);
+      assert.strictEqual(out[0].reference, "SO51 123");
+      assert.strictEqual(out[1].reference, undefined);
+    });
+
+    it("upper-cases and whitelists royal_cypher like the importer", () => {
+      const out = cli.candidatesFromJson(overpass, noWarn);
+      assert.strictEqual(out[0].monarch, "SCOTTISH_CROWN");
+      assert.strictEqual(out[0].points, 4);
+      assert.strictEqual(out[1].monarch, null);
+      assert.strictEqual(out[1].points, 2);
+      assert.strictEqual(out[2].monarch, null);
+    });
+
+    it("still accepts the flat array format", () => {
+      const out = cli.candidatesFromJson([{ id: "a", lat: 1, lng: 2, monarch: "VR" }], noWarn);
+      assert.deepStrictEqual(out.map((c) => [c.id, c.points]), [["a", 7]]);
+    });
+
+    it("rejects an unrecognised JSON shape", () => {
+      assert.throws(() => cli.candidatesFromJson({ foo: 1 }, noWarn), /elements|array/);
+    });
+  });
+
+  describe("parseArgs --avoid", () => {
+    const base = ["--start", "51.5,-0.1", "--end", "51.5,-0.2", "--km", "5", "--source", "file", "--input", "x.json"];
+
+    it("defaults to an empty avoid list", () => {
+      assert.deepStrictEqual(cli.parseArgs(base).avoid, []);
+    });
+
+    it("splits a comma-separated --avoid and accumulates repeats", () => {
+      const o = cli.parseArgs([...base, "--avoid", "BS37 614, osm_5", "--avoid", "BS37 250"]);
+      assert.deepStrictEqual(o.avoid, ["BS37 614", "osm_5", "BS37 250"]);
+    });
+  });
+
+  describe("applyAvoidList", () => {
+    const boxes = [
+      { id: "osm_1", lat: 0, lng: 0, monarch: null, points: 2, reference: "BS37 614" },
+      { id: "osm_2", lat: 0, lng: 0, monarch: null, points: 2, reference: "BS37 1022;BS37 1023" },
+      { id: "osm_3", lat: 0, lng: 0, monarch: null, points: 2 },
+    ];
+
+    it("removes a postbox by id", () => {
+      const r = cli.applyAvoidList(boxes, ["osm_3"]);
+      assert.deepStrictEqual(r.kept.map((b) => b.id), ["osm_1", "osm_2"]);
+      assert.deepStrictEqual(r.removed.map((b) => b.id), ["osm_3"]);
+    });
+
+    it("removes a postbox by reference, ignoring case and spacing", () => {
+      const r = cli.applyAvoidList(boxes, ["bs37   614"]);
+      assert.deepStrictEqual(r.removed.map((b) => b.id), ["osm_1"]);
+      assert.deepStrictEqual(r.unmatched, []);
+    });
+
+    it("matches one part of a semicolon-separated multi-reference", () => {
+      const r = cli.applyAvoidList(boxes, ["BS37 1023"]);
+      assert.deepStrictEqual(r.removed.map((b) => b.id), ["osm_2"]);
+    });
+
+    it("reports avoid entries that matched nothing", () => {
+      const r = cli.applyAvoidList(boxes, ["BS37 614", "BS99 1"]);
+      assert.deepStrictEqual(r.unmatched, ["BS99 1"]);
+      assert.strictEqual(r.kept.length, 2);
+    });
+
+    it("is a no-op for an empty avoid list", () => {
+      const r = cli.applyAvoidList(boxes, []);
+      assert.strictEqual(r.kept.length, 3);
+      assert.deepStrictEqual(r.unmatched, []);
+    });
+  });
+
+  describe("pad", () => {
+    it("keeps at least one separator space when a left-aligned cell overflows its column", () => {
+      assert.strictEqual(cli.pad("BS37 1022;BS37 1023", 16, "l"), "BS37 1022;BS37 1023 ");
+    });
+
+    it("pads short cells to the column width as before", () => {
+      assert.strictEqual(cli.pad("BS37 614", 16, "l"), "BS37 614        ");
+      assert.strictEqual(cli.pad("752", 8, "r"), "     752");
+    });
+  });
+
+  describe("parseArgs --alternatives", () => {
+    const base = ["--start", "51.5,-0.1", "--end", "51.5,-0.2", "--km", "5", "--source", "file", "--input", "x.json"];
+
+    it("defaults to a single route", () => {
+      assert.strictEqual(cli.parseArgs(base).alternatives, 1);
+    });
+
+    it("accepts a positive integer", () => {
+      assert.strictEqual(cli.parseArgs([...base, "--alternatives", "3"]).alternatives, 3);
+    });
+
+    it("rejects zero, negative, fractional and non-numeric values", () => {
+      for (const v of ["0", "-2", "2.5", "many"]) {
+        assert.throws(() => cli.parseArgs([...base, "--alternatives", v]), /--alternatives/, `value ${v}`);
+      }
+    });
+  });
+});
+
+describe("route alternatives (_routePlanner)", () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const planner = require("../_routePlanner") as typeof import("../_routePlanner");
+  type S = import("../_routePlanner").SearchState;
+  const state = (ids: string[], score: number, timeUsed = 0): S => ({
+    current: { lat: 0, lng: 0 },
+    currentId: ids[ids.length - 1] ?? "__START__",
+    visited: new Set(ids),
+    timeUsed,
+    score,
+    route: [],
+  });
+
+  describe("routeOverlap", () => {
+    it("is 1 for identical stop sets", () => {
+      assert.strictEqual(planner.routeOverlap(state(["a", "b"], 4), state(["b", "a"], 4)), 1);
+    });
+
+    it("is 0 for disjoint stop sets", () => {
+      assert.strictEqual(planner.routeOverlap(state(["a", "b"], 4), state(["c"], 2)), 0);
+    });
+
+    it("is the Jaccard similarity for partial overlap", () => {
+      const o = planner.routeOverlap(state(["a", "b"], 4), state(["b", "c"], 4));
+      assert.ok(Math.abs(o - 1 / 3) < 1e-9, `got ${o}`);
+    });
+
+    it("treats two empty routes as identical", () => {
+      assert.strictEqual(planner.routeOverlap(state([], 0), state([], 0)), 1);
+    });
+  });
+
+  describe("selectAlternatives", () => {
+    it("returns the best-scoring route first", () => {
+      const out = planner.selectAlternatives([state(["a"], 2), state(["b", "c"], 9), state(["d"], 4)], 1);
+      assert.deepStrictEqual(out.map((s) => s.score), [9]);
+    });
+
+    it("skips routes sharing more than maxOverlap with an already chosen route", () => {
+      const s1 = state(["a", "b", "c", "d"], 10);
+      const s2 = state(["a", "b", "c", "e"], 9); // overlap 3/5 = 0.6
+      const s3 = state(["x", "y"], 5);
+      const out = planner.selectAlternatives([s2, s1, s3], 2, 0.5);
+      assert.deepStrictEqual(out.map((s) => s.score), [10, 5]);
+    });
+
+    it("falls back to any distinct route when too few are different enough", () => {
+      const s1 = state(["a", "b", "c", "d"], 10);
+      const s2 = state(["a", "b", "c", "e"], 9);
+      const out = planner.selectAlternatives([s1, s2], 2, 0.5);
+      assert.deepStrictEqual(out.map((s) => s.score), [10, 9]);
+    });
+
+    it("never returns two routes with the same stop set", () => {
+      const out = planner.selectAlternatives([state(["a", "b"], 4, 100), state(["b", "a"], 4, 120)], 2);
+      assert.strictEqual(out.length, 1);
+    });
+
+    it("returns at most k routes", () => {
+      const out = planner.selectAlternatives([state(["a"], 1), state(["b"], 1), state(["c"], 1)], 2);
+      assert.strictEqual(out.length, 2);
+    });
+  });
+
+  describe("beamSearchOrienteering onExplored", () => {
+    const start = { lat: 51.5, lng: -0.1 };
+    const end = { lat: 51.5, lng: -0.09 };
+    const cands = [
+      { id: "p1", lat: 51.5, lng: -0.098, monarch: "VR", points: 7 },
+      { id: "p2", lat: 51.5, lng: -0.095, monarch: null, points: 2 },
+      { id: "p3", lat: 51.501, lng: -0.093, monarch: "GR", points: 4 },
+    ];
+
+    it("reports every explored state, including the returned best", () => {
+      const seen: S[] = [];
+      const best = planner.beamSearchOrienteering(start, end, cands, 3600, 1.25, 0, 50, (s) => seen.push(s));
+      assert.ok(seen.includes(best), "best state was handed to onExplored");
+      assert.ok(seen.length >= 3, `expected at least one state per candidate, got ${seen.length}`);
+      assert.ok(seen.every((s) => s.timeUsed <= 3600));
+    });
+
+    it("is optional and leaves the result unchanged", () => {
+      const withCb = planner.beamSearchOrienteering(start, end, cands, 3600, 1.25, 0, 50, () => undefined);
+      const without = planner.beamSearchOrienteering(start, end, cands, 3600, 1.25, 0, 50);
+      assert.strictEqual(withCb.score, without.score);
+      assert.deepStrictEqual([...withCb.visited].sort(), [...without.visited].sort());
+    });
+  });
+});
+
+// ── local review dashboard: domain modules ──────────────────────────────────
+
+import * as ngeohash from "ngeohash";
+import { queryPostboxesNear } from "../_postboxQuery";
+import {
+  buildOverpassAroundQuery,
+  buildOverpassMultiPointQuery,
+  clampOverpassRadius,
+  parseOverpassNodes,
+  OverpassClient,
+  OverpassError,
+} from "../_overpass";
+import {
+  buildStreetViewMetadataUrl,
+  parseStreetViewMetadata,
+  bearingDegrees,
+  buildStreetViewEmbedUrl,
+  googleMapsStreetViewUrl,
+  describeStreetView,
+  StreetViewClient,
+  StreetViewError,
+} from "../_streetView";
+import { previewCypherImpact } from "../_cypherImpact";
+import {
+  toMs,
+  parseExifDateTime,
+  photoDistances,
+  assessDuplicates,
+  assessOsmNodes,
+  summariseReporterHistory,
+  accountSummary,
+  buildMapContext,
+  buildReporterContext,
+  type StoredReport,
+} from "../_reportContext";
+import { planOsmBatch, suggestedChangesetComment, type OsmBatchCandidate } from "../_osmBatch";
+import { REJECT_PRESETS, parseNote } from "../reports";
+import type { NearbyPostboxDto, OsmNearbyNodeDto } from "../_reviewTypes";
+
+/**
+ * In-memory Firestore fake covering the read surface the review-dashboard
+ * modules use: doc get, equality where (+ limit), geohash range scans,
+ * getAll and batched set. Collections are { docId: data }.
+ */
+function makeFakeDb(collections: Record<string, Record<string, Record<string, unknown>>>) {
+  const writes: Array<{ path: string; data: Record<string, unknown> }> = [];
+  const snapOf = (coll: string, id: string) => {
+    const data = collections[coll]?.[id];
+    return { id, exists: data !== undefined, data: () => data, ref: { id, path: `${coll}/${id}` } };
+  };
+  const query = (coll: string, filters: Array<[string, unknown]>, range?: { start: string; end: string }, limit?: number) => ({
+    where: (field: string, op: string, value: unknown) => {
+      if (op !== "==") throw new Error(`fake db: unsupported op ${op}`);
+      return query(coll, [...filters, [field, value]], range, limit);
+    },
+    limit: (n: number) => query(coll, filters, range, n),
+    orderBy: (field: string) => {
+      if (field !== "geohash") throw new Error(`fake db: unsupported orderBy ${field}`);
+      return {
+        startAt: (start: string) => ({ endAt: (end: string) => query(coll, filters, { start, end }, limit) }),
+      };
+    },
+    get: async () => {
+      let docs = Object.keys(collections[coll] ?? {})
+        .filter((id) => filters.every(([f, v]) => collections[coll][id][f] === v))
+        .filter((id) => {
+          if (!range) return true;
+          const gh = collections[coll][id].geohash;
+          return typeof gh === "string" && gh >= range.start && gh <= range.end;
+        })
+        .map((id) => snapOf(coll, id));
+      if (limit !== undefined) docs = docs.slice(0, limit);
+      return { docs, size: docs.length };
+    },
+  });
+  const db = {
+    collection: (coll: string) => ({
+      ...query(coll, []),
+      doc: (id: string) => ({ id, path: `${coll}/${id}`, get: async () => snapOf(coll, id) }),
+    }),
+    getAll: async (...refs: Array<{ path: string }>) => refs.map((r) => {
+      const [coll, id] = r.path.split("/");
+      return snapOf(coll, id);
+    }),
+    batch: () => {
+      const pending: Array<{ path: string; data: Record<string, unknown> }> = [];
+      return {
+        set: (ref: { path: string }, data: Record<string, unknown>) => { pending.push({ path: ref.path, data }); },
+        commit: async () => { writes.push(...pending); },
+      };
+    },
+  };
+  return { db: db as unknown as import("firebase-admin").firestore.Firestore, writes };
+}
+
+const boxAt = (lat: number, lng: number, extra: Record<string, unknown> = {}) => ({
+  geohash: ngeohash.encode(lat, lng, 9),
+  geopoint: { latitude: lat, longitude: lng },
+  ...extra,
+});
+
+describe("queryPostboxesNear", () => {
+  const centre = { lat: 51.5, lng: -0.12 };
+  const { db } = makeFakeDb({
+    postbox: {
+      osm_1: boxAt(51.50005, -0.12, { monarch: "VR" }), // ~6 m
+      osm_2: boxAt(51.5009, -0.12, { removedFromOsm: true }), // ~100 m
+      manual_r9: boxAt(51.5001, -0.1201, { source: "user_report" }),
+      osm_far: boxAt(51.6, -0.12), // ~11 km
+      osm_nogeo: { geohash: ngeohash.encode(51.5, -0.12, 9) },
+    },
+  });
+
+  it("returns boxes within the radius, including pruned and manual ones", async () => {
+    const r = await queryPostboxesNear(db, centre.lat, centre.lng, 150);
+    assert.deepStrictEqual(r.map((b) => b.id).sort(), ["manual_r9", "osm_1", "osm_2"]);
+    const one = r.find((b) => b.id === "osm_1");
+    assert.ok(one && one.distanceM > 0 && one.distanceM < 10);
+  });
+  it("drops boxes outside the radius", async () => {
+    const r = await queryPostboxesNear(db, centre.lat, centre.lng, 50);
+    assert.deepStrictEqual(r.map((b) => b.id).sort(), ["manual_r9", "osm_1"]);
+  });
+  it("filterToRadius:false returns the whole 9-cell set, still de-duplicated", async () => {
+    const r = await queryPostboxesNear(db, centre.lat, centre.lng, 50, { filterToRadius: false });
+    assert.strictEqual(new Set(r.map((b) => b.id)).size, r.length);
+    assert.ok(r.some((b) => b.id === "osm_1"));
+    assert.ok(!r.some((b) => b.id === "osm_far"));
+  });
+});
+
+describe("_overpass", () => {
+  it("builds an around query for active and lifecycle-prefixed post boxes", () => {
+    const q = buildOverpassAroundQuery(51.5, -0.123456789, 150);
+    assert.match(q, /^\[out:json\]\[timeout:25\];/);
+    assert.match(q, /node\(around:150,51\.500000,-0\.123457\)\[amenity=post_box\];/);
+    assert.match(q, /\["disused:amenity"=post_box\]/);
+    assert.match(q, /\["was:amenity"=post_box\]/);
+    assert.match(q, /out meta;$/);
+  });
+  it("builds one union query for several points", () => {
+    const q = buildOverpassMultiPointQuery([{ lat: 1, lng: 2 }, { lat: 3.1234567, lng: -4 }], 30);
+    assert.strictEqual((q.match(/node\(around:30,/g) ?? []).length, 2);
+    assert.match(q, /around:30,3\.123457,-4\.000000\)\[amenity=post_box\]/);
+  });
+  it("clamps the radius into 1..500 m", () => {
+    assert.strictEqual(clampOverpassRadius(0), 1);
+    assert.strictEqual(clampOverpassRadius(10_000), 500);
+    assert.strictEqual(clampOverpassRadius(Number.NaN), 150);
+  });
+  it("parses nodes, classifies lifecycle and drops malformed elements", () => {
+    const nodes = parseOverpassNodes({
+      elements: [
+        { type: "node", id: 1, lat: 1, lon: 2, version: 3, user: "x", timestamp: "t", tags: { amenity: "post_box", royal_cypher: "VR" } },
+        { type: "node", id: 2, lat: 1, lon: 2, tags: { "disused:amenity": "post_box" } },
+        { type: "node", id: 3, lat: 1, lon: 2, tags: { "was:amenity": "post_box", n: 5 } },
+        { type: "way", id: 4 },
+        { type: "node", id: 5 },
+      ],
+    });
+    assert.deepStrictEqual(nodes.map((n) => [n.id, n.lifecycle]), [[1, "active"], [2, "disused"], [3, "was"]]);
+    assert.strictEqual(nodes[0].version, 3);
+    assert.deepStrictEqual(nodes[2].tags, { "was:amenity": "post_box" }, "non-string tag values dropped");
+    assert.deepStrictEqual(parseOverpassNodes("nope"), []);
+  });
+  it("caches within the TTL, serialises requests and sends the User-Agent", async () => {
+    let t = 1_000;
+    let calls = 0;
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const fetchImpl = async (_url: string, init: { headers: Record<string, string> }) => {
+      calls++;
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      assert.match(init.headers["User-Agent"], /^PostboxGame\//);
+      await new Promise((r) => setTimeout(r, 5));
+      inFlight--;
+      return { ok: true, status: 200, json: async () => ({ elements: [{ type: "node", id: 9, lat: 1, lon: 1, tags: { amenity: "post_box" } }] }) };
+    };
+    const client = new OverpassClient(fetchImpl, () => t, 60_000);
+    const [a, b, c] = await Promise.all([client.nodesAround(1, 1, 100), client.nodesAround(1, 1, 100), client.nodesAround(2, 2, 100)]);
+    assert.strictEqual(maxInFlight, 1, "one request in flight at a time");
+    assert.strictEqual(calls, 2, "the duplicate query is answered from the cache");
+    assert.strictEqual(a.cached, false);
+    assert.strictEqual(b.cached, true);
+    assert.strictEqual(c.nodes[0].id, 9);
+    t += 61_000;
+    await client.nodesAround(1, 1, 100);
+    assert.strictEqual(calls, 3, "refetched after the TTL");
+  });
+  it("bounds each request with a timeout signal and reports a timeout plainly", async () => {
+    let sawSignal = false;
+    const client = new OverpassClient(
+      async (_url, init) => {
+        sawSignal = init.signal instanceof AbortSignal;
+        const e = new Error("The operation was aborted due to timeout");
+        e.name = "TimeoutError";
+        throw e;
+      },
+      Date.now,
+      60_000,
+      async () => undefined,
+      45_000,
+    );
+    await assert.rejects(() => client.nodesAround(1, 1, 50), (e: unknown) => e instanceof OverpassError && e.status === "network" && /within 45 s/.test(e.message));
+    assert.ok(sawSignal);
+  });
+  it("retries a busy answer once after backing off", async () => {
+    const statuses = [502, 200];
+    const slept: number[] = [];
+    const client = new OverpassClient(
+      async () => {
+        const status = statuses.shift() ?? 200;
+        return { ok: status === 200, status, json: async () => ({ elements: [{ type: "node", id: 1, lat: 0, lon: 0, tags: { amenity: "post_box" } }] }) };
+      },
+      Date.now,
+      60_000,
+      async (ms) => { slept.push(ms); },
+    );
+    assert.strictEqual((await client.nodesAround(1, 1, 50)).nodes.length, 1);
+    assert.deepStrictEqual(slept, [3_000]);
+  });
+  it("surfaces HTTP and network failures as OverpassError and keeps working afterwards", async () => {
+    let fail: "http" | "net" | null = "http";
+    let calls = 0;
+    const client = new OverpassClient(async () => {
+      calls++;
+      if (fail === "net") throw new Error("down");
+      if (fail === "http") return { ok: false, status: 429, json: async () => ({}) };
+      return { ok: true, status: 200, json: async () => ({ elements: [] }) };
+    }, Date.now, 60_000, async () => undefined);
+    await assert.rejects(() => client.nodesAround(1, 1, 50), (e: unknown) => e instanceof OverpassError && e.status === 429 && /busy/.test(e.message));
+    assert.strictEqual(calls, 2, "a busy answer is retried once, then reported");
+    fail = "net";
+    await assert.rejects(() => client.nodesAround(1, 1, 50), (e: unknown) => e instanceof OverpassError && e.status === "network");
+    fail = null;
+    assert.deepStrictEqual((await client.nodesAround(1, 1, 50)).nodes, []);
+  });
+});
+
+describe("_streetView", () => {
+  const spot = { lat: 51.5, lng: -0.1 };
+  // ~10 m due south of the spot, so the camera should face north.
+  const okBody = { status: "OK", pano_id: "PANO_1", location: { lat: 51.49991, lng: -0.1 }, date: "2023-06", copyright: "© Google" };
+
+  it("asks for the nearest outdoor panorama within the radius", () => {
+    const u = new URL(buildStreetViewMetadataUrl({ lat: 51.123456789, lng: -0.1 }, "K&Y", 40));
+    assert.strictEqual(u.origin + u.pathname, "https://maps.googleapis.com/maps/api/streetview/metadata");
+    assert.strictEqual(u.searchParams.get("location"), "51.123457,-0.100000");
+    assert.strictEqual(u.searchParams.get("radius"), "40");
+    assert.strictEqual(u.searchParams.get("source"), "outdoor");
+    assert.strictEqual(u.searchParams.get("key"), "K&Y", "the key is URL-encoded, not spliced");
+  });
+  it("parses a panorama, treats no imagery as a result and refusals as errors", () => {
+    assert.deepStrictEqual(parseStreetViewMetadata(okBody), { status: "ok", panoId: "PANO_1", lat: 51.49991, lng: -0.1, date: "2023-06", copyright: "© Google" });
+    assert.strictEqual((parseStreetViewMetadata({ ...okBody, date: "June" }) as { date: string | null }).date, null, "odd dates dropped");
+    assert.deepStrictEqual(parseStreetViewMetadata({ status: "ZERO_RESULTS" }), { status: "none" });
+    assert.deepStrictEqual(parseStreetViewMetadata({ status: "NOT_FOUND" }), { status: "none" });
+    assert.throws(() => parseStreetViewMetadata({ status: "REQUEST_DENIED", error_message: "The provided API key is invalid." }), (e: unknown) => e instanceof StreetViewError && /GOOGLE_MAPS_API_KEY/.test(e.message) && /invalid/.test(e.message));
+    assert.throws(() => parseStreetViewMetadata({ status: "OVER_QUERY_LIMIT" }), /quota/);
+    assert.throws(() => parseStreetViewMetadata({ status: "OK" }), StreetViewError);
+    assert.throws(() => parseStreetViewMetadata("nope"), StreetViewError);
+  });
+  it("aims the camera from the panorama at the spot", () => {
+    assert.strictEqual(bearingDegrees({ lat: 51.49991, lng: -0.1 }, spot), 0);
+    assert.strictEqual(bearingDegrees(spot, { lat: 51.5, lng: -0.1001 }), 270);
+    assert.strictEqual(bearingDegrees({ lat: 51.5, lng: -0.1001 }, spot), 90);
+    const d = describeStreetView(spot, "KEY", parseStreetViewMetadata(okBody));
+    assert.strictEqual(d.status, "ok");
+    if (d.status !== "ok") return;
+    assert.strictEqual(d.headingDeg, 0);
+    assert.ok(d.distanceM >= 9 && d.distanceM <= 11, `distance ${d.distanceM}`);
+    const embed = new URL(d.embedUrl);
+    assert.strictEqual(embed.origin + embed.pathname, "https://www.google.com/maps/embed/v1/streetview");
+    assert.deepStrictEqual(
+      ["key", "pano", "heading", "pitch", "fov"].map((k) => embed.searchParams.get(k)),
+      ["KEY", "PANO_1", "0", "-5", "70"],
+    );
+    const maps = new URL(d.mapsUrl);
+    assert.strictEqual(maps.searchParams.get("pano"), "PANO_1");
+    assert.strictEqual(maps.searchParams.get("viewpoint"), "51.499910,-0.100000");
+    assert.strictEqual(maps.searchParams.get("key"), null, "the key never goes into the Google Maps link");
+  });
+  it("falls back to a keyless Google Maps link", () => {
+    const none = describeStreetView(spot, "KEY", { status: "none" });
+    assert.deepStrictEqual(none, { status: "none", radiusM: 50, mapsUrl: googleMapsStreetViewUrl(spot) });
+    const off = describeStreetView(spot, null, null);
+    assert.strictEqual(off.status, "not_configured");
+    const u = new URL(off.mapsUrl);
+    assert.strictEqual(u.origin + u.pathname, "https://www.google.com/maps/@");
+    assert.deepStrictEqual(
+      ["api", "map_action", "viewpoint", "pano"].map((k) => u.searchParams.get(k)),
+      ["1", "pano", "51.500000,-0.100000", null],
+    );
+    assert.strictEqual(buildStreetViewEmbedUrl("K", "P", 12).includes("heading=12"), true);
+  });
+  it("caches lookups per spot and maps failures to StreetViewError", async () => {
+    let t = 0;
+    let calls = 0;
+    let answer: "ok" | "http" | "net" | "timeout" = "ok";
+    let sawSignal = false;
+    const client = new StreetViewClient(
+      "KEY",
+      async (_url, init) => {
+        calls++;
+        sawSignal = init.signal instanceof AbortSignal;
+        if (answer === "net") throw new Error("down");
+        if (answer === "timeout") {
+          const e = new Error("aborted");
+          e.name = "TimeoutError";
+          throw e;
+        }
+        if (answer === "http") return { ok: false, status: 500, json: async () => ({}) };
+        return { ok: true, status: 200, json: async () => okBody };
+      },
+      () => t,
+      1_000,
+      8_000,
+    );
+    assert.strictEqual((await client.lookup(spot)).status, "ok");
+    await client.lookup(spot);
+    assert.strictEqual(calls, 1, "second lookup served from the cache");
+    assert.ok(sawSignal);
+    t += 1_001;
+    answer = "http";
+    await assert.rejects(() => client.lookup(spot), (e: unknown) => e instanceof StreetViewError && /HTTP 500/.test(e.message));
+    answer = "net";
+    await assert.rejects(() => client.lookup(spot), /unreachable/);
+    answer = "timeout";
+    await assert.rejects(() => client.lookup(spot), /within 8 s/);
+    answer = "ok";
+    assert.strictEqual((await client.lookup(spot)).status, "ok", "recovers after failures");
+  });
+});
+
+describe("previewCypherImpact", () => {
+  const claims = (n: number, uid: string, points: number, monarch?: string) =>
+    Object.fromEntries(Array.from({ length: n }, (_, i) => [
+      `${uid}_${i}`,
+      { userid: uid, points, ...(monarch ? { monarch } : {}), postboxes: "/postbox/osm_7", dailyDate: `2026-10-0${i + 1}` },
+    ]));
+  const { db } = makeFakeDb({
+    claims: {
+      ...claims(2, "u1", 2, "EIIR"),
+      ...claims(1, "u2", 2, "EIIR"),
+      ...claims(1, "deleted", 2, "EIIR"),
+      other: { userid: "u3", points: 2, postboxes: "/postbox/osm_8" },
+    },
+    users: { u1: { displayName: "Alice", lifetimePoints: 40 }, u2: { displayName: "Bob" } },
+  });
+
+  it("predicts the rescore: rewritten claims, deltas, lifetime after, deleted-account claims", async () => {
+    const r = await previewCypherImpact(db, "osm_7", "VR"); // 2 → 7 pts
+    assert.strictEqual(r.newPoints, 7);
+    assert.strictEqual(r.totalClaims, 4);
+    assert.strictEqual(r.claimsToRewrite, 4);
+    assert.strictEqual(r.affectedUsers, 2);
+    assert.strictEqual(r.totalDelta, 15);
+    assert.strictEqual(r.deletedAccountClaims, 1);
+    assert.deepStrictEqual(r.users.map((u) => [u.uid, u.claims, u.delta]), [["u1", 2, 10], ["u2", 1, 5]]);
+    assert.strictEqual(r.users[0].displayName, "Alice");
+    assert.strictEqual(r.users[0].lifetimePointsAfter, 50);
+    assert.strictEqual(r.users[1].lifetimePointsBefore, null);
+    assert.strictEqual(r.usersTruncated, false);
+  });
+  it("a correction to an equal-points cypher rewrites claims but affects no totals", async () => {
+    const r = await previewCypherImpact(db, "osm_7", null); // plain = 2 pts
+    assert.strictEqual(r.claimsToRewrite, 4);
+    assert.strictEqual(r.affectedUsers, 0);
+    assert.strictEqual(r.totalDelta, 0);
+  });
+  it("a box with no claims is a no-op", async () => {
+    const r = await previewCypherImpact(db, "osm_none", "VR");
+    assert.strictEqual(r.totalClaims, 0);
+    assert.deepStrictEqual(r.users, []);
+  });
+});
+
+describe("_reportContext pure helpers", () => {
+  it("toMs reads Timestamps, their serialised shapes, Dates and numbers", () => {
+    assert.strictEqual(toMs(admin.firestore.Timestamp.fromMillis(1234)), 1234);
+    assert.strictEqual(toMs({ _seconds: 2, _nanoseconds: 5_000_000 }), 2005);
+    assert.strictEqual(toMs(new Date(99)), 99);
+    assert.strictEqual(toMs(7), 7);
+    assert.strictEqual(toMs("nope"), null);
+    assert.strictEqual(toMs(undefined), null);
+  });
+  it("parseExifDateTime reads EXIF and ISO forms", () => {
+    assert.strictEqual(parseExifDateTime("2026:05:11 10:30:00"), Date.UTC(2026, 4, 11, 10, 30, 0));
+    assert.strictEqual(parseExifDateTime("2026-05-11T10:30:00"), Date.UTC(2026, 4, 11, 10, 30, 0));
+    assert.strictEqual(parseExifDateTime("garbage"), null);
+    assert.strictEqual(parseExifDateTime(undefined), null);
+  });
+  it("photoDistances measures EXIF GPS against the anchor and ignores 0/0", () => {
+    const created = Date.UTC(2026, 4, 11, 12, 30, 0);
+    const p = photoDistances(
+      [
+        { storagePath: "a", exifLat: 51.5001, exifLng: -0.12, takenAt: "2026:05:11 10:30:00" },
+        { storagePath: "b", exifLat: 0, exifLng: 0 },
+        { storagePath: "c" },
+      ],
+      { lat: 51.5, lng: -0.12 },
+      created,
+    );
+    assert.ok(p[0].distanceM !== null && p[0].distanceM > 5 && p[0].distanceM < 20);
+    assert.strictEqual(p[0].hoursBeforeReport, 2);
+    assert.strictEqual(p[1].exifLat, null, "Null Island is treated as no GPS");
+    assert.strictEqual(p[1].distanceM, null);
+    assert.strictEqual(p[2].takenAt, null);
+  });
+
+  const nearBox = (id: string, distanceM: number, extra: Partial<NearbyPostboxDto> = {}): NearbyPostboxDto => ({
+    id, lat: 0, lng: 0, monarch: "EIIR", reference: null, county: null, overpassId: null, source: null,
+    removedFromOsm: false, correctedBy: null, correctedAtMs: null, distanceM, ...extra,
+  });
+  const base = { postboxId: null, currentMonarch: null, hasSuggestedMonarch: false, suggestedMonarch: null, reports: [], sameBoxReports: [] };
+
+  it("assessDuplicates: a stored box within 10 m of a missing report is high", () => {
+    const f = assessDuplicates({ ...base, type: "missing_postbox", postboxes: [nearBox("osm_far", 25), nearBox("osm_1", 4), nearBox("osm_x", 90)] });
+    assert.deepStrictEqual(f.map((x) => [x.severity, x.target?.id]), [["high", "osm_1"], ["medium", "osm_far"]]);
+  });
+  it("assessDuplicates: a pruned box nearby is a medium 'may be this box' flag", () => {
+    const f = assessDuplicates({ ...base, type: "missing_postbox", postboxes: [nearBox("osm_p", 5, { removedFromOsm: true })] });
+    assert.strictEqual(f.length, 1);
+    assert.strictEqual(f[0].severity, "medium");
+    assert.match(f[0].message, /pruned/);
+  });
+  it("assessDuplicates: nearby pending/rejected missing reports", () => {
+    const f = assessDuplicates({
+      ...base,
+      type: "missing_postbox",
+      postboxes: [],
+      reports: [
+        { id: "p", type: "missing_postbox", status: "pending", lat: 0, lng: 0, distanceM: 8, createdAtMs: null },
+        { id: "j", type: "missing_postbox", status: "rejected", lat: 0, lng: 0, distanceM: 8, createdAtMs: null },
+        { id: "far", type: "missing_postbox", status: "pending", lat: 0, lng: 0, distanceM: 80, createdAtMs: null },
+      ],
+    });
+    assert.deepStrictEqual(f.map((x) => [x.severity, x.target?.id]), [["medium", "p"], ["info", "j"]]);
+  });
+  it("assessDuplicates: cypher reports flag other reports on the box and no-op suggestions", () => {
+    const f = assessDuplicates({
+      ...base,
+      type: "wrong_cypher",
+      postboxId: "osm_1",
+      currentMonarch: "VR",
+      hasSuggestedMonarch: true,
+      suggestedMonarch: "VR",
+      postboxes: [nearBox("osm_2", 3)],
+      sameBoxReports: [{ id: "a", status: "pending" }, { id: "b", status: "accepted" }],
+    });
+    assert.deepStrictEqual(f.map((x) => x.severity), ["medium", "info", "info"]);
+    assert.ok(!f.some((x) => x.target?.id === "osm_2"), "nearby boxes don't matter for a cypher report");
+  });
+
+  const osmNode = (id: number, distanceM: number, extra: Partial<OsmNearbyNodeDto> = {}): OsmNearbyNodeDto => ({
+    id, lat: 0, lon: 0, tags: { amenity: "post_box" }, version: 1, timestamp: null, user: null, lifecycle: "active",
+    distanceM, firestoreId: null, ...extra,
+  });
+  it("assessOsmNodes: an un-imported OSM node next to a missing report would be duplicated", () => {
+    const f = assessOsmNodes({ type: "missing_postbox", postboxId: null, hasSuggestedMonarch: false, suggestedMonarch: null }, [
+      osmNode(1, 5),
+      osmNode(2, 5, { firestoreId: "osm_2" }),
+      osmNode(3, 5, { lifecycle: "was" }),
+      osmNode(4, 60),
+    ]);
+    assert.deepStrictEqual(f.map((x) => [x.severity, x.target?.id]), [["high", "1"]]);
+  });
+  it("assessOsmNodes: OSM already agreeing with a cypher suggestion, or marking the box disused", () => {
+    const inp = { type: "wrong_cypher" as const, postboxId: "osm_5", hasSuggestedMonarch: true, suggestedMonarch: "GR" };
+    const agrees = assessOsmNodes(inp, [osmNode(5, 0, { firestoreId: "osm_5", tags: { amenity: "post_box", royal_cypher: "GR" } })]);
+    assert.strictEqual(agrees.length, 1);
+    assert.match(agrees[0].message, /no OSM edit is needed/);
+    const disused = assessOsmNodes(inp, [osmNode(5, 0, { firestoreId: "osm_5", lifecycle: "disused", tags: { "disused:amenity": "post_box" } })]);
+    assert.deepStrictEqual(disused.map((x) => x.severity), ["medium"]);
+  });
+
+  it("summariseReporterHistory counts statuses and computes the acceptance rate", () => {
+    const r = (id: string, status: string, ms: number): StoredReport => ({ id, data: { type: "missing_postbox", status, reporterUid: "u", photos: [], createdAt: ms } as StoredReport["data"] });
+    const s = summariseReporterHistory([r("a", "accepted", 1), r("b", "rejected", 3), r("c", "accepted", 2), r("d", "pending", 4)]);
+    assert.deepStrictEqual([s.total, s.pending, s.accepted, s.rejected], [4, 1, 2, 1]);
+    assert.strictEqual(s.acceptanceRate, 2 / 3);
+    assert.deepStrictEqual(s.recent.map((x) => x.id), ["d", "b", "c", "a"]);
+    assert.strictEqual(summariseReporterHistory([]).acceptanceRate, null);
+  });
+  it("accountSummary never carries contact details", () => {
+    const s = accountSummary({
+      disabled: false,
+      metadata: { creationTime: "Tue, 01 Sep 2026 10:00:00 GMT", lastSignInTime: "bogus" },
+      providerData: [{ providerId: "google.com" }, { providerId: "password" }],
+      email: "someone@example.com",
+      phoneNumber: "+440000",
+      displayName: "Real Name",
+    } as Parameters<typeof accountSummary>[0]);
+    assert.deepStrictEqual(Object.keys(s).sort(), ["createdAtMs", "disabled", "lastSignInMs", "providers"]);
+    assert.strictEqual(s.createdAtMs, Date.UTC(2026, 8, 1, 10, 0, 0));
+    assert.strictEqual(s.lastSignInMs, null);
+    assert.deepStrictEqual(s.providers, ["google.com", "password"]);
+    assert.ok(!JSON.stringify(s).includes("example.com"));
+  });
+});
+
+describe("_reportContext builders (fake Firestore)", () => {
+  const stored = (id: string, data: Record<string, unknown>): StoredReport => ({ id, data: { photos: [], reporterUid: "rep", status: "pending", ...data } as unknown as StoredReport["data"] });
+
+  it("buildMapContext anchors a missing report on its spot and finds what's around it", async () => {
+    const { db } = makeFakeDb({ postbox: { osm_1: boxAt(51.50003, -0.12, { monarch: "VR" }) } });
+    const me = stored("me", { type: "missing_postbox", lat: 51.5, lng: -0.12, accuracyMeters: 8, photos: [{ storagePath: "p", exifLat: 51.5, exifLng: -0.12 }] });
+    const other = stored("other", { type: "missing_postbox", lat: 51.50002, lng: -0.12 });
+    const ctx = await buildMapContext(db, me, [me, other], new Map());
+    assert.deepStrictEqual(ctx.anchor, { lat: 51.5, lng: -0.12, kind: "reported" });
+    assert.strictEqual(ctx.accuracyMeters, 8);
+    assert.deepStrictEqual(ctx.postboxes.map((p) => p.id), ["osm_1"]);
+    assert.deepStrictEqual(ctx.reports.map((r) => r.id), ["other"]);
+    assert.strictEqual(ctx.photos[0].distanceM, 0);
+    assert.strictEqual(ctx.flags[0].severity, "high");
+  });
+  it("buildMapContext anchors a cypher report on its box and remembers box positions", async () => {
+    const { db } = makeFakeDb({ postbox: { osm_7: boxAt(52, -1, { monarch: "EIIR" }) } });
+    const positions = new Map<string, { lat: number; lng: number }>();
+    const me = stored("me", { type: "wrong_cypher", postboxId: "osm_7", currentMonarch: "EIIR", suggestedMonarch: "GR" });
+    const twin = stored("twin", { type: "wrong_cypher", postboxId: "osm_7" });
+    const ctx = await buildMapContext(db, me, [me, twin], positions);
+    assert.deepStrictEqual(ctx.anchor, { lat: 52, lng: -1, kind: "postbox" });
+    assert.deepStrictEqual(positions.get("osm_7"), { lat: 52, lng: -1 });
+    assert.deepStrictEqual(ctx.reports.map((r) => r.id), ["twin"]);
+    assert.ok(ctx.flags.some((f) => /other pending report/.test(f.message)));
+  });
+  it("buildMapContext copes with a cypher report whose box was deleted", async () => {
+    const { db } = makeFakeDb({});
+    const me = stored("me", { type: "wrong_cypher", postboxId: "osm_gone" });
+    const ctx = await buildMapContext(db, me, [me], new Map());
+    assert.strictEqual(ctx.anchor, null);
+    assert.deepStrictEqual(ctx.postboxes, []);
+  });
+  it("buildReporterContext gathers stats, trust, flags, history and claims on the box", async () => {
+    const { db } = makeFakeDb({
+      users: { rep: { displayName: "Rae", lifetimePoints: 33, uniquePostboxesClaimed: 9, streak: 4, lastClaimDate: "2026-10-16" } },
+      trustScores: { rep: { score: 72 } },
+      moderationFlags: {
+        f1: { uid: "rep", severity: "low", reasons: ["clock_skew"], createdAt: 5, reviewed: true },
+        f2: { uid: "rep", severity: "high", reasons: ["speed"], createdAt: 9, reviewed: false },
+        f3: { uid: "someone_else", severity: "high" },
+      },
+      claims: {
+        c1: { userid: "rep", postboxes: "/postbox/osm_7", dailyDate: "2026-10-01" },
+        c2: { userid: "rep", postboxes: "/postbox/osm_7", dailyDate: "2026-10-09" },
+        c3: { userid: "rep", postboxes: "/postbox/osm_8", dailyDate: "2026-10-10" },
+      },
+    });
+    const auth = { getUser: async () => ({ metadata: { creationTime: "Tue, 01 Sep 2026 10:00:00 GMT" }, providerData: [{ providerId: "apple.com" }] }) };
+    const all = [stored("r1", { type: "wrong_cypher", status: "accepted" }), stored("r2", { type: "wrong_cypher" })];
+    const ctx = await buildReporterContext(db, auth, "rep", all, "osm_7");
+    assert.strictEqual(ctx.displayName, "Rae");
+    assert.strictEqual(ctx.stats?.lifetimePoints, 33);
+    assert.strictEqual(ctx.trustScore, 72);
+    assert.strictEqual(ctx.trustScoreIsDefault, false);
+    assert.deepStrictEqual([ctx.flags.total, ctx.flags.unreviewed], [2, 1]);
+    assert.deepStrictEqual(ctx.flags.recent.map((f) => f.id), ["f2", "f1"]);
+    assert.deepStrictEqual(ctx.flags.bySeverity, { low: 1, high: 1 });
+    assert.strictEqual(ctx.reports.total, 2);
+    assert.deepStrictEqual(ctx.claimedThisBox, { count: 2, lastDailyDate: "2026-10-09" });
+    assert.deepStrictEqual(ctx.account?.providers, ["apple.com"]);
+  });
+  it("buildReporterContext survives an Auth lookup failure and defaults the trust score", async () => {
+    const { db } = makeFakeDb({});
+    const ctx = await buildReporterContext(db, { getUser: async () => { throw new Error("no user"); } }, "ghost", [], null);
+    assert.strictEqual(ctx.account, null);
+    assert.strictEqual(ctx.stats, null);
+    assert.strictEqual(ctx.trustScore, 100);
+    assert.strictEqual(ctx.trustScoreIsDefault, true);
+    assert.strictEqual(ctx.claimedThisBox, null);
+  });
+  it("buildReporterContext short-circuits an anonymised (deleted) reporter", async () => {
+    const { db } = makeFakeDb({});
+    const ctx = await buildReporterContext(db, { getUser: async () => { throw new Error("must not be called"); } }, "deleted", [], "osm_1");
+    assert.strictEqual(ctx.deletedAccount, true);
+    assert.strictEqual(ctx.account, null);
+  });
+});
+
+describe("planOsmBatch", () => {
+  const ok = (version: number, tags: Record<string, string>) => ({ ok: true as const, node: { version, lat: 1, lon: 2, tags } });
+  const cand = (reportId: string, c: Partial<OsmBatchCandidate>): OsmBatchCandidate => ({
+    reportId, type: "wrong_cypher", reviewedAtMs: 0, finalMonarch: null, ...c,
+  });
+
+  it("numbers creates -1, -2, … in review order with the final tags", () => {
+    const plan = planOsmBatch([
+      cand("b", { type: "missing_postbox", lat: 2, lng: 2, finalMonarch: "GR", reviewedAtMs: 2 }),
+      cand("a", { type: "missing_postbox", lat: 1, lng: 1, finalMonarch: null, finalReference: "AB1", reviewedAtMs: 1 }),
+    ], new Map());
+    assert.deepStrictEqual(plan.inputs.map((i) => [i.id, i.tags]), [
+      [-1, { amenity: "post_box", ref: "AB1" }],
+      [-2, { amenity: "post_box", royal_cypher: "GR" }],
+    ]);
+    assert.deepStrictEqual(plan.entries.map((e) => [e.reportId, e.status, e.nodeId]), [["b", "included", -2], ["a", "included", -1]]);
+  });
+  it("modifies use the fresh node version and tags; plain removes royal_cypher", () => {
+    const plan = planOsmBatch(
+      [cand("m", { overpassId: 77, finalMonarch: null })],
+      new Map([[77, ok(9, { amenity: "post_box", royal_cypher: "EIIR", collection_times: "Mo-Fr 17:00" })]]),
+    );
+    assert.deepStrictEqual(plan.inputs, [{ action: "modify", id: 77, version: 9, lat: 1, lon: 2, tags: { amenity: "post_box", collection_times: "Mo-Fr 17:00" } }]);
+    assert.strictEqual(plan.entries[0].status, "included");
+  });
+  it("marks a node OSM already agrees with as already_applied", () => {
+    const plan = planOsmBatch([cand("m", { overpassId: 77, finalMonarch: "GR" })], new Map([[77, ok(2, { amenity: "post_box", royal_cypher: "GR" })]]));
+    assert.deepStrictEqual(plan.inputs, []);
+    assert.strictEqual(plan.entries[0].status, "already_applied");
+  });
+  it("tells a deleted node (410) from a failed lookup", () => {
+    const plan = planOsmBatch(
+      [cand("gone", { overpassId: 1, finalMonarch: "GR" }), cand("blip", { overpassId: 2, finalMonarch: "GR" }), cand("unfetched", { overpassId: 3, finalMonarch: "GR" })],
+      new Map([[1, { ok: false as const, status: 410 }], [2, { ok: false as const, status: "network" as const }]]),
+    );
+    assert.deepStrictEqual(plan.entries.map((e) => e.status), ["node_missing", "fetch_failed", "fetch_failed"]);
+  });
+  it("merges agreeing reports on one node and flags disagreeing ones as a conflict", () => {
+    const agree = planOsmBatch(
+      [cand("x", { overpassId: 5, finalMonarch: "VR" }), cand("y", { overpassId: 5, finalMonarch: "VR" })],
+      new Map([[5, ok(1, { amenity: "post_box" })]]),
+    );
+    assert.strictEqual(agree.inputs.length, 1);
+    assert.deepStrictEqual(agree.entries.map((e) => e.status), ["included", "included"]);
+    const clash = planOsmBatch(
+      [cand("x", { overpassId: 5, finalMonarch: "VR" }), cand("y", { overpassId: 5, finalMonarch: "GR" })],
+      new Map([[5, ok(1, { amenity: "post_box" })]]),
+    );
+    assert.strictEqual(clash.inputs.length, 0);
+    assert.deepStrictEqual(clash.entries.map((e) => e.status), ["conflict", "conflict"]);
+  });
+  it("folds a cypher fix on a manual box into that box's create in the same batch", () => {
+    const plan = planOsmBatch([
+      cand("r1", { type: "missing_postbox", lat: 1, lng: 1, finalMonarch: "EIIR", reviewedAtMs: 1 }),
+      cand("fix", { postboxId: "manual_r1", finalMonarch: "GR", finalReference: "N1 1", reviewedAtMs: 2 }),
+    ], new Map());
+    assert.strictEqual(plan.inputs.length, 1);
+    assert.deepStrictEqual(plan.inputs[0].tags, { amenity: "post_box", royal_cypher: "GR", ref: "N1 1" });
+    assert.deepStrictEqual(plan.entries.map((e) => [e.status, e.nodeId]), [["included", -1], ["merged_into_create", -1]]);
+  });
+  it("a cypher fix on a manual box not yet on OSM (and not in the batch) has no target", () => {
+    const plan = planOsmBatch([cand("fix", { postboxId: "manual_old", finalMonarch: "GR" })], new Map());
+    assert.strictEqual(plan.entries[0].status, "no_target");
+    assert.match(plan.entries[0].detail ?? "", /create first/);
+  });
+  it("holds back a create when OSM already has a post box within 30 m, or couldn't be checked", () => {
+    const creates = [
+      cand("near", { type: "missing_postbox", lat: 1, lng: 1, reviewedAtMs: 1 }),
+      cand("clear", { type: "missing_postbox", lat: 2, lng: 2, reviewedAtMs: 2 }),
+      cand("unchecked", { type: "missing_postbox", lat: 3, lng: 3, reviewedAtMs: 3 }),
+      cand("far", { type: "missing_postbox", lat: 4, lng: 4, reviewedAtMs: 4 }),
+    ];
+    const plan = planOsmBatch(creates, new Map(), new Map([
+      ["near", { ok: true as const, nearest: { id: 99, distanceM: 12 } }],
+      ["clear", { ok: true as const, nearest: null }],
+      ["unchecked", { ok: false as const }],
+      ["far", { ok: true as const, nearest: { id: 98, distanceM: 31 } }],
+    ]));
+    assert.deepStrictEqual(plan.entries.map((e) => [e.reportId, e.status, e.nodeId]), [
+      ["near", "already_on_osm", 99],
+      ["clear", "included", -1],
+      ["unchecked", "fetch_failed", null],
+      ["far", "included", -2],
+    ]);
+    assert.strictEqual(plan.inputs.length, 2);
+  });
+  it("suggests a changeset comment counting creates and fixes", () => {
+    const plan = planOsmBatch([
+      cand("a", { type: "missing_postbox", lat: 1, lng: 1 }),
+      cand("m", { overpassId: 7, finalMonarch: "VR" }),
+    ], new Map([[7, ok(1, { amenity: "post_box" })]]));
+    assert.strictEqual(suggestedChangesetComment(plan), "Postbox Game: add 1 post box, fix 1 royal cypher (from player reports, reviewed by hand)");
+  });
+});
+
+describe("REJECT_PRESETS", () => {
+  it("every preset is a valid reviewNote (length + profanity)", () => {
+    assert.ok(REJECT_PRESETS.length >= 3);
+    for (const p of REJECT_PRESETS) assert.strictEqual(parseNote(p), p);
+  });
+  it("presets carry no em-dashes (house style for reporter-facing copy)", () => {
+    for (const p of REJECT_PRESETS) assert.ok(!p.includes("—"), p);
+  });
+});
+
+// ── local review dashboard: server helpers ──────────────────────────────────
+
+import * as nodePath from "path";
+import {
+  allowedOrigins,
+  isAllowedHost,
+  isAllowedOrigin,
+  isAllowedFetchSite,
+  tokenMatches,
+  isJsonContentType,
+  resolveStaticPath,
+  contentTypeFor,
+  isAllowedPhotoType,
+  PAGE_CSP,
+} from "../scripts/review_dashboard/_security";
+import { HttpError, toHttpError, matchRoute, requireId, requireIds, type Route } from "../scripts/review_dashboard/_http";
+import { toSummary, toDetail, pendingOrder, selectHistory, isOsmPending } from "../scripts/review_dashboard/_dto";
+import { parseDashboardArgs, chooseToken, mapsKeyFromEnv } from "../scripts/review_dashboard/main";
+import * as functionsV2 from "firebase-functions";
+
+describe("review dashboard _security", () => {
+  it("accepts only our own loopback Host (DNS-rebinding defence)", () => {
+    assert.strictEqual(isAllowedHost("127.0.0.1:8790", 8790), true);
+    assert.strictEqual(isAllowedHost("localhost:8790", 8790), true);
+    assert.strictEqual(isAllowedHost("evil.example:8790", 8790), false);
+    assert.strictEqual(isAllowedHost("127.0.0.1:9999", 8790), false);
+    assert.strictEqual(isAllowedHost("127.0.0.1", 8790), false);
+    assert.strictEqual(isAllowedHost(undefined, 8790), false);
+  });
+  it("allows the Vite origin only in dev mode", () => {
+    const prod = allowedOrigins(8790, null);
+    const dev = allowedOrigins(8790, 5173);
+    assert.deepStrictEqual(prod, ["http://127.0.0.1:8790", "http://localhost:8790"]);
+    assert.strictEqual(isAllowedOrigin("http://127.0.0.1:5173", prod), false);
+    assert.strictEqual(isAllowedOrigin("http://127.0.0.1:5173", dev), true);
+    assert.strictEqual(isAllowedOrigin("https://evil.example", dev), false);
+    assert.strictEqual(isAllowedOrigin(undefined, dev), false);
+    assert.strictEqual(isAllowedOrigin("null", dev), false);
+  });
+  it("refuses cross-site and same-site fetches", () => {
+    assert.strictEqual(isAllowedFetchSite(undefined), true);
+    assert.strictEqual(isAllowedFetchSite("same-origin"), true);
+    assert.strictEqual(isAllowedFetchSite("same-site"), false);
+    assert.strictEqual(isAllowedFetchSite("cross-site"), false);
+    assert.strictEqual(isAllowedFetchSite("none"), false);
+  });
+  it("compares tokens exactly", () => {
+    const t = "a".repeat(43);
+    assert.strictEqual(tokenMatches(t, t), true);
+    assert.strictEqual(tokenMatches(t.slice(1), t), false);
+    assert.strictEqual(tokenMatches("b" + t.slice(1), t), false);
+    assert.strictEqual(tokenMatches(undefined, t), false);
+  });
+  it("requires a JSON content type on POST bodies", () => {
+    assert.strictEqual(isJsonContentType("application/json"), true);
+    assert.strictEqual(isJsonContentType("application/json; charset=utf-8"), true);
+    assert.strictEqual(isJsonContentType("text/plain"), false);
+    assert.strictEqual(isJsonContentType("application/x-www-form-urlencoded"), false);
+    assert.strictEqual(isJsonContentType("application/jsonp"), false);
+    assert.strictEqual(isJsonContentType(undefined), false);
+  });
+  it("resolves static paths inside the root only, with an SPA fallback", () => {
+    const root = nodePath.resolve("/srv/dist");
+    assert.strictEqual(resolveStaticPath(root, "/"), nodePath.join(root, "index.html"));
+    assert.strictEqual(resolveStaticPath(root, "/history"), nodePath.join(root, "index.html"));
+    assert.strictEqual(resolveStaticPath(root, "/assets/app-1.js"), nodePath.join(root, "assets/app-1.js"));
+    assert.strictEqual(resolveStaticPath(root, "/../secret.json"), null);
+    assert.strictEqual(resolveStaticPath(root, "/%2e%2e/%2e%2e/etc/passwd.txt"), null);
+    assert.strictEqual(resolveStaticPath(root, "/a%00.js"), null);
+    assert.strictEqual(resolveStaticPath(root, "/%E0%A4%A.js"), null, "malformed escapes are refused");
+  });
+  it("serves only raster photo types (never SVG)", () => {
+    assert.strictEqual(isAllowedPhotoType("image/jpeg"), true);
+    assert.strictEqual(isAllowedPhotoType("image/HEIC"), true);
+    assert.strictEqual(isAllowedPhotoType("image/svg+xml"), false);
+    assert.strictEqual(isAllowedPhotoType("text/html"), false);
+    assert.strictEqual(isAllowedPhotoType(undefined), false);
+  });
+  it("maps content types and keeps a script-tight CSP", () => {
+    assert.strictEqual(contentTypeFor("/x/index.html"), "text/html; charset=utf-8");
+    assert.strictEqual(contentTypeFor("/x/a.JS"), "text/javascript; charset=utf-8");
+    assert.strictEqual(contentTypeFor("/x/blob"), "application/octet-stream");
+    assert.match(PAGE_CSP, /script-src 'self'(;|$)/);
+    assert.match(PAGE_CSP, /frame-ancestors 'none'/);
+    assert.match(PAGE_CSP, /frame-src https:\/\/www\.google\.com\/maps\/embed\/(;|$)/, "Street View is the only frame");
+    assert.ok(!/unsafe-eval/.test(PAGE_CSP));
+  });
+});
+
+describe("review dashboard _http", () => {
+  it("maps HttpsError codes to their HTTP status", () => {
+    const e = toHttpError(new functionsV2.https.HttpsError("failed-precondition", "Report already accepted"));
+    assert.deepStrictEqual([e.status, e.code, e.message], [400, "failed-precondition", "Report already accepted"]);
+    assert.strictEqual(toHttpError(new functionsV2.https.HttpsError("not-found", "x")).status, 404);
+    assert.strictEqual(toHttpError(new functionsV2.https.HttpsError("permission-denied", "x")).status, 403);
+  });
+  it("maps Overpass and Street View failures to 502 and anything else to 500", () => {
+    assert.strictEqual(toHttpError(new OverpassError("slow down", 429)).status, 502);
+    assert.strictEqual(toHttpError(new StreetViewError("denied")).status, 502);
+    assert.strictEqual(toHttpError(new Error("boom")).status, 500);
+    const own = new HttpError(409, "conflict", "c");
+    assert.strictEqual(toHttpError(own), own);
+  });
+  it("routes by method and anchored pattern, decoding captures", async () => {
+    const hit: string[] = [];
+    const routes: Route[] = [
+      { method: "GET", pattern: /^\/api\/reports\/history$/, handler: async () => { hit.push("history"); } },
+      { method: "GET", pattern: /^\/api\/reports\/([^/]+)$/, handler: async () => { hit.push("one"); } },
+    ];
+    assert.strictEqual(matchRoute(routes, "GET", "/api/reports/history")?.route, routes[0]);
+    assert.deepStrictEqual(matchRoute(routes, "GET", "/api/reports/a%20b")?.params, ["a b"]);
+    assert.strictEqual(matchRoute(routes, "POST", "/api/reports/x"), null);
+    assert.strictEqual(matchRoute(routes, "GET", "/api/reports/x/y"), null);
+    assert.strictEqual(matchRoute(routes, "GET", "/api/reports/%E0%A4%A"), null);
+  });
+  it("validates ids and id lists", () => {
+    assert.strictEqual(requireId("abc"), "abc");
+    assert.throws(() => requireId("a/b"), (e: unknown) => e instanceof HttpError && e.status === 400);
+    assert.throws(() => requireId(""), HttpError);
+    assert.deepStrictEqual(requireIds(["a", "b", "a"], 5), ["a", "b"]);
+    assert.throws(() => requireIds([], 5), HttpError);
+    assert.throws(() => requireIds(["a", "b", "c"], 2), HttpError);
+    assert.throws(() => requireIds("a", 5), HttpError);
+    assert.throws(() => requireIds([1], 5), HttpError);
+  });
+});
+
+describe("review dashboard _dto", () => {
+  const ts = (ms: number) => admin.firestore.Timestamp.fromMillis(ms);
+  const rep = (id: string, data: Record<string, unknown>): StoredReport => ({ id, data: { photos: [], reporterUid: "u1", status: "pending", ...data } as unknown as StoredReport["data"] });
+
+  it("summarises a missing report with its spot, suggestion and names", () => {
+    const s = toSummary(rep("r1", { type: "missing_postbox", lat: 51, lng: -1, createdAt: ts(5), suggestedMonarch: null, note: "by the pub", photos: [{ storagePath: "p" }] }), new Map([["u1", "Una"]]), new Map());
+    assert.strictEqual(s.reporterName, "Una");
+    assert.deepStrictEqual([s.lat, s.lng], [51, -1]);
+    assert.strictEqual(s.createdAtMs, 5);
+    assert.strictEqual(s.hasSuggestedMonarch, true, "null = plain is a suggestion");
+    assert.strictEqual(s.suggestedMonarch, null);
+    assert.strictEqual(s.photoCount, 1);
+    assert.strictEqual(s.hasNote, true);
+  });
+  it("tells 'not sure' (absent) from 'plain' (null)", () => {
+    const s = toSummary(rep("r1", { type: "wrong_cypher", postboxId: "osm_1" }), new Map(), new Map());
+    assert.strictEqual(s.hasSuggestedMonarch, false);
+  });
+  it("places a cypher report at its box's position once known", () => {
+    const s = toSummary(rep("r1", { type: "wrong_cypher", postboxId: "osm_1" }), new Map(), new Map([["osm_1", { lat: 2, lng: 3 }]]));
+    assert.deepStrictEqual([s.lat, s.lng], [2, 3]);
+  });
+  it("carries the review outcome, incl. persisted rescore counts", () => {
+    const s = toSummary(rep("r1", {
+      type: "wrong_cypher", status: "accepted", reviewedBy: "adm", reviewedAt: ts(9), finalMonarch: "GR",
+      osmStatus: "changeset_failed", rescoredClaims: 4, affectedUsers: 2, rescoreTotalDelta: -10,
+    }), new Map([["adm", "Admin"]]), new Map());
+    assert.deepStrictEqual(
+      [s.reviewedByName, s.reviewedAtMs, s.finalMonarch, s.osmStatus, s.rescoredClaims, s.affectedUsers, s.rescoreTotalDelta],
+      ["Admin", 9, "GR", "changeset_failed", 4, 2, -10],
+    );
+  });
+  it("detail: flags media purged by the retention sweep, and maps the box", () => {
+    const purged = toDetail(rep("r1", { type: "missing_postbox", status: "rejected", photos: undefined }), new Map(), new Map(), null);
+    assert.strictEqual(purged.mediaPurged, true);
+    const fresh = toDetail(rep("r2", { type: "wrong_cypher", status: "pending", postboxId: "osm_1" }), new Map(), new Map(), {
+      id: "osm_1", data: { geopoint: { latitude: 1, longitude: 2 }, monarch: "VR", overpass_id: 1 },
+    });
+    assert.strictEqual(fresh.mediaPurged, false);
+    assert.strictEqual(fresh.postbox?.monarch, "VR");
+    assert.strictEqual(fresh.postbox?.overpassId, 1);
+  });
+  it("orders the queue oldest first and pages history newest first", () => {
+    const all = [
+      rep("old", { type: "missing_postbox", createdAt: ts(1) }),
+      rep("new", { type: "missing_postbox", createdAt: ts(2) }),
+      rep("a1", { type: "missing_postbox", status: "accepted", reviewedAt: ts(30) }),
+      rep("a2", { type: "wrong_cypher", status: "accepted", reviewedAt: ts(20) }),
+      rep("j1", { type: "missing_postbox", status: "rejected", reviewedAt: ts(10) }),
+    ];
+    assert.deepStrictEqual(all.filter((r) => r.data.status === "pending").sort(pendingOrder).map((r) => r.id), ["old", "new"]);
+    const p1 = selectHistory(all, { status: "all", type: "all", beforeMs: null, limit: 2 });
+    assert.deepStrictEqual(p1.reports.map((r) => r.id), ["a1", "a2"]);
+    assert.strictEqual(p1.nextBefore, 20);
+    const p2 = selectHistory(all, { status: "all", type: "all", beforeMs: p1.nextBefore, limit: 2 });
+    assert.deepStrictEqual(p2.reports.map((r) => r.id), ["j1"]);
+    assert.strictEqual(p2.nextBefore, null);
+    assert.deepStrictEqual(selectHistory(all, { status: "accepted", type: "wrong_cypher", beforeMs: null, limit: 9 }).reports.map((r) => r.id), ["a2"]);
+  });
+  it("an accepted report is OSM-pending until uploaded or skipped", () => {
+    assert.strictEqual(isOsmPending(rep("a", { status: "accepted" })), true);
+    assert.strictEqual(isOsmPending(rep("a", { status: "accepted", osmUploadedAt: ts(1) })), false);
+    assert.strictEqual(isOsmPending(rep("a", { status: "accepted", osmSkippedAt: ts(1) })), false);
+    assert.strictEqual(isOsmPending(rep("a", { status: "rejected" })), false);
+  });
+});
+
+describe("review dashboard CLI (main.ts)", () => {
+  it("parses flags with defaults", () => {
+    const a = parseDashboardArgs(["--reviewer", "me@example.com", "--port", "9000", "--dev", "--open"]);
+    assert.strictEqual(a.reviewer, "me@example.com");
+    assert.strictEqual(a.port, 9000);
+    assert.strictEqual(a.projectId, "the-postbox-game");
+    assert.strictEqual(a.dev, true);
+    assert.strictEqual(a.devPort, 5173);
+    assert.strictEqual(a.open, true);
+    assert.strictEqual(a.ignoreMaintenance, false);
+    assert.ok(a.staticDir.endsWith(nodePath.join("admin_dashboard", "dist")));
+  });
+  it("rejects unknown flags, missing values and bad ports", () => {
+    assert.throws(() => parseDashboardArgs(["--nope"]), /Unknown argument/);
+    assert.throws(() => parseDashboardArgs(["--reviewer"]), /needs a value/);
+    assert.throws(() => parseDashboardArgs(["--reviewer", "--dev"]), /needs a value/);
+    assert.throws(() => parseDashboardArgs(["--port", "70000"]), /port/);
+    assert.throws(() => parseDashboardArgs(["--dev", "--dev-port", "8790"]), /must differ/);
+  });
+  it("pins the token from the environment only in dev, and only if long enough", () => {
+    const long = "x".repeat(40);
+    assert.strictEqual(chooseToken(true, long), long);
+    assert.notStrictEqual(chooseToken(false, long), long, "ignored outside --dev");
+    assert.throws(() => chooseToken(true, "short"), /at least 32/);
+    const random = chooseToken(false, undefined);
+    assert.ok(random.length >= 43 && /^[A-Za-z0-9_-]+$/.test(random));
+    assert.notStrictEqual(random, chooseToken(false, undefined));
+  });
+  it("takes the Street View key from the environment, blank meaning none", () => {
+    assert.strictEqual(mapsKeyFromEnv(" AIzaKey "), "AIzaKey");
+    assert.strictEqual(mapsKeyFromEnv(""), null);
+    assert.strictEqual(mapsKeyFromEnv("   "), null);
+    assert.strictEqual(mapsKeyFromEnv(undefined), null);
   });
 });

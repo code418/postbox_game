@@ -22,6 +22,8 @@ class Splash extends StatelessWidget {
                   Colors.white,
                   BlendMode.srcIn,
                 ),
+                // Decorative — the title text below carries the meaning.
+                excludeFromSemantics: true,
               ),
               const SizedBox(height: AppSpacing.lg),
               Text(

@@ -1,14 +1,22 @@
 import "./adminInit";
+import { monitorAppCheck } from "./_appCheck";
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions";
 import * as geohash from "ngeohash";
 import { KNOWN_MONARCHS } from "./_getPoints";
 import { getTodayLondon } from "./_dateUtils";
 import { countySlug } from "./_leaderboardUtils";
-import { getLatLng } from "./_lookupPostboxes";
+import { getLatLng, MAX_GEOHASH_PRECISION } from "./_geo";
 import { containsProfanity } from "./_profanityFilter";
 import { rescoreAfterCypherChange } from "./_recomputeScores";
+import { buildOsmChange, fetchOsmNode, type OsmNode } from "./_osmChange";
+import { getGameConfig } from "./_config";
 import type { PostboxDoc, ReportPhoto } from "./types";
+import type { ReviewReportResult } from "./_reviewTypes";
+
+// Re-exported so existing importers (tests, scripts) keep their import path.
+export { buildOsmChange } from "./_osmChange";
+export type { OsmChangeInput } from "./_osmChange";
 
 const NOTE_MAX = 280;
 const REFERENCE_MAX = 40;
@@ -17,8 +25,21 @@ const MAX_PHOTOS = 3;
  *  a malicious or buggy client can't flood the reports collection (and the
  *  admin review queue / Storage with photos) faster than this. */
 const MAX_REPORTS_PER_DAY = 10;
-const OSM_NODE_API = "https://api.openstreetmap.org/api/0.6/node";
-const OSM_USER_AGENT = "PostboxGame/1.0 (https://the-postbox-game.web.app)";
+
+/** One-tap reject reasons for the review dashboard. A reviewNote is shown to
+ *  the reporter in-app (My reports), so these are friendly and must pass
+ *  parseNote (length + profanity), which a test pins. */
+export const REJECT_PRESETS: ReadonlyArray<string> = [
+  "Thanks! This postbox is already on the map.",
+  "Sorry, we couldn't confirm a postbox here from the report.",
+  "The location wasn't precise enough to add this box. Please report it again while standing right next to it.",
+  "We couldn't make out the cypher. A close-up photo of the crest would help.",
+  "Our records already show this cypher.",
+  "Thanks, but this looks like a private or business mailbox rather than a Royal Mail postbox.",
+];
+
+/** Limits the dashboard mirrors in its form (same values the validators use). */
+export const REVIEW_LIMITS = { noteMax: NOTE_MAX, referenceMax: REFERENCE_MAX } as const;
 
 // ── input validation ────────────────────────────────────────────────────────
 
@@ -35,7 +56,7 @@ function parseSuggestedMonarch(raw: unknown): string | null | undefined {
   return raw;
 }
 
-function parseNote(raw: unknown): string | undefined {
+export function parseNote(raw: unknown): string | undefined {
   if (raw === undefined || raw === null || raw === "") return undefined;
   if (typeof raw !== "string") throw err("note must be a string");
   const note = raw.trim();
@@ -92,8 +113,6 @@ export function parsePhotos(raw: unknown, uid: string): ReportPhoto[] {
     const out: ReportPhoto = { storagePath };
     if (obj.exifLat !== undefined) out.exifLat = parseLat(obj.exifLat);
     if (obj.exifLng !== undefined) out.exifLng = parseLng(obj.exifLng);
-    if (out.exifLat === undefined) delete out.exifLat;
-    if (out.exifLng === undefined) delete out.exifLng;
     if (obj.takenAt !== undefined) {
       if (typeof obj.takenAt !== "string" || obj.takenAt.length > 40) throw err(`photos[${i}].takenAt must be a short string`);
       out.takenAt = obj.takenAt;
@@ -131,74 +150,6 @@ export function nextQuotaState(
   return { allowed: true, state: { date: today, count: prevCount + 1 } };
 }
 
-// ── osmChange XML ───────────────────────────────────────────────────────────
-
-function escapeXml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
-}
-
-export interface OsmChangeInput {
-  action: "create" | "modify";
-  /** OSM node id; pass a negative placeholder (e.g. -1) for create. */
-  id: number;
-  /** Required for modify (the node's current version); ignored for create. */
-  version?: number;
-  lat: number;
-  lon: number;
-  tags: Record<string, string>;
-}
-
-/**
- * Builds an osmChange (.osc) document for a single node create/modify, of the
- * form JOSM accepts. The changeset attribute is left at 0 so the editor fills
- * it in on upload. Exported for unit testing.
- */
-export function buildOsmChange(input: OsmChangeInput): string {
-  const versionAttr = input.action === "modify" ? ` version="${Math.max(1, Math.trunc(input.version ?? 1))}"` : "";
-  const tagXml = Object.entries(input.tags)
-    .filter(([, v]) => typeof v === "string" && v.length > 0)
-    .map(([k, v]) => `      <tag k="${escapeXml(k)}" v="${escapeXml(v)}"/>`)
-    .join("\n");
-  return [
-    '<?xml version="1.0" encoding="UTF-8"?>',
-    '<osmChange version="0.6" generator="PostboxGame">',
-    `  <${input.action}>`,
-    `    <node id="${Math.trunc(input.id)}"${versionAttr} lat="${input.lat}" lon="${input.lon}" changeset="0">`,
-    ...(tagXml ? [tagXml] : []),
-    "    </node>",
-    `  </${input.action}>`,
-    "</osmChange>",
-    "",
-  ].join("\n");
-}
-
-interface OsmNode {
-  version: number;
-  lat: number;
-  lon: number;
-  tags: Record<string, string>;
-}
-
-/** Fetches a node from the OSM API. Returns null on any error (offline, 404, …). */
-async function fetchOsmNode(id: number): Promise<OsmNode | null> {
-  try {
-    const res = await fetch(`${OSM_NODE_API}/${id}.json`, { headers: { "User-Agent": OSM_USER_AGENT } });
-    if (!res.ok) return null;
-    const body = (await res.json()) as { elements?: Array<{ type?: string; version?: number; lat?: number; lon?: number; tags?: Record<string, string> }> };
-    const node = body.elements?.find((e) => e.type === "node");
-    if (!node || typeof node.lat !== "number" || typeof node.lon !== "number") return null;
-    return { version: typeof node.version === "number" ? node.version : 1, lat: node.lat, lon: node.lon, tags: node.tags ?? {} };
-  } catch (e) {
-    console.error("OSM node lookup failed:", e);
-    return null;
-  }
-}
-
 // ── callables ───────────────────────────────────────────────────────────────
 
 interface SubmitReportData {
@@ -214,6 +165,7 @@ interface SubmitReportData {
 }
 
 export const submitReport = functions.https.onCall(async (request) => {
+  monitorAppCheck(request, "submitReport");
   const uid = request.auth?.uid;
   if (!uid) throw new functions.https.HttpsError("unauthenticated", "Must be signed in to report a problem");
 
@@ -277,6 +229,9 @@ export const submitReport = functions.https.onCall(async (request) => {
   // a malformed request never consumes a user's quota.
   const today = getTodayLondon();
   const quotaRef = db.collection("reportQuotas").doc(uid);
+  // Generate the report ref up front so its id is stable across transaction
+  // retries (and can be returned to the caller without an extra round-trip).
+  const reportRef = db.collection("reports").doc();
   await db.runTransaction(async (tx) => {
     const snap = await tx.get(quotaRef);
     const r = nextQuotaState(snap.data() as { date?: unknown; count?: unknown } | undefined, today, MAX_REPORTS_PER_DAY);
@@ -287,13 +242,18 @@ export const submitReport = functions.https.onCall(async (request) => {
       );
     }
     tx.set(quotaRef, r.state, { merge: false });
+    // Write the report inside the same transaction as the quota increment so
+    // the two commit atomically: a failed report write can no longer burn a
+    // user's daily quota, and a committed quota slot always has a stored report.
+    tx.set(reportRef, base);
   });
 
-  const ref = await db.collection("reports").add(base);
-  return { reportId: ref.id };
+  return { reportId: reportRef.id };
 });
 
-interface ReviewReportData {
+/** Raw (unvalidated) reviewReport input: the callable's request.data, or the
+ *  review dashboard's request body plus the route's reportId. */
+export interface ReviewReportInput {
   reportId?: unknown;
   decision?: unknown;
   reviewNote?: unknown;
@@ -301,20 +261,38 @@ interface ReviewReportData {
   finalReference?: unknown;
 }
 
-export const reviewReport = functions.https.onCall({ timeoutSeconds: 300 }, async (request) => {
-  if (request.auth?.token?.admin !== true) {
-    throw new functions.https.HttpsError("permission-denied", "Admin access required");
-  }
-  const adminUid = request.auth.uid;
+/** The slice of a Storage bucket performReview writes .osc files through. */
+export interface ReviewBucketLike {
+  file(path: string): { save(data: string, options: { contentType: string }): Promise<unknown> };
+}
 
-  const data = (request.data as ReviewReportData) ?? {};
+/** Seams for tests. Production (the callable and the dashboard) passes none. */
+export interface PerformReviewOptions {
+  fetchOsmNode?: (id: number) => Promise<OsmNode | null>;
+  rescore?: typeof rescoreAfterCypherChange;
+  countyForPoint?: (lat: number, lng: number) => string | null;
+  today?: string;
+}
+
+/**
+ * Accept or reject one pending report: the whole of reviewReport after the
+ * admin-claim check. Shared by the callable and the local review dashboard
+ * (functions/src/scripts/review_dashboard/) so the two can never drift.
+ * Throws HttpsError; `adminUid` is stamped as reviewedBy / correctedBy.
+ */
+export async function performReview(
+  db: admin.firestore.Firestore,
+  bucket: ReviewBucketLike,
+  adminUid: string,
+  data: ReviewReportInput,
+  opts: PerformReviewOptions = {}
+): Promise<ReviewReportResult> {
   const reportId = data.reportId;
   if (typeof reportId !== "string" || reportId.length === 0 || reportId.includes("/")) throw err("reportId is required");
   const decision = data.decision;
   if (decision !== "accept" && decision !== "reject") throw err("decision must be 'accept' or 'reject'");
   const reviewNote = parseNote(data.reviewNote);
 
-  const db = admin.firestore();
   const reportRef = db.collection("reports").doc(reportId);
   const reportSnap = await reportRef.get();
   if (!reportSnap.exists) throw new functions.https.HttpsError("not-found", "Report not found");
@@ -344,13 +322,14 @@ export const reviewReport = functions.https.onCall({ timeoutSeconds: 300 }, asyn
   // ── accept ────────────────────────────────────────────────────────────────
   const finalMonarch = parseSuggestedMonarch(data.finalMonarch === undefined ? report.suggestedMonarch : data.finalMonarch);
   const finalReference = parseReference(data.finalReference === undefined ? report.suggestedReference : data.finalReference);
-  const today = getTodayLondon();
+  const today = opts.today ?? getTodayLondon();
 
   let osmEditUrl = "https://www.openstreetmap.org/edit";
   let osmChangesetPath: string | undefined;
   let osmStatus: "changeset_generated" | "changeset_failed" = "changeset_failed";
   let rescoredClaims = 0;
   let affectedUsers = 0;
+  let rescoreTotalDelta = 0;
 
   if (report.type === "wrong_cypher") {
     if (finalMonarch === undefined) throw err("a cypher correction must specify finalMonarch (a key, or null for plain)");
@@ -362,22 +341,37 @@ export const reviewReport = functions.https.onCall({ timeoutSeconds: 300 }, asyn
     const pb = pbSnap.data() as PostboxDoc;
     const overpassId = typeof pb.overpass_id === "number" ? pb.overpass_id : (typeof report.overpassId === "number" ? report.overpassId : undefined);
     const countyName = typeof pb.county === "string" ? pb.county : null;
+    // Resolve the points config before the first write. Deployed, this just
+    // warms the cache (the loader never throws); the dashboard installs a
+    // strict loader, so an unreachable Remote Config aborts here rather than
+    // after the postbox doc has been corrected.
+    await getGameConfig();
 
     const pbUpdate: Record<string, unknown> = { correctedBy: adminUid, correctedAt: now };
     pbUpdate.monarch = finalMonarch === null ? admin.firestore.FieldValue.delete() : finalMonarch;
     if (finalReference) pbUpdate.reference = finalReference;
+    // Accepting a cypher correction is implicit confirmation that the postbox
+    // still exists: if it had been soft-pruned by a stale OSM extract, clear
+    // the flag so it's claimable again. The next OSM import will reapply the
+    // flag only if the node is still missing upstream.
+    if (pb.removedFromOsm === true) {
+      pbUpdate.removedFromOsm = admin.firestore.FieldValue.delete();
+      pbUpdate.removedFromOsmAt = admin.firestore.FieldValue.delete();
+    }
     await pbRef.set(pbUpdate, { merge: true });
 
     // Always rewrite the claims' stored monarch; this also recomputes affected
     // users' totals and leaderboards (a no-op for totals when the new cypher
     // maps to the same points value as the old one).
-    const r = await rescoreAfterCypherChange(db, postboxKey, finalMonarch, countyName ? countySlug(countyName) : null, countyName, today);
+    const rescore = opts.rescore ?? rescoreAfterCypherChange;
+    const r = await rescore(db, postboxKey, finalMonarch, countyName ? countySlug(countyName) : null, countyName, today);
     rescoredClaims = r.rescoredClaims;
     affectedUsers = r.affectedUsers;
+    rescoreTotalDelta = r.totalDelta;
 
     if (overpassId !== undefined) {
       osmEditUrl = `https://www.openstreetmap.org/edit?editor=id&node=${overpassId}`;
-      const node = await fetchOsmNode(overpassId);
+      const node = await (opts.fetchOsmNode ?? fetchOsmNode)(overpassId);
       if (node) {
         const tags = { ...node.tags };
         if (finalMonarch === null) delete tags.royal_cypher;
@@ -386,7 +380,7 @@ export const reviewReport = functions.https.onCall({ timeoutSeconds: 300 }, asyn
         const osc = buildOsmChange({ action: "modify", id: overpassId, version: node.version, lat: node.lat, lon: node.lon, tags });
         osmChangesetPath = `osm_changesets/${reportId}.osc`;
         try {
-          await admin.storage().bucket().file(osmChangesetPath).save(osc, { contentType: "application/xml" });
+          await bucket.file(osmChangesetPath).save(osc, { contentType: "application/xml" });
           osmStatus = "changeset_generated";
         } catch (e) {
           console.error("osmChange upload failed:", e);
@@ -403,15 +397,64 @@ export const reviewReport = functions.https.onCall({ timeoutSeconds: 300 }, asyn
     const lng = typeof report.lng === "number" ? report.lng : NaN;
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) throw new functions.https.HttpsError("failed-precondition", "report is missing coordinates");
     const newKey = `manual_${reportId}`;
+    const pbRef = db.collection("postbox").doc(newKey);
+    // Idempotency: an earlier reviewReport run for this report may have
+    // already created the postbox doc but then failed to mark the report
+    // accepted. Without this check, an admin retry would re-increment
+    // meta/stats.totalPostboxes per attempt and silently inflate the
+    // denominator.
+    const existing = await pbRef.get();
+    const isNewBox = !existing.exists;
     const pbData: Record<string, unknown> = {
-      geohash: geohash.encode(lat, lng, 9),
+      // Encode at the canonical max precision so prefix-queries
+      // (_lookupPostboxes / routePostboxes) match this doc — see
+      // MAX_GEOHASH_PRECISION docs.
+      geohash: geohash.encode(lat, lng, MAX_GEOHASH_PRECISION),
       geopoint: new admin.firestore.GeoPoint(lat, lng),
       source: "user_report",
       reportId,
     };
     if (typeof finalMonarch === "string") pbData.monarch = finalMonarch;
     if (finalReference) pbData.reference = finalReference;
-    await db.collection("postbox").doc(newKey).set(pbData);
+    // Tag the county so future claims on this box flow into county
+    // leaderboards. Without this, startScoring's per-county aggregation
+    // would skip the box (it bails when `county` is absent), leaving these
+    // user-reported boxes invisible on the county heatmap / lifetime-by-county
+    // rankings even after claims accumulate.
+    //
+    // Lazy-require so other functions sharing this module (nearbyPostboxes,
+    // startScoring, …) don't pay the ~900 kB GeoJSON parse on their cold
+    // starts. The util's own `_features` cache then keeps subsequent calls
+    // within a single warm reviewReport instance cheap.
+    try {
+      const countyForPoint = opts.countyForPoint ?? (
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        require("../util/county_lookup") as {
+          countyForPoint: (lat: number, lng: number) => string | null;
+        }
+      ).countyForPoint;
+      const county = countyForPoint(lat, lng);
+      if (county) pbData.county = county;
+    } catch (e) {
+      // County lookup is best-effort: NI postboxes legitimately lack a
+      // county, the GeoJSON could be missing in some packaging configurations,
+      // etc. Fall through without tagging rather than blocking the accept.
+      console.error("county lookup failed (non-fatal):", e);
+    }
+    await pbRef.set(pbData);
+    // Keep the lifetime leaderboard's "X of Y boxes (Z%)" denominator
+    // accurate immediately rather than waiting for the next OSM reimport.
+    // Only fire on first creation so retries don't double-count.
+    if (isNewBox) {
+      try {
+        await db.collection("meta").doc("stats").set(
+          { totalPostboxes: admin.firestore.FieldValue.increment(1) },
+          { merge: true }
+        );
+      } catch (e) {
+        console.error("meta/stats.totalPostboxes increment failed:", e);
+      }
+    }
 
     const tags: Record<string, string> = { amenity: "post_box" };
     if (typeof finalMonarch === "string") tags.royal_cypher = finalMonarch;
@@ -419,7 +462,7 @@ export const reviewReport = functions.https.onCall({ timeoutSeconds: 300 }, asyn
     const osc = buildOsmChange({ action: "create", id: -1, lat, lon: lng, tags });
     osmChangesetPath = `osm_changesets/${reportId}.osc`;
     try {
-      await admin.storage().bucket().file(osmChangesetPath).save(osc, { contentType: "application/xml" });
+      await bucket.file(osmChangesetPath).save(osc, { contentType: "application/xml" });
       osmStatus = "changeset_generated";
     } catch (e) {
       console.error("osmChange upload failed:", e);
@@ -440,7 +483,27 @@ export const reviewReport = functions.https.onCall({ timeoutSeconds: 300 }, asyn
   if (reviewNote) update.reviewNote = reviewNote;
   if (finalReference) update.finalReference = finalReference;
   if (osmChangesetPath) update.osmChangesetPath = osmChangesetPath;
+  if (report.type === "wrong_cypher") {
+    // Kept on the doc so the review history can show what an accept did
+    // (the callable's response is otherwise the only record).
+    update.rescoredClaims = rescoredClaims;
+    update.affectedUsers = affectedUsers;
+    update.rescoreTotalDelta = rescoreTotalDelta;
+  }
   await reportRef.set(update, { merge: true });
 
-  return { status: "accepted", osmEditUrl, osmChangesetPath: osmChangesetPath ?? null, rescoredClaims, affectedUsers };
+  return { status: "accepted", osmEditUrl, osmChangesetPath: osmChangesetPath ?? null, rescoredClaims, affectedUsers, rescoreTotalDelta };
+}
+
+export const reviewReport = functions.https.onCall({ timeoutSeconds: 300 }, async (request) => {
+  monitorAppCheck(request, "reviewReport");
+  if (request.auth?.token?.admin !== true) {
+    throw new functions.https.HttpsError("permission-denied", "Admin access required");
+  }
+  return performReview(
+    admin.firestore(),
+    admin.storage().bucket(),
+    request.auth.uid,
+    (request.data as ReviewReportInput) ?? {}
+  );
 });

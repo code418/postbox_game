@@ -1,6 +1,7 @@
 import "./adminInit";
 import * as admin from "firebase-admin";
-import { pointsForMonarch } from "./_getPoints";
+import { DELETED_UID } from "./_accountDeletion";
+import { getPointsForMonarch } from "./_config";
 import { getTodayLondon } from "./_dateUtils";
 import {
   updateUserLeaderboards,
@@ -38,6 +39,55 @@ export interface RepointResult {
   claimCount: number;
 }
 
+/** The claim fields the repoint planner reads (a claims doc's data()). */
+export interface RepointClaimInput {
+  userid?: unknown;
+  points?: unknown;
+  monarch?: unknown;
+}
+
+export interface RepointPlan {
+  /** Indices into the input array of the claims that need rewriting. */
+  rewrite: number[];
+  /** uid → total points delta (newPts − oldPts) over that user's rewritten claims. */
+  deltaByUid: Map<string, number>;
+}
+
+/**
+ * Pure planner behind repointClaimsForPostbox (and the review dashboard's
+ * impact preview, which must predict exactly what an accept will do): which
+ * of a box's claims a cypher correction rewrites, and each user's points
+ * delta. Claims already at the target monarch + points are skipped, which
+ * keeps a retry from re-stamping the audit trail with post-correction values.
+ * A zero-delta user still gets an entry (their claims' monarch changes).
+ *
+ * Claims anonymised by account deletion (`userid: DELETED_UID`) are rewritten
+ * like any other but never attributed: recomputing aggregates for "deleted"
+ * would create a users/deleted doc and a phantom leaderboard row summing every
+ * anonymised claim (newDayScoreboard skips the same uid for the same reason).
+ */
+export function planRepointClaims(
+  claims: ReadonlyArray<RepointClaimInput>,
+  newMonarch: string | null,
+  newPts: number
+): RepointPlan {
+  const plain = !(typeof newMonarch === "string" && newMonarch.length > 0);
+  const targetMonarch = plain ? null : newMonarch;
+  const rewrite: number[] = [];
+  const deltaByUid = new Map<string, number>();
+  claims.forEach((d, i) => {
+    const oldPts = typeof d.points === "number" ? d.points : 0;
+    const currentMonarch = (typeof d.monarch === "string" && d.monarch.length > 0) ? d.monarch : null;
+    if (currentMonarch === targetMonarch && oldPts === newPts) return;
+    rewrite.push(i);
+    const uid = d.userid;
+    if (typeof uid === "string" && uid.length > 0 && uid !== DELETED_UID) {
+      deltaByUid.set(uid, (deltaByUid.get(uid) ?? 0) + (newPts - oldPts));
+    }
+  });
+  return { rewrite, deltaByUid };
+}
+
 /**
  * Rewrites the stored `points`/`monarch` on every claim for a single postbox
  * to reflect a new cypher, in batches. Records an audit trail
@@ -50,38 +100,37 @@ export async function repointClaimsForPostbox(
   postboxKey: string,
   newMonarch: string | null
 ): Promise<RepointResult> {
-  const newPts = pointsForMonarch(newMonarch);
+  const newPts = await getPointsForMonarch(newMonarch);
   const snap = await db
     .collection("claims")
     .where("postboxes", "==", `/postbox/${postboxKey}`)
     .get();
 
-  const deltaByUid = new Map<string, number>();
+  const docs = snap.docs;
+  const plan = planRepointClaims(docs.map((doc) => doc.data()), newMonarch, newPts);
   const now = admin.firestore.Timestamp.now();
   const plain = !(typeof newMonarch === "string" && newMonarch.length > 0);
 
   const batches: admin.firestore.WriteBatch[] = [];
-  for (let i = 0; i < snap.docs.length; i += WRITE_BATCH_SIZE) {
+  for (let i = 0; i < plan.rewrite.length; i += WRITE_BATCH_SIZE) {
     const batch = db.batch();
-    for (const doc of snap.docs.slice(i, i + WRITE_BATCH_SIZE)) {
+    for (const idx of plan.rewrite.slice(i, i + WRITE_BATCH_SIZE)) {
+      const doc = docs[idx];
       const d = doc.data();
-      const uid = d.userid as string | undefined;
-      const oldPts = typeof d.points === "number" ? d.points : 0;
       const update: Record<string, unknown> = {
         points: newPts,
         correctedAt: now,
         correctedFromMonarch: d.monarch ?? null,
-        correctedFromPoints: oldPts,
+        correctedFromPoints: typeof d.points === "number" ? d.points : 0,
         monarch: plain ? admin.firestore.FieldValue.delete() : newMonarch,
       };
       batch.set(doc.ref, update, { merge: true });
-      if (uid) deltaByUid.set(uid, (deltaByUid.get(uid) ?? 0) + (newPts - oldPts));
     }
     batches.push(batch);
   }
   await Promise.all(batches.map((b) => b.commit()));
 
-  return { deltaByUid, claimCount: snap.docs.length };
+  return { deltaByUid: plan.deltaByUid, claimCount: plan.rewrite.length };
 }
 
 /**
@@ -111,18 +160,11 @@ export async function recomputeUserAggregates(
   const displayName =
     (userSnap.data()?.displayName as string | undefined) || `Player_${uid.slice(0, 6)}`;
 
-  // Re-sum all of this user's claims for the authoritative lifetime figures.
+  // Re-derive maxDailyPoints from claims. A cypher correction can change the
+  // best day's total (re-pointing dropped its sum below another day's), and
+  // startScoring's per-claim max(stored, today's sum) only catches further
+  // upward moves — never the downward correction here, so we have to SET.
   const allClaims = await db.collection("claims").where("userid", "==", uid).get();
-  const lifetimePoints = allClaims.docs.reduce(
-    (s, d) => s + (typeof d.data().points === "number" ? (d.data().points as number) : 0),
-    0
-  );
-  const uniqueBoxes = new Set(
-    allClaims.docs
-      .map((d) => d.data().postboxes as string | undefined)
-      .filter((p): p is string => typeof p === "string")
-  );
-  const uniquePostboxesClaimed = uniqueBoxes.size;
   const maxDailyPoints = maxDailyFromClaims(allClaims.docs.map((d) => d.data() as { dailyDate?: string; points?: number }));
 
   // Re-sum + rewrite the per-period leaderboards (daily/weekly/monthly).
@@ -131,29 +173,54 @@ export async function recomputeUserAggregates(
   const monthStart = getMonthStart(today);
 
   // Lifetime: write user doc + leaderboards/lifetime atomically.
+  //
+  // lifetimePoints is updated by DELTA — `countyDelta` is the user's total
+  // points change for the rewritten claims on the affected postbox. Applying
+  // it inside the transaction (rather than SET-ing a value computed from a
+  // pre-transaction claims sum) closes a race: a concurrent startScoring
+  // claim could otherwise commit a higher lifetimePoints between our claims
+  // read and our tx commit, and our SET would overwrite that fresh total
+  // with the stale pre-claim value — leaving the user permanently short by
+  // that claim's points.
+  //
+  // uniquePostboxesClaimed isn't written here: a cypher correction never
+  // adds or removes unique boxes, so we read the current value inside the
+  // tx and use it only for the leaderboard entry. A SET-from-claims would
+  // have the same race as lifetimePoints did (concurrent first-claim of a
+  // new unique box would be overwritten).
   try {
     const lifetimeRef = db.collection("leaderboards").doc("lifetime");
     await db.runTransaction(async (tx) => {
       const [uSnap, lSnap] = await Promise.all([tx.get(userRef), tx.get(lifetimeRef)]);
       const freshDisplayName =
         (uSnap.data()?.displayName as string | undefined) || displayName;
-      tx.set(
-        userRef,
-        {
-          lifetimePoints,
-          uniquePostboxesClaimed,
-          maxDailyPoints,
-          dailyPoints: periodSums.dailyPoints,
-          dailyDate: today,
-          weeklyPoints: periodSums.weeklyPoints,
-          weekStart,
-          monthlyPoints: periodSums.monthlyPoints,
-          monthStart,
-        },
-        { merge: true }
-      );
+      const currentLifetime = (uSnap.data()?.lifetimePoints as number | undefined) ?? 0;
+      // Clamp at 0 in case earlier bugs left lifetimePoints under-reported
+      // and a points-reducing cypher correction's delta would otherwise push
+      // it negative. Defensive — in healthy state currentLifetime is always
+      // ≥ |countyDelta| because countyDelta is the sum of point deltas on
+      // claims the user actually made.
+      const newLifetimePoints = Math.max(0, currentLifetime + countyDelta);
+      const currentUnique = (uSnap.data()?.uniquePostboxesClaimed as number | undefined) ?? 0;
+      // Only stamp the per-period markers when the user actually has claims
+      // in that period. Otherwise the rescore would overwrite a stale-but-
+      // truthful marker (e.g. yesterday) with today, and downstream code
+      // that treats `dailyDate === today` as evidence of a claim (notably
+      // shouldNotifyFirstClaim / shouldNotifyOvertake) would wrongly skip
+      // notifications for a user who hasn't claimed today.
+      const userUpdate: Record<string, unknown> = {
+        lifetimePoints: newLifetimePoints,
+        maxDailyPoints,
+        dailyPoints: periodSums.dailyPoints,
+        weeklyPoints: periodSums.weeklyPoints,
+        monthlyPoints: periodSums.monthlyPoints,
+      };
+      if (periodSums.dailyPoints > 0) userUpdate.dailyDate = today;
+      if (periodSums.weeklyPoints > 0) userUpdate.weekStart = weekStart;
+      if (periodSums.monthlyPoints > 0) userUpdate.monthStart = monthStart;
+      tx.set(userRef, userUpdate, { merge: true });
       const existing = (lSnap.data()?.entries ?? []) as LifetimeLeaderboardEntry[];
-      const updated = mergeLifetimeEntries(existing, uid, freshDisplayName, uniquePostboxesClaimed, lifetimePoints);
+      const updated = mergeLifetimeEntries(existing, uid, freshDisplayName, currentUnique, newLifetimePoints);
       tx.set(lifetimeRef, { periodKey: "lifetime", entries: updated }, { merge: false });
     });
   } catch (err) {
@@ -172,7 +239,16 @@ export async function recomputeUserAggregates(
       await db.runTransaction(async (tx) => {
         const [sSnap, lbSnap, uSnap] = await Promise.all([tx.get(statsRef), tx.get(lbRef), tx.get(userRef)]);
         const prev = sSnap.data() ?? {};
-        const newTotal = ((prev.totalPoints as number | undefined) ?? 0) + countyDelta;
+        // Clamp at 0: if the stats doc doesn't exist (legacy claim made
+        // before per-county tracking, never backfilled), a negative
+        // countyDelta from a points-reducing cypher correction would
+        // otherwise write negative totalPoints. The leaderboard then
+        // sorts the user below users with 0 points, which is the right
+        // user-facing result.
+        const newTotal = Math.max(
+          0,
+          ((prev.totalPoints as number | undefined) ?? 0) + countyDelta,
+        );
         const newUnique = (prev.uniquePostboxesClaimed as number | undefined) ?? 0;
         const name = (prev.county as string | undefined) || countyName || countySlugVal;
         const freshDisplayName =
@@ -205,12 +281,21 @@ export async function rescoreAfterCypherChange(
   countySlugVal: string | null,
   countyName: string | null,
   today: string = getTodayLondon()
-): Promise<{ rescoredClaims: number; affectedUsers: number }> {
+): Promise<{ rescoredClaims: number; affectedUsers: number; totalDelta: number }> {
   const { deltaByUid, claimCount } = await repointClaimsForPostbox(db, postboxKey, newMonarch);
+  // Users whose point delta is 0 (corrected cypher maps to the same score —
+  // e.g. GR→GVR are both 4 pts) had their claims' monarch / audit fields
+  // updated by repointClaimsForPostbox, but their lifetimePoints, period
+  // sums, maxDailyPoints and county totals are all unchanged. Skip them so
+  // the post-correction sweep stays bounded by users actually affected
+  // numerically rather than every claimant of the box.
+  const affected = Array.from(deltaByUid.entries()).filter(([, delta]) => delta !== 0);
   await Promise.allSettled(
-    Array.from(deltaByUid.entries()).map(([uid, delta]) =>
+    affected.map(([uid, delta]) =>
       recomputeUserAggregates(db, uid, today, delta, countySlugVal, countyName)
     )
   );
-  return { rescoredClaims: claimCount, affectedUsers: deltaByUid.size };
+  let totalDelta = 0;
+  for (const delta of deltaByUid.values()) totalDelta += delta;
+  return { rescoredClaims: claimCount, affectedUsers: affected.length, totalDelta };
 }

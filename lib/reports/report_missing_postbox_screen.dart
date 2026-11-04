@@ -1,6 +1,11 @@
+import 'dart:async';
+
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/location_service.dart';
+import 'package:postbox_game/maintenance_guard.dart';
 import 'package:postbox_game/reports/report_form_widgets.dart';
 import 'package:postbox_game/reports/report_repository.dart';
 import 'package:postbox_game/theme.dart';
@@ -44,6 +49,10 @@ class _ReportMissingPostboxScreenState extends State<ReportMissingPostboxScreen>
   }
 
   Future<void> _fetchLocation() async {
+    // Guard against rapid double-taps on the Refresh button firing two
+    // concurrent getPosition() calls whose results race to setState (a
+    // slower failure could otherwise overwrite a faster success).
+    if (_locating) return;
     setState(() {
       _locating = true;
       _locationError = null;
@@ -51,14 +60,37 @@ class _ReportMissingPostboxScreenState extends State<ReportMissingPostboxScreen>
     try {
       final pos = await getPosition();
       if (mounted) setState(() => _position = pos);
-    } catch (e) {
-      if (mounted) setState(() => _locationError = '$e');
+    } on LocationServiceException catch (e) {
+      // Surface the typed [message] instead of the toString() (which is
+      // prefixed with the class name + kind enum — verbose and unhelpful in
+      // a UI banner).
+      if (e.kind == LocationErrorKind.permissionPermanentlyDenied) {
+        unawaited(Analytics.locationPermissionPermanentlyDenied());
+      }
+      if (mounted) setState(() => _locationError = e.message);
+    } catch (_) {
+      if (mounted) {
+        setState(() =>
+            _locationError = 'Could not determine your location. Please try again.');
+      }
     } finally {
       if (mounted) setState(() => _locating = false);
     }
   }
 
   Future<void> _submit() async {
+    if (_position == null) return;
+    if (MaintenanceGuard.blocked(context, actionLabel: 'send a report')) {
+      return;
+    }
+    await _attemptSubmit(_photos);
+  }
+
+  /// Runs one submit attempt with the given [photos]. A photo-upload failure
+  /// (photos are optional) offers retry / send-without-photo instead of losing
+  /// the whole report; the callable/other failures keep their existing
+  /// snackbars.
+  Future<void> _attemptSubmit(List<PendingPhoto> photos) async {
     final pos = _position;
     if (pos == null) return;
     setState(() => _submitting = true);
@@ -70,17 +102,64 @@ class _ReportMissingPostboxScreenState extends State<ReportMissingPostboxScreen>
         note: _noteController.text,
         suggestedMonarch: _cypher == notSureCypher ? null : _cypher,
         suggestedReference: _reference,
-        photos: _photos,
+        photos: photos,
       );
+      unawaited(Analytics.reportSubmitted(
+        type: 'missing_postbox',
+        photoCount: photos.length,
+      ));
       if (!mounted) return;
       await showReportThanksDialog(context);
       if (mounted) Navigator.of(context).pop(true);
-    } catch (e) {
+      return;
+    } on FirebaseFunctionsException catch (e) {
+      unawaited(Analytics.reportSubmitFailed(
+        type: 'missing_postbox',
+        reason: e.code.isNotEmpty ? e.code : 'unknown',
+      ));
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not send report: $e')));
+        // See report_cypher_screen.dart: the server's HttpsError message is
+        // already user-facing copy (e.g. the daily-limit string), so showing
+        // it directly reads better than prefixing with "Could not send
+        // report:".
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content:
+                Text(e.message ?? 'Could not send report. Please try again.')));
       }
+      return;
+    } on ReportPhotoUploadException {
+      unawaited(Analytics.reportSubmitFailed(
+        type: 'missing_postbox',
+        reason: 'photo_upload',
+      ));
+      // Fall through past the finally (which clears the overlay) to offer the
+      // retry / send-without-photo choice below.
+    } catch (_) {
+      unawaited(Analytics.reportSubmitFailed(
+        type: 'missing_postbox',
+        reason: 'unknown',
+      ));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Could not send report. Please try again.')));
+      }
+      return;
     } finally {
       if (mounted) setState(() => _submitting = false);
+    }
+
+    // Only reached on ReportPhotoUploadException. A missing-postbox report is
+    // always valid without a photo (it has the location), so allow it.
+    if (!mounted) return;
+    final choice = await showPhotoUploadFailedDialog(context, photoCount: photos.length);
+    if (!mounted) return;
+    switch (choice) {
+      case PhotoUploadFailureChoice.retry:
+        await _attemptSubmit(photos);
+      case PhotoUploadFailureChoice.submitWithout:
+        await _attemptSubmit(const []);
+      case PhotoUploadFailureChoice.cancel:
+        break;
     }
   }
 
@@ -116,7 +195,7 @@ class _ReportMissingPostboxScreenState extends State<ReportMissingPostboxScreen>
               const SizedBox(height: AppSpacing.md),
               TextField(
                 onChanged: (v) => _reference = v,
-                maxLength: 40,
+                maxLength: ReportRepository.maxReferenceChars,
                 decoration: const InputDecoration(
                   labelText: 'Postbox reference / plate number (optional)',
                   border: OutlineInputBorder(),
@@ -125,7 +204,7 @@ class _ReportMissingPostboxScreenState extends State<ReportMissingPostboxScreen>
               const SizedBox(height: AppSpacing.sm),
               TextField(
                 controller: _noteController,
-                maxLength: 280,
+                maxLength: ReportRepository.maxNoteChars,
                 maxLines: 3,
                 decoration: const InputDecoration(
                   labelText: 'Anything else? (optional)',

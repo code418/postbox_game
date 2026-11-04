@@ -1,13 +1,16 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:postbox_game/firebase_functions_eu.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:postbox_game/admin/admin_access.dart';
+import 'package:postbox_game/maintenance_guard.dart';
 import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/reports/report_form_widgets.dart';
-import 'package:postbox_game/reports/report_repository.dart' show plainCypher;
+import 'package:postbox_game/reports/report_repository.dart'
+    show ReportRepository, plainCypher;
 import 'package:postbox_game/theme.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -15,16 +18,28 @@ import 'package:url_launcher/url_launcher.dart';
 /// holding the `admin` custom claim (see [AdminAccess]). Accepting a report
 /// calls the `reviewReport` Cloud Function, which updates the Firestore postbox
 /// entry, re-scores affected claims, and generates an osmChange file.
-class AdminReportsScreen extends StatelessWidget {
+class AdminReportsScreen extends StatefulWidget {
   const AdminReportsScreen({super.key});
 
+  @override
+  State<AdminReportsScreen> createState() => _AdminReportsScreenState();
+}
+
+class _AdminReportsScreenState extends State<AdminReportsScreen> {
   static const _statuses = ['pending', 'accepted', 'rejected'];
   static const _labels = {'pending': 'Pending', 'accepted': 'Accepted', 'rejected': 'Rejected'};
+
+  // Force a token refresh once on entry to pick up a freshly-granted admin
+  // claim, then cache the result so a Theme/orientation rebuild doesn't
+  // re-issue `getIdTokenResult(forceRefresh: true)` (a Firebase Auth network
+  // round-trip).
+  late final Future<bool> _adminCheck =
+      AdminAccess.isAdmin(forceRefresh: true);
 
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<bool>(
-      future: AdminAccess.isAdmin(forceRefresh: true),
+      future: _adminCheck,
       builder: (context, snap) {
         if (!snap.hasData) {
           return const Scaffold(body: Center(child: CircularProgressIndicator(color: postalRed)));
@@ -40,9 +55,61 @@ class AdminReportsScreen extends StatelessWidget {
           child: Scaffold(
             appBar: AppBar(
               title: const Text('Report review'),
-              bottom: TabBar(tabs: [for (final s in _statuses) Tab(text: _labels[s])]),
+              bottom: TabBar(
+                tabs: [for (final s in _statuses) _CountedTab(status: s, label: _labels[s]!)],
+              ),
             ),
             body: TabBarView(children: [for (final s in _statuses) _ReportList(status: s)]),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// The query behind both a tab's count badge and its list. Firestore shares a
+/// single underlying listener for identical queries, so the badge costs no
+/// extra reads on top of the list it labels.
+Query<Map<String, dynamic>> _reportsQuery(String status) =>
+    FirebaseFirestore.instance.collection('reports').where('status', isEqualTo: status);
+
+/// Tab label carrying a live count, so an admin can see the size of the review
+/// backlog without opening each tab.
+class _CountedTab extends StatelessWidget {
+  const _CountedTab({required this.status, required this.label});
+  final String status;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: _reportsQuery(status).snapshots(),
+      builder: (context, snap) {
+        final count = snap.data?.docs.length;
+        return Tab(
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(child: Text(label, overflow: TextOverflow.ellipsis)),
+              if (count != null && count > 0) ...[
+                const SizedBox(width: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: postalRed,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    '$count',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ],
           ),
         );
       },
@@ -57,7 +124,7 @@ class _ReportList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance.collection('reports').where('status', isEqualTo: status).snapshots(),
+      stream: _reportsQuery(status).snapshots(),
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator(color: postalRed));
@@ -70,7 +137,33 @@ class _ReportList extends StatelessWidget {
             if (ta is Timestamp && tb is Timestamp) return tb.compareTo(ta);
             return 0;
           });
-        if (docs.isEmpty) return Center(child: Text('No $status reports'));
+        if (docs.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  status == 'pending' ? Icons.inbox_outlined : Icons.history_outlined,
+                  size: 48,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                Text(
+                  status == 'pending' ? 'Nothing to review' : 'No $status reports',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                if (status == 'pending')
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      'The review queue is empty.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
+              ],
+            ),
+          );
+        }
         return ListView.separated(
           padding: const EdgeInsets.all(AppSpacing.md),
           itemCount: docs.length,
@@ -108,7 +201,7 @@ class _ReportCardState extends State<_ReportCard> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final created = d['createdAt'];
-    final when = created is Timestamp ? DateFormat.yMMMd().add_jm().format(created.toDate().toLocal()) : '';
+    final createdLocal = created is Timestamp ? created.toDate().toLocal() : null;
     final note = d['note'] as String?;
     final photos = (d['photos'] as List?)?.cast<dynamic>() ?? const [];
 
@@ -123,7 +216,14 @@ class _ReportCardState extends State<_ReportCard> {
                 Icon(isMissing ? Icons.add_location_alt_outlined : Icons.flag_outlined, color: postalRed),
                 const SizedBox(width: AppSpacing.sm),
                 Expanded(child: Text(isMissing ? 'Missing postbox' : 'Wrong cypher', style: theme.textTheme.titleMedium)),
-                if (when.isNotEmpty) Text(when, style: theme.textTheme.bodySmall),
+                if (createdLocal != null)
+                  // Relative age is what matters when triaging a queue ("how
+                  // stale is this?"); the exact timestamp stays available as a
+                  // long-press tooltip.
+                  Tooltip(
+                    message: DateFormat.yMMMd().add_jm().format(createdLocal),
+                    child: Text(_relativeAge(createdLocal), style: theme.textTheme.bodySmall),
+                  ),
               ],
             ),
             const SizedBox(height: AppSpacing.sm),
@@ -132,12 +232,24 @@ class _ReportCardState extends State<_ReportCard> {
                 icon: Icons.place_outlined,
                 child: Row(
                   children: [
-                    Expanded(child: Text('${_lat!.toStringAsFixed(6)}, ${_lng!.toStringAsFixed(6)}'
-                        '${d['accuracyMeters'] is num ? '  ·  ±${(d['accuracyMeters'] as num).round()} m' : ''}')),
-                    TextButton.icon(
+                    Expanded(
+                      child: Text(
+                        '${_lat!.toStringAsFixed(5)}, ${_lng!.toStringAsFixed(5)}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    if (d['accuracyMeters'] is num) ...[
+                      const SizedBox(width: 6),
+                      _AccuracyChip(metres: (d['accuracyMeters'] as num).toDouble()),
+                    ],
+                    TextButton(
                       onPressed: () => _openMap(_lat!, _lng!),
-                      icon: const Icon(Icons.map_outlined, size: 18),
-                      label: const Text('Map'),
+                      style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
+                      ),
+                      child: const Text('Map'),
                     ),
                   ],
                 ),
@@ -145,8 +257,28 @@ class _ReportCardState extends State<_ReportCard> {
             if (!isMissing)
               _InfoRow(
                 icon: Icons.markunread_mailbox_outlined,
-                child: Text('Recorded: ${_monarchLabel(d['currentMonarch'])}'
-                    '${d['postboxId'] != null ? '   ·   ${d['postboxId']}' : ''}'),
+                child: Row(
+                  children: [
+                    Expanded(child: Text('Recorded: ${_monarchLabel(d['currentMonarch'])}')),
+                    // A cypher report names an existing OSM node, so the
+                    // reviewer can jump straight to it to check the plate
+                    // against what the reporter claims.
+                    if (d['overpassId'] is num)
+                      TextButton(
+                        onPressed: () => _openOsmNode((d['overpassId'] as num).toInt()),
+                        style: TextButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
+                        ),
+                        child: const Text('OSM'),
+                      ),
+                  ],
+                ),
+              ),
+            if (!isMissing && d['postboxId'] != null)
+              _InfoRow(
+                icon: Icons.fingerprint,
+                child: Text('Postbox ${d['postboxId']}', style: theme.textTheme.bodySmall),
               ),
             if (d.containsKey('suggestedMonarch'))
               _InfoRow(icon: Icons.lightbulb_outline, child: Text('Suggested: ${_monarchLabel(d['suggestedMonarch'])}')),
@@ -160,7 +292,7 @@ class _ReportCardState extends State<_ReportCard> {
                 height: 84,
                 child: ListView(
                   scrollDirection: Axis.horizontal,
-                  children: [for (final p in photos) _PhotoThumb(photo: Map<String, dynamic>.from(p as Map))],
+                  children: [for (final p in photos) AdminPhotoThumb(photo: Map<String, dynamic>.from(p as Map))],
                 ),
               ),
             ],
@@ -170,12 +302,37 @@ class _ReportCardState extends State<_ReportCard> {
             ],
             if (isPending) ...[
               const SizedBox(height: AppSpacing.md),
+              // Both buttons are wrapped in Expanded deliberately. The app
+              // theme gives FilledButton/OutlinedButton a
+              // `minimumSize: Size(double.infinity, 52)` so CTAs stretch inside
+              // a Column; a bare Row hands its children an UNBOUNDED width, and
+              // that tight-infinite minimum then throws "BoxConstraints forces
+              // an infinite width" — which silently blanked this whole list.
+              // Expanded supplies a bounded width and keeps the row balanced.
               Row(
-                mainAxisAlignment: MainAxisAlignment.end,
                 children: [
-                  TextButton(onPressed: _busy ? null : _reject, child: const Text('Reject')),
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: _busy ? null : _reject,
+                      child: const Text('Reject'),
+                    ),
+                  ),
                   const SizedBox(width: AppSpacing.sm),
-                  FilledButton(onPressed: _busy ? null : _accept, child: const Text('Accept')),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: _busy ? null : _accept,
+                      child: _busy
+                          ? const SizedBox(
+                              height: 18,
+                              width: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Text('Accept'),
+                    ),
+                  ),
                 ],
               ),
             ],
@@ -187,12 +344,22 @@ class _ReportCardState extends State<_ReportCard> {
 
   Future<void> _openMap(double lat, double lng) async {
     final uri = Uri.parse('https://www.openstreetmap.org/?mlat=$lat&mlon=$lng#map=19/$lat/$lng');
+    await _launch(uri);
+  }
+
+  Future<void> _openOsmNode(int overpassId) =>
+      _launch(Uri.parse('https://www.openstreetmap.org/node/$overpassId'));
+
+  Future<void> _launch(Uri uri) async {
     if (!await launchUrl(uri, mode: LaunchMode.externalApplication) && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not open the map')));
     }
   }
 
   Future<void> _reject() async {
+    if (MaintenanceGuard.blocked(context, actionLabel: 'review reports')) {
+      return;
+    }
     final noteController = TextEditingController();
     try {
       final ok = await showDialog<bool>(
@@ -201,12 +368,16 @@ class _ReportCardState extends State<_ReportCard> {
           title: const Text('Reject report'),
           content: TextField(
             controller: noteController,
-            maxLength: 280,
+            maxLength: ReportRepository.maxNoteChars,
             decoration: const InputDecoration(labelText: 'Reason (optional, shown to the reporter)'),
           ),
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Reject')),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: dialogActionStyle(),
+              child: const Text('Reject'),
+            ),
           ],
         ),
       );
@@ -222,6 +393,9 @@ class _ReportCardState extends State<_ReportCard> {
   }
 
   Future<void> _accept() async {
+    if (MaintenanceGuard.blocked(context, actionLabel: 'review reports')) {
+      return;
+    }
     // Default the final-cypher picker to the suggestion (if any).
     String initialCypher = notSureCypher;
     if (d.containsKey('suggestedMonarch')) {
@@ -252,7 +426,7 @@ class _ReportCardState extends State<_ReportCard> {
   Future<void> _call(Map<String, dynamic> payload, {bool isAccept = false}) async {
     setState(() => _busy = true);
     try {
-      final res = await FirebaseFunctions.instance.httpsCallable('reviewReport').call(payload);
+      final res = await appFunctions.httpsCallable('reviewReport').call(payload);
       if (!mounted) return;
       if (isAccept) {
         final m = Map<String, dynamic>.from(res.data as Map);
@@ -260,8 +434,19 @@ class _ReportCardState extends State<_ReportCard> {
       } else {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Report rejected')));
       }
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed: $e')));
+    } on FirebaseFunctionsException catch (e) {
+      // Admins benefit from seeing the typed error message + code for triage,
+      // but not the raw toString (which prefixes "FirebaseFunctionsException
+      // (...)" and includes the stack location).
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Failed: ${e.message ?? e.code}')));
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Failed. Please try again.')));
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -314,6 +499,47 @@ class _ReportCardState extends State<_ReportCard> {
   }
 }
 
+/// Compact "2d ago" style age for the review queue.
+String _relativeAge(DateTime when) {
+  final diff = DateTime.now().difference(when);
+  if (diff.inMinutes < 1) return 'just now';
+  if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+  if (diff.inHours < 24) return '${diff.inHours}h ago';
+  if (diff.inDays < 30) return '${diff.inDays}d ago';
+  return DateFormat.yMMMd().format(when);
+}
+
+/// GPS accuracy of the reporter's fix, colour-coded. Accepting a "missing
+/// postbox" report writes these coordinates straight into Firestore, so a
+/// sloppy fix is the single most important quality signal on the card.
+class _AccuracyChip extends StatelessWidget {
+  const _AccuracyChip({required this.metres});
+  final double metres;
+
+  @override
+  Widget build(BuildContext context) {
+    final (color, hint) = switch (metres) {
+      < 10 => (Colors.green, 'Good GPS fix'),
+      < 25 => (Colors.orange, 'Fair GPS fix — check against the photo'),
+      _ => (Colors.redAccent, 'Poor GPS fix — verify before accepting'),
+    };
+    return Tooltip(
+      message: hint,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.15),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Text(
+          '±${metres.round()} m',
+          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: color),
+        ),
+      ),
+    );
+  }
+}
+
 class _InfoRow extends StatelessWidget {
   const _InfoRow({required this.icon, required this.child});
   final IconData icon;
@@ -361,24 +587,90 @@ class _ReviewOutcome extends StatelessWidget {
               icon: const Icon(Icons.open_in_new, size: 16),
               label: const Text('OSM editor'),
             ),
-          if (accepted && oscPath != null) Text('osmChange: $oscPath', style: Theme.of(context).textTheme.bodySmall),
+          if (accepted && oscPath != null)
+            // Match the post-accept dialog: surface the storage path with a
+            // copy button so the admin can paste it into the Firebase console
+            // to download the .osc, rather than scraping it from the text.
+            Row(
+              children: [
+                Expanded(
+                  child: Text('osmChange: $oscPath',
+                      style: Theme.of(context).textTheme.bodySmall),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.copy, size: 18),
+                  tooltip: 'Copy storage path',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => Clipboard.setData(ClipboardData(text: oscPath)),
+                ),
+              ],
+            ),
         ],
       ),
     );
   }
 }
 
-class _PhotoThumb extends StatelessWidget {
-  const _PhotoThumb({required this.photo});
+/// A report photo's thumbnail; tapping it opens the full-size view with the
+/// photo's EXIF location. Public only so it can be widget-tested.
+@visibleForTesting
+class AdminPhotoThumb extends StatefulWidget {
+  const AdminPhotoThumb({
+    super.key,
+    required this.photo,
+    @visibleForTesting this.downloadUrlFor,
+  });
   final Map<String, dynamic> photo;
+
+  /// Resolves a Storage path to a download URL. Defaults to Firebase Storage;
+  /// overridden in tests.
+  final Future<String> Function(String path)? downloadUrlFor;
+
+  @override
+  State<AdminPhotoThumb> createState() => _AdminPhotoThumbState();
+}
+
+class _AdminPhotoThumbState extends State<AdminPhotoThumb> {
+  /// Cached download URL future — built once per path so a parent rebuild
+  /// (Accept tap, photo dialog open, sibling busy toggling) doesn't fire a
+  /// fresh Storage round-trip per thumb on every frame.
+  Future<String>? _urlFuture;
+  String? _lastPath;
+
+  /// EXIF GPS, but only when it is real. A camera that reports no fix writes
+  /// 0/0 into the tags, and "Null Island" off West Africa is never a valid
+  /// UK postbox — showing it as a location badge would tell a reviewer the
+  /// photo corroborates the report when it does nothing of the kind.
+  double? get _exifLat => _realCoord(widget.photo['exifLat'], widget.photo['exifLng']);
+  double? get _exifLng => _realCoord(widget.photo['exifLng'], widget.photo['exifLat']);
+
+  static double? _realCoord(Object? value, Object? other) {
+    if (value is! num || other is! num) return null;
+    if (value == 0 && other == 0) return null;
+    return value.toDouble();
+  }
+
+  Future<String> _urlFor(String path) {
+    if (_urlFuture == null || _lastPath != path) {
+      _lastPath = path;
+      _urlFuture = (widget.downloadUrlFor ??
+          (p) => FirebaseStorage.instance.ref(p).getDownloadURL())(path);
+    }
+    return _urlFuture!;
+  }
 
   @override
   Widget build(BuildContext context) {
-    final path = photo['storagePath'] as String?;
-    final hasGps = photo['exifLat'] != null && photo['exifLng'] != null;
+    final path = widget.photo['storagePath'] as String?;
+    final hasGps = _exifLat != null && _exifLng != null;
     return Padding(
       padding: const EdgeInsets.only(right: AppSpacing.sm),
-      child: GestureDetector(
+      // Tooltip provides the assistive-tech label for the photo thumbnail —
+      // without it, a screen reader on the admin screen would announce just
+      // "image" with no hint that tapping opens the full-size view.
+      child: Tooltip(
+        message: 'View photo',
+        child: GestureDetector(
         onTap: path == null ? null : () => _open(context, path),
         child: Stack(
           children: [
@@ -390,10 +682,41 @@ class _PhotoThumb extends StatelessWidget {
                 child: path == null
                     ? const ColoredBox(color: Colors.black12, child: Icon(Icons.broken_image_outlined))
                     : FutureBuilder<String>(
-                        future: FirebaseStorage.instance.ref(path).getDownloadURL(),
+                        future: _urlFor(path),
                         builder: (_, s) => s.hasData
-                            ? Image.network(s.data!, fit: BoxFit.cover)
-                            : const ColoredBox(color: Colors.black12, child: Center(child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)))),
+                            // Decode at thumbnail size — uploaded photos can
+                            // be 2400 px on the long edge, which would chew
+                            // many MB of decoded bitmap per row in the queue.
+                            ? Image.network(s.data!,
+                                fit: BoxFit.cover,
+                                cacheWidth: 168,
+                                cacheHeight: 168,
+                                // Without this a failed download renders as an
+                                // invisible 84px hole, which reads as "this
+                                // report has no photo" rather than "the photo
+                                // could not be loaded".
+                                errorBuilder: (_, __, ___) => const ColoredBox(
+                                  color: Colors.black12,
+                                  child: Center(
+                                    child: Icon(Icons.broken_image_outlined, size: 22),
+                                  ),
+                                ))
+                            : ColoredBox(
+                                color: Colors.black12,
+                                child: Center(
+                                  // A retry keeps the previous error on the
+                                  // snapshot while it waits, so key off the
+                                  // connection state to show it's retrying.
+                                  child: s.hasError &&
+                                          s.connectionState == ConnectionState.done
+                                      ? const Icon(Icons.broken_image_outlined, size: 22)
+                                      : const SizedBox(
+                                          width: 18,
+                                          height: 18,
+                                          child: CircularProgressIndicator(strokeWidth: 2),
+                                        ),
+                                ),
+                              ),
                       ),
               ),
             ),
@@ -402,22 +725,58 @@ class _PhotoThumb extends StatelessWidget {
           ],
         ),
       ),
+      ),
     );
   }
 
   Future<void> _open(BuildContext context, String path) async {
-    final url = await FirebaseStorage.instance.ref(path).getDownloadURL();
+    // Reuse the cached URL future (same Storage download URL) instead of
+    // firing a fresh getDownloadURL request on every tap.
+    final String url;
+    try {
+      url = await _urlFor(path);
+    } catch (_) {
+      // The lookup failed (typically a transient `retry-limit-exceeded` on a
+      // poor connection). This tap is unawaited, so rethrowing would reach
+      // the zone as an uncaught error, which Crashlytics records as FATAL.
+      // And the failed future is cached, so without dropping it the thumb
+      // could never load again: clearing it makes the rebuild re-fetch,
+      // turning this tap into a retry.
+      if (!mounted || !context.mounted) return;
+      setState(() => _urlFuture = null);
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(const SnackBar(
+        content: Text("Couldn't load that photo. Retrying..."),
+      ));
+      return;
+    }
     if (!context.mounted) return;
-    final exifLat = (photo['exifLat'] as num?)?.toDouble();
-    final exifLng = (photo['exifLng'] as num?)?.toDouble();
-    final takenAt = photo['takenAt'] as String?;
+    final exifLat = _exifLat;
+    final exifLng = _exifLng;
+    final takenAt = widget.photo['takenAt'] as String?;
     showDialog<void>(
       context: context,
       builder: (ctx) => Dialog(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Flexible(child: InteractiveViewer(child: Image.network(url))),
+            Flexible(
+              child: InteractiveViewer(
+                child: Image.network(
+                  url,
+                  errorBuilder: (_, __, ___) => const Padding(
+                    padding: EdgeInsets.all(AppSpacing.lg),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.broken_image_outlined, size: 40),
+                        SizedBox(height: AppSpacing.sm),
+                        Text("Couldn't load the photo."),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
             Padding(
               padding: const EdgeInsets.all(AppSpacing.sm),
               child: Column(
@@ -488,14 +847,15 @@ class _AcceptDialogState extends State<_AcceptDialog> {
             const SizedBox(height: AppSpacing.md),
             CypherPicker(value: _cypher, label: 'Final cypher', onChanged: (v) => setState(() => _cypher = v)),
             const SizedBox(height: AppSpacing.sm),
-            TextField(controller: _refController, maxLength: 40, decoration: const InputDecoration(labelText: 'Reference / plate (optional)')),
-            TextField(controller: _noteController, maxLength: 280, decoration: const InputDecoration(labelText: 'Note to reporter (optional)')),
+            TextField(controller: _refController, maxLength: ReportRepository.maxReferenceChars, decoration: const InputDecoration(labelText: 'Reference / plate (optional)')),
+            TextField(controller: _noteController, maxLength: ReportRepository.maxNoteChars, decoration: const InputDecoration(labelText: 'Note to reporter (optional)')),
           ],
         ),
       ),
       actions: [
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
         FilledButton(
+          style: dialogActionStyle(),
           onPressed: () {
             if (widget.isCypherReport && _cypher == notSureCypher) {
               ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Choose the correct cypher (or "Plain / no cypher").')));

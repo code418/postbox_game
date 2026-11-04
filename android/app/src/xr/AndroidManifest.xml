@@ -3,7 +3,7 @@
     <!-- Postbox Game on Android XR AI-glasses. This source set is a
          scaffold only; no activities are registered yet. A follow-up PR
          will add the Compose Glimmer HUD activity, the Firestore-backed
-         StatsRepository (mirroring src/phone/.../car/), and the voice
+         StatsRepository (mirroring src/auto/.../car/), and the voice
          controller. -->
     <uses-feature
         android:name="android.software.xr.immersive"

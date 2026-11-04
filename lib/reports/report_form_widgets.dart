@@ -75,12 +75,28 @@ class PhotoPickerField extends StatelessWidget {
     );
     if (source == null) return;
     try {
-      final picked = await ReportRepository.pickPhotos(source: source, remainingSlots: remaining);
-      if (picked.isEmpty) return;
-      onChanged([...photos, ...picked].take(ReportRepository.maxPhotos).toList());
-    } catch (e) {
+      final result = await ReportRepository.pickPhotos(
+          source: source, remainingSlots: remaining);
+      if (result.photos.isNotEmpty) {
+        onChanged([...photos, ...result.photos]
+            .take(ReportRepository.maxPhotos)
+            .toList());
+      }
+      if (result.oversizedCount > 0 && context.mounted) {
+        final maxMb =
+            (ReportRepository.maxPhotoBytes / (1024 * 1024)).toStringAsFixed(0);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result.oversizedCount == 1
+                ? 'Skipped 1 photo over $maxMb MB.'
+                : 'Skipped ${result.oversizedCount} photos over $maxMb MB.'),
+          ),
+        );
+      }
+    } catch (_) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not add photo: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Could not add photo. Please try again.')));
       }
     }
   }
@@ -146,7 +162,18 @@ class _Thumb extends StatelessWidget {
         children: [
           ClipRRect(
             borderRadius: BorderRadius.circular(8),
-            child: Image.memory(photo.bytes, width: 96, height: 96, fit: BoxFit.cover),
+            // cacheWidth/cacheHeight tell Flutter to decode at thumbnail size
+            // instead of holding the full ~2400 px source in the image cache.
+            // Without this, 3 attached photos can sit at ~15-25 MB of decoded
+            // bitmap memory on the picker screen alone.
+            child: Image.memory(
+              photo.bytes,
+              width: 96,
+              height: 96,
+              fit: BoxFit.cover,
+              cacheWidth: 192,
+              cacheHeight: 192,
+            ),
           ),
           if (photo.hasLocation)
             const Positioned(
@@ -157,12 +184,19 @@ class _Thumb extends StatelessWidget {
           Positioned(
             right: 0,
             top: 0,
-            child: GestureDetector(
-              onTap: onRemove,
-              child: Container(
-                decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
-                padding: const EdgeInsets.all(2),
-                child: const Icon(Icons.close, size: 16, color: Colors.white),
+            // Tooltip provides the semantic label so screen readers announce
+            // "Remove photo" instead of just "icon button" on TalkBack /
+            // VoiceOver, and sighted users see the hint on long-press.
+            child: Tooltip(
+              message: 'Remove photo',
+              child: GestureDetector(
+                onTap: onRemove,
+                child: Container(
+                  decoration:
+                      const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
+                  padding: const EdgeInsets.all(2),
+                  child: const Icon(Icons.close, size: 16, color: Colors.white),
+                ),
               ),
             ),
           ),
@@ -180,10 +214,59 @@ Future<void> showReportThanksDialog(BuildContext context) {
       icon: const Icon(Icons.check_circle_outline, color: postalRed, size: 40),
       title: const Text('Thanks for the report'),
       content: const Text(
-        'James will pass it on to the sorting office. If it checks out we will '
+        'Thanks for the report. If it checks out we will '
         'update the data and, where it applies, your past claims will be re-scored.',
       ),
       actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Righto'))],
     ),
   );
+}
+
+/// What the user chose in [showPhotoUploadFailedDialog].
+enum PhotoUploadFailureChoice { retry, submitWithout, cancel }
+
+/// Shown when the photo(s) failed to upload but the rest of the report is
+/// ready. Photos are optional, so we offer to send the report without them
+/// rather than losing everything. Returns [PhotoUploadFailureChoice.cancel]
+/// if dismissed (barrier tap / back).
+///
+/// [allowSubmitWithout] hides the "Send without photo" action for a report
+/// that would be empty without the photo (a wrong-cypher report needs at least
+/// one of cypher/note/photo).
+Future<PhotoUploadFailureChoice> showPhotoUploadFailedDialog(
+  BuildContext context, {
+  required int photoCount,
+  bool allowSubmitWithout = true,
+}) async {
+  final photoWord = photoCount == 1 ? 'photo' : 'photos';
+  final choice = await showDialog<PhotoUploadFailureChoice>(
+    context: context,
+    builder: (_) => AlertDialog(
+      icon: const Icon(Icons.cloud_off_outlined, color: postalRed, size: 40),
+      title: const Text('Couldn\'t upload your photo'),
+      content: Text(
+        allowSubmitWithout
+            ? 'We couldn\'t upload your $photoWord. You can send the report '
+                'without $photoWord for now, or try the upload again.'
+            : 'We couldn\'t upload your $photoWord. Please try again.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, PhotoUploadFailureChoice.cancel),
+          child: const Text('Cancel'),
+        ),
+        if (allowSubmitWithout)
+          TextButton(
+            onPressed: () => Navigator.pop(context, PhotoUploadFailureChoice.submitWithout),
+            child: const Text('Send without photo'),
+          ),
+        FilledButton(
+          style: dialogActionStyle(),
+          onPressed: () => Navigator.pop(context, PhotoUploadFailureChoice.retry),
+          child: const Text('Try again'),
+        ),
+      ],
+    ),
+  );
+  return choice ?? PhotoUploadFailureChoice.cancel;
 }

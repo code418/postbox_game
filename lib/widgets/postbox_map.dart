@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:postbox_game/services/perf_service.dart';
 import 'package:postbox_game/theme.dart';
 
 /// Default tile URL for OpenStreetMap. Replace with a hosted provider
@@ -95,6 +98,13 @@ class _PostboxMapState extends State<PostboxMap> {
   MapController get _effectiveController =>
       widget.mapController ?? (_internalController ??= MapController());
 
+  // Times a sampled subset of tile fetches into the `map.tileLoad` Performance
+  // trace. Held in state so the sampling counter survives rebuilds. flutter_map
+  // still sets the OSM-required 'User-Agent' header on it (headers.putIfAbsent),
+  // and the timing path only *observes* loads — it never replaces the real
+  // tile-rendering provider flutter_map receives.
+  final _TimingNetworkTileProvider _tileProvider = _TimingNetworkTileProvider();
+
   @override
   void didUpdateWidget(PostboxMap old) {
     super.didUpdateWidget(old);
@@ -139,6 +149,7 @@ class _PostboxMapState extends State<PostboxMap> {
       children: [
         TileLayer(
           urlTemplate: _defaultTileUrl,
+          tileProvider: _tileProvider,
           // Must match the Android applicationId / iOS bundle id so OSM can
           // attribute tile requests correctly per their tile-usage policy.
           userAgentPackageName: 'com.code418.postbox_game',
@@ -182,6 +193,58 @@ class _PostboxMapState extends State<PostboxMap> {
       ]),
       child: tileWidget,
     );
+  }
+}
+
+/// A [NetworkTileProvider] that times a sampled subset of tile fetches into the
+/// `map.tileLoad` Performance trace (attribute: `zoom`).
+///
+/// flutter_map calls [getImageWithCancelLoadingSupport] for network providers;
+/// we forward to `super` (so rendering is unchanged) and, for ~1 tile in 10,
+/// attach a second [ImageStreamListener] to the same provider to observe when
+/// the load finishes. The image cache dedupes by key, so the observing resolve
+/// does not trigger an extra network request. Sampling keeps trace overhead and
+/// volume low.
+class _TimingNetworkTileProvider extends NetworkTileProvider {
+  _TimingNetworkTileProvider();
+
+  int _seq = 0;
+
+  @override
+  ImageProvider getImageWithCancelLoadingSupport(
+    TileCoordinates coordinates,
+    TileLayer options,
+    Future<void> cancelLoading,
+  ) {
+    final provider =
+        super.getImageWithCancelLoadingSupport(coordinates, options, cancelLoading);
+    if (_seq++ % 10 == 0) {
+      _time(provider, coordinates.z);
+    }
+    return provider;
+  }
+
+  void _time(ImageProvider provider, int zoom) {
+    PerfService.start(
+      PerfTraces.mapTileLoad,
+      attributes: {PerfTraces.attrZoom: zoom.toString()},
+    ).then((handle) {
+      final stream = provider.resolve(const ImageConfiguration());
+      ImageStreamListener? listener;
+      void finish() {
+        if (listener != null) {
+          stream.removeListener(listener!);
+          listener = null;
+          unawaited(handle.stop());
+        }
+      }
+
+      listener = ImageStreamListener(
+        (_, __) => finish(),
+        onError: (_, __) => finish(),
+      );
+      stream.addListener(listener!);
+    });
   }
 }
 

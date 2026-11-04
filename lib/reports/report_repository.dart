@@ -1,6 +1,7 @@
+import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:cloud_functions/cloud_functions.dart';
+import 'package:postbox_game/firebase_functions_eu.dart';
 import 'package:exif/exif.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -34,24 +35,58 @@ class PendingPhoto {
 /// (a plain box), as distinct from `null` which means "I'm not sure".
 const String plainCypher = '__PLAIN__';
 
+/// Thrown by [ReportRepository] when a photo fails to upload to Cloud Storage
+/// (as opposed to a failure calling the `submitReport` function, which surfaces
+/// as a [FirebaseFunctionsException]). Photos are optional, so callers catch
+/// this to offer "send the report without the photo" rather than failing the
+/// whole submission. [cause] is the underlying error (e.g. a Storage
+/// FirebaseException).
+class ReportPhotoUploadException implements Exception {
+  ReportPhotoUploadException(this.cause);
+  final Object cause;
+
+  @override
+  String toString() => 'ReportPhotoUploadException: $cause';
+}
+
 /// Picks photos, reads their EXIF, uploads them to Cloud Storage, and calls the
 /// `submitReport` Cloud Function. Static helpers keep this stateless.
 class ReportRepository {
   ReportRepository._();
 
   static const int maxPhotos = 3;
+  /// Per-photo size cap. MUST match the `request.resource.size < 10 * 1024 *
+  /// 1024` bound in storage.rules — pickPhotos drops anything `>=` this so the
+  /// client never uploads a file the Storage rule will reject.
   static const int maxPhotoBytes = 10 * 1024 * 1024;
+
+  /// Maximum length of the free-text note field. MUST match the server-side
+  /// `NOTE_MAX` in functions/src/reports.ts — submitReport rejects longer
+  /// notes. Used as the TextField `maxLength` so the UI can't get out of
+  /// step with what the server will accept.
+  static const int maxNoteChars = 280;
+
+  /// Maximum length of the optional postbox-reference field (e.g. "SW1A 1").
+  /// MUST match the server-side `REFERENCE_MAX` in functions/src/reports.ts.
+  static const int maxReferenceChars = 40;
 
   static final ImagePicker _picker = ImagePicker();
 
-  /// Picks one or more photos from [source]. For the gallery this may return
-  /// several; for the camera it returns at most one. EXIF is parsed eagerly.
-  /// Photos larger than [maxPhotoBytes] are skipped.
-  static Future<List<PendingPhoto>> pickPhotos({
+  /// Result of [pickPhotos]: the accepted photos plus a count of how many of
+  /// the user's picks were too large (silently dropped) so the caller can
+  /// surface a SnackBar.
+  ///
+  /// Previously [pickPhotos] returned only [photos] and oversized files were
+  /// silently filtered out — users picked 3, only saw 2 attached, with no
+  /// explanation. Reporting the drop count lets the picker UI tell the user
+  /// to reshoot or pick a smaller photo.
+  static Future<({List<PendingPhoto> photos, int oversizedCount})> pickPhotos({
     required ImageSource source,
     int remainingSlots = maxPhotos,
   }) async {
-    if (remainingSlots <= 0) return const [];
+    if (remainingSlots <= 0) {
+      return (photos: const <PendingPhoto>[], oversizedCount: 0);
+    }
     final List<XFile> files;
     if (source == ImageSource.camera) {
       final x = await _picker.pickImage(
@@ -64,9 +99,19 @@ class ReportRepository {
       files = await _picker.pickMultiImage(requestFullMetadata: true, maxWidth: 2400);
     }
     final out = <PendingPhoto>[];
+    var oversized = 0;
     for (final f in files.take(remainingSlots)) {
       final bytes = await f.readAsBytes();
-      if (bytes.length > maxPhotoBytes) continue;
+      // Drop at >= the cap, not >: storage.rules accepts only
+      // `request.resource.size < 10 * 1024 * 1024`, so a file of exactly
+      // maxPhotoBytes passes this filter but is then rejected by the rule at
+      // upload time — surfacing as a confusing generic "upload failed" instead
+      // of the clear oversized-photo hint. Matching the rule's strict bound
+      // here means anything this filter accepts, the rule accepts too.
+      if (bytes.length >= maxPhotoBytes) {
+        oversized++;
+        continue;
+      }
       final exif = await _readExif(bytes);
       out.add(PendingPhoto(
         bytes: bytes,
@@ -76,7 +121,7 @@ class ReportRepository {
         takenAt: exif.takenAt,
       ));
     }
-    return out;
+    return (photos: out, oversizedCount: oversized);
   }
 
   /// Submits a "missing postbox" report. Returns the new report id.
@@ -89,15 +134,16 @@ class ReportRepository {
     String? suggestedReference,
     List<PendingPhoto> photos = const [],
   }) async {
+    final uploaded = await _uploadPhotos(photos);
     final data = <String, dynamic>{
       'type': 'missing_postbox',
       'lat': lat,
       'lng': lng,
       if (accuracyMeters != null) 'accuracyMeters': accuracyMeters,
       ..._optionalFields(note, suggestedMonarch, suggestedReference),
-      'photos': await _uploadPhotos(photos),
+      'photos': uploaded,
     };
-    return _call(data);
+    return _callAndCleanup(data, uploaded);
   }
 
   /// Submits a "wrong / missing cypher" report against an existing postbox.
@@ -108,13 +154,14 @@ class ReportRepository {
     String? suggestedReference,
     List<PendingPhoto> photos = const [],
   }) async {
+    final uploaded = await _uploadPhotos(photos);
     final data = <String, dynamic>{
       'type': 'wrong_cypher',
       'postboxId': postboxId,
       ..._optionalFields(note, suggestedMonarch, suggestedReference),
-      'photos': await _uploadPhotos(photos),
+      'photos': uploaded,
     };
-    return _call(data);
+    return _callAndCleanup(data, uploaded);
   }
 
   // ── internals ──────────────────────────────────────────────────────────────
@@ -142,25 +189,66 @@ class ReportRepository {
     final storage = FirebaseStorage.instance;
     final stamp = DateTime.now().millisecondsSinceEpoch;
     final result = <Map<String, dynamic>>[];
-    for (var i = 0; i < photos.length && i < maxPhotos; i++) {
-      final p = photos[i];
-      final ext = p.contentType.contains('png') ? 'png' : 'jpg';
-      final path = 'report_photos/$uid/${stamp}_$i.$ext';
-      await storage.ref(path).putData(p.bytes, SettableMetadata(contentType: p.contentType));
-      result.add({
-        'storagePath': path,
-        if (p.exifLat != null) 'exifLat': p.exifLat,
-        if (p.exifLng != null) 'exifLng': p.exifLng,
-        if (p.takenAt != null) 'takenAt': p.takenAt,
-      });
+    try {
+      for (var i = 0; i < photos.length && i < maxPhotos; i++) {
+        final p = photos[i];
+        final ext = p.contentType.contains('png') ? 'png' : 'jpg';
+        final path = 'report_photos/$uid/${stamp}_$i.$ext';
+        await storage.ref(path).putData(p.bytes, SettableMetadata(contentType: p.contentType));
+        result.add({
+          'storagePath': path,
+          if (p.exifLat != null) 'exifLat': p.exifLat,
+          if (p.exifLng != null) 'exifLng': p.exifLng,
+          if (p.takenAt != null) 'takenAt': p.takenAt,
+        });
+      }
+    } catch (e) {
+      // Mid-upload failure: clean up whatever did make it to Storage so we
+      // don't leak orphan files into the user's report_photos/ folder when
+      // the report is never submitted.
+      unawaited(_deleteUploaded(result));
+      // Wrap so callers can tell a photo-upload failure (photos are optional —
+      // offer "send without photo") apart from a submitReport call failure
+      // (a FirebaseFunctionsException from _callAndCleanup).
+      throw ReportPhotoUploadException(e);
     }
     return result;
   }
 
+  /// Submits the report; on failure deletes any photos that were uploaded
+  /// during the call so they don't sit in Storage forever attached to a
+  /// report doc that never got written.
+  static Future<String> _callAndCleanup(
+    Map<String, dynamic> data,
+    List<Map<String, dynamic>> uploaded,
+  ) async {
+    try {
+      return await _call(data);
+    } catch (e) {
+      unawaited(_deleteUploaded(uploaded));
+      rethrow;
+    }
+  }
+
   static Future<String> _call(Map<String, dynamic> data) async {
-    final result = await FirebaseFunctions.instance.httpsCallable('submitReport').call(data);
+    final result = await appFunctions.httpsCallable('submitReport').call(data);
     final map = Map<String, dynamic>.from(result.data as Map);
     return map['reportId'] as String? ?? '';
+  }
+
+  static Future<void> _deleteUploaded(List<Map<String, dynamic>> uploaded) async {
+    if (uploaded.isEmpty) return;
+    final storage = FirebaseStorage.instance;
+    await Future.wait(uploaded.map((p) async {
+      final path = p['storagePath'];
+      if (path is! String || path.isEmpty) return;
+      try {
+        await storage.ref(path).delete();
+      } catch (_) {
+        // Best-effort cleanup — a failure here is preferable to surfacing
+        // a "report failed AND cleanup failed" double error to the user.
+      }
+    }));
   }
 
   /// Extracts GPS coordinates and capture time from a JPEG's EXIF. Any field

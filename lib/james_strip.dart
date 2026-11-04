@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:postbox_game/james_controller.dart';
-import 'package:postbox_game/postman_james_svg.dart';
+import 'package:postbox_game/postman_james.dart';
 
 class JamesStrip extends StatefulWidget {
   const JamesStrip({super.key, required this.controller});
@@ -72,9 +72,16 @@ class _JamesStripState extends State<JamesStrip> with SingleTickerProviderStateM
     if (_slideCtrl.isCompleted) {
       _startTyping(msg);
     } else {
-      _slideCtrl.forward().then((_) {
-        if (mounted && _currentMessage == msg) _startTyping(msg);
-      });
+      // .orCancel surfaces dispose-mid-slide as TickerCanceled so the
+      // continuation can be collected; the bare .then would never fire and
+      // would hold this closure (and msg) alive forever. onError swallows the
+      // cancellation cleanly — the typing tail just doesn't run.
+      _slideCtrl.forward().orCancel.then(
+        (_) {
+          if (mounted && _currentMessage == msg) _startTyping(msg);
+        },
+        onError: (_) {},
+      );
     }
   }
 
@@ -98,15 +105,20 @@ class _JamesStripState extends State<JamesStrip> with SingleTickerProviderStateM
     _typeTimer?.cancel();
     _dismissTimer?.cancel();
     final messageToDismiss = _currentMessage;
-    _slideCtrl.reverse().then((_) {
-      if (mounted && _currentMessage == messageToDismiss) {
-        widget.controller.clear();
-        setState(() {
-          _currentMessage = '';
-          _charIndex = 0;
-        });
-      }
-    });
+    // Same TickerFuture-cancellation concern as _handleNewMessage: a bare
+    // .then would leak this closure on dispose-mid-reverse.
+    _slideCtrl.reverse().orCancel.then(
+      (_) {
+        if (mounted && _currentMessage == messageToDismiss) {
+          widget.controller.clear();
+          setState(() {
+            _currentMessage = '';
+            _charIndex = 0;
+          });
+        }
+      },
+      onError: (_) {},
+    );
   }
 
   void _startDismissTimer() {
@@ -116,62 +128,83 @@ class _JamesStripState extends State<JamesStrip> with SingleTickerProviderStateM
     final readMs = (_currentMessage.length * 40).clamp(3000, 8000);
     _dismissTimer = Timer(Duration(milliseconds: readMs), () {
       if (!mounted) return;
-      _slideCtrl.reverse().then((_) {
-        // Only clear if no new message arrived while sliding out.
-        if (mounted && _currentMessage == messageToDismiss) {
-          widget.controller.clear();
-          setState(() {
-            _currentMessage = '';
-            _charIndex = 0;
-          });
-        }
-      });
+      // Same TickerFuture-cancellation concern as _handleNewMessage.
+      _slideCtrl.reverse().orCancel.then(
+        (_) {
+          // Only clear if no new message arrived while sliding out.
+          if (mounted && _currentMessage == messageToDismiss) {
+            widget.controller.clear();
+            setState(() {
+              _currentMessage = '';
+              _charIndex = 0;
+            });
+          }
+        },
+        onError: (_) {},
+      );
     });
   }
 
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    // Drive the semantics layer with the full message (and a "tap to dismiss"
+    // button hint) rather than the typing-animation partial substrings.
+    // Without this, TalkBack/VoiceOver re-announce every character as
+    // _charIndex grows ("H", "He", "Hel", …, "Hello"), which is unusable.
     return SlideTransition(
       position: _slideAnim,
-      child: GestureDetector(
+      child: Semantics(
+        container: true,
+        button: true,
         onTap: _dismiss,
-        child: Container(
-        decoration: BoxDecoration(
-          color: colorScheme.surfaceContainerHighest,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-          boxShadow: const [
-            BoxShadow(
-              color: Colors.black26,
-              blurRadius: 12,
-              offset: Offset(0, -4),
+        label: _currentMessage.isEmpty
+            ? null
+            : 'Your guide says: $_currentMessage. Double tap to dismiss.',
+        child: ExcludeSemantics(
+          child: GestureDetector(
+            onTap: _dismiss,
+            child: Container(
+              decoration: BoxDecoration(
+                color: colorScheme.surfaceContainerHighest,
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(16)),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Colors.black26,
+                    blurRadius: 12,
+                    offset: Offset(0, -4),
+                  ),
+                ],
+              ),
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+              child: SafeArea(
+                top: false,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ListenableBuilder(
+                      listenable: widget.controller,
+                      builder: (_, __) => PostmanJames(
+                        size: 44,
+                        isTalking: widget.controller.isTalking,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        _charIndex > 0
+                            ? _currentMessage.substring(0, _charIndex)
+                            : '',
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
-          ],
-        ),
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-        child: SafeArea(
-          top: false,
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              ListenableBuilder(
-                listenable: widget.controller,
-                builder: (_, __) => PostmanJamesSvg(
-                  size: 44,
-                  isTalking: widget.controller.isTalking,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  _charIndex > 0 ? _currentMessage.substring(0, _charIndex) : '',
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-              ),
-            ],
           ),
         ),
-      ),
       ),
     );
   }

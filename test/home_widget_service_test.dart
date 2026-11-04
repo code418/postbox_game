@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:firebase_auth_mocks/firebase_auth_mocks.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -13,6 +15,85 @@ void main() {
   setUpAll(() async {
     setupFirebaseCoreMocks();
     await Firebase.initializeApp();
+  });
+
+  group('HomeWidgetService key contract', () {
+    // The Kotlin widget provider reads SharedPreferences by literal key name.
+    // If the Dart-side constants drift, the Kotlin reader silently returns
+    // defaults (0 / false) for every renamed key — the widget would show
+    // zeros without any compile-time signal. Pin each literal here; the
+    // mirror is in PostboxWidgetProvider.kt:68–73. Any rename requires a
+    // matching Kotlin change.
+    test('keySignedIn === "signedIn"', () {
+      expect(HomeWidgetService.keySignedIn, equals('signedIn'));
+    });
+    test('keyStreak === "streak"', () {
+      expect(HomeWidgetService.keyStreak, equals('streak'));
+    });
+    test('keyTodayPoints === "todayPoints"', () {
+      expect(HomeWidgetService.keyTodayPoints, equals('todayPoints'));
+    });
+    test('keyWeekPoints === "weekPoints"', () {
+      expect(HomeWidgetService.keyWeekPoints, equals('weekPoints'));
+    });
+    test('keyBoxesFound === "boxesFound"', () {
+      expect(HomeWidgetService.keyBoxesFound, equals('boxesFound'));
+    });
+    test('keyLifetimePoints === "lifetimePoints"', () {
+      expect(HomeWidgetService.keyLifetimePoints, equals('lifetimePoints'));
+    });
+    test('androidProviderName matches the Kotlin class name', () {
+      // home_widget's updateWidget(androidName: …) targets the Kotlin
+      // AppWidgetProvider class by simple class name. If the Kotlin class
+      // is renamed but the Dart constant isn't (or vice versa), redraw
+      // requests silently no-op — the widget freezes on its last values.
+      // Mirror in PostboxWidgetProvider.kt:20.
+      expect(HomeWidgetService.androidProviderName,
+          equals('PostboxWidgetProvider'));
+    });
+    test('appGroupId is a non-empty stable identifier', () {
+      // HomeWidget.setAppGroupId scopes the SharedPreferences namespace.
+      // Empty/changing values would orphan all prior widget data.
+      expect(HomeWidgetService.appGroupId, isNotEmpty);
+      expect(HomeWidgetService.appGroupId, equals('PostboxGameWidget'));
+    });
+
+    test('every Dart key literal is referenced by PostboxWidgetProvider.kt',
+        () {
+      // The previous tests pin the Dart constants but couldn't catch a rename
+      // on the Kotlin side. Read the provider file and assert every key string
+      // appears — a Kotlin-only rename (e.g. KEY_STREAK = "streakCount") would
+      // make the provider read SharedPreferences defaults silently, freezing
+      // the widget on zeros without any compile-time signal.
+      final kt = File(
+        'android/app/src/main/kotlin/com/code418/postbox_game/PostboxWidgetProvider.kt',
+      ).readAsStringSync();
+      for (final key in <String>[
+        HomeWidgetService.keySignedIn,
+        HomeWidgetService.keyStreak,
+        HomeWidgetService.keyTodayPoints,
+        HomeWidgetService.keyWeekPoints,
+        HomeWidgetService.keyBoxesFound,
+        HomeWidgetService.keyLifetimePoints,
+        HomeWidgetService.keyDailyDate,
+        HomeWidgetService.keyLastClaimDate,
+        HomeWidgetService.keyWeekStart,
+      ]) {
+        expect(kt, contains('"$key"'),
+            reason: 'PostboxWidgetProvider.kt is missing the "$key" key '
+                'string — Dart writes it but Kotlin won\'t read it');
+      }
+    });
+
+    test('androidProviderName matches the Kotlin class declaration', () {
+      // The previous test pinned the Dart literal; this one pins the actual
+      // Kotlin class definition. A Kotlin class rename without an updateWidget
+      // androidName change silently breaks redraws (no-op).
+      final kt = File(
+        'android/app/src/main/kotlin/com/code418/postbox_game/PostboxWidgetProvider.kt',
+      ).readAsStringSync();
+      expect(kt, contains('class ${HomeWidgetService.androidProviderName} '));
+    });
   });
 
   group('HomeWidgetService', () {
@@ -81,6 +162,10 @@ void main() {
       expect(saved[HomeWidgetService.keyWeekPoints], 84);
       expect(saved[HomeWidgetService.keyBoxesFound], 12);
       expect(saved[HomeWidgetService.keyLifetimePoints], 360);
+      // The native widget re-checks weekPoints against this on its hourly
+      // redraw.
+      expect(saved[HomeWidgetService.keyWeekStart],
+          weekStartLondon(todayLondon()));
     });
 
     test('stale weekStart forces weekPoints to 0', () async {
@@ -101,6 +186,8 @@ void main() {
 
       final saved = _savedValues(calls);
       expect(saved[HomeWidgetService.keyWeekPoints], 0);
+      expect(saved[HomeWidgetService.keyWeekStart], '',
+          reason: 'blank so the native re-check reads 0 too');
       // Lifetime totals never reset, so they should still come through.
       expect(saved[HomeWidgetService.keyBoxesFound], 40);
       expect(saved[HomeWidgetService.keyLifetimePoints], 1200);
@@ -152,6 +239,56 @@ void main() {
 
       final saved = _savedValues(calls);
       expect(saved[HomeWidgetService.keyStreak], 5);
+      expect(saved[HomeWidgetService.keyTodayPoints], 0);
+    });
+
+    test('dailyDate=today is trusted over a stale lastClaimDate', () async {
+      // Race scenario: the lifetime tx (writes dailyDate + dailyPoints) commits
+      // but the parallel streak tx (writes lastClaimDate) hasn't yet — or
+      // failed. The widget must trust the dailyDate marker, otherwise it would
+      // wrongly show 0 points for a user who just claimed today.
+      final firestore = FakeFirebaseFirestore();
+      final auth = MockFirebaseAuth(
+        signedIn: true,
+        mockUser: MockUser(uid: 'u_dd_fresh'),
+      );
+      await firestore.collection('users').doc('u_dd_fresh').set({
+        'streak': 4,
+        'dailyPoints': 27,
+        'dailyDate': todayLondon(),
+        'lastClaimDate': yesterdayLondon(), // stale relative to dailyDate
+      });
+
+      final service = HomeWidgetService(firestore: firestore, auth: auth);
+      await service.refresh();
+
+      final saved = _savedValues(calls);
+      expect(saved[HomeWidgetService.keyTodayPoints], 27);
+      // Streak still alive because lastClaimDate==yesterday is fine.
+      expect(saved[HomeWidgetService.keyStreak], 4);
+    });
+
+    test('dailyDate=yesterday forces todayPoints to 0 ignoring lastClaimDate',
+        () async {
+      // dailyDate is the authoritative per-period marker. If it's yesterday,
+      // dailyPoints belongs to yesterday — even if lastClaimDate==today (which
+      // would only happen via a buggy partial-tx state).
+      final firestore = FakeFirebaseFirestore();
+      final auth = MockFirebaseAuth(
+        signedIn: true,
+        mockUser: MockUser(uid: 'u_dd_stale'),
+      );
+      await firestore.collection('users').doc('u_dd_stale').set({
+        'streak': 2,
+        'dailyPoints': 50,
+        'dailyDate': yesterdayLondon(),
+        'lastClaimDate': todayLondon(),
+      });
+
+      final service = HomeWidgetService(firestore: firestore, auth: auth);
+      await service.refresh();
+
+      final saved = _savedValues(calls);
       expect(saved[HomeWidgetService.keyTodayPoints], 0);
     });
 
