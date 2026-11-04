@@ -4,11 +4,42 @@ import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/material.dart';
 import 'package:postbox_game/avatar/avatar_config.dart';
 import 'package:postbox_game/avatar/postie_avatar.dart';
+import 'package:postbox_game/county_heatmap.dart';
 import 'package:postbox_game/james_controller.dart';
 import 'package:postbox_game/james_messages.dart';
 import 'package:postbox_game/london_date.dart';
+import 'package:postbox_game/services/crashlytics_helper.dart';
+import 'package:postbox_game/services/perf_service.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/user_profile_page.dart';
+import 'package:postbox_game/widgets/stale_data_chip.dart';
+
+/// How many entries the server keeps on each board: mirrors the `limit = 100`
+/// default in functions/src/_leaderboardUtils.ts (pinned by
+/// test/cross_language_sync_test.dart).
+const int kLeaderboardSize = 100;
+
+/// The line under a board the signed-in player isn't on.
+///
+/// Boards leave out zero scores, so a player missing from a board that isn't
+/// full hasn't scored this period; only on a full board are they genuinely
+/// "outside the top N". Telling someone who hasn't claimed today that they're
+/// outside the top 4 of a 4-entry board was simply wrong.
+String notOnBoardText(String period, int shown) {
+  if (shown >= kLeaderboardSize) {
+    return period == 'lifetime'
+        ? 'You\'re outside the top $shown — keep exploring!'
+        : 'You\'re outside the top $shown — keep claiming to climb!';
+  }
+  return switch (period) {
+    'daily' => 'No points today yet — claim a postbox to get on the board!',
+    'weekly' =>
+      'No points this week yet — claim a postbox to get on the board!',
+    'monthly' =>
+      'No points this month yet — claim a postbox to get on the board!',
+    _ => 'Claim your first postbox to get on the board!',
+  };
+}
 
 /// Leaderboard with Daily, Weekly, Monthly, Lifetime tabs.
 /// Reads from Firestore leaderboards/{period}; backend aggregates via Cloud Function.
@@ -21,7 +52,13 @@ class LeaderboardScreen extends StatefulWidget {
 
 class _LeaderboardScreenState extends State<LeaderboardScreen>
     with SingleTickerProviderStateMixin {
-  static const List<String> _periods = ['daily', 'weekly', 'monthly', 'lifetime'];
+  static const List<String> _periods = [
+    'daily',
+    'weekly',
+    'monthly',
+    'lifetime',
+    'counties',
+  ];
   bool _friendsOnly = true;
   late final TabController _tabController;
 
@@ -42,9 +79,13 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
   void _onTabChanged() {
     if (_tabController.indexIsChanging) return;
     if (!mounted) return;
-    if (_tabController.index == _periods.indexOf('lifetime')) {
+    final period = _periods[_tabController.index];
+    if (period == 'lifetime') {
       JamesController.of(context)
           ?.show(JamesMessages.navLifetimeScores.resolve());
+    } else if (period == 'counties') {
+      JamesController.of(context)
+          ?.show(JamesMessages.navCountyLeaders.resolve());
     }
   }
 
@@ -59,11 +100,12 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
             isScrollable: true,
             tabAlignment: TabAlignment.start,
             tabs: _periods
-                .map((p) => Tab(text: p[0].toUpperCase() + p.substring(1)))
+                .map((p) => Tab(text: _tabLabel(p)))
                 .toList(),
           ),
         ),
-        // Friends-only toggle row
+        // Friends-only toggle row. Applies to every tab, including the Map
+        // (county heatmap): on = leader among you + your friends, off = global.
         Padding(
           padding: const EdgeInsets.symmetric(
               horizontal: AppSpacing.md, vertical: AppSpacing.xs),
@@ -74,7 +116,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
                   style: Theme.of(context).textTheme.bodyMedium),
               Switch(
                 value: _friendsOnly,
-                activeColor: postalRed,
+                activeThumbColor: postalRed,
                 onChanged: (v) {
                   setState(() => _friendsOnly = v);
                   if (v) {
@@ -91,6 +133,12 @@ class _LeaderboardScreenState extends State<LeaderboardScreen>
           child: TabBarView(
             controller: _tabController,
             children: _periods.map<Widget>((period) {
+              if (period == 'counties') {
+                // The heatmap honours the same friends-only toggle: on colours
+                // each county by the leader among you + your friends, off by the
+                // global leader.
+                return CountyHeatmap(friendsOnly: _friendsOnly);
+              }
               if (_friendsOnly) {
                 return _FriendsPeriodList(
                   key: ValueKey('friends_$period'),
@@ -124,6 +172,11 @@ class _LeaderboardListState extends State<_LeaderboardList>
   final String? _currentUid = FirebaseAuth.instance.currentUser?.uid;
   int? _totalPostboxes;
 
+  // Time-to-initial-display trace: started in initState, stopped on the frame
+  // that first paints real (or empty) data — captures stream latency + build.
+  Future<TraceHandle>? _renderTrace;
+  bool _renderTraceDone = false;
+
   @override
   bool get wantKeepAlive => true;
 
@@ -132,11 +185,32 @@ class _LeaderboardListState extends State<_LeaderboardList>
   @override
   void initState() {
     super.initState();
+    _renderTrace = PerfService.start(PerfTraces.leaderboardRender,
+        attributes: {PerfTraces.attrPeriod: widget.period});
+    // includeMetadataChanges: the "Offline — showing saved data" chip reads
+    // metadata.isFromCache. With persistence on, the first snapshot comes
+    // from the local cache; if the server then confirms IDENTICAL data, only
+    // the metadata changes, and a plain listener is never told. The chip then
+    // stayed up while online until the data itself next changed.
     _stream = FirebaseFirestore.instance
         .collection('leaderboards')
         .doc(widget.period)
-        .snapshots();
+        .snapshots(includeMetadataChanges: true);
     if (_isLifetime) _loadTotalPostboxes();
+  }
+
+  /// One-shot: records the row count and stops the render trace after the next
+  /// frame paints. Safe to call from build(); no-ops after the first call.
+  void _finishRenderTrace(int rowCount) {
+    if (_renderTraceDone) return;
+    _renderTraceDone = true;
+    final pending = _renderTrace;
+    if (pending == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final handle = await pending;
+      handle.setMetric(PerfTraces.metricRowCount, rowCount);
+      await handle.stop();
+    });
   }
 
   Future<void> _loadTotalPostboxes() async {
@@ -159,6 +233,12 @@ class _LeaderboardListState extends State<_LeaderboardList>
       stream: _stream,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
+          _finishRenderTrace(0);
+          CrashlyticsHelper.recordHandled(
+              snapshot.error ?? 'leaderboard snapshot error',
+              snapshot.stackTrace,
+              reason: 'leaderboard_snapshot:${widget.period}',
+              dedupeKey: 'leaderboard_snapshot:${widget.period}');
           return Padding(
             padding: const EdgeInsets.only(bottom: kJamesStripClearance),
             child: Center(
@@ -193,6 +273,7 @@ class _LeaderboardListState extends State<_LeaderboardList>
         final entries = keyMatches
             ? (data?['entries'] as List<dynamic>? ?? [])
             : const <dynamic>[];
+        _finishRenderTrace(entries.length);
         if (entries.isEmpty) {
           return Padding(
             padding: const EdgeInsets.only(bottom: kJamesStripClearance),
@@ -225,13 +306,19 @@ class _LeaderboardListState extends State<_LeaderboardList>
         final currentUserInList = _currentUid != null &&
             entries.any((e) =>
                 e is Map && e['uid'] == _currentUid);
-        // Only show the "outside the top N" footer when authenticated but not
+        // Only show the not-on-the-board footer when authenticated but not
         // in the list; omit it for unauthenticated viewers.
         final showFooter = _currentUid != null && !currentUserInList;
         final rangeText = _periodRangeText(widget.period);
         final showRange = rangeText != null;
+        // v1.5 offline play: persistence serves this stream from the local
+        // cache while offline — right behaviour, but say so.
+        final fromCache = snapshot.data!.metadata.isFromCache;
 
-        return RefreshIndicator(
+        return Column(children: [
+          StaleDataChip(visible: fromCache),
+          Expanded(
+              child: RefreshIndicator(
           color: postalRed,
           onRefresh: () async {
             // Stream auto-refreshes; this gives user tactile feedback
@@ -255,9 +342,7 @@ class _LeaderboardListState extends State<_LeaderboardList>
                   padding: const EdgeInsets.fromLTRB(
                       AppSpacing.md, AppSpacing.sm, AppSpacing.md, AppSpacing.lg),
                   child: Text(
-                    _isLifetime
-                        ? 'You\'re outside the top ${entries.length} — keep exploring!'
-                        : 'You\'re outside the top ${entries.length} — keep claiming to climb!',
+                    notOnBoardText(widget.period, entries.length),
                     textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -273,7 +358,6 @@ class _LeaderboardListState extends State<_LeaderboardList>
               final displayName = e['displayName'] as String? ?? 'Unknown';
               final entryUid = e['uid'] as String?;
               final isCurrentUser = entryUid != null && entryUid == _currentUid;
-              final avatar = AvatarConfig.tryFromMap(e['avatar']);
 
               // Lifetime-specific fields
               final uniqueBoxes = _isLifetime
@@ -301,49 +385,25 @@ class _LeaderboardListState extends State<_LeaderboardList>
                   ? '$uniqueBoxes ${uniqueBoxes == 1 ? 'box' : 'boxes'}$pctText · $totalPoints pts'
                   : '$points pts';
 
-              return Card(
-                color: isCurrentUser
-                    ? postalRed.withValues(alpha: 0.08)
-                    : null,
-                child: ListTile(
-                  onTap: entryUid != null
-                      ? () => Navigator.of(context).push(UserProfilePage.route(entryUid))
-                      : null,
-                  leading: _LeaderboardLeading(
-                    rank: rank,
-                    avatar: avatar,
-                    name: displayName,
-                  ),
-                  title: Text(
-                    displayName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: isCurrentUser
-                        ? const TextStyle(fontWeight: FontWeight.bold)
-                        : null,
-                  ),
-                  trailing: Text(
-                    trailingText,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          color: isCurrentUser
-                              ? postalRed
-                              : Theme.of(context).colorScheme.onSurfaceVariant,
-                          fontWeight: isCurrentUser
-                              ? FontWeight.bold
-                              : FontWeight.normal,
-                        ),
-                  ),
-                ),
+              return _LeaderboardEntryTile(
+                rank: rank,
+                displayName: displayName,
+                avatar: AvatarConfig.tryFromMap(e['avatar']),
+                entryUid: entryUid,
+                isCurrentUser: isCurrentUser,
+                isLifetime: _isLifetime,
+                valueText: trailingText,
+                scored: _isLifetime
+                    ? (uniqueBoxes > 0 || totalPoints > 0)
+                    : points > 0,
               );
             },
           ),
-        );
+        )),
+        ]);
       },
     );
   }
-
 }
 
 /// Leaderboard tab showing the current user alongside their friends,
@@ -362,9 +422,25 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList>
   @override
   bool get wantKeepAlive => true;
 
+  /// users/{uid} field that holds this period's running score. lifetime uses
+  /// uniquePostboxesClaimed (per Lifetime tab's primary sort key — totalPoints
+  /// is the tiebreak, applied separately in the sort comparator below).
+  /// Must match the server-side field names written by startScoring.
+  static String _scoreFieldFor(String period) => switch (period) {
+        'daily' => 'dailyPoints',
+        'weekly' => 'weeklyPoints',
+        'monthly' => 'monthlyPoints',
+        _ => 'uniquePostboxesClaimed', // lifetime
+      };
+
   final String? _currentUid = FirebaseAuth.instance.currentUser?.uid;
 
   int? _totalPostboxes;
+
+  // Time-to-initial-display trace (see the global list above): started in
+  // initState, stopped on the first frame that paints data.
+  Future<TraceHandle>? _renderTrace;
+  bool _renderTraceDone = false;
 
   // Stream cached here so that setState (e.g. pull-to-refresh) doesn't
   // recreate the stream and cause StreamBuilder to flash a loading indicator.
@@ -383,6 +459,8 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList>
   @override
   void initState() {
     super.initState();
+    _renderTrace = PerfService.start(PerfTraces.leaderboardRender,
+        attributes: {PerfTraces.attrPeriod: widget.period});
     if (_currentUid != null) {
       _userStream = FirebaseFirestore.instance
           .collection('users')
@@ -390,6 +468,18 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList>
           .snapshots();
     }
     if (widget.period == 'lifetime') _loadTotalPostboxes();
+  }
+
+  void _finishRenderTrace(int rowCount) {
+    if (_renderTraceDone) return;
+    _renderTraceDone = true;
+    final pending = _renderTrace;
+    if (pending == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final handle = await pending;
+      handle.setMetric(PerfTraces.metricRowCount, rowCount);
+      await handle.stop();
+    });
   }
 
   Future<void> _loadTotalPostboxes() async {
@@ -411,27 +501,33 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList>
       ...friendUids,
     }.toList();
 
+    // Firestore's whereIn supports up to 30 values, so split visibleUids into
+    // groups of 30 and fire all batches in parallel rather than sequentially —
+    // a 200-friend list would otherwise pay 7× round-trip latency.
     const batchSize = 30;
-    final allDocs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+    final batches = <List<String>>[];
     for (var i = 0; i < visibleUids.length; i += batchSize) {
-      final batch = visibleUids.sublist(
-          i, (i + batchSize).clamp(0, visibleUids.length));
+      batches.add(visibleUids.sublist(
+          i, (i + batchSize).clamp(0, visibleUids.length)));
+    }
+    final allDocs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+    final perBatch = await Future.wait(batches.map((batch) async {
       try {
         final snap = await FirebaseFirestore.instance
             .collection('users')
             .where(FieldPath.documentId, whereIn: batch)
             .get();
-        allDocs.addAll(snap.docs);
-      } catch (_) {}
+        return snap.docs;
+      } catch (_) {
+        return const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+      }
+    }));
+    for (final docs in perBatch) {
+      allDocs.addAll(docs);
     }
 
     final isLifetime = widget.period == 'lifetime';
-    final scoreField = switch (widget.period) {
-      'daily' => 'dailyPoints',
-      'weekly' => 'weeklyPoints',
-      'monthly' => 'monthlyPoints',
-      _ => 'uniquePostboxesClaimed', // lifetime
-    };
+    final scoreField = _scoreFieldFor(widget.period);
 
     // Zero out stale stored totals from a prior period — e.g. a friend who
     // claimed yesterday still has dailyPoints>0 (the per-user midnight sweep
@@ -490,15 +586,30 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList>
             })
         .toList();
 
+    // Match the server's mergeLifetimeEntries / mergePeriodEntries: break
+    // every tier on uid ascending so two friends with the same score don't
+    // visibly reshuffle on every refresh (Dart's sort is stable but the
+    // _fetchScores result order depends on whereIn-batch iteration, which is
+    // not order-preserving across rebuilds).
+    int byUid(Map<String, dynamic> a, Map<String, dynamic> b) =>
+        (a['uid'] as String).compareTo(b['uid'] as String);
     if (isLifetime) {
       entries.sort((a, b) {
         final ua = a['uniquePostboxesClaimed'] as int;
         final ub = b['uniquePostboxesClaimed'] as int;
         if (ub != ua) return ub - ua;
-        return (b['totalPoints'] as int) - (a['totalPoints'] as int);
+        final ta = a['totalPoints'] as int;
+        final tb = b['totalPoints'] as int;
+        if (tb != ta) return tb - ta;
+        return byUid(a, b);
       });
     } else {
-      entries.sort((a, b) => (b['score'] as int) - (a['score'] as int));
+      entries.sort((a, b) {
+        final sa = a['score'] as int;
+        final sb = b['score'] as int;
+        if (sb != sa) return sb - sa;
+        return byUid(a, b);
+      });
     }
     return entries;
   }
@@ -507,6 +618,7 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList>
   Widget build(BuildContext context) {
     super.build(context);
     if (_currentUid == null || _userStream == null) {
+      _finishRenderTrace(0);
       return const Padding(
         padding: EdgeInsets.only(bottom: kJamesStripClearance),
         child: Center(child: CircularProgressIndicator(color: postalRed)),
@@ -517,6 +629,11 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList>
       stream: _userStream,
       builder: (context, userSnap) {
         if (userSnap.hasError) {
+          CrashlyticsHelper.recordHandled(
+              userSnap.error ?? 'friends user snapshot error',
+              userSnap.stackTrace,
+              reason: 'leaderboard_friends_user:${widget.period}',
+              dedupeKey: 'leaderboard_friends_user:${widget.period}');
           return Padding(
             padding: const EdgeInsets.only(bottom: kJamesStripClearance),
             child: Center(
@@ -549,12 +666,7 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList>
 
         // Trigger a new fetch when the friends list changes OR when the
         // current user's own period scores change (e.g. after claiming).
-        final scoreField = switch (widget.period) {
-          'daily' => 'dailyPoints',
-          'weekly' => 'weeklyPoints',
-          'monthly' => 'monthlyPoints',
-          _ => 'uniquePostboxesClaimed',
-        };
+        final scoreField = _scoreFieldFor(widget.period);
         final myPeriodScore = (userData?[scoreField] as num?)?.toInt() ?? 0;
         final mySecondaryScore =
             (userData?['lifetimePoints'] as num?)?.toInt() ?? 0;
@@ -579,6 +691,11 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList>
               );
             }
             if (snap.hasError) {
+              _finishRenderTrace(0);
+              CrashlyticsHelper.recordHandled(
+                  snap.error ?? 'friends scores error', snap.stackTrace,
+                  reason: 'leaderboard_friends_scores:${widget.period}',
+                  dedupeKey: 'leaderboard_friends_scores:${widget.period}');
               return Padding(
                 padding: const EdgeInsets.only(bottom: kJamesStripClearance),
                 child: Center(
@@ -598,6 +715,7 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList>
             }
 
             final entries = snap.data!;
+            _finishRenderTrace(entries.length);
 
             if (entries.isEmpty) {
               return Padding(
@@ -673,39 +791,21 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList>
                     trailingText = '$score pts';
                   }
 
-                  return Card(
-                    color: isCurrentUser ? postalRed.withValues(alpha: 0.08) : null,
-                    child: ListTile(
-                      onTap: entryUid != null
-                          ? () => Navigator.of(context)
-                              .push(UserProfilePage.route(entryUid))
-                          : null,
-                      leading: _LeaderboardLeading(
-                        rank: rank,
-                        avatar: AvatarConfig.tryFromMap(e['avatar']),
-                        name: displayName,
-                      ),
-                      title: Text(
-                        displayName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: isCurrentUser
-                            ? const TextStyle(fontWeight: FontWeight.bold)
-                            : null,
-                      ),
-                      trailing: Text(
-                        trailingText,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                              color: isCurrentUser
-                                  ? postalRed
-                                  : Theme.of(context).colorScheme.onSurfaceVariant,
-                              fontWeight:
-                                  isCurrentUser ? FontWeight.bold : FontWeight.normal,
-                            ),
-                      ),
-                    ),
+                  return _LeaderboardEntryTile(
+                    rank: rank,
+                    displayName: displayName,
+                    avatar: AvatarConfig.tryFromMap(e['avatar']),
+                    entryUid: entryUid,
+                    isCurrentUser: isCurrentUser,
+                    isLifetime: isLifetime,
+                    valueText: trailingText,
+                    // Unlike the global lists, this one shows every friend
+                    // whether or not they've claimed, so a medal has to be
+                    // earned rather than merely landed on.
+                    scored: isLifetime
+                        ? ((e['uniquePostboxesClaimed'] as int) > 0 ||
+                            (e['totalPoints'] as int) > 0)
+                        : (e['score'] as int) > 0,
                   );
                 },
               ),
@@ -718,51 +818,135 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList>
 
 }
 
-/// Leading widget for a leaderboard row: trophy + small avatar for top-3,
-/// rank number + small avatar for everyone else. Falls back to initials when
-/// the player hasn't built an avatar yet.
-class _LeaderboardLeading extends StatelessWidget {
-  final int rank;
-  final AvatarConfig? avatar;
-  final String name;
+/// Rank indicator shared by every leaderboard row: trophy icons for the top
+/// three, a numbered avatar otherwise.
+///
+/// [scored] guards the medals. The global lists never need it — the server's
+/// mergePeriodEntries omits zero-point entries entirely — but the friends-only
+/// list deliberately shows EVERY friend regardless of ranking, so on a quiet
+/// day the top three can all be on nothing. Handing a bronze trophy to someone
+/// who hasn't claimed is daft on its own, and worse than daft when several
+/// friends are tied on zero: the tie breaks on uid, so the medal goes to
+/// whoever happens to sort first.
+Widget _rankBadge(BuildContext context, int rank, {bool scored = true}) {
+  final dark = Theme.of(context).brightness == Brightness.dark;
+  final brandText = dark ? AppColors.brandTextDark : AppColors.brandTextLight;
+  switch (scored ? rank : 0) {
+    case 1:
+      return const Icon(Icons.emoji_events, color: postalGold, size: 32);
+    case 2:
+      return Icon(Icons.emoji_events,
+          color: dark ? AppColors.mutedTextDark : AppColors.mutedTextLight,
+          size: 32);
+    case 3:
+      return Icon(Icons.emoji_events,
+          color: dark ? const Color(0xFFD9A26A) : const Color(0xFF8C5A2B),
+          size: 32);
+    default:
+      return CircleAvatar(
+        radius: 16,
+        backgroundColor: brandText.withValues(alpha: dark ? 0.18 : 0.12),
+        child: Text(
+          '$rank',
+          style: TextStyle(
+              color: brandText, fontSize: 13, fontWeight: FontWeight.w600),
+        ),
+      );
+  }
+}
 
-  const _LeaderboardLeading({
+/// A single leaderboard row, shared by the global and friends-only lists.
+///
+/// Lifetime entries carry a long stats string ("N boxes (x%) · M pts"). On a
+/// portrait phone that competes for width with the name, so for lifetime the
+/// stats drop to their own row (`subtitle`); period tabs keep the short
+/// "X pts" value in `trailing`.
+class _LeaderboardEntryTile extends StatelessWidget {
+  const _LeaderboardEntryTile({
     required this.rank,
-    required this.avatar,
-    required this.name,
+    required this.displayName,
+    required this.entryUid,
+    required this.isCurrentUser,
+    required this.isLifetime,
+    required this.valueText,
+    this.scored = true,
+    this.avatar,
   });
+
+  final int rank;
+  final String displayName;
+
+  /// The player's Postie avatar; null falls back to their initials.
+  final AvatarConfig? avatar;
+  final String? entryUid;
+  final bool isCurrentUser;
+  final bool isLifetime;
+
+  /// Lifetime: the full stats line (shown on row 2). Period: "X pts" (trailing).
+  final String valueText;
+
+  /// False when this entry has nothing on the board yet — suppresses the
+  /// top-three medal. See [_rankBadge].
+  final bool scored;
 
   @override
   Widget build(BuildContext context) {
-    final Widget marker = switch (rank) {
-      1 => const Icon(Icons.emoji_events, color: postalGold, size: 26),
-      2 => Icon(Icons.emoji_events, color: Colors.grey.shade400, size: 26),
-      3 => Icon(Icons.emoji_events, color: Colors.brown.shade300, size: 26),
-      _ => SizedBox(
-          width: 26,
-          child: Text(
-            '$rank',
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: postalRed,
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-            ),
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final brandText = dark ? AppColors.brandTextDark : AppColors.brandTextLight;
+    final valueStyle = Theme.of(context).textTheme.titleSmall?.copyWith(
+          color: isCurrentUser
+              ? brandText
+              : Theme.of(context).colorScheme.onSurfaceVariant,
+          fontWeight: isCurrentUser ? FontWeight.bold : FontWeight.normal,
+        );
+    final valueWidget = Text(
+      valueText,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: valueStyle,
+    );
+
+    return Card(
+      color: isCurrentUser ? postalRed.withValues(alpha: 0.08) : null,
+      child: ListTile(
+        onTap: entryUid != null
+            ? () => Navigator.of(context).push(UserProfilePage.route(entryUid!))
+            : null,
+        leading: SizedBox(
+          width: 68,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _rankBadge(context, rank, scored: scored),
+              const SizedBox(width: 4),
+              PostieAvatar(config: avatar, size: 32, fallbackName: displayName),
+            ],
           ),
         ),
-    };
-    return SizedBox(
-      width: 64,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          marker,
-          const SizedBox(width: 4),
-          PostieAvatar(config: avatar, size: 32, fallbackName: name),
-        ],
+        title: Text(
+          displayName,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: isCurrentUser
+              ? const TextStyle(fontWeight: FontWeight.bold)
+              : null,
+        ),
+        subtitle: isLifetime
+            ? Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: valueWidget,
+              )
+            : null,
+        trailing: isLifetime ? null : valueWidget,
       ),
     );
   }
+}
+
+String _tabLabel(String period) {
+  // 'counties' renders as 'Map' so the tab reads naturally next to D/W/M/L.
+  if (period == 'counties') return 'Map';
+  return period[0].toUpperCase() + period.substring(1);
 }
 
 /// Returns a formatted range label (e.g. "13 – 19 Apr 2026") for the weekly

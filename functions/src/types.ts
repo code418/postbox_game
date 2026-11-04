@@ -5,9 +5,29 @@ export interface PostboxDoc {
   monarch?: string;
   overpass_id?: number;
   reference?: string;
+  /** UK county / unitary authority name, set by import_postboxes.js. */
+  county?: string;
+  /** "osm" (imported) or "user_report" (added from an accepted missing-postbox report). */
+  source?: string;
+  /** reports/{id} this postbox was created from (source === "user_report"). */
+  reportId?: string;
+  /** Admin uid that applied the last accepted cypher correction. */
+  correctedBy?: string;
+  correctedAt?: unknown;
+  /** True when import_postboxes.js --prune marked this OSM node as no longer
+   *  present in the upstream Overpass extract. Soft-marker only; cleared by any
+   *  subsequent normal write to the doc. Runtime lookups skip these so users
+   *  can't claim a postbox the OSM data says has gone. */
+  removedFromOsm?: boolean;
+  removedFromOsmAt?: unknown;
   distance?: number;
   compass?: { exact?: string };
-  dailyClaim?: { date: string; by: string };
+  // Only the last-claimed London date. The claimant uid is intentionally NOT
+  // stored here — postbox docs are world-readable and carry the exact geopoint,
+  // so a uid would leak claimer location PII (see dailyClaimPatch in
+  // startScoring.ts). Legacy docs may still carry a `by` field until the
+  // scripts/strip_dailyclaim_by cleanup runs; nothing reads it.
+  dailyClaim?: { date: string };
   claimedToday?: boolean;  // attached at query time by lookupPostboxes
   [key: string]: unknown;
 }
@@ -18,4 +38,59 @@ export interface LookupResult {
   counts: { total: number; claimedToday: number; [monarch: string]: number };
   points: { max: number; min: number };
   compass: Record<string, number>;
+}
+
+/** A photo attached to a problem report (stored under report_photos/{uid}/). */
+export interface ReportPhoto {
+  storagePath: string;
+  /** GPS extracted from the photo's EXIF on the client, when present. */
+  exifLat?: number;
+  exifLng?: number;
+  /** ISO timestamp from the photo's EXIF DateTimeOriginal, when present. */
+  takenAt?: string;
+}
+
+/** A user-submitted report about a problem with postbox data (reports/{id}). */
+export interface ReportDoc {
+  type: "missing_postbox" | "wrong_cypher";
+  status: "pending" | "accepted" | "rejected";
+  reporterUid: string;
+  createdAt?: unknown;
+  note?: string;
+  photos: ReportPhoto[];
+  // missing_postbox:
+  lat?: number;
+  lng?: number;
+  accuracyMeters?: number;
+  // wrong_cypher:
+  postboxId?: string;
+  overpassId?: number;
+  currentMonarch?: string | null;
+  // suggested correction (both types):
+  suggestedMonarch?: string | null;
+  suggestedReference?: string;
+  // review:
+  reviewedBy?: string;
+  reviewedAt?: unknown;
+  reviewNote?: string;
+  appliedToFirestore?: boolean;
+  osmStatus?: "not_started" | "changeset_generated" | "changeset_failed";
+  osmChangesetPath?: string;
+  osmEditUrl?: string;
+  finalMonarch?: string | null;
+  finalReference?: string;
+  // wrong_cypher accept only: what the retroactive rescore did.
+  rescoredClaims?: number;
+  affectedUsers?: number;
+  rescoreTotalDelta?: number;
+  // OSM follow-up bookkeeping (local review dashboard, never the app):
+  osmUploadedAt?: unknown;
+  osmUploadedBy?: string;
+  osmChangesetId?: number;
+  /** The OSM node created from a missing_postbox report, once known, so a
+   *  later import's osm_<id> doc can be matched to its manual_<reportId>. */
+  osmNodeId?: number;
+  osmSkippedAt?: unknown;
+  osmSkippedBy?: string;
+  osmSkipReason?: string;
 }

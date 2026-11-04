@@ -1,0 +1,93 @@
+{
+  "conditions": [
+    {
+      "name": "Admin",
+      "expression": "app.userProperty['is_admin'].exactlyMatches(['true'])",
+      "tagColor": "PINK"
+    }
+  ],
+  "parameters": {
+    "kill_switch_route_mode": {
+      "defaultValue": {
+        "value": "true"
+      },
+      "conditionalValues": {
+        "Admin": {
+          "rolloutValue": {
+            "rolloutId": "rollout_1",
+            "value": "false",
+            "percent": 100
+          }
+        }
+      },
+      "description": "When true, hides the 'Walk to a destination' CTA on the Nearby tab so Route Mode can be disabled without a release. Currently ON (Route Mode hidden) for everyone except the Admin audience, which receives 'false' via rollout_1 at 100%.",
+      "valueType": "BOOLEAN"
+    },
+    "kill_switch_reporting": {
+      "defaultValue": {
+        "value": "false"
+      },
+      "description": "When true, hides the 'Report a missing postbox' and 'Report wrong cypher' entry points app-wide so problem-reporting can be disabled without a release.",
+      "valueType": "BOOLEAN"
+    },
+    "james_welcome_variant": {
+      "defaultValue": {
+        "value": "classic"
+      },
+      "description": "Postman James's first-launch line variant. 'classic' = the shipped copy; 'cheeky' = the A/B variant. Other values fall back to 'classic'.",
+      "valueType": "STRING"
+    },
+    "maintenance_mode": {
+      "defaultValue": {
+        "value": "false"
+      },
+      "description": "When true, flips the app into read-only mode: a banner shows and every write entry-point (claim, report, friends, settings) refuses with a toast. Emergency kill switch for backend maintenance.",
+      "valueType": "BOOLEAN"
+    },
+    "maintenance_message": {
+      "defaultValue": {
+        "useInAppDefault": true
+      },
+      "description": "Admin-authored banner copy shown while maintenance_mode is on. Defaults to the in-app copy in RemoteConfigService.defaultMaintenanceMessage. Postman James voice; no em-dashes.",
+      "valueType": "STRING"
+    },
+    "claim_radius_meters": {
+      "defaultValue": {
+        "value": "30"
+      },
+      "description": "Claim radius in metres. Must start equal to the code default (30). Values outside the [10, 100] safety band are ignored; client and server fall back to 30. Publish this key to the SERVER template too (functions/src/_config.ts).",
+      "valueType": "NUMBER"
+    },
+    "points_by_monarch": {
+      "defaultValue": {
+        "value": "{\"EIIR\":2,\"CIIIR\":9,\"GR\":4,\"GVR\":4,\"GVIR\":4,\"VR\":7,\"EVIIR\":9,\"EVIIIR\":12,\"SCOTTISH_CROWN\":4}"
+      },
+      "description": "Per-cypher point overrides. Must start equal to the code default (RemoteConfigService.defaultPointsByMonarchJson). Values outside [1, 50] and unknown keys are ignored; omitted monarchs keep their hard-coded value. Publish to the SERVER template too.",
+      "valueType": "JSON"
+    },
+    "kill_switch_offline_claims": {
+      "defaultValue": {
+        "value": "false"
+      },
+      "description": "v1.5 offline play: emergency kill switch for offline claim capture + flush. The server (functions/src/_config.ts) enforces its own copy on flushOfflineClaims; this hides the client affordances. Publish to the SERVER template too.",
+      "valueType": "BOOLEAN"
+    },
+    "offline_claim_grace_hours": {
+      "defaultValue": {
+        "value": "36"
+      },
+      "description": "v1.5 offline play: how long a banked offline capture stays flushable, in hours. Must start equal to the code default (36). Values outside the [1, 168] safety band are ignored; client and server fall back to 36. Publish to the SERVER template too.",
+      "valueType": "NUMBER"
+    },
+    "max_offline_claims_per_day": {
+      "defaultValue": {
+        "value": "30"
+      },
+      "description": "v1.5 offline play: per-user daily cap on flushed offline claims. Must start equal to the code default (30). Values outside the [1, 200] safety band are ignored; client and server fall back to 30. Publish to the SERVER template too.",
+      "valueType": "NUMBER"
+    }
+  },
+  "version": {
+    "description": "Postbox Game CLIENT template: kill switches, James welcome variant, maintenance mode + message, and the v1.4 balance pair. Defaults mirror RemoteConfigService.defaults. The balance pair also needs publishing to the server template."
+  }
+}

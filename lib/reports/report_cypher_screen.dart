@@ -1,0 +1,220 @@
+import 'dart:async';
+
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:flutter/material.dart';
+import 'package:postbox_game/analytics_service.dart';
+import 'package:postbox_game/maintenance_guard.dart';
+import 'package:postbox_game/monarch_info.dart';
+import 'package:postbox_game/reports/report_form_widgets.dart';
+import 'package:postbox_game/reports/report_repository.dart';
+import 'package:postbox_game/theme.dart';
+
+/// Form for reporting that a claimed postbox has the wrong (or missing) royal
+/// cypher. Opened from the History screen's postbox detail.
+class ReportCypherScreen extends StatefulWidget {
+  const ReportCypherScreen({
+    super.key,
+    required this.postboxId,
+    this.currentMonarch,
+    this.reference,
+  });
+
+  /// Firestore postbox document id (e.g. `osm_123456`).
+  final String postboxId;
+  final String? currentMonarch;
+  final String? reference;
+
+  @override
+  State<ReportCypherScreen> createState() => _ReportCypherScreenState();
+}
+
+class _ReportCypherScreenState extends State<ReportCypherScreen> {
+  final _noteController = TextEditingController();
+  late final _referenceController = TextEditingController(text: widget.reference ?? '');
+  late String _cypher = _initialCypher();
+  List<PendingPhoto> _photos = const [];
+  bool _submitting = false;
+
+  String _initialCypher() {
+    // Always start at "I'm not sure" — the user is here because they think the
+    // CURRENT cypher is wrong, so pre-filling the dropdown with the current
+    // value would let them submit a no-op suggestion (and frame the question
+    // backwards).
+    return notSureCypher;
+  }
+
+  @override
+  void dispose() {
+    _noteController.dispose();
+    _referenceController.dispose();
+    super.dispose();
+  }
+
+  bool get _hasSomething =>
+      _cypher != notSureCypher || _noteController.text.trim().isNotEmpty || _photos.isNotEmpty;
+
+  Future<void> _submit() async {
+    if (!_hasSomething) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Pick the correct cypher, add a note, or attach a photo first.')),
+      );
+      return;
+    }
+    if (MaintenanceGuard.blocked(context, actionLabel: 'send a report')) {
+      return;
+    }
+    await _attemptSubmit(_photos);
+  }
+
+  /// Runs one submit attempt with the given [photos]. A photo-upload failure
+  /// (photos are optional) offers retry / send-without-photo instead of losing
+  /// the whole report; the callable/other failures keep their existing
+  /// snackbars.
+  Future<void> _attemptSubmit(List<PendingPhoto> photos) async {
+    setState(() => _submitting = true);
+    try {
+      await ReportRepository.submitWrongCypher(
+        postboxId: widget.postboxId,
+        note: _noteController.text,
+        suggestedMonarch: _cypher == notSureCypher ? null : _cypher,
+        suggestedReference: _referenceController.text,
+        photos: photos,
+      );
+      unawaited(Analytics.reportSubmitted(
+        type: 'wrong_cypher',
+        photoCount: photos.length,
+      ));
+      if (!mounted) return;
+      await showReportThanksDialog(context);
+      if (mounted) Navigator.of(context).pop(true);
+      return;
+    } on FirebaseFunctionsException catch (e) {
+      unawaited(Analytics.reportSubmitFailed(
+        type: 'wrong_cypher',
+        reason: e.code.isNotEmpty ? e.code : 'unknown',
+      ));
+      if (mounted) {
+        // The Cloud Function's HttpsError messages (e.g. "You've reached the
+        // daily limit of 10 reports", "at most 3 photos are allowed") are
+        // user-facing copy — show them directly rather than prefixing with
+        // "Could not send report:", which made limit-hits read like a generic
+        // failure ("Could not send report: You've reached the daily limit…").
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content:
+                Text(e.message ?? 'Could not send report. Please try again.')));
+      }
+      return;
+    } on ReportPhotoUploadException {
+      unawaited(Analytics.reportSubmitFailed(
+        type: 'wrong_cypher',
+        reason: 'photo_upload',
+      ));
+      // Fall through past the finally (which clears the overlay) to offer the
+      // retry / send-without-photo choice below.
+    } catch (_) {
+      unawaited(Analytics.reportSubmitFailed(
+        type: 'wrong_cypher',
+        reason: 'unknown',
+      ));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Could not send report. Please try again.')));
+      }
+      return;
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+
+    // Only reached on ReportPhotoUploadException. A wrong-cypher report needs
+    // at least one of cypher/note/photo, so only offer "send without photo"
+    // when there's still a cypher or note left without it.
+    if (!mounted) return;
+    final canSubmitWithout =
+        _cypher != notSureCypher || _noteController.text.trim().isNotEmpty;
+    final choice = await showPhotoUploadFailedDialog(context,
+        photoCount: photos.length, allowSubmitWithout: canSubmitWithout);
+    if (!mounted) return;
+    switch (choice) {
+      case PhotoUploadFailureChoice.retry:
+        await _attemptSubmit(photos);
+      case PhotoUploadFailureChoice.submitWithout:
+        await _attemptSubmit(const []);
+      case PhotoUploadFailureChoice.cancel:
+        break;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final currentLabel = widget.currentMonarch != null
+        ? (MonarchInfo.labels[widget.currentMonarch!] ?? widget.currentMonarch!)
+        : 'No cypher recorded';
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.currentMonarch == null
+            ? 'Report missing cypher'
+            : 'Report wrong cypher'),
+      ),
+      body: Stack(
+        children: [
+          ListView(
+            padding: const EdgeInsets.all(AppSpacing.lg),
+            children: [
+              Card(
+                child: ListTile(
+                  leading: const Icon(Icons.markunread_mailbox_outlined, color: postalRed),
+                  title: Text('Currently recorded as: $currentLabel'),
+                  subtitle: (widget.reference != null && widget.reference!.isNotEmpty)
+                      ? Text('Ref ${widget.reference}')
+                      : null,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              CypherPicker(value: _cypher, onChanged: (v) => setState(() => _cypher = v)),
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                'If accepted, every past claim on this box is re-scored — yours and other players\'.',
+                style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              TextField(
+                controller: _referenceController,
+                maxLength: ReportRepository.maxReferenceChars,
+                decoration: const InputDecoration(
+                  labelText: 'Correct reference / plate number (optional)',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              TextField(
+                controller: _noteController,
+                maxLength: ReportRepository.maxNoteChars,
+                maxLines: 3,
+                onChanged: (_) => setState(() {}),
+                decoration: const InputDecoration(
+                  labelText: 'Notes (optional)',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              PhotoPickerField(photos: _photos, onChanged: (p) => setState(() => _photos = p)),
+              const SizedBox(height: AppSpacing.xl),
+              FilledButton.icon(
+                onPressed: _submitting ? null : _submit,
+                icon: const Icon(Icons.send),
+                label: const Text('Send report'),
+              ),
+              const SizedBox(height: AppSpacing.xxl),
+            ],
+          ),
+          if (_submitting)
+            const ColoredBox(
+              color: Colors.black38,
+              child: Center(child: CircularProgressIndicator(color: postalRed)),
+            ),
+        ],
+      ),
+    );
+  }
+}

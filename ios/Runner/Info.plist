@@ -53,5 +53,70 @@
 	<string>Postbox Game needs your location to find postboxes near you and verify you're close enough to claim one.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>Postbox Game needs your location to find postboxes near you and verify you're close enough to claim one.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Postbox Game uses the camera so you can attach a photo when reporting a problem with postbox data.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Postbox Game lets you attach photos from your library when reporting a problem with postbox data.</string>
+	<!-- Reversed iOS OAuth client ID (Firebase Auth client type 2). Google
+	     Sign-In needs this URL scheme registered so the OS can return to
+	     the app after the auth flow completes; without it, sign-in on iOS
+	     hangs at the consent screen. Mirrors the iosClientId passed to
+	     GoogleSignIn.instance.initialize() in lib/main.dart. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.176793005702-rmq2h89o58g1lbe6bnqtg9rnllu8gv80</string>
+			</array>
+		</dict>
+		<!-- Invite page's "Open in the app" button (postboxgame://invite/CODE,
+		     web/invite.html). Safari never opens a Universal Link for a tap
+		     on the same domain, so the page needs a scheme of its own. -->
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.code418.postboxGame.invite</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>postboxgame</string>
+			</array>
+		</dict>
+	</array>
+	<!-- Invite links are handled by app_links (lib/main.dart); Flutter's own
+	     deep linking would also push them into the Navigator as routes. -->
+	<key>FlutterDeepLinkingEnabled</key>
+	<false/>
+	<!-- Export compliance: the app only uses standard HTTPS/TLS, which is exempt.
+	     Saves answering the encryption question on every TestFlight upload. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<!-- Lets FCM wake the app for data messages (firebase_messaging). -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
+	<!-- No tracking: App Privacy declares "Data Not Used to Track You" and the
+	     app has no ads and no App Tracking Transparency prompt (so no
+	     NSUserTrackingUsageDescription). Firebase Analytics is first-party
+	     only: the Podfile links it without Ad ID support, and these switch
+	     off its advertising features — IDFA collection (a backstop should
+	     AdSupport ever be linked again), SKAdNetwork registration, and the
+	     ad consent-mode signals. Analytics storage keeps its default, so
+	     first-party analytics still works. Pinned by
+	     test/ios_no_tracking_test.dart; see docs/app-store-submission.md §4. -->
+	<key>GOOGLE_ANALYTICS_ADID_COLLECTION_ENABLED</key>
+	<false/>
+	<key>GOOGLE_ANALYTICS_REGISTRATION_WITH_AD_NETWORK_ENABLED</key>
+	<false/>
+	<key>GOOGLE_ANALYTICS_DEFAULT_ALLOW_AD_STORAGE</key>
+	<false/>
+	<key>GOOGLE_ANALYTICS_DEFAULT_ALLOW_AD_USER_DATA</key>
+	<false/>
+	<key>GOOGLE_ANALYTICS_DEFAULT_ALLOW_AD_PERSONALIZATION_SIGNALS</key>
+	<false/>
 </dict>
 </plist>

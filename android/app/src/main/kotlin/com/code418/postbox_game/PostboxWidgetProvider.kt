@@ -26,9 +26,30 @@ class PostboxWidgetProvider : HomeWidgetProvider() {
         widgetData: SharedPreferences,
     ) {
         val signedIn = widgetData.getBoolean(KEY_SIGNED_IN, false)
-        val streak = widgetData.getInt(KEY_STREAK, 0)
-        val todayPoints = widgetData.getInt(KEY_TODAY_POINTS, 0)
-        val weekPoints = widgetData.getInt(KEY_WEEK_POINTS, 0)
+        // The snapshot was date-checked when the app wrote it, but this
+        // redraw may come a day later (the hourly update, a launcher reload),
+        // so re-check it against today or it shows yesterday's points and a
+        // broken streak until the app is next opened. See WidgetFreshness.kt.
+        val today = londonToday()
+        val dailyDate = widgetData.getString(KEY_DAILY_DATE, null)
+        val lastClaimDate = widgetData.getString(KEY_LAST_CLAIM_DATE, null)
+        val streak = freshStreak(
+            stored = widgetData.getInt(KEY_STREAK, 0),
+            lastClaimDate = lastClaimDate,
+            today = today,
+            yesterday = londonYesterday(today),
+        )
+        val todayPoints = freshTodayPoints(
+            stored = widgetData.getInt(KEY_TODAY_POINTS, 0),
+            dailyDate = dailyDate,
+            lastClaimDate = lastClaimDate,
+            today = today,
+        )
+        val weekPoints = freshWeekPoints(
+            stored = widgetData.getInt(KEY_WEEK_POINTS, 0),
+            weekStart = widgetData.getString(KEY_WEEK_START, null),
+            today = today,
+        )
         val boxesFound = widgetData.getInt(KEY_BOXES_FOUND, 0)
         val lifetimePoints = widgetData.getInt(KEY_LIFETIME_POINTS, 0)
 
@@ -71,6 +92,9 @@ class PostboxWidgetProvider : HomeWidgetProvider() {
         private const val KEY_WEEK_POINTS = "weekPoints"
         private const val KEY_BOXES_FOUND = "boxesFound"
         private const val KEY_LIFETIME_POINTS = "lifetimePoints"
+        private const val KEY_DAILY_DATE = "dailyDate"
+        private const val KEY_LAST_CLAIM_DATE = "lastClaimDate"
+        private const val KEY_WEEK_START = "weekStart"
         private const val DEEP_LINK = "postbox://claim?source=widget"
     }
 }

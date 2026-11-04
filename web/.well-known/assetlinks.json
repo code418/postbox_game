@@ -1,0 +1,13 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.code418.postbox_game",
+      "sha256_cert_fingerprints": [
+        "F9:13:80:66:2C:54:BE:8F:C5:8F:2C:3F:81:F2:CB:40:CF:5F:A5:47:92:A6:F0:B8:8A:A4:55:78:83:60:88:8B",
+        "3C:9F:79:DC:5B:46:D9:A7:99:DD:D2:BA:11:17:5E:59:35:0B:FD:68:CA:B4:EA:0F:69:FD:08:DC:5F:D4:7F:D5"
+      ]
+    }
+  }
+]

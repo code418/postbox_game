@@ -3,28 +3,80 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:postbox_game/authentication_bloc/bloc.dart';
 import 'package:postbox_game/theme.dart';
+import 'package:postbox_game/user_repository.dart';
 import 'package:postbox_game/wear/wear_claim_page.dart';
 import 'package:postbox_game/wear/wear_compass_page.dart';
+import 'package:postbox_game/wear/wear_leaderboard_page.dart';
+import 'package:postbox_game/wear/wear_login_screen.dart';
+import 'package:postbox_game/wear/wear_privacy_page.dart';
 import 'package:postbox_game/wear/wear_status_page.dart';
 import 'package:postbox_game/wear/wear_theme.dart';
+import 'package:postbox_game/wear/wear_today_page.dart';
 
-/// Main Wear OS shell — a horizontal [PageView] with three swipeable pages:
-/// Compass, Claim, and Status.
+/// Main Wear OS shell — a vertical [PageView] of swipeable pages.
 ///
-/// A dot indicator at the bottom shows which page is active. The rotary crown
-/// (if available) can also be used to switch pages.
+/// Signed in:  Compass, Claim, Status, Scores, Today, Privacy.
+/// Signed out: Compass, Claim, Sign-in, Privacy.
+///
+/// The two glance pages are signed-in only because their data requires auth —
+/// `leaderboards/{period}` is readable only to signed-in users and
+/// `userClaimHistory` rejects anonymous calls — so showing them to a guest
+/// would mean two dead pages in a row. Privacy stays last in BOTH lists: the
+/// telemetry it controls runs while signed out too, so a guest must still be
+/// able to withdraw consent.
+///
+/// Paging is vertical because Wear OS reserves the left-to-right swipe as
+/// the system dismiss gesture — with horizontal paging, swiping "back" threw
+/// the user out to the watchface.
+///
+/// A dot indicator on the right edge shows which page is active. The rotary
+/// crown (if available) can also be used to switch pages.
+///
+/// Signed out, the compass and claim-page scans still work (discovery is
+/// auth-free); the third page becomes the Google sign-in screen, and the claim
+/// page's CTA jumps there instead of claiming. The parent keys this widget by
+/// uid, so an auth change rebuilds the whole shell with fresh page state.
 class WearHome extends StatefulWidget {
-  const WearHome({super.key});
+  const WearHome({
+    super.key,
+    required this.signedIn,
+    required this.userRepository,
+    this.initialPage = 0,
+    this.autoScan = false,
+  });
+
+  final bool signedIn;
+  final UserRepository userRepository;
+
+  /// Page to open on. A tile or complication tap starts on the claim page.
+  final int initialPage;
+
+  /// Fire a scan as soon as the claim page mounts. Set by a tile/complication
+  /// tap, which is a request to scan, not just to open the app.
+  final bool autoScan;
+
+  /// Index of the scan/claim page.
+  static const int claimPageIndex = 1;
+
+  /// Index of the page hosting the sign-in screen while signed out, and the
+  /// target of the claim page's "Sign in to claim" CTA.
+  ///
+  /// Deliberately a named constant rather than "the last page": pages have
+  /// been appended after it, and jumping to `_pageCount - 1` would silently
+  /// land on Privacy and break the CTA. Public so a test can assert that this
+  /// index really does host [WearLoginScreen].
+  static const int signInPageIndex = 2;
 
   @override
   State<WearHome> createState() => _WearHomeState();
 }
 
 class _WearHomeState extends State<WearHome> {
-  final PageController _pageController = PageController();
-  int _currentPage = 0;
+  late final PageController _pageController =
+      PageController(initialPage: widget.initialPage);
+  late int _currentPage = widget.initialPage;
 
-  static const _pageCount = 3;
+  int get _pageCount => widget.signedIn ? 6 : 4;
 
   @override
   void dispose() {
@@ -40,61 +92,111 @@ class _WearHomeState extends State<WearHome> {
     context.read<AuthenticationBloc>().add(LoggedOut());
   }
 
+  /// Swipes to the page hosting the sign-in screen while signed out. Used by
+  /// the claim page's "Sign in to claim" CTA.
+  void _goToSignInPage() {
+    _pageController.animateToPage(
+      WearHome.signInPageIndex,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+    );
+  }
+
+  /// Rotary crown / bezel ticks navigate whole pages.
+  ///
+  /// Registered with the [PointerSignalResolver] from a [Listener] INSIDE
+  /// each page: pointer signals are resolved cooperatively (first registrant
+  /// on the hit-test path wins, deepest first), and the vertical [PageView]'s
+  /// own Scrollable also registers for vertical scroll deltas. Its raw
+  /// handling nudges the pager by the tick's pixel delta and snaps straight
+  /// back, so it must be preempted — which an outer Listener cannot do.
+  void _handleRotaryTick(PointerSignalEvent event) {
+    final delta = (event as PointerScrollEvent).scrollDelta.dy;
+    if (delta > 0 && _currentPage < _pageCount - 1) {
+      _pageController.nextPage(
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+    } else if (delta < 0 && _currentPage > 0) {
+      _pageController.previousPage(
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+    }
+  }
+
+  Widget _rotaryPage(Widget child) {
+    return Listener(
+      behavior: HitTestBehavior.opaque,
+      onPointerSignal: (event) {
+        if (event is PointerScrollEvent) {
+          GestureBinding.instance.pointerSignalResolver
+              .register(event, _handleRotaryTick);
+        }
+      },
+      child: child,
+    );
+  }
+
+  /// The shell's pages, in swipe order. [WearHome.signInPageIndex] must stay valid for
+  /// both auth states.
+  List<Widget> _buildPages() {
+    return <Widget>[
+      const WearCompassPage(),
+      WearClaimPage(
+        signedIn: widget.signedIn,
+        onSignInRequested: _goToSignInPage,
+        autoScan: widget.autoScan,
+      ),
+      widget.signedIn
+          ? WearStatusPage(onLogout: _handleLogout)
+          : WearLoginScreen(userRepository: widget.userRepository),
+      if (widget.signedIn) const WearLeaderboardPage(),
+      if (widget.signedIn) const WearTodayPage(),
+      const WearPrivacyPage(),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
+    final pages = _buildPages();
+    assert(pages.length == _pageCount,
+        'page list and _pageCount disagree (${pages.length} vs $_pageCount)');
     return Scaffold(
       backgroundColor: Colors.black,
       body: Stack(
         children: [
-          // Respond to rotary crown / bezel scroll events to navigate pages.
-          Listener(
-            onPointerSignal: (event) {
-              if (event is PointerScrollEvent) {
-                if (event.scrollDelta.dy > 0 &&
-                    _currentPage < _pageCount - 1) {
-                  _pageController.nextPage(
-                    duration: const Duration(milliseconds: 300),
-                    curve: Curves.easeInOut,
-                  );
-                } else if (event.scrollDelta.dy < 0 && _currentPage > 0) {
-                  _pageController.previousPage(
-                    duration: const Duration(milliseconds: 300),
-                    curve: Curves.easeInOut,
-                  );
-                }
-              }
-            },
-            child: PageView(
-              controller: _pageController,
-              onPageChanged: _onPageChanged,
-              children: [
-                const WearCompassPage(),
-                const WearClaimPage(),
-                WearStatusPage(onLogout: _handleLogout),
-              ],
-            ),
+          PageView(
+            // Vertical: Wear OS owns the left-to-right swipe (system
+            // dismiss back to the watchface), so horizontal paging fights
+            // the OS and loses — a "previous page" swipe would exit the
+            // app instead.
+            scrollDirection: Axis.vertical,
+            controller: _pageController,
+            onPageChanged: _onPageChanged,
+            children: [for (final page in pages) _rotaryPage(page)],
           ),
 
-          // Dot indicator
+          // Dot indicator — a vertical column on the right edge (the Wear
+          // position-indicator spot), matching the vertical paging axis.
           Positioned(
-            left: 0,
-            right: 0,
-            bottom: WearSpacing.lg,
-            child: Row(
+            top: 0,
+            bottom: 0,
+            right: WearSpacing.lg,
+            child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
-              children: List.generate(_pageCount, (i) {
+              children: List.generate(pages.length, (i) {
                 final isActive = i == _currentPage;
                 return AnimatedContainer(
                   duration: const Duration(milliseconds: 200),
-                  margin:
-                      const EdgeInsets.symmetric(horizontal: WearSpacing.xs),
+                  margin: const EdgeInsets.symmetric(vertical: WearSpacing.xs),
                   width: isActive ? 8 : 6,
                   height: isActive ? 8 : 6,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: isActive
                         ? postalRed
-                        : Colors.white.withValues(alpha: 0.3),
+                        : Colors.white.withValues(alpha: 0.6),
                   ),
                 );
               }),

@@ -9,6 +9,7 @@ import {
   getPeriodKey,
   LeaderboardEntry,
 } from "./_leaderboardUtils";
+import { DELETED_UID } from "./_accountDeletion";
 
 const db = admin.firestore();
 
@@ -56,6 +57,9 @@ export async function rebuildPeriodLeaderboard(
   for (const doc of claimsSnap.docs) {
     const d = doc.data();
     const uid = d.userid as string;
+    // Skip claims anonymised by account deletion — aggregating them would
+    // resurrect a single "deleted" mega-entry on the rebuilt board.
+    if (uid === DELETED_UID) continue;
     const pts = (d.points as number | undefined) ?? 0;
     userPoints.set(uid, (userPoints.get(uid) ?? 0) + pts);
   }
@@ -79,7 +83,12 @@ export async function rebuildPeriodLeaderboard(
     entries.push({ uid, displayName, points: pts, ...(avatar ? { avatar } : {}) });
   }
 
-  entries.sort((a, b) => b.points - a.points);
+  // Sort matches mergePeriodEntries: descending by points, ties broken by uid
+  // ascending so the rebuilt board has the same ordering as one maintained
+  // incrementally by updateUserLeaderboards.
+  entries.sort((a, b) =>
+    (b.points - a.points) || (a.uid < b.uid ? -1 : a.uid > b.uid ? 1 : 0)
+  );
 
   // Only overwrite when the leaderboard still belongs to the previous period.
   // If storedPeriodKey already equals the current periodKey, updateUserLeaderboards

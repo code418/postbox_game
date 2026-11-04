@@ -1,7 +1,9 @@
 import "./adminInit";
+import { monitorAppCheck } from "./_appCheck";
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions";
-import * as functionsV1 from "firebase-functions/v1";
+import { onDocumentUpdated } from "firebase-functions/v2/firestore";
+import { FIRESTORE_TRIGGER_REGION } from "./_region";
 import { getTodayLondon } from "./_dateUtils";
 
 const database = admin.firestore();
@@ -29,6 +31,35 @@ export function diffFriends(before: string[], after: string[]): string[] {
 // ── Internal FCM send helper ──────────────────────────────────────────────
 
 /**
+ * The multicast message for one notification. iOS alerts are silent unless
+ * the APNs payload names a sound (Android plays its channel's sound), so
+ * `aps.sound` is set to keep the two platforms alike.
+ */
+export function buildPushMessage(
+  tokens: string[],
+  title: string,
+  body: string
+): admin.messaging.MulticastMessage {
+  return {
+    tokens,
+    notification: { title, body },
+    apns: { payload: { aps: { sound: "default" } } },
+  };
+}
+
+/**
+ * True for the FCM error codes that mean the token will never work again.
+ * not-registered: the app was uninstalled or the token revoked;
+ * invalid-registration-token: the string was never a valid FCM token.
+ */
+export function isStaleTokenError(code: string | undefined): boolean {
+  return (
+    code === "messaging/registration-token-not-registered" ||
+    code === "messaging/invalid-registration-token"
+  );
+}
+
+/**
  * Sends a push notification to all valid FCM tokens registered for `uid`.
  * Prunes any tokens that FCM reports as no longer registered.
  *
@@ -36,23 +67,30 @@ export function diffFriends(before: string[], after: string[]): string[] {
  * on the user document so they are not exposed to other authenticated users
  * through the world-readable `users/{uid}` Firestore rules.
  */
-async function sendToUser(uid: string, title: string, body: string): Promise<void> {
+export async function sendToUser(uid: string, title: string, body: string): Promise<void> {
   const doc = await database.collection("fcmTokens").doc(uid).get();
   const tokens: string[] = (doc.data()?.tokens as string[] | undefined) ?? [];
   if (tokens.length === 0) return;
 
-  const response = await admin.messaging().sendEachForMulticast({
-    tokens,
-    notification: { title, body },
-  });
+  const response = await admin.messaging().sendEachForMulticast(
+    buildPushMessage(tokens, title, body)
+  );
 
   const staleTokens: string[] = [];
   response.responses.forEach((r, idx) => {
-    if (
-      !r.success &&
-      r.error?.code === "messaging/registration-token-not-registered"
-    ) {
+    if (r.success) return;
+    const code = r.error?.code;
+    if (isStaleTokenError(code)) {
+      // Permanent: prune it so we stop sending to it.
       staleTokens.push(tokens[idx]);
+    } else {
+      // Anything else (e.g. messaging/third-party-auth-error when the APNs
+      // key is wrong) would otherwise vanish without trace. Never log the
+      // token itself.
+      console.warn(
+        `[sendToUser] FCM send failed for ${uid}: ${code ?? "unknown"}`,
+        r.error?.message
+      );
     }
   });
 
@@ -72,17 +110,19 @@ type UserData = Record<string, unknown> | undefined;
  * notification. False when the friend has already claimed today or has
  * explicitly disabled the notification.
  *
- * Treats today's claim as lastClaimDate === todayLondon rather than
- * dailyPoints > 0: dailyPoints is never reset server-side (the per-user
- * midnight sweep was removed for race-safety — see newDayScoreboard.ts),
- * so the stored value reflects whichever day's claim last touched it.
- * Using lastClaimDate ensures we only suppress when the friend has actually
- * claimed on London-today.
+ * "Claimed today" is determined by EITHER the dailyDate marker (written
+ * in the lifetime tx alongside dailyPoints) OR lastClaimDate (written in
+ * the separate streak tx) matching today. Either of the two transactions
+ * succeeding is evidence the user has actually claimed today; relying on
+ * only one would miss the case where the other half of the pair failed.
+ * Without a todayLondon argument we fall back to "dailyPoints > 0" (also
+ * a per-day stale-prone field, hence the optional explicit date).
  */
 export function shouldNotifyFirstClaim(fdata: UserData, todayLondon?: string): boolean {
+  const dailyDate = fdata?.dailyDate as string | undefined;
   const lastClaimDate = fdata?.lastClaimDate as string | undefined;
   const hasClaimedToday = todayLondon !== undefined
-    ? lastClaimDate === todayLondon
+    ? dailyDate === todayLondon || lastClaimDate === todayLondon
     : ((fdata?.dailyPoints as number | undefined) ?? 0) > 0;
   if (hasClaimedToday) return false;
   // Already notified about a different friend's first claim today — skip so
@@ -103,12 +143,13 @@ export function shouldNotifyFirstClaim(fdata: UserData, todayLondon?: string): b
  * AND `newDailyPoints > friendDaily`. Without the prev check, a user already ahead
  * of a friend would re-trigger the notification on every subsequent claim of the day.
  *
- * When `todayLondon` is provided, friends whose `lastClaimDate` is not today are
- * treated as having 0 daily points regardless of stored value. This guards
- * against stale `dailyPoints` left over from a previous day (the per-user
- * midnight sweep was removed for race-safety) inflating the threshold and
- * either suppressing legitimate overtakes or firing a notification against
- * a friend who hasn't actually scored today.
+ * When `todayLondon` is provided, the friend's stored `dailyPoints` is trusted
+ * only if their `dailyDate` marker matches today. The previous version trusted
+ * `lastClaimDate` instead, which is written by a separate streak transaction —
+ * if a friend's streak tx commits but the lifetime tx fails, `lastClaimDate`
+ * is today while `dailyPoints` is still yesterday's value, and we'd wrongly
+ * compare against an inflated threshold. Fall back to `lastClaimDate` for
+ * legacy users with no `dailyDate` field yet.
  */
 export function shouldNotifyOvertake(
   fdata: UserData,
@@ -117,9 +158,13 @@ export function shouldNotifyOvertake(
   todayLondon?: string
 ): boolean {
   if (!fdata) return false;
+  const dailyDate = fdata.dailyDate as string | undefined;
+  const lastClaimDate = fdata.lastClaimDate as string | undefined;
   const friendClaimedToday = todayLondon === undefined
     ? true
-    : (fdata.lastClaimDate as string | undefined) === todayLondon;
+    : dailyDate !== undefined
+      ? dailyDate === todayLondon
+      : lastClaimDate === todayLondon;
   const friendDaily = friendClaimedToday
     ? ((fdata.dailyPoints as number | undefined) ?? 0)
     : 0;
@@ -240,6 +285,7 @@ export async function notifyFriendOfAddition(
 // ── Callable: register device FCM token ──────────────────────────────────
 
 export const registerFcmToken = functions.https.onCall(async (request) => {
+  monitorAppCheck(request, "registerFcmToken");
   const uid = request.auth?.uid;
   if (!uid) {
     throw new functions.https.HttpsError(
@@ -272,23 +318,26 @@ export const registerFcmToken = functions.https.onCall(async (request) => {
 
 // ── Firestore trigger: friend added ──────────────────────────────────────
 
-export const onFriendAdded = functionsV1.firestore
-  .document("users/{uid}")
-  .onUpdate(async (change, context) => {
-    const uid: string = context.params.uid;
-    const before: string[] =
-      (change.before.data()?.friends as string[] | undefined) ?? [];
-    const after: string[] =
-      (change.after.data()?.friends as string[] | undefined) ?? [];
+// 2nd-gen Firestore trigger in europe-west4 (eur3's Eventarc region); eur3 has
+// no Gen1 Firestore triggers. See FIRESTORE_TRIGGER_REGION in _region.ts.
+export const onFriendAdded = onDocumentUpdated(
+  { document: "users/{uid}", region: FIRESTORE_TRIGGER_REGION },
+  async (event) => {
+    const uid = event.params.uid;
+    const before =
+      (event.data?.before.data()?.friends as string[] | undefined) ?? [];
+    const after =
+      (event.data?.after.data()?.friends as string[] | undefined) ?? [];
 
     const newFriends = diffFriends(before, after);
     if (newFriends.length === 0) return;
 
     const adderDisplayName =
-      (change.after.data()?.displayName as string | undefined) ||
+      (event.data?.after.data()?.displayName as string | undefined) ||
       `Player_${uid.slice(0, 6)}`;
 
     await Promise.allSettled(
       newFriends.map((fuid) => notifyFriendOfAddition(fuid, adderDisplayName))
     );
-  });
+  },
+);

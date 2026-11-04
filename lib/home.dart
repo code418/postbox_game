@@ -1,6 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:postbox_game/admin/admin_abuse_screen.dart';
+import 'package:postbox_game/admin/admin_access.dart';
+import 'package:postbox_game/admin/admin_remote_config_screen.dart';
+import 'package:postbox_game/admin/admin_reports_screen.dart';
 import 'package:postbox_game/analytics_service.dart';
+import 'package:postbox_game/analytics_user_properties.dart';
 import 'package:postbox_game/claim.dart';
 import 'package:postbox_game/claim_history_screen.dart';
 import 'package:postbox_game/friends_screen.dart';
@@ -10,7 +17,14 @@ import 'package:postbox_game/james_messages.dart';
 import 'package:postbox_game/james_strip.dart';
 import 'package:postbox_game/leaderboard_screen.dart';
 import 'package:postbox_game/nearby.dart';
+import 'package:postbox_game/services/crashlytics_helper.dart';
+import 'package:postbox_game/services/pending_invite_store.dart';
+import 'package:postbox_game/widgets/invite_accept_flow.dart';
+import 'package:postbox_game/reports/my_reports_screen.dart';
 import 'package:postbox_game/theme.dart';
+import 'package:postbox_game/widgets/maintenance_banner.dart';
+import 'package:postbox_game/widgets/offline_banner.dart';
+import 'package:postbox_game/services/outbox_sync.dart';
 
 class Home extends StatefulWidget {
   const Home({super.key, this.initialIndex = 0, this.autoScan = false});
@@ -27,9 +41,11 @@ class Home extends StatefulWidget {
   State<Home> createState() => _HomeState();
 }
 
-class _HomeState extends State<Home> {
+class _HomeState extends State<Home> with WidgetsBindingObserver {
   late int _selectedIndex = widget.initialIndex;
   late final JamesController _jamesController = JamesController();
+  bool _isAdmin = false;
+  bool _inviteFlowRunning = false;
 
   static const _destinations = [
     NavigationDestination(
@@ -59,6 +75,19 @@ class _HomeState extends State<Home> {
     ),
   ];
 
+  // Tab names indexed by NavigationBar position, shared by the Analytics
+  // `tab_selected` event and the Crashlytics `active_tab` key.
+  static const List<String> _tabNames = [
+    'nearby',
+    'claim',
+    'scores',
+    'friends',
+    'history',
+  ];
+
+  String _tabName(int i) =>
+      (i >= 0 && i < _tabNames.length) ? _tabNames[i] : 'unknown';
+
   // Keep screens alive via IndexedStack. `autoScan` is only forwarded on
   // first build; re-entering the Claim tab later won't retrigger a scan
   // because the widget is preserved by IndexedStack.
@@ -71,9 +100,77 @@ class _HomeState extends State<Home> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    // Narrate offline-outbox flushes through James (v1.5 offline play): the
+    // sync fires lastSummary whenever a flush settles banked captures.
+    OutboxSync.instance.lastSummary.addListener(_onFlushSummary);
+    // Invite links: one opened before sign-in was parked by main.dart and is
+    // picked up on the first frame; one opened while Home is up bumps the
+    // signal.
+    PendingInviteStore.signal.addListener(_takePendingInvite);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _takePendingInvite());
+    CrashlyticsHelper.setContext(
+        CrashlyticsHelper.keyActiveTab, _tabName(_selectedIndex));
+    // The "Admin · Reports" menu item only appears for users holding the
+    // `admin` custom claim. Force a token refresh so a recently-granted claim
+    // shows up without requiring the user to sign out and back in.
+    AdminAccess.isAdmin(forceRefresh: true).then((isAdmin) {
+      // Mirror the resolved custom claim into Analytics so Remote Config
+      // audiences can target admins / non-admins. Always push, even when
+      // false, so a non-admin device doesn't silently inherit a stale
+      // "true" from a previous account.
+      Analytics.setUserProperty(
+          AnalyticsUserProps.kIsAdmin, boolProp(isAdmin));
+      if (mounted && isAdmin) setState(() => _isAdmin = true);
+    });
+  }
+
+  @override
   void dispose() {
+    OutboxSync.instance.lastSummary.removeListener(_onFlushSummary);
+    PendingInviteStore.signal.removeListener(_takePendingInvite);
+    WidgetsBinding.instance.removeObserver(this);
     _jamesController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // App-resume is a natural "the link may be back" moment: flush any
+    // banked offline captures (no-op when the outbox is empty).
+    if (state == AppLifecycleState.resumed) {
+      unawaited(OutboxSync.instance.flushNow());
+    }
+  }
+
+  /// Acts on a parked invite: confirm with the player, make the friendship,
+  /// then show the Friends tab so they can see who they've just added. The
+  /// store is cleared before the dialog, so a Home remount (e.g. a widget
+  /// tap) can't show the same invite twice.
+  Future<void> _takePendingInvite() async {
+    if (_inviteFlowRunning || !mounted) return;
+    _inviteFlowRunning = true;
+    try {
+      final code = await PendingInviteStore.take();
+      if (code == null || !mounted) return;
+      final added = await runInviteAcceptFlow(context, code);
+      if (added && mounted) setState(() => _selectedIndex = 3);
+    } finally {
+      _inviteFlowRunning = false;
+    }
+  }
+
+  void _onFlushSummary() {
+    final summary = OutboxSync.instance.lastSummary.value;
+    if (summary == null || !mounted) return;
+    if (summary.claimed > 0) {
+      _jamesController
+          .show(JamesMessages.offlineFlushed(summary.claimed, summary.points));
+    } else if (summary.rejected > 0) {
+      _jamesController.show(JamesMessages.offlineFlushRejected.resolve());
+    }
   }
 
   @override
@@ -92,6 +189,8 @@ class _HomeState extends State<Home> {
                   Colors.white,
                   BlendMode.srcIn,
                 ),
+                // Decorative — the "Postbox Game" text is what announces.
+                excludeFromSemantics: true,
               ),
               const SizedBox(width: AppSpacing.sm),
               const Text('Postbox Game'),
@@ -111,9 +210,68 @@ class _HomeState extends State<Home> {
                         builder: (_) => const Intro(replay: true),
                       ),
                     );
+                  case 'myReports':
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const MyReportsScreen()),
+                    );
+                  case 'adminReports':
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const AdminReportsScreen()),
+                    );
+                  case 'adminAbuse':
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const AdminAbuseScreen()),
+                    );
+                  case 'adminRemoteConfig':
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const AdminRemoteConfigScreen()),
+                    );
                 }
               },
               itemBuilder: (_) => [
+                const PopupMenuItem(
+                  value: 'myReports',
+                  child: ListTile(
+                    leading: Icon(Icons.flag_outlined),
+                    title: Text('My reports'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+                if (_isAdmin)
+                  const PopupMenuItem(
+                    value: 'adminReports',
+                    child: ListTile(
+                      leading: Icon(Icons.admin_panel_settings_outlined),
+                      title: Text('Admin · Reports'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                if (_isAdmin)
+                  const PopupMenuItem(
+                    value: 'adminAbuse',
+                    child: ListTile(
+                      leading: Icon(Icons.gpp_maybe_outlined),
+                      title: Text('Admin · Abuse'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                if (_isAdmin)
+                  const PopupMenuItem(
+                    value: 'adminRemoteConfig',
+                    child: ListTile(
+                      leading: Icon(Icons.tune_outlined),
+                      title: Text('Admin · Remote Config'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
                 const PopupMenuItem(
                   value: 'settings',
                   child: ListTile(
@@ -134,17 +292,25 @@ class _HomeState extends State<Home> {
             ),
           ],
         ),
-        body: Stack(
+        body: Column(
           children: [
-            IndexedStack(
-              index: _selectedIndex,
-              children: _pages,
-            ),
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: JamesStrip(controller: _jamesController),
+            const MaintenanceBanner(),
+            const OfflineBanner(),
+            Expanded(
+              child: Stack(
+                children: [
+                  IndexedStack(
+                    index: _selectedIndex,
+                    children: _pages,
+                  ),
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: JamesStrip(controller: _jamesController),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -152,9 +318,10 @@ class _HomeState extends State<Home> {
           selectedIndex: _selectedIndex,
           onDestinationSelected: (i) {
             setState(() => _selectedIndex = i);
-            const tabNames = ['nearby', 'claim', 'scores', 'friends', 'history'];
-            final tabName = i >= 0 && i < tabNames.length ? tabNames[i] : 'unknown';
+            final tabName = _tabName(i);
             Analytics.tabSelected(index: i, name: tabName);
+            CrashlyticsHelper.setContext(
+                CrashlyticsHelper.keyActiveTab, tabName);
             final msg = JamesMessages.forTabIndex(i);
             if (msg != null) _jamesController.show(msg.resolve());
           },

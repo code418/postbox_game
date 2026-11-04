@@ -7,10 +7,12 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:postbox_game/authentication_bloc/bloc.dart';
 import 'package:postbox_game/login/bloc/bloc.dart';
 import 'package:postbox_game/login/create_account_button.dart';
+import 'package:postbox_game/login/apple_login_button.dart';
 import 'package:postbox_game/login/google_login_button.dart';
 import 'package:postbox_game/login/login_button.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/user_repository.dart';
+import 'package:postbox_game/validators.dart';
 
 class LoginForm extends StatefulWidget {
   final UserRepository _userRepository;
@@ -106,6 +108,9 @@ class _LoginFormState extends State<LoginForm> {
                                 ? Icons.visibility_outlined
                                 : Icons.visibility_off_outlined,
                           ),
+                          tooltip: _obscurePassword
+                              ? 'Show password'
+                              : 'Hide password',
                           onPressed: () => setState(
                               () => _obscurePassword = !_obscurePassword),
                         ),
@@ -118,7 +123,7 @@ class _LoginFormState extends State<LoginForm> {
                       },
                       validator: (_) {
                         return !state.isPasswordValid
-                            ? 'Password must be at least 6 characters'
+                            ? 'Password must be at least ${Validators.minPasswordChars} characters'
                             : null;
                       },
                     ),
@@ -138,7 +143,14 @@ class _LoginFormState extends State<LoginForm> {
                           ? _onFormSubmitted
                           : null,
                     ),
-                    if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) ...[
+                    // Phone and web only (not desktop). Apple and Google on
+                    // the web use Firebase popups; Apple on Android uses a
+                    // Custom Tab. See UserRepository.signInWithApple.
+                    if (kIsWeb || Platform.isAndroid || Platform.isIOS) ...[
+                      const SizedBox(height: AppSpacing.sm),
+                      const AppleLoginButton(),
+                    ],
+                    if (kIsWeb || Platform.isAndroid || Platform.isIOS) ...[
                       const SizedBox(height: AppSpacing.sm),
                       const GoogleLoginButton(),
                     ],
@@ -219,6 +231,7 @@ class _LoginFormState extends State<LoginForm> {
               child: const Text('Cancel'),
             ),
             FilledButton(
+              style: dialogActionStyle(),
               onPressed: () {
                 WidgetsBinding.instance.addPostFrameCallback((_) {
                   if (mounted) Navigator.of(context).pop(true);

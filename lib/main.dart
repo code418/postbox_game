@@ -4,10 +4,15 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:postbox_game/authentication_bloc/bloc.dart';
+import 'package:postbox_game/services/claim_outbox.dart';
+import 'package:postbox_game/services/connectivity_service.dart';
+import 'package:postbox_game/services/outbox_sync.dart';
+import 'package:postbox_game/services/scan_cache.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/claim.dart';
 import 'package:postbox_game/claim_history_screen.dart';
 import 'package:postbox_game/friends_screen.dart';
+import 'package:postbox_game/consent_screen.dart';
 import 'package:postbox_game/home.dart';
 import 'package:postbox_game/leaderboard_screen.dart';
 import 'package:postbox_game/intro.dart';
@@ -20,29 +25,121 @@ import 'package:postbox_game/splash.dart';
 import 'package:postbox_game/user_repository.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:home_widget/home_widget.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'dart:io' show Platform;
 import 'firebase_options.dart';
+import 'oauth_client_ids.dart';
 import 'secrets.dart';
 import 'analytics_service.dart';
+import 'package:postbox_game/admin/admin_access.dart';
+import 'package:postbox_game/analytics_user_properties.dart';
 import 'package:postbox_game/notification_service.dart';
+import 'package:postbox_game/remote_config_service.dart';
+import 'package:postbox_game/deep_links.dart';
+import 'package:postbox_game/services/crashlytics_helper.dart';
+import 'package:postbox_game/services/pending_invite_store.dart';
+import 'package:postbox_game/services/telemetry_consent.dart';
+import 'package:postbox_game/route/destination_picker_screen.dart';
+import 'package:postbox_game/route/route_notifications.dart';
+import 'package:postbox_game/services/user_properties_publisher.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:app_links/app_links.dart';
+
+// Deep-link parsing and the unknown-route guard live in deep_links.dart so the
+// Wear entry point can share them. Re-exported so existing importers (and the
+// tests that pin the Kotlin DEEP_LINK contract) keep resolving them here.
+export 'package:postbox_game/deep_links.dart'
+    show isClaimDeepLink, isWidgetClaimDeepLink, unknownRoute;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
-  await FirebaseAppCheck.instance.activate(
-    providerWeb: ReCaptchaV3Provider(kRecaptchaSiteKey),
-    // Debug provider is only safe for local development; release builds must use
-    // Play Integrity to actually enforce App Check.
-    providerAndroid: kDebugMode
-        ? const AndroidDebugProvider()
-        : const AndroidPlayIntegrityProvider(),
-    providerApple: const AppleAppAttestProvider(),
+  // On Android the native FirebaseInitProvider auto-initializes the [DEFAULT]
+  // app from google-services.json before main() runs. In release/AOT builds it
+  // wins the race, so calling initializeApp() again throws [core/duplicate-app]
+  // — which, thrown here before runApp(), leaves a blank screen that Google
+  // Play flags as a crash-on-launch. Guard so initialization is idempotent.
+  if (Firebase.apps.isEmpty) {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+  }
+  // Route uncaught framework + platform errors to Crashlytics as fatals —
+  // except image-resource failures (offline map tiles), which are downgraded to
+  // a deduped non-fatal so a blank tile doesn't read as a crash. See
+  // [CrashlyticsHelper.reportFlutterError].
+  FlutterError.onError = CrashlyticsHelper.reportFlutterError;
+  WidgetsBinding.instance.platformDispatcher.onError = (error, stack) {
+    FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+    return true;
+  };
+  // Apply the stored GDPR telemetry consent to Analytics/Crashlytics/Perf in
+  // one place (analytics is opt-in and starts manifest-disabled; crash/perf
+  // are legitimate-interest with Settings opt-outs, still off in debug).
+  unawaited(applyStoredTelemetryPreferences());
+  unawaited(
+      CrashlyticsHelper.setContext(CrashlyticsHelper.keySurface, 'phone'));
+  try {
+    await FirebaseAppCheck.instance.activate(
+      // reCAPTCHA Enterprise (score-based website key). Only the site key is
+      // used client-side; App Check verifies tokens through the project's
+      // reCAPTCHA Enterprise API, so no secret key is involved.
+      providerWeb: ReCaptchaEnterpriseProvider(kRecaptchaSiteKey),
+      // Debug provider is only safe for local development; release builds must use
+      // Play Integrity to actually enforce App Check.
+      providerAndroid: kDebugMode
+          ? const AndroidDebugProvider()
+          : const AndroidPlayIntegrityProvider(),
+      providerApple: const AppleAppAttestProvider(),
+    );
+  } catch (e, st) {
+    // An App Check provider/token failure shouldn't block launch — record it as
+    // a non-fatal (deduped: provider outages would otherwise spam every start).
+    unawaited(CrashlyticsHelper.recordHandled(e, st,
+        reason: 'app_check_activate', dedupeKey: 'app_check_activate'));
+  }
+  // google_sign_in 7.x needs explicit client IDs to issue an ID token usable
+  // by Firebase signInWithCredential. The Web client ID (Firebase Auth's
+  // OAuth client of type 3 from google-services.json) doubles as the
+  // Android serverClientId. iOS reads the iOS-type client ID from
+  // GoogleService-Info.plist when no clientId is passed, but we pass it
+  // explicitly so Firebase Auth's iosClientId stays authoritative.
+  // Both IDs live in lib/oauth_client_ids.dart so main_wear.dart can share
+  // them without duplicating the literals (a drift would break Sign-In on
+  // one platform). They are not secrets.
+  await GoogleSignIn.instance.initialize(
+    clientId: kIsWeb
+        ? webClientId
+        : (!kIsWeb && Platform.isIOS)
+            ? iosClientId
+            : null,
+    serverClientId: kIsWeb ? null : webClientId,
   );
   await HomeWidgetService.init();
   await _checkInitialWidgetLaunch();
+  await RouteNotifications.initialise();
+  // Defaults serve immediately; the fetch runs in the background so the splash
+  // never blocks on a Remote Config round-trip. Errors are logged and swallowed
+  // inside init().
+  unawaited(RemoteConfigService.instance.init());
+  // Offline play (v1.5): connectivity awareness + auto-flush of banked claims
+  // whenever the link returns. Both are best-effort and never block startup.
+  unawaited(ConnectivityService.instance.init());
+  OutboxSync.instance.start();
   runApp(const PostboxGame());
+}
+
+/// Coarse auth-provider label for the Crashlytics `auth_state` key. Never PII —
+/// just which sign-in method is active (`google` / `apple` / `email` / `anon`).
+String _authStateLabel(User? user) {
+  if (user == null) return 'signed_out';
+  if (user.isAnonymous) return 'anon';
+  final providers = user.providerData.map((p) => p.providerId).toSet();
+  if (providers.contains('google.com')) return 'google';
+  if (providers.contains('apple.com')) return 'apple';
+  if (providers.contains('password')) return 'email';
+  return 'unknown';
 }
 
 /// True when the process was launched from the home-screen widget deep link
@@ -53,8 +150,7 @@ bool _pendingWidgetAutoScan = false;
 Future<void> _checkInitialWidgetLaunch() async {
   try {
     final uri = await HomeWidget.initiallyLaunchedFromHomeWidget();
-    if (uri != null && uri.host == 'claim' &&
-        uri.queryParameters['source'] == 'widget') {
+    if (isWidgetClaimDeepLink(uri)) {
       _pendingWidgetAutoScan = true;
     }
   } catch (_) {
@@ -69,41 +165,88 @@ class PostboxGame extends StatefulWidget {
   State<PostboxGame> createState() => _PostboxGameState();
 }
 
-class _PostboxGameState extends State<PostboxGame> {
+class _PostboxGameState extends State<PostboxGame> with WidgetsBindingObserver {
   final UserRepository _userRepository = UserRepository();
   final HomeWidgetService _homeWidgetService = HomeWidgetService();
   StreamSubscription<Uri?>? _widgetClickSub;
-  // Monotonic counter of widget-deep-link activations. Each increment is used
-  // as part of the Home widget's key so a widget tap while the app is warm
+  StreamSubscription<Uri>? _appLinkSub;
+  // Widget-deep-link activations. Each tap bumps the epoch, which is used as
+  // part of the Home widget's key so a widget tap while the app is warm
   // (already authenticated) forces a fresh Home + Claim mount rather than
   // re-using the existing _HomeState — the previous _pages/_selectedIndex
   // were initialised from `late final` fields and would otherwise ignore the
-  // new autoScan/initialIndex props.
-  int _autoScanEpoch = _pendingWidgetAutoScan ? 1 : 0;
+  // new autoScan/initialIndex props. Reset on sign-out (see the class).
+  final WidgetAutoScanRequests _autoScan =
+      WidgetAutoScanRequests(launchedFromWidget: _pendingWidgetAutoScan);
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     // Consume the one-shot flag so a cold-start deep-link fires a single
     // auto-scan. Subsequent widget taps (while the app is in memory) are
     // handled by the widgetClicked stream below.
     _pendingWidgetAutoScan = false;
     try {
       _widgetClickSub = HomeWidget.widgetClicked.listen((uri) {
-        if (uri != null && uri.host == 'claim' &&
-            uri.queryParameters['source'] == 'widget') {
-          setState(() => _autoScanEpoch++);
+        if (isWidgetClaimDeepLink(uri)) {
+          setState(_autoScan.tapped);
         }
       });
     } catch (_) {
       // home_widget unsupported on this platform.
     }
+    // Invite links (App Links / Universal Links and the invite page's
+    // custom scheme). The stream also delivers the link that cold-started
+    // the app. The invite is parked rather than acted on here: the opener is
+    // usually not signed in yet, and Home takes it once it mounts. The
+    // web build is skipped: it has no app to open, and app_links only
+    // replays the page URL there.
+    if (!kIsWeb) {
+      try {
+        // onError: a missing plugin (tests, unsupported hosts) surfaces as
+        // a stream error, which would otherwise be an uncaught async error.
+        _appLinkSub =
+            AppLinks().uriLinkStream.listen(_onAppLink, onError: (_) {});
+      } catch (_) {
+        // app_links unsupported on this platform.
+      }
+    }
+  }
+
+  void _onAppLink(Uri uri) {
+    final code = parseInviteLink(uri);
+    if (code == null) return;
+    unawaited(Analytics.inviteLinkOpened(
+        source: uri.scheme == kInviteScheme ? 'scheme' : 'link'));
+    unawaited(PendingInviteStore.save(code));
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _widgetClickSub?.cancel();
+    _appLinkSub?.cancel();
     super.dispose();
+  }
+
+  /// Refresh the Android home-screen widget when the app comes back to the
+  /// foreground. Without this, data goes stale across:
+  ///   - daily rollover at midnight London (today's points/streak should reset),
+  ///   - claims made on the paired Wear OS watch (no path back to the phone
+  ///     widget refresh otherwise), and
+  ///   - external rescores (e.g. an admin accepting a wrong-cypher report).
+  /// Phone-side claims still call refresh() directly for instant feedback.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_homeWidgetService.refresh());
+      // Pick up a notification grant made in system settings while away.
+      // Non-prompting, and a no-op once registered.
+      if (FirebaseAuth.instance.currentUser != null) {
+        unawaited(NotificationService.init());
+      }
+    }
   }
 
   /// Redirects to login when accessing protected named routes while unauthenticated.
@@ -113,7 +256,9 @@ class _PostboxGameState extends State<PostboxGame> {
     return BlocBuilder<AuthenticationBloc, AuthenticationState?>(
       builder: (context, state) {
         if (state is Authenticated) return page();
-        if (state is Unauthenticated) return LoginScreen(userRepository: _userRepository);
+        if (state is Unauthenticated) {
+          return LoginScreen(userRepository: _userRepository);
+        }
         return const Splash();
       },
     );
@@ -133,11 +278,41 @@ class _PostboxGameState extends State<PostboxGame> {
           home: BlocConsumer<AuthenticationBloc, AuthenticationState?>(
             listener: (context, state) {
               if (state is Authenticated) {
+                _autoScan.signedIn();
                 unawaited(NotificationService.init());
                 unawaited(_homeWidgetService.refresh());
+                // Force a fresh Remote Config fetch on login (bypassing the
+                // 1-hour throttle) so a stale client cache can't hide a
+                // corrected game-balance value (claim radius / monarch points).
+                unawaited(RemoteConfigService.instance.forceRefresh());
+                final user = FirebaseAuth.instance.currentUser;
+                unawaited(CrashlyticsHelper.setContext(
+                    CrashlyticsHelper.keyAuthState, _authStateLabel(user)));
+                final uid = user?.uid;
+                // The outbox is device-global but user-bound: recount it
+                // against whoever just signed in.
+                unawaited(ClaimOutbox.instance.refreshOwnership());
+                if (uid != null) {
+                  unawaited(Analytics.setUserId(uid));
+                  unawaited(publishUserPropertiesFromFirestore(uid));
+                }
               } else if (state is Unauthenticated) {
+                // Read by the builder that runs right after this listener.
+                _autoScan.signedOut();
                 unawaited(NotificationService.reset());
                 unawaited(_homeWidgetService.refresh());
+                // Forget any admin-claim result cached against the previous
+                // uid so a non-admin signing in next on the same device
+                // doesn't briefly see the admin entry points.
+                AdminAccess.reset();
+                // Same reasoning for the offline caches: the scan cache holds
+                // the previous user's results and capture token, and the
+                // outbox's pending count is per-account.
+                ScanCache.clear();
+                unawaited(ClaimOutbox.instance.refreshOwnership());
+                unawaited(Analytics.setUserId(null));
+                unawaited(CrashlyticsHelper.setContext(
+                    CrashlyticsHelper.keyAuthState, 'signed_out'));
               }
             },
             builder: (BuildContext context, AuthenticationState? state) {
@@ -148,19 +323,25 @@ class _PostboxGameState extends State<PostboxGame> {
                 return _UnauthGate(userRepository: _userRepository);
               }
               if (state is Authenticated) {
-                if (_autoScanEpoch > 0) {
+                // ConsentGate is a pass-through for anyone who has made the
+                // analytics choice (new users decide in the intro); existing
+                // installs get a one-time consent prompt before Home.
+                final autoScanEpoch = _autoScan.epoch;
+                if (autoScanEpoch > 0) {
                   // Keying on the epoch forces a fresh Home + Claim mount on
                   // each widget tap. Without the key, Flutter reconciles the
                   // existing _HomeState whose `late final _pages` was built
                   // with autoScan=false, so the new props are ignored and no
                   // scan fires.
-                  return Home(
-                    key: ValueKey('claim-widget-$_autoScanEpoch'),
-                    initialIndex: 1,
-                    autoScan: true,
+                  return ConsentGate(
+                    child: Home(
+                      key: ValueKey('claim-widget-$autoScanEpoch'),
+                      initialIndex: 1,
+                      autoScan: true,
+                    ),
                   );
                 }
-                return const Home();
+                return const ConsentGate(child: Home());
               }
               return const Splash();
             },
@@ -168,14 +349,20 @@ class _PostboxGameState extends State<PostboxGame> {
           routes: {
             '/nearby': (context) => _guardRoute(context, () => const Nearby()),
             '/claim': (context) => _guardRoute(context, () => const Claim()),
-            '/friends': (context) => _guardRoute(context, () => const FriendsScreen()),
-            '/leaderboard': (context) => _guardRoute(context, () => const LeaderboardScreen()),
-            '/history': (context) => _guardRoute(context, () => const ClaimHistoryScreen()),
-            '/settings': (context) => _guardRoute(context, () => const SettingsScreen()),
-          }),
+            '/friends': (context) =>
+                _guardRoute(context, () => const FriendsScreen()),
+            '/leaderboard': (context) =>
+                _guardRoute(context, () => const LeaderboardScreen()),
+            '/history': (context) =>
+                _guardRoute(context, () => const ClaimHistoryScreen()),
+            '/settings': (context) =>
+                _guardRoute(context, () => const SettingsScreen()),
+            '/route': (context) =>
+                _guardRoute(context, () => const DestinationPickerScreen()),
+          },
+          onUnknownRoute: unknownRoute),
     );
   }
-
 }
 
 /// Shows intro on first run, then login. Subsequent launches go straight to login.
@@ -207,7 +394,18 @@ class _UnauthGateState extends State<_UnauthGate> {
       return Intro(
         replay: false,
         onDone: () async {
-          await IntroPreferences.setIntroSeen();
+          // Never let this write stand between the player and sign-in. The
+          // intro latches its final button, so a throw here (or a hang: the
+          // SharedPreferences channel hangs rather than throws when it's
+          // down) left them on the intro with a button that did nothing. The
+          // worst a failed write costs is seeing the intro again next launch.
+          try {
+            await IntroPreferences.setIntroSeen()
+                .timeout(const Duration(seconds: 3));
+          } catch (_) {}
+          unawaited(Analytics.setUserProperty(
+              AnalyticsUserProps.kHasSeenIntro, 'true'));
+          unawaited(Analytics.tutorialComplete());
           if (mounted) setState(() => _introSeen = true);
         },
       );

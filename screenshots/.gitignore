@@ -1,0 +1,5 @@
+# Raw device captures contain UNBLURRED PII (real usernames, account UID, display
+# name). Never commit them. The composited marketing/ finals are PII-redacted.
+raw/
+work/
+fonts/

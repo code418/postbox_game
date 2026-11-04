@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Wear OS branded launch: 48x48dp app icon centred on a black background,
+     per the Wear App Quality "Branded launch" requirement. Overrides the main
+     (white, icon-less) launch_background for the wear flavour only. Used as the
+     windowBackground splash on Wear OS 3 (API 30); on API 31+ the system
+     SplashScreen API takes over (see values-v31/styles.xml). -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@android:color/black" />
+    <item
+        android:drawable="@mipmap/ic_launcher"
+        android:width="48dp"
+        android:height="48dp"
+        android:gravity="center" />
+</layer-list>

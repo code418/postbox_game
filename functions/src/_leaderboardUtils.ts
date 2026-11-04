@@ -50,7 +50,10 @@ export interface LeaderboardEntry {
  * - Removes any prior entry for `uid`.
  * - Adds a new entry if `userPoints > 0`; omits it if zero (name-change
  *   before first claim in a period should not add a 0-point entry).
- * - Sorts descending by points and caps at `limit` entries (default 100).
+ * - Sorts descending by points, with ties broken deterministically by `uid`
+ *   (ascending) so two users on identical scores get a stable ranking that
+ *   doesn't shift on every leaderboard refresh.
+ * - Caps at `limit` entries (default 100).
  */
 export function mergePeriodEntries(
   existing: LeaderboardEntry[],
@@ -67,7 +70,7 @@ export function mergePeriodEntries(
       ? [{ uid, displayName, points: userPoints, ...(avatar ? { avatar } : {}) }]
       : []),
   ]
-    .sort((a, b) => b.points - a.points)
+    .sort((a, b) => (b.points - a.points) || (a.uid < b.uid ? -1 : a.uid > b.uid ? 1 : 0))
     .slice(0, limit);
 }
 
@@ -166,6 +169,31 @@ export async function updateUserLeaderboards(
   return sums;
 }
 
+/**
+ * Slugify a UK county / unitary authority name into the form used as the
+ * Firestore document ID under leaderboards/lifetime_by_county/{slug} and
+ * users/{uid}/countyStats/{slug}.
+ *
+ * Lower-cases, strips diacritics, and collapses non-alphanumeric runs to a
+ * single hyphen. Must stay in sync with the slug() helper in
+ * functions/util/county_lookup.js (server import) and the slugs baked into
+ * assets/uk_counties_simplified.geojson (Flutter heatmap).
+ *
+ *   "City of Edinburgh"   → "city-of-edinburgh"
+ *   "Bristol, City of"    → "bristol-city-of"
+ *   "  Cornwall  "        → "cornwall"
+ */
+export function countySlug(name: string): string | null {
+  if (!name) return null;
+  const slug = name
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+  return slug || null;
+}
+
 export interface LifetimeLeaderboardEntry {
   uid: string;
   displayName: string;
@@ -180,8 +208,10 @@ export interface LifetimeLeaderboardEntry {
  *
  * - Removes any prior entry for `uid`.
  * - Adds an entry if either `uniquePostboxesClaimed > 0` or `totalPoints > 0`.
- * - Sorts descending by `uniquePostboxesClaimed` (secondary: totalPoints) and
- *   caps at `limit` entries (default 100).
+ * - Sorts descending by `uniquePostboxesClaimed`, then descending by
+ *   `totalPoints`, then ascending by `uid` so identical scores get a stable
+ *   ranking that doesn't shift on every leaderboard refresh.
+ * - Caps at `limit` entries (default 100).
  */
 export function mergeLifetimeEntries(
   existing: LifetimeLeaderboardEntry[],
@@ -199,11 +229,13 @@ export function mergeLifetimeEntries(
       ? [{ uid, displayName, uniquePostboxesClaimed, totalPoints, ...(avatar ? { avatar } : {}) }]
       : []),
   ]
-    .sort((a, b) =>
-      b.uniquePostboxesClaimed !== a.uniquePostboxesClaimed
-        ? b.uniquePostboxesClaimed - a.uniquePostboxesClaimed
-        : b.totalPoints - a.totalPoints
-    )
+    .sort((a, b) => {
+      if (b.uniquePostboxesClaimed !== a.uniquePostboxesClaimed) {
+        return b.uniquePostboxesClaimed - a.uniquePostboxesClaimed;
+      }
+      if (b.totalPoints !== a.totalPoints) return b.totalPoints - a.totalPoints;
+      return a.uid < b.uid ? -1 : a.uid > b.uid ? 1 : 0;
+    })
     .slice(0, limit);
 }
 

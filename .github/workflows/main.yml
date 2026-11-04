@@ -4,15 +4,25 @@ on:
   pull_request:
     branches:
       - master
+  # Work lands on master directly as often as it arrives via a PR, and until
+  # now those commits were never built or tested by CI at all — the checks
+  # only ever ran against a proposed merge. Free for public repos, and the
+  # pricey macOS job stays workflow_dispatch-only regardless.
+  push:
+    branches:
+      - master
+  # Allow running the (pricier) macOS iOS build on demand from the Actions tab
+  # without opening a PR.
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           distribution: 'temurin'
           java-version: '17'
@@ -22,6 +32,139 @@ jobs:
           flutter-version: '3.x'
           channel: 'stable'
 
+      - name: Create secrets.dart from example (CI placeholder)
+        run: |
+          if [ ! -f lib/secrets.dart ]; then
+            cp lib/secrets.dart.example lib/secrets.dart
+          fi
+
       - run: flutter pub get
+      # Catches lint warnings + type errors that the test runner doesn't surface.
+      - run: flutter analyze
       - run: flutter test
       - run: flutter build web
+
+      # Android is the shipping target, but CI only ever built web — so a
+      # Gradle/AGP configuration error, the kind that fails at configuration
+      # time and therefore breaks EVERY variant and every task, could reach
+      # master with all checks green. Debug build because it needs no signing
+      # (android/key.properties is gitignored); google-services.json is
+      # committed, so nothing else is required. One flavour is enough: a
+      # configuration-time break takes them all down together.
+      - run: flutter build apk --debug --flavor phone -t lib/main.dart
+
+      # The Android Auto surface is Kotlin in the `auto` flavour with no Dart
+      # tests at all — the native-edge blind spot where client/server contract
+      # bugs have historically clustered. These JVM unit tests are the only
+      # automated coverage it has, and until now they ran only if someone
+      # remembered to invoke Gradle by hand.
+      - name: Android Auto unit tests
+        working-directory: android
+        run: ./gradlew :app:testAutoDebugUnitTest --console=plain
+
+      # The wear flavour now has its own manifest merge (tile + complication
+      # services), its own Kotlin source set and flavour-scoped
+      # tiles/protolayout dependencies. The phone APK above cannot catch a
+      # wear-only manifest-merge or dependency-resolution failure — and unlike
+      # `auto`, this variant IS Play-bound, so a break here is a break in a
+      # shipping AAB.
+      - run: flutter build apk --debug --flavor wear -t lib/main_wear.dart
+
+      # Same reasoning as the Auto tests: the Wear tile and complications are
+      # Kotlin with no widget test reaching them. These pin the London-date
+      # freshness rules that stop the tile presenting yesterday's points as
+      # today's.
+      - name: Wear OS unit tests
+        working-directory: android
+        run: ./gradlew :app:testWearDebugUnitTest --console=plain
+
+  # Compiles the iOS app on a macOS runner. Proves the whole iOS toolchain is
+  # healthy — CocoaPods resolves the Firebase 12.x pods against the iOS 16
+  # deployment target, and Dart compiles/links to a native Runner.app — WITHOUT
+  # needing a paid Apple Developer account or signing certificates. This is the
+  # only way to build for iOS without a Mac of your own.
+  #
+  # macOS runners bill at 10x the Linux rate, so this is manual-only: trigger it
+  # from the Actions tab ("Run workflow") when the iOS side has changed.
+  build-ios:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      # Signed build + TestFlight upload runs only once all signing secrets are
+      # set (repo Settings -> Secrets and variables -> Actions); until then the
+      # job falls back to the unsigned compile check.
+      HAS_SIGNING: ${{ secrets.IOS_DIST_CERT_P12 != '' && secrets.IOS_DIST_CERT_PASSWORD != '' && secrets.ASC_KEY_ID != '' && secrets.ASC_ISSUER_ID != '' && secrets.ASC_KEY_P8 != '' }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      # App Store uploads must be built with a recent Xcode/iOS SDK.
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.x'
+          channel: 'stable'
+
+      - name: Create secrets.dart from example (CI placeholder)
+        run: |
+          if [ ! -f lib/secrets.dart ]; then
+            cp lib/secrets.dart.example lib/secrets.dart
+          fi
+
+      - run: flutter pub get
+
+      # Runs `pod install` then compiles & links an unsigned release Runner.app.
+      - name: Unsigned build (signing secrets not configured)
+        if: env.HAS_SIGNING != 'true'
+        run: flutter build ios --release --no-codesign
+
+      # Manual signing with an Apple Distribution certificate + App Store
+      # profile: no Mac keychain and no registered devices needed. The Runner
+      # Release configs and ios/ExportOptions.plist name the profile
+      # "Postbox Game App Store" — the profile in the developer portal must use
+      # exactly that name.
+      - name: Import distribution certificate
+        if: env.HAS_SIGNING == 'true'
+        uses: apple-actions/import-codesign-certs@v7
+        with:
+          p12-file-base64: ${{ secrets.IOS_DIST_CERT_P12 }}
+          p12-password: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
+
+      - name: Install App Store provisioning profile
+        if: env.HAS_SIGNING == 'true'
+        uses: apple-actions/download-provisioning-profiles@v6
+        with:
+          bundle-id: com.code418.postboxGame
+          profile-type: IOS_APP_STORE
+          issuer-id: ${{ secrets.ASC_ISSUER_ID }}
+          api-key-id: ${{ secrets.ASC_KEY_ID }}
+          api-private-key: ${{ secrets.ASC_KEY_P8 }}
+
+      # CFBundleVersion must increase with every upload; the workflow run number
+      # is monotonic, so each dispatch gets a fresh build number. The marketing
+      # version (CFBundleShortVersionString) still comes from pubspec.yaml.
+      - name: Build signed IPA
+        if: env.HAS_SIGNING == 'true'
+        run: |
+          flutter build ipa --release \
+            --build-number=${{ github.run_number }} \
+            --export-options-plist=ios/ExportOptions.plist
+
+      - name: Upload to TestFlight
+        if: env.HAS_SIGNING == 'true'
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          # altool looks for the key at ~/private_keys/AuthKey_<id>.p8.
+          mkdir -p ~/private_keys
+          printf '%s\n' "$ASC_KEY_P8" > ~/private_keys/AuthKey_${ASC_KEY_ID}.p8
+          xcrun altool --upload-app --type ios \
+            --file build/ios/ipa/*.ipa \
+            --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
+          echo "Uploaded build ${{ github.run_number }}; it appears in TestFlight once Apple finishes processing." >> "$GITHUB_STEP_SUMMARY"

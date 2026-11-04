@@ -2,6 +2,8 @@
 **/android/captures/
 **/android/**/GeneratedPluginRegistrant.java
 **/android/.gradle
+**/android/build/
+**/android/app/build/
 **/android/gradlew
 **/android/gradlew.bat
 **/android/**/gradle-wrapper.jar
@@ -35,6 +37,7 @@ firebase-debug.log*
 lib/secrets.dart
 
 # Environment & secrets (never commit)
+/secretkey
 .env
 .env.*
 .env.local
@@ -42,6 +45,20 @@ lib/secrets.dart
 *.jks
 *.keystore
 *.der
+# Apple signing material and App Store Connect API keys. CI reads these from
+# GitHub secrets; local copies must never be committed. Globs, not filenames,
+# so the API key ID isn't published here.
+*.p8
+*.p12
+*.p12.b64
+*.mobileprovision
+*.cer
+*.csr
+*.pem
+*.key
+/apple_key_info
+/recpcha secret key
+/openssl x509 -inform DER -in distributio
 **/android/key.properties
 # Firebase service account key (client config like google-services.json is usually committed)
 **/*credentials*.json
@@ -111,8 +128,38 @@ devtools_options.yaml
 # Accidental Overpass API query downloads
 interpreter?data=*
 
+# Local state for incremental OSM import (per-machine, not for version control)
+functions/.last_import_manifest.json
+
 # Root-level dev utility scripts and one-off data files (not app code)
 /test.py
 /find_postboxes.js
 /ciiir_postboxes.json
 /postman_james.svg
+
+# Per-user claim audit exports (functions/audit_user_claims.js) — contain real
+# UIDs + GPS movement traces; must never be committed
+/audit_*
+functions/audit_exports/
+
+# Firestore migration snapshots (pre-/post-region-move exports); may hold user
+# data. Same patterns firebase.json's functions.ignore keeps out of deploys.
+/functions/pre-*.json
+/functions/post-*.json
+
+.claude/skills
+
+# Desktop is not a build target (mobile-only app; runner scaffolding removed).
+# Flutter still regenerates plugin-registrant stubs in these folders because
+# some plugins endorse desktop platforms, so ignore them to avoid churn.
+/linux/
+/macos/
+/windows/
+
+# flutter_map tile cache — created at the project root whenever a widget test
+# (or the app) renders a PostboxMap. A runtime artifact, never source.
+/fm_cache/
+
+# Feature worktrees (git worktree add .worktrees/<name>). Local scratch space
+# for in-flight branches; never source.
+/.worktrees/

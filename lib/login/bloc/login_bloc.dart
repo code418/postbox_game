@@ -2,10 +2,23 @@ import 'dart:async';
 
 import 'package:bloc/bloc.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/login/bloc/bloc.dart';
 import 'package:postbox_game/user_repository.dart';
 import 'package:postbox_game/validators.dart';
+
+/// Whether [user]'s sign-in just created the account. Google and Apple have
+/// no separate registration step, so a provider's first sign-in is the
+/// sign-up and must log `sign_up` like email registration does (otherwise
+/// the activation funnel undercounts new players). Auth stamps both times
+/// in the same request on creation; the slack covers clock rounding.
+bool isFirstSignIn(User user) {
+  final created = user.metadata.creationTime;
+  final lastSignIn = user.metadata.lastSignInTime;
+  if (created == null || lastSignIn == null) return false;
+  return lastSignIn.difference(created).abs() < const Duration(seconds: 10);
+}
 
 class LoginBloc extends Bloc<LoginEvent, LoginState> {
   final UserRepository _userRepository;
@@ -16,6 +29,7 @@ class LoginBloc extends Bloc<LoginEvent, LoginState> {
     on<EmailChanged>(_mapEmailChangedToState);
     on<PasswordChanged>(_mapPasswordChangedToState);
     on<LoginWithGooglePressed>(_mapLoginWithGooglePressedToState);
+    on<LoginWithApplePressed>(_mapLoginWithApplePressedToState);
     on<LoginWithCredentialsPressed>(_mapLoginWithCredentialsPressedToState);
   }
 
@@ -50,12 +64,47 @@ class LoginBloc extends Bloc<LoginEvent, LoginState> {
         return;
       }
       unawaited(Analytics.login(method: 'google'));
+      if (isFirstSignIn(user)) unawaited(Analytics.signUp(method: 'google'));
       emit(LoginState.success());
     } on FirebaseAuthException catch (e) {
       unawaited(Analytics.loginFailed(method: 'google', errorCode: e.code.isNotEmpty ? e.code : 'unknown'));
       emit(LoginState.failure(message: _mapFirebaseError(e.code), code: e.code));
+    } on GoogleSignInException catch (e) {
+      // The plugin's own failures never reach _mapFirebaseError. Most matter
+      // little, but "no Google account on this device" must not be answered
+      // with "please try again" — retrying is the one thing that cannot work.
+      final code = e.code.name;
+      unawaited(Analytics.loginFailed(method: 'google', errorCode: code));
+      final message = googleSignInFailureMessage(e);
+      emit(message == null
+          ? LoginState.failure(code: code)
+          : LoginState.failure(message: message, code: code));
     } catch (_) {
       unawaited(Analytics.loginFailed(method: 'google', errorCode: 'unknown'));
+      emit(LoginState.failure());
+    }
+  }
+
+  Future<void> _mapLoginWithApplePressedToState(
+    LoginWithApplePressed event,
+    Emitter<LoginState> emit,
+  ) async {
+    emit(LoginState.loading());
+    try {
+      final user = await _userRepository.signInWithApple();
+      if (user == null) {
+        // User dismissed the Apple sign-in sheet.
+        emit(LoginState.empty());
+        return;
+      }
+      unawaited(Analytics.login(method: 'apple'));
+      if (isFirstSignIn(user)) unawaited(Analytics.signUp(method: 'apple'));
+      emit(LoginState.success());
+    } on FirebaseAuthException catch (e) {
+      unawaited(Analytics.loginFailed(method: 'apple', errorCode: e.code.isNotEmpty ? e.code : 'unknown'));
+      emit(LoginState.failure(message: _mapFirebaseError(e.code), code: e.code));
+    } catch (_) {
+      unawaited(Analytics.loginFailed(method: 'apple', errorCode: 'unknown'));
       emit(LoginState.failure());
     }
   }

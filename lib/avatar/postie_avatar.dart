@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
+import '../display_name_utils.dart';
 import '../theme.dart';
 import 'avatar_config.dart';
 import 'avatar_svg.dart';
@@ -52,16 +53,6 @@ class InitialsAvatar extends StatelessWidget {
     required this.size,
     this.backgroundColor,
   });
-
-  static String initialsFor(String name) {
-    final t = name.trim();
-    if (t.isEmpty) return '?';
-    final parts = t.split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
-    if (parts.length >= 2) {
-      return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
-    }
-    return t.substring(0, t.length.clamp(0, 2)).toUpperCase();
-  }
 
   @override
   Widget build(BuildContext context) {

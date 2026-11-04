@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:postbox_game/firebase_functions_eu.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_compass/flutter_compass.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -13,17 +14,31 @@ import 'package:postbox_game/james_messages.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:postbox_game/location_service.dart';
 import 'package:postbox_game/monarch_info.dart';
+import 'package:postbox_game/remote_config_service.dart';
+import 'package:postbox_game/reports/report_missing_postbox_screen.dart';
+import 'package:postbox_game/services/crashlytics_helper.dart';
+import 'package:postbox_game/services/perf_service.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/widgets/postbox_map.dart';
 import 'package:postbox_game/widgets/postbox_marker.dart';
 import 'package:postbox_game/widgets/view_toggle.dart';
+import 'package:postbox_game/widgets/claim_quiz_sheet.dart'
+    show NearbyPostboxesCallableFn;
 
 import './fuzzy_compass.dart';
 
 enum NearbyStage { initial, searching, results }
 
 class Nearby extends StatefulWidget {
-  const Nearby({super.key});
+  const Nearby({
+    super.key,
+    @visibleForTesting this.nearbyCallable,
+    @visibleForTesting this.positionProvider,
+  });
+
+  /// Test seams, as on [ClaimQuizSheet]: default to the real callable and GPS.
+  final NearbyPostboxesCallableFn? nearbyCallable;
+  final Future<Position> Function()? positionProvider;
 
   @override
   State<Nearby> createState() => _NearbyState();
@@ -51,28 +66,42 @@ class _NearbyState extends State<Nearby> {
   StreamSubscription<CompassEvent>? _compassSubscription;
   NearbyStage currentStage = NearbyStage.initial;
 
-  // Throttle heading updates: skip if the delta is <5° to avoid redundant repaints.
-  // IndexedStack keeps Nearby mounted even offstage; without this the magnetometer
-  // would fire continuously even when the tab is hidden.
-  static double _headingDelta(double a, double b) {
-    final d = (a - b).abs() % 360;
-    return d > 180 ? 360 - d : d;
-  }
-
   @override
   void initState() {
     super.initState();
-    _compassSubscription = FlutterCompass.events?.listen((CompassEvent event) {
-      final heading = event.heading;
-      if (heading == null) return;
-      final prev = _headingNotifier.value;
-      if (prev == null || _headingDelta(prev, heading) >= 5) {
-        _headingNotifier.value = heading;
-      }
-    });
+    // FlutterCompass.events is non-null in production but throws a
+    // MissingPluginException in test environments without the platform
+    // channel. Wrap so a missing magnetometer (test or e.g. desktop runs)
+    // doesn't blow up the whole screen on first build.
+    try {
+      _compassSubscription =
+          FlutterCompass.events?.listen((CompassEvent event) {
+        final heading = event.heading;
+        if (heading == null) return;
+        final prev = _headingNotifier.value;
+        // Throttle heading updates: skip deltas <5° to avoid redundant repaints.
+        // IndexedStack keeps Nearby mounted even offstage; without this the
+        // magnetometer would churn rebuilds even when the tab is hidden.
+        // Uses the shared, unit-tested helper from fuzzy_compass.dart (also
+        // used by live_route_screen) rather than a private duplicate.
+        if (prev == null || compassHeadingDelta(prev, heading) >= 5) {
+          _headingNotifier.value = heading;
+        }
+      }, onError: (Object e, StackTrace st) {
+        CrashlyticsHelper.recordHandled(e, st,
+            reason: 'flutter_compass_stream',
+            dedupeKey: 'flutter_compass_stream');
+      });
+    } catch (e, st) {
+      _compassSubscription = null;
+      CrashlyticsHelper.recordHandled(e, st,
+          reason: 'flutter_compass_listen',
+          dedupeKey: 'flutter_compass_listen');
+    }
     AppPreferences.getDistanceUnit().then((unit) {
       if (mounted) setState(() => _distanceUnit = unit);
     });
+    AppPreferences.distanceUnitChanged.addListener(_onDistanceUnitChanged);
     AppPreferences.getViewMode('nearby').then((mode) {
       if (mounted) setState(() => _viewMode = mode);
     });
@@ -80,29 +109,61 @@ class _NearbyState extends State<Nearby> {
 
   @override
   void dispose() {
+    AppPreferences.distanceUnitChanged.removeListener(_onDistanceUnitChanged);
     _compassSubscription?.cancel();
     _headingNotifier.dispose();
     super.dispose();
   }
 
-  final HttpsCallable callable =
-      FirebaseFunctions.instance.httpsCallable('nearbyPostboxes');
+  void _onDistanceUnitChanged() {
+    final unit = AppPreferences.distanceUnitChanged.value;
+    if (unit != null && mounted) setState(() => _distanceUnit = unit);
+  }
+
+  late final NearbyPostboxesCallableFn _callable = widget.nearbyCallable ??
+      (payload) => appFunctions.httpsCallable('nearbyPostboxes').call(payload);
 
   Future<void> _startSearch() async {
     // Guard against concurrent calls (e.g. pull-to-refresh + Refresh button
     // both firing before the next frame rebuilds the UI).
     if (currentStage == NearbyStage.searching) return;
+    // A failed REFRESH goes back to the results the player was looking at,
+    // not the pre-scan screen: a signal blip mid-refresh used to throw away a
+    // perfectly good result set. They keep their "Scanned at" time, so they
+    // read as the last good scan. The position is committed only with new
+    // results, so the map can never pair the old counts with a new spot.
+    final hadResults = currentStage == NearbyStage.results;
+    void endFailedSearch() => setState(() => currentStage =
+        hadResults ? NearbyStage.results : NearbyStage.initial);
     setState(() => currentStage = NearbyStage.searching);
     Analytics.nearbyStarted();
     try {
       _distanceUnit = await AppPreferences.getDistanceUnit();
-      final position = await getPosition();
-      if (mounted) setState(() => _scanPosition = position);
-      final result = await callable.call(<String, dynamic>{
-        'lat': position.latitude,
-        'lng': position.longitude,
-        'meters': AppPreferences.nearbyRadiusMeters,
-      });
+      final position = await (widget.positionProvider ?? getPosition)();
+      final result = await PerfService.traceAsync(
+        PerfTraces.callableNearbyPostboxes,
+        (trace) async {
+          // Scans are read-only, so a wholesale retry is safe — this is the
+          // case retryOnUnavailable's own doc names. Production hit
+          // `deadline-exceeded` here and gave up without retrying.
+          final r = await retryOnUnavailable(() => _callable(<String, dynamic>{
+            'lat': position.latitude,
+            'lng': position.longitude,
+            'meters': AppPreferences.nearbyRadiusMeters,
+          }));
+          final total = ((Map<String, dynamic>.from(r.data as Map)['counts']
+                  as Map?)?['total'] as num?)
+              ?.toInt();
+          if (total != null) {
+            trace.setMetric(PerfTraces.metricResultsCount, total);
+          }
+          return r;
+        },
+        attributes: {
+          PerfTraces.attrRadius:
+              AppPreferences.nearbyRadiusMeters.round().toString(),
+        },
+      );
       if (!mounted) return;
       final data = Map<String, dynamic>.from(result.data as Map);
       final counts = Map<String, dynamic>.from(data['counts'] as Map);
@@ -117,14 +178,28 @@ class _NearbyState extends State<Nearby> {
       // a double to a typed int field throws, so normalise every count via num.
       int asInt(dynamic v) => (v as num?)?.toInt() ?? 0;
       setState(() {
+        _scanPosition = position;
         _count = asInt(counts['total']);
         _maxPoints = asInt(pts['max']);
         _minPoints = asInt(pts['min']);
         currentStage = NearbyStage.results;
         for (final dir in const [
-          'N', 'NNE', 'NE', 'ENE', 'E', 'ESE',
-          'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW',
-          'W', 'WNW', 'NW', 'NNW',
+          'N',
+          'NNE',
+          'NE',
+          'ENE',
+          'E',
+          'ESE',
+          'SE',
+          'SSE',
+          'S',
+          'SSW',
+          'SW',
+          'WSW',
+          'W',
+          'WNW',
+          'NW',
+          'NNW',
         ]) {
           _compassCounts[dir] = asInt(compass[dir]);
           _claimedCompassCounts[dir] = asInt(claimedCompass[dir]);
@@ -158,25 +233,42 @@ class _NearbyState extends State<Nearby> {
       if (mounted) JamesController.of(context)?.show(msg);
     } on FirebaseFunctionsException catch (e) {
       debugPrint('Firebase functions error: ${e.code} ${e.message}');
+      // Both transport codes are expected flakes on a walk, and the retries
+      // inside retryOnUnavailable are already exhausted by the time we get
+      // here, so dedupe them rather than filling Crashlytics with the same
+      // "user was in a signal notspot" event.
+      final isTransport = retryableCallableCodes.contains(e.code);
+      CrashlyticsHelper.recordHandled(e, e.stackTrace,
+          reason: 'nearbyPostboxes:${e.code}',
+          dedupeKey: isTransport ? 'nearbyPostboxes_${e.code}' : null);
       if (!mounted) return;
-      final isOffline = e.code == 'unavailable';
       JamesController.of(context)?.show(
-        isOffline
+        isTransport
             ? JamesMessages.errorOffline.resolve()
             : JamesMessages.nearbyErrorGeneral.resolve(),
       );
+      // `deadline-exceeded` is NOT "no internet" — the request got out and the
+      // reply never came back in time, which reads to the user as a hang, so
+      // it gets its own wording rather than a flat contradiction of the
+      // connection they can see working.
+      final String message = switch (e.code) {
+        'unavailable' => 'No internet connection. Please try again.',
+        'deadline-exceeded' =>
+          'That took too long. Check your signal and try again.',
+        appVerificationFailedCode => appVerificationMessage,
+        _ => 'Could not fetch postboxes. Please try again.',
+      };
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(isOffline
-              ? 'No internet connection. Please try again.'
-              : 'Could not fetch postboxes. Please try again.'),
+          content: Text(message),
           backgroundColor: Colors.red.shade700,
         ),
       );
-      setState(() => currentStage = NearbyStage.initial);
+      endFailedSearch();
     } on TimeoutException {
       if (!mounted) return;
-      JamesController.of(context)?.show(JamesMessages.nearbyErrorGeneral.resolve());
+      JamesController.of(context)
+          ?.show(JamesMessages.nearbyErrorGeneral.resolve());
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Text(
@@ -184,63 +276,70 @@ class _NearbyState extends State<Nearby> {
           backgroundColor: Colors.red.shade700,
         ),
       );
-      setState(() => currentStage = NearbyStage.initial);
+      endFailedSearch();
+    } on LocationServiceException catch (e) {
+      debugPrint('Location error: $e');
+      if (!mounted) return;
+      final isPermission =
+          e.kind == LocationErrorKind.permissionDenied ||
+              e.kind == LocationErrorKind.permissionPermanentlyDenied;
+      JamesController.of(context)?.show(isPermission
+          ? JamesMessages.nearbyErrorPermission.resolve()
+          : JamesMessages.nearbyErrorGeneral.resolve());
+      switch (e.kind) {
+        case LocationErrorKind.permissionPermanentlyDenied:
+          unawaited(Analytics.locationPermissionPermanentlyDenied());
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('Location permission permanently denied.'),
+              backgroundColor: Colors.red.shade700,
+              action: SnackBarAction(
+                label: 'Open Settings',
+                textColor: Colors.white,
+                onPressed: Geolocator.openAppSettings,
+              ),
+            ),
+          );
+        case LocationErrorKind.servicesDisabled:
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('Location services are disabled.'),
+              backgroundColor: Colors.red.shade700,
+              action: SnackBarAction(
+                label: 'Open Settings',
+                textColor: Colors.white,
+                onPressed: Geolocator.openLocationSettings,
+              ),
+            ),
+          );
+        case LocationErrorKind.permissionDenied:
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(e.message),
+              backgroundColor: Colors.red.shade700,
+            ),
+          );
+      }
+      endFailedSearch();
     } catch (e) {
+      // PlatformException and other types must not be forwarded to the user
+      // as-is (raw 'PlatformException(...)' prefix would leak).
       debugPrint('Error: $e');
       if (!mounted) return;
-      final msg = e.toString().contains('permission')
-          ? JamesMessages.nearbyErrorPermission.resolve()
-          : JamesMessages.nearbyErrorGeneral.resolve();
-      JamesController.of(context)?.show(msg);
-      // Only surface the message for exceptions thrown with Exception('...')
-      // (location-permission errors from getPosition()). PlatformException
-      // and other types produce a 'PlatformException(...)' prefix and must
-      // not be forwarded to the user.
-      final raw = e.toString();
-      final isPermanentlyDenied = raw.contains('permanently denied');
-      final isServicesDisabled = raw.contains('services are disabled');
-      if (isPermanentlyDenied) {
-        unawaited(Analytics.locationPermissionPermanentlyDenied());
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Location permission permanently denied.'),
-            backgroundColor: Colors.red.shade700,
-            action: SnackBarAction(
-              label: 'Open Settings',
-              textColor: Colors.white,
-              onPressed: Geolocator.openAppSettings,
-            ),
-          ),
-        );
-      } else if (isServicesDisabled) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Location services are disabled.'),
-            backgroundColor: Colors.red.shade700,
-            action: SnackBarAction(
-              label: 'Open Settings',
-              textColor: Colors.white,
-              onPressed: Geolocator.openLocationSettings,
-            ),
-          ),
-        );
-      } else {
-        final userMsg = raw.startsWith('Exception: ')
-            ? raw.replaceFirst('Exception: ', '')
-            : 'Could not fetch postboxes. Please try again.';
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(userMsg),
-            backgroundColor: Colors.red.shade700,
-          ),
-        );
-      }
-      setState(() => currentStage = NearbyStage.initial);
+      JamesController.of(context)
+          ?.show(JamesMessages.nearbyErrorGeneral.resolve());
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Could not fetch postboxes. Please try again.'),
+          backgroundColor: Colors.red.shade700,
+        ),
+      );
+      endFailedSearch();
     } finally {
       // Safety net: ensure we never get permanently stuck in 'searching' state
       // if an unexpected Dart Error bypasses the catch blocks above.
       if (mounted && currentStage == NearbyStage.searching) {
-        setState(() => currentStage = NearbyStage.initial);
+        endFailedSearch();
       }
     }
   }
@@ -259,48 +358,103 @@ class _NearbyState extends State<Nearby> {
 
   Widget _buildInitial(BuildContext context) {
     return LayoutBuilder(
-      builder: (context, constraints) => SingleChildScrollView(
-        padding: const EdgeInsets.only(
-          top: AppSpacing.xl,
-          left: AppSpacing.xl,
-          right: AppSpacing.xl,
-          bottom: 100,
-        ),
-        child: ConstrainedBox(
-          constraints: BoxConstraints(minHeight: constraints.maxHeight - 100),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.location_searching,
-                size: 80,
-                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.2)),
-            const SizedBox(height: AppSpacing.lg),
-            Text(
-              'Find nearby postboxes',
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
+      builder: (context, constraints) {
+        // In landscape the body is only a few hundred logical pixels tall, so a
+        // full-height centred column pushes the primary CTA below the fold. Lay
+        // the illustration beside the text + actions instead so the scan button
+        // stays visible. Portrait keeps the original centred column.
+        final landscape = constraints.maxWidth > constraints.maxHeight;
+        final onSurface = Theme.of(context).colorScheme.onSurface;
+        final icon = Icon(Icons.location_searching,
+            size: landscape ? 64 : 80, color: onSurface.withValues(alpha: 0.2));
+        final title = Text(
+          'Find nearby postboxes',
+          style: Theme.of(context)
+              .textTheme
+              .headlineSmall
+              ?.copyWith(fontWeight: FontWeight.bold),
+          textAlign: landscape ? TextAlign.start : TextAlign.center,
+        );
+        final subtitle = Text(
+          'Scan within ${AppPreferences.formatDistance(AppPreferences.nearbyRadiusMeters, _distanceUnit)} to see which postboxes are around you.',
+          style: Theme.of(context)
+              .textTheme
+              .bodyMedium
+              ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+          textAlign: landscape ? TextAlign.start : TextAlign.center,
+        );
+        final scanButton = FilledButton.icon(
+          onPressed: _startSearch,
+          icon: const Icon(Icons.search),
+          label: const Text('Find nearby postboxes'),
+        );
+        final routeButton = RemoteConfigService.instance.killSwitchRouteMode
+            ? null
+            : OutlinedButton.icon(
+                onPressed: () => Navigator.pushNamed(context, '/route'),
+                icon: const Icon(Icons.directions_walk),
+                label: const Text('Walk to a destination'),
+              );
+
+        if (landscape) {
+          return SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(
+                AppSpacing.xl, AppSpacing.xl, AppSpacing.xl, 100),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                icon,
+                const SizedBox(width: AppSpacing.xl),
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      title,
+                      const SizedBox(height: AppSpacing.sm),
+                      subtitle,
+                      const SizedBox(height: AppSpacing.lg),
+                      scanButton,
+                      if (routeButton != null) ...[
+                        const SizedBox(height: AppSpacing.sm),
+                        routeButton,
+                      ],
+                    ],
                   ),
-              textAlign: TextAlign.center,
+                ),
+              ],
             ),
-            const SizedBox(height: AppSpacing.sm),
-            Text(
-              'Scan within ${AppPreferences.formatDistance(AppPreferences.nearbyRadiusMeters, _distanceUnit)} to see which postboxes are around you.',
-              style: Theme.of(context)
-                  .textTheme
-                  .bodyMedium
-                  ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
-              textAlign: TextAlign.center,
+          );
+        }
+
+        return SingleChildScrollView(
+          padding: const EdgeInsets.only(
+            top: AppSpacing.xl,
+            left: AppSpacing.xl,
+            right: AppSpacing.xl,
+            bottom: 100,
+          ),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight - 100),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                icon,
+                const SizedBox(height: AppSpacing.lg),
+                title,
+                const SizedBox(height: AppSpacing.sm),
+                subtitle,
+                const SizedBox(height: AppSpacing.xl),
+                scanButton,
+                if (routeButton != null) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  routeButton,
+                ],
+              ],
             ),
-            const SizedBox(height: AppSpacing.xl),
-            FilledButton.icon(
-              onPressed: _startSearch,
-              icon: const Icon(Icons.search),
-              label: const Text('Find nearby postboxes'),
-            ),
-          ],
-        ),
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
@@ -313,7 +467,8 @@ class _NearbyState extends State<Nearby> {
           children: [
             const CircularProgressIndicator(color: postalRed),
             const SizedBox(height: AppSpacing.md),
-            Text('Scanning ${AppPreferences.formatDistance(AppPreferences.nearbyRadiusMeters, _distanceUnit)} radius...'),
+            Text(
+                'Scanning ${AppPreferences.formatDistance(AppPreferences.nearbyRadiusMeters, _distanceUnit)} radius...'),
           ],
         ),
       ),
@@ -356,7 +511,8 @@ class _NearbyState extends State<Nearby> {
       center: center,
       zoom: 14,
       circleMarkers: [
-        scanRadiusCircle(center, radiusMeters: AppPreferences.nearbyRadiusMeters),
+        scanRadiusCircle(center,
+            radiusMeters: AppPreferences.nearbyRadiusMeters),
       ],
       markers: [userPositionMarker(center)],
     );
@@ -371,178 +527,224 @@ class _NearbyState extends State<Nearby> {
         .where((e) => e.value > 0)
         .toList();
 
+    // Postboxes the server counted in `total` but under no cypher key: the
+    // importer stores an unknown or multi-value royal_cypher with no monarch
+    // field (see MonarchInfo.plainKey). Without this row the breakdown quietly
+    // fails to account for them — "18 postboxes nearby" over a list summing to
+    // 16 — and the player has no idea those two are there or claimable.
+    // Listed last so the recognised cyphers keep their display order.
+    final plainTotal = MonarchInfo.plainCount(_count, _cipherTotals.values);
+    if (plainTotal > 0) {
+      monarchEntries.add(MapEntry(MonarchInfo.plainKey, plainTotal));
+    }
+
     return RefreshIndicator(
       color: postalRed,
       onRefresh: _startSearch,
       child: AnimationLimiter(
-      child: ListView(
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.only(
-          top: AppSpacing.md, bottom: 100, left: 0, right: 0),
-      children: [
-        // Context map — "You Are Here" with scan radius
-        if (_scanPosition != null)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(
-                AppSpacing.md, AppSpacing.xs, AppSpacing.md, 0),
-            child: _contextMap(_scanPosition!),
-          ),
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.only(
+              top: AppSpacing.md, bottom: 100, left: 0, right: 0),
+          children: [
+            // Context map — "You Are Here" with scan radius
+            if (_scanPosition != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.md, AppSpacing.xs, AppSpacing.md, 0),
+                child: _contextMap(_scanPosition!),
+              ),
 
-        // Summary card
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(AppSpacing.md),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(AppSpacing.sm),
-                  decoration: BoxDecoration(
-                    color: postalRed.withValues(alpha:0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(Icons.location_on, color: postalRed),
-                ),
-                const SizedBox(width: AppSpacing.md),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '$_count postbox${_count == 1 ? '' : 'es'} nearby',
-                        style:
-                            Theme.of(context).textTheme.titleMedium?.copyWith(
+            // Summary card
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(AppSpacing.md),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(AppSpacing.sm),
+                      decoration: BoxDecoration(
+                        color: postalRed.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(Icons.location_on, color: postalRed),
+                    ),
+                    const SizedBox(width: AppSpacing.md),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '$_count postbox${_count == 1 ? '' : 'es'} nearby',
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
+                                ?.copyWith(
                                   fontWeight: FontWeight.bold,
                                 ),
-                      ),
-                      if (_count > 0 && _claimedToday < _count)
-                        Text(
-                          _maxPoints == _minPoints
-                              ? 'Worth $_maxPoints pts'
-                              : 'Worth $_minPoints–$_maxPoints pts',
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodySmall
-                              ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
-                        ),
-                      if (_lastScanned != null)
-                        Text(
-                          'Scanned at ${TimeOfDay.fromDateTime(_lastScanned!).format(context)}',
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodySmall
-                              ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
-                        ),
-                      if (_claimedToday > 0)
-                        Row(
-                          children: [
-                            const Icon(Icons.lock_clock, size: 12, color: Colors.orange),
-                            const SizedBox(width: 4),
+                          ),
+                          if (_count > 0 && _claimedToday < _count)
                             Text(
-                              '$_claimedToday claimed today',
-                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                    color: Colors.orange.shade700,
-                                  ),
+                              _maxPoints == _minPoints
+                                  ? 'Worth $_maxPoints pts'
+                                  : 'Worth $_minPoints–$_maxPoints pts',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurfaceVariant),
                             ),
-                          ],
-                        ),
-                    ],
-                  ),
-                ),
-                TextButton.icon(
-                  onPressed: _startSearch,
-                  icon: const Icon(Icons.refresh, size: 18),
-                  label: const Text('Refresh'),
-                  style: TextButton.styleFrom(
-                    visualDensity: VisualDensity.compact,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-
-        // Empty state
-        if (_count == 0)
-          Padding(
-            padding: const EdgeInsets.all(AppSpacing.xl),
-            child: Column(
-              children: [
-                Icon(Icons.location_off, size: 60,
-                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.2)),
-                const SizedBox(height: AppSpacing.md),
-                Text(
-                  'No postboxes found within ${AppPreferences.formatDistance(AppPreferences.nearbyRadiusMeters, _distanceUnit)}',
-                  style: Theme.of(context).textTheme.titleMedium,
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: AppSpacing.xs),
-                Text(
-                  'Try a different location.',
-                  style: Theme.of(context)
-                      .textTheme
-                      .bodySmall
-                      ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
-                ),
-              ],
-            ),
-          ),
-
-        // Monarch breakdown
-        if (monarchEntries.isNotEmpty) ...[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(
-                AppSpacing.md, AppSpacing.md, AppSpacing.md, AppSpacing.xs),
-            child: Text(
-              'Postbox types',
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    color: Theme.of(context).colorScheme.primary,
-                    fontWeight: FontWeight.w600,
-                  ),
-            ),
-          ),
-          ...monarchEntries.asMap().entries.map((entry) {
-            final cipher = entry.value.key;
-            final total = entry.value.value;
-            final claimed = _cipherClaimed[cipher] ?? 0;
-            return AnimationConfiguration.staggeredList(
-              position: entry.key,
-              duration: const Duration(milliseconds: 375),
-              child: SlideAnimation(
-                verticalOffset: 50,
-                child: FadeInAnimation(
-                  child: _monarchCard(context, cipher, total, claimed),
+                          if (_lastScanned != null)
+                            Text(
+                              'Scanned at ${TimeOfDay.fromDateTime(_lastScanned!).format(context)}',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurfaceVariant),
+                            ),
+                          if (_claimedToday > 0)
+                            Row(
+                              children: [
+                                const Icon(Icons.lock_clock,
+                                    size: 12, color: Colors.orange),
+                                const SizedBox(width: 4),
+                                Text(
+                                  '$_claimedToday claimed today',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
+                                      ?.copyWith(
+                                        color: Colors.orange.shade700,
+                                      ),
+                                ),
+                              ],
+                            ),
+                        ],
+                      ),
+                    ),
+                    TextButton.icon(
+                      onPressed: _startSearch,
+                      icon: const Icon(Icons.refresh, size: 18),
+                      label: const Text('Refresh'),
+                      style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            );
-          }),
-        ],
+            ),
 
-        // Compass — shown whenever postboxes are nearby (claimed or not).
-        // Red sectors = unclaimed (to find); grey sectors = already claimed today.
-        if (_count > 0) ...[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(
-                AppSpacing.md, AppSpacing.lg, AppSpacing.md, AppSpacing.xs),
-            child: Text(
-              _claimedToday < _count ? 'Where to look' : 'Where you\'ve been',
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    color: Theme.of(context).colorScheme.primary,
-                    fontWeight: FontWeight.w600,
+            // Empty state
+            if (_count == 0)
+              Padding(
+                padding: const EdgeInsets.all(AppSpacing.xl),
+                child: Column(
+                  children: [
+                    Icon(Icons.location_off,
+                        size: 60,
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withValues(alpha: 0.2)),
+                    const SizedBox(height: AppSpacing.md),
+                    Text(
+                      'No postboxes found within ${AppPreferences.formatDistance(AppPreferences.nearbyRadiusMeters, _distanceUnit)}',
+                      style: Theme.of(context).textTheme.titleMedium,
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: AppSpacing.xs),
+                    Text(
+                      'Try a different location.',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color:
+                              Theme.of(context).colorScheme.onSurfaceVariant),
+                    ),
+                    if (!RemoteConfigService.instance.killSwitchReporting) ...[
+                      const SizedBox(height: AppSpacing.md),
+                      OutlinedButton.icon(
+                        onPressed: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                              builder: (_) =>
+                                  const ReportMissingPostboxScreen()),
+                        ),
+                        icon: const Icon(Icons.report_gmailerrorred_outlined),
+                        label: const Text('Report a missing postbox'),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+
+            // Monarch breakdown
+            if (monarchEntries.isNotEmpty) ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.md, AppSpacing.md, AppSpacing.md, AppSpacing.xs),
+                child: Text(
+                  'Postbox types',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        color: Theme.of(context).colorScheme.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+              ),
+              ...monarchEntries.asMap().entries.map((entry) {
+                final cipher = entry.value.key;
+                final total = entry.value.value;
+                // Same derivation as plainTotal: the plain row's claimed count
+                // is whatever claimedToday is left over once every recognised
+                // cypher's claimed count is accounted for.
+                final claimed = cipher == MonarchInfo.plainKey
+                    ? MonarchInfo.plainCount(
+                            _claimedToday, _cipherClaimed.values)
+                        .clamp(0, total)
+                    : (_cipherClaimed[cipher] ?? 0);
+                return AnimationConfiguration.staggeredList(
+                  position: entry.key,
+                  duration: const Duration(milliseconds: 375),
+                  child: SlideAnimation(
+                    verticalOffset: 50,
+                    child: FadeInAnimation(
+                      child: _monarchCard(context, cipher, total, claimed),
+                    ),
                   ),
-            ),
-          ),
-          ValueListenableBuilder<double?>(
-            valueListenable: _headingNotifier,
-            builder: (_, heading, __) => FuzzyCompass(
-              compassCounts: compassMap,
-              claimedCompassCounts: _claimedCompassCounts,
-              headingDegrees: heading,
-            ),
-          ),
-        ],
+                );
+              }),
+            ],
 
-      ],
-    ),
+            // Compass — shown whenever postboxes are nearby (claimed or not).
+            // Red sectors = unclaimed (to find); grey sectors = already claimed today.
+            if (_count > 0) ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.md, AppSpacing.lg, AppSpacing.md, AppSpacing.xs),
+                child: Text(
+                  _claimedToday < _count
+                      ? 'Where to look'
+                      : 'Where you\'ve been',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        color: Theme.of(context).colorScheme.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+              ),
+              ValueListenableBuilder<double?>(
+                valueListenable: _headingNotifier,
+                builder: (_, heading, __) => FuzzyCompass(
+                  compassCounts: compassMap,
+                  claimedCompassCounts: _claimedCompassCounts,
+                  headingDegrees: heading,
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
@@ -573,10 +775,12 @@ class _NearbyState extends State<Nearby> {
     );
   }
 
-  Widget _monarchCard(BuildContext context, String code, int count, int claimed) {
+  Widget _monarchCard(
+      BuildContext context, String code, int count, int claimed) {
     final label = MonarchInfo.labels[code] ?? code;
     final color = MonarchInfo.colors[code] ?? postalRed;
     final available = count - claimed;
+    final prefix = code == MonarchInfo.plainKey ? '' : '$code · ';
 
     Widget? trailing;
     if (MonarchInfo.rareCiphers.contains(code)) {
@@ -607,13 +811,15 @@ class _NearbyState extends State<Nearby> {
     return Card(
       child: ListTile(
         leading: CircleAvatar(
-          backgroundColor:
-              color.withValues(alpha: allClaimed ? 0.06 : 0.12),
+          backgroundColor: color.withValues(alpha: allClaimed ? 0.06 : 0.12),
           child: Text(
             allClaimed ? '✓' : '$available',
             style: TextStyle(
               color: allClaimed
-                  ? Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.38)
+                  ? Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withValues(alpha: 0.38)
                   : color,
               fontWeight: FontWeight.bold,
             ),
@@ -622,17 +828,27 @@ class _NearbyState extends State<Nearby> {
         title: Text(
           label,
           style: allClaimed
-              ? TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.38))
+              ? TextStyle(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withValues(alpha: 0.38))
               : null,
         ),
         subtitle: Text(
+          // The plain row has no cypher code to show — `PLAIN` is an internal
+          // sentinel (MonarchInfo.plainKey), not something stamped on a box.
           allClaimed
-              ? '$code · claimed today'
+              ? '$prefix claimed today'
               : claimed > 0
-                  ? '$code · ${MonarchInfo.getPoints(code)} pts · $available of $count available'
-                  : '$code · ${MonarchInfo.getPoints(code)} pts each',
+                  ? '$prefix${RemoteConfigService.instance.pointsForCipher(code)} pts · $available of $count available'
+                  : '$prefix${RemoteConfigService.instance.pointsForCipher(code)} pts each',
           style: allClaimed
-              ? TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.38))
+              ? TextStyle(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withValues(alpha: 0.38))
               : null,
         ),
         trailing: allClaimed ? null : trailing,

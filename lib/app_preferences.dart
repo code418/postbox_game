@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 const String _keyDistanceUnit = 'distance_unit';
@@ -27,9 +28,20 @@ class AppPreferences {
     return DistanceUnit.meters;
   }
 
+  /// The unit most recently chosen via [setDistanceUnit] in this process, or
+  /// null if it hasn't changed.
+  ///
+  /// Nearby and Claim stay mounted behind Settings (Home keeps its tabs alive
+  /// in an IndexedStack) and otherwise read the stored unit only when they
+  /// start and on each scan. Without this, choosing miles left them showing
+  /// "Stand within 30 m" and metre distances until the next scan.
+  static final ValueNotifier<DistanceUnit?> distanceUnitChanged =
+      ValueNotifier<DistanceUnit?>(null);
+
   static Future<void> setDistanceUnit(DistanceUnit unit) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_keyDistanceUnit, unit == DistanceUnit.miles ? 'miles' : 'meters');
+    distanceUnitChanged.value = unit;
   }
 
   /// Converts meters to display value; callers use [AppPreferences.getDistanceUnit] for unit.
@@ -52,6 +64,18 @@ class AppPreferences {
       return '$yards yd';
     }
     return '${meters.toStringAsFixed(0)} m';
+  }
+
+  /// Metric-only distance formatter that switches between metres and km at
+  /// the 1 km threshold, used by the route screens where the user always sees
+  /// km (independent of their global m/mi preference, because route mode is
+  /// inherently a city/town-scale walking activity).
+  ///
+  /// Examples: 800 → "800 m", 1234 → "1.23 km", double.infinity → "...".
+  static String formatRouteDistance(double meters) {
+    if (!meters.isFinite) return '...';
+    if (meters < 1000) return '${meters.round()} m';
+    return '${(meters / 1000).toStringAsFixed(2)} km';
   }
 
   static Future<ViewMode> getViewMode(String screen) async {

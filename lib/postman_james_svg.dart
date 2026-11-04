@@ -164,19 +164,30 @@ class _PostmanJamesSvgState extends State<PostmanJamesSvg>
   void _scheduleBlink() {
     final delayMs = 3000 + math.Random().nextInt(3000);
     _blinkTimer = Timer(Duration(milliseconds: delayMs), () async {
-      if (!mounted) return;
-      await _blinkController.forward();
-      if (!mounted) return;
-      await _blinkController.reverse();
-      // Occasionally double-blink.
-      if (mounted && math.Random().nextDouble() < 0.2) {
-        await Future<void>.delayed(const Duration(milliseconds: 80));
+      // Use .orCancel so dispose() during a blink throws TickerCanceled here
+      // instead of hanging the closure forever — TickerFuture's primary
+      // completer is never completed on cancel, so a bare `await` would leak
+      // this closure (and its mounted/state captures) on every screen tear-
+      // down that happens mid-blink. The catch converts the cancellation to a
+      // clean early-return; any other animation error is logged and ignored.
+      try {
         if (!mounted) return;
-        await _blinkController.forward();
+        await _blinkController.forward().orCancel;
         if (!mounted) return;
-        await _blinkController.reverse();
+        await _blinkController.reverse().orCancel;
+        if (mounted && math.Random().nextDouble() < 0.2) {
+          await Future<void>.delayed(const Duration(milliseconds: 80));
+          if (!mounted) return;
+          await _blinkController.forward().orCancel;
+          if (!mounted) return;
+          await _blinkController.reverse().orCancel;
+        }
+        if (mounted) _scheduleBlink();
+      } on TickerCanceled {
+        // Widget disposed mid-animation — drop the loop.
+      } catch (e) {
+        debugPrint('Postman James blink failed: $e');
       }
-      if (mounted) _scheduleBlink();
     });
   }
 

@@ -2,19 +2,52 @@
   "hosting": {
     "public": "build/web",
     "cleanUrls": true,
-    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
-    "rewrites": [{ "source": "**", "destination": "/index.html" }]
+    "ignore": ["firebase.json", "**/node_modules/**", "**/.last_build_id", "**/.DS_Store"],
+    "headers": [
+      {
+        "source": "/.well-known/apple-app-site-association",
+        "headers": [{ "key": "Content-Type", "value": "application/json" }]
+      },
+      {
+        "source": "/.well-known/assetlinks.json",
+        "headers": [{ "key": "Content-Type", "value": "application/json" }]
+      }
+    ],
+    "rewrites": [
+      { "source": "/invite/**", "destination": "/invite.html" },
+      { "source": "**", "destination": "/index.html" }
+    ]
   },
   "functions": {
     "source": "functions",
+    "ignore": [
+      "node_modules",
+      ".git",
+      "firebase-debug.log",
+      "firebase-debug.*.log",
+      "*.local",
+      "*-????????????.json",
+      "pre-*.json",
+      "post-*.json",
+      "interpreter*",
+      ".last_import_manifest.json",
+      ".nyc_output",
+      ".vscode"
+    ],
     "predeploy": [
-      "(cd functions && node_modules/.bin/eslint src --ext .ts)",
-      "(cd functions && node_modules/.bin/tsc)"
+      "npm_config_script_shell=/bin/bash (cd functions && npm run lint)",
+      "npm_config_script_shell=/bin/bash (cd functions && npm test)"
     ]
   },
   "firestore": {
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
+  },
+  "storage": {
+    "rules": "storage.rules"
+  },
+  "remoteconfig": {
+    "template": "remoteconfig.template.json"
   },
   "flutter": {
     "platforms": {

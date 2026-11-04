@@ -279,20 +279,25 @@ async function main() {
     const chunk = updates.slice(i, i + BATCH_SIZE);
     const batch = db.batch();
     for (const u of chunk) {
+      // Only stamp a period marker when the user actually has claims in that
+      // period. Writing today's marker for a user with 0 daily points would
+      // make shouldNotifyFirstClaim / shouldNotifyOvertake treat them as
+      // already-having-claimed-today and suppress legitimate friend
+      // notifications for the rest of the day. Matches the corresponding
+      // guard in functions/src/_recomputeScores.ts.
+      const userUpdate = {
+        uniquePostboxesClaimed: u.uniquePostboxesClaimed,
+        lifetimePoints: u.lifetimePoints,
+        dailyPoints: u.dailyPoints,
+        weeklyPoints: u.weeklyPoints,
+        monthlyPoints: u.monthlyPoints,
+      };
+      if (u.dailyPoints > 0) userUpdate.dailyDate = today;
+      if (u.weeklyPoints > 0) userUpdate.weekStart = weekStart;
+      if (u.monthlyPoints > 0) userUpdate.monthStart = monthStart;
       batch.set(
         db.collection('users').doc(u.uid),
-        {
-          uniquePostboxesClaimed: u.uniquePostboxesClaimed,
-          lifetimePoints: u.lifetimePoints,
-          dailyPoints: u.dailyPoints,
-          weeklyPoints: u.weeklyPoints,
-          monthlyPoints: u.monthlyPoints,
-          // Markers so the Friends-only leaderboard doesn't zero out these
-          // totals on the staleness check (see leaderboard_screen.dart).
-          dailyDate: today,
-          weekStart,
-          monthStart,
-        },
+        userUpdate,
         { merge: true }
       );
     }

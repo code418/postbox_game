@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Hourly redraw: the stats are day- and week-scoped, so after London
+     midnight the widget must re-check them (PostboxWidgetProvider applies
+     WidgetFreshness.kt) even if the app is never opened. With 0 it only
+     redrew when the app pushed, showing yesterday's points all day. -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:initialLayout="@layout/postbox_widget"
     android:minWidth="180dp"
@@ -6,5 +10,5 @@
     android:resizeMode="horizontal|vertical"
     android:targetCellWidth="3"
     android:targetCellHeight="2"
-    android:updatePeriodMillis="0"
+    android:updatePeriodMillis="3600000"
     android:widgetCategory="home_screen" />

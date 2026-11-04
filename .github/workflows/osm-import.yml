@@ -1,0 +1,166 @@
+name: OSM postbox import
+
+# Daily OSM → Firestore sync: runs osm_import.sh, which downloads every UK
+# amenity=post_box node from Overpass and hands it to
+# functions/import_postboxes.js (incremental upsert of postbox/osm_* docs plus
+# meta/stats.totalPostboxes). The refreshed postboxes.json is NOT committed
+# back — Firestore is the source of truth and the download is discarded.
+#
+# Credentials: keyless Workload Identity Federation. The importer uses
+# Application Default Credentials, which google-github-actions/auth provides
+# via GOOGLE_APPLICATION_CREDENTIALS. One-time GCP setup:
+#
+#   PROJECT_ID=the-postbox-game
+#   PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)')
+#   SA=osm-importer@$PROJECT_ID.iam.gserviceaccount.com
+#   gcloud services enable iamcredentials.googleapis.com sts.googleapis.com --project $PROJECT_ID
+#   gcloud iam service-accounts create osm-importer --project $PROJECT_ID \
+#     --display-name "OSM postbox importer (GitHub Actions)"
+#   gcloud projects add-iam-policy-binding $PROJECT_ID \
+#     --member serviceAccount:$SA --role roles/datastore.user
+#   gcloud iam workload-identity-pools create github --project $PROJECT_ID \
+#     --location global --display-name "GitHub Actions"
+#   gcloud iam workload-identity-pools providers create-oidc postbox-game \
+#     --project $PROJECT_ID --location global --workload-identity-pool github \
+#     --issuer-uri https://token.actions.githubusercontent.com \
+#     --attribute-mapping "google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.ref=assertion.ref" \
+#     --attribute-condition "assertion.repository == 'code418/postbox_game' && assertion.ref == 'refs/heads/master'"
+#   gcloud iam service-accounts add-iam-policy-binding $SA --project $PROJECT_ID \
+#     --role roles/iam.workloadIdentityUser \
+#     --member "principalSet://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github/attribute.repository/code418/postbox_game"
+#
+# then set these repository VARIABLES (not secrets — neither is sensitive):
+#   GCP_WORKLOAD_IDENTITY_PROVIDER =
+#     projects/<PROJECT_NUMBER>/locations/global/workloadIdentityPools/github/providers/postbox-game
+#   GCP_IMPORT_SERVICE_ACCOUNT = osm-importer@the-postbox-game.iam.gserviceaccount.com
+#
+# The ref == refs/heads/master condition means only a workflow running from
+# master can mint Firestore credentials: a branch dispatch or a PR workflow
+# cannot write production data. Scheduled runs only ever fire from the default
+# branch anyway, so nothing runs until this file is on master.
+
+on:
+  schedule:
+    # 03:17 UTC daily: off the hour (top-of-hour crons queue longest) and well
+    # clear of newDayScoreboard's London-midnight rollover.
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Report only (--dry-run): no Firestore writes, manifest untouched'
+        type: boolean
+        default: false
+      prune:
+        description: 'Soft-mark osm_* docs whose node has left OSM (--prune)'
+        type: boolean
+        default: true
+      full_reimport:
+        description: 'Ignore the cached manifest and rewrite every postbox (--no-manifest)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  # OIDC token for Workload Identity Federation.
+  id-token: write
+
+# Never two imports at once: they would race on Firestore and on the manifest
+# cache. A manual dispatch during the scheduled run queues behind it.
+concurrency:
+  group: osm-import
+  cancel-in-progress: false
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    # curl may retry the 600 s Overpass query five times; a full import of
+    # ~115k docs takes several minutes on top.
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v4
+        with:
+          # Same runtime as functions/package.json and functions-ci.yml.
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: functions/package-lock.json
+
+      - name: Install importer dependencies
+        working-directory: functions
+        # The importer needs only firebase-admin and ngeohash.
+        run: npm ci --omit=dev
+
+      - name: Check GCP configuration
+        if: vars.GCP_WORKLOAD_IDENTITY_PROVIDER == '' || vars.GCP_IMPORT_SERVICE_ACCOUNT == ''
+        run: |
+          echo "::error::Repository variables GCP_WORKLOAD_IDENTITY_PROVIDER and GCP_IMPORT_SERVICE_ACCOUNT must be set (see the setup notes at the top of .github/workflows/osm-import.yml)."
+          exit 1
+
+      # After checkout, which would otherwise clean away the credentials file
+      # this writes into the workspace.
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_IMPORT_SERVICE_ACCOUNT }}
+
+      # The importer only writes nodes whose hash changed since the previous
+      # run, tracked in a local (gitignored) manifest. A fresh runner has none,
+      # so persist it in the Actions cache: a unique key per run, restored by
+      # prefix (newest wins). Superseded entries are never read again and
+      # expire after 7 days unused; losing the cache just costs one full
+      # re-import, which is still correct.
+      - name: Restore import manifest
+        uses: actions/cache/restore@v6
+        with:
+          path: functions/.last_import_manifest.json
+          key: osm-import-manifest-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: osm-import-manifest-
+
+      - name: Fetch from Overpass and import
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+          PRUNE: ${{ inputs.prune }}
+          FULL_REIMPORT: ${{ inputs.full_reimport }}
+        run: |
+          args=()
+          if [ "$DRY_RUN" = "true" ]; then args+=(--dry-run); fi
+          # Scheduled runs have no inputs (empty string), so they prune. The
+          # importer refuses (and fails the run) if a truncated export would
+          # soft-mark more than 5% of the postboxes.
+          if [ "$PRUNE" != "false" ]; then args+=(--prune); fi
+          if [ "$FULL_REIMPORT" = "true" ]; then args+=(--no-manifest); fi
+          # The default shell sets pipefail, so tee keeps the script's exit code.
+          ./osm_import.sh "${args[@]}" 2>&1 | tee "$RUNNER_TEMP/import.log"
+
+      # Also after a failure: the importer leaves failed batches out of the
+      # manifest it writes, so saving it still makes the next run retry them,
+      # and a run that died before writing one just re-saves the restored copy.
+      - name: Save import manifest
+        if: always() && inputs.dry_run != true && hashFiles('functions/.last_import_manifest.json') != ''
+        uses: actions/cache/save@v6
+        with:
+          path: functions/.last_import_manifest.json
+          key: osm-import-manifest-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Job summary
+        if: always()
+        run: |
+          [ -f "$RUNNER_TEMP/import.log" ] || exit 0
+          {
+            echo '### OSM postbox import'
+            echo '```'
+            sed -n '/^Import summary:/,$p' "$RUNNER_TEMP/import.log"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # osm_import.sh leaves the download as postboxes.json.tmp when it fails
+      # its sanity check (Overpass error page, throttle response, truncation).
+      - name: Upload rejected Overpass response
+        if: failure() && hashFiles('postboxes.json.tmp') != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: overpass-response
+          path: postboxes.json.tmp
+          retention-days: 7
