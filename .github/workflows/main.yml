@@ -97,7 +97,7 @@ jobs:
       HAS_SIGNING: ${{ secrets.IOS_DIST_CERT_P12 != '' && secrets.IOS_DIST_CERT_PASSWORD != '' && secrets.ASC_KEY_ID != '' && secrets.ASC_ISSUER_ID != '' && secrets.ASC_KEY_P8 != '' }}
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # App Store uploads must be built with a recent Xcode/iOS SDK.
       - uses: maxim-lobanov/setup-xcode@v1
