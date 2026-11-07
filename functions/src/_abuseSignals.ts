@@ -183,6 +183,27 @@ export function constantBatchSpeedSignal(
   return { flagged: batchSpeedCv <= CONSTANT_SPEED_MAX_CV, value: batchSpeedCv };
 }
 
+// ── Workout-claim signals (Health Connect, shadow mode) ─────────────────────
+
+/** Claims from ONE recorded session (one user) at or above which the session
+ *  is flagged as unusually dense — a real run passes many boxes, but a
+ *  fabricated route can be drawn through a whole postcode. */
+export const ACTIVITY_DENSE_SESSION_MIN = 25;
+
+/** Distinct accounts claiming from one session fingerprint at or above which
+ *  the run is flagged as shared (one route farmed by several accounts). */
+export const ACTIVITY_SHARED_SESSION_MIN_ACCOUNTS = 2;
+
+export function activityDenseSessionSignal(sessionClaims: number | undefined): SignalResult {
+  if (sessionClaims === undefined || !Number.isFinite(sessionClaims)) return { flagged: false, value: 0 };
+  return { flagged: sessionClaims >= ACTIVITY_DENSE_SESSION_MIN, value: sessionClaims };
+}
+
+export function activitySharedSessionSignal(sessionAccounts: number | undefined): SignalResult {
+  if (sessionAccounts === undefined || !Number.isFinite(sessionAccounts)) return { flagged: false, value: 0 };
+  return { flagged: sessionAccounts >= ACTIVITY_SHARED_SESSION_MIN_ACCOUNTS, value: sessionAccounts };
+}
+
 function severityForCount(n: number): Severity {
   if (n >= 3) return "high";
   if (n === 2) return "med";
@@ -219,6 +240,18 @@ export interface ClaimSignalInputs {
   graceMs?: number;
   batchSize?: number;
   batchSpeedCv?: number;
+  /** True when the claim was written by claimActivityPostbox — derived
+   *  server-side from the claim's `activity` field, which only that callable
+   *  writes. */
+  activity?: boolean;
+  /** How long after the route passed the box the claim was made. */
+  activityLagMs?: number;
+  /** The workout-claim window active at claim time. */
+  activityGraceMs?: number;
+  /** This user's claims sharing the claim's session fingerprint. */
+  activitySessionClaims?: number;
+  /** Distinct accounts that have claimed from the session fingerprint. */
+  activitySessionAccounts?: number;
 }
 
 export interface ClaimSignalEvaluation {
@@ -231,6 +264,9 @@ export interface ClaimSignalEvaluation {
     deviceAccountCount: number;
     queuedForMs: number;
     batchSpeedCv: number;
+    activityLagMs: number;
+    activitySessionClaims: number;
+    activitySessionAccounts: number;
   };
 }
 
@@ -253,6 +289,14 @@ export function evaluateClaimSignals(inp: ClaimSignalInputs): ClaimSignalEvaluat
   const constantSpeed = inp.offline === true
     ? constantBatchSpeedSignal(inp.batchSpeedCv, inp.batchSize)
     : { flagged: false, value: 0 };
+  const isActivity = inp.activity === true;
+  // A workout claim made at 90%+ of its window is the same ceiling-probing
+  // shape as a late offline flush.
+  const activityLag = isActivity
+    ? queuedTooLongSignal(inp.activityLagMs, inp.activityGraceMs ?? 0)
+    : { flagged: false, value: 0 };
+  const dense = isActivity ? activityDenseSessionSignal(inp.activitySessionClaims) : { flagged: false, value: 0 };
+  const shared = isActivity ? activitySharedSessionSignal(inp.activitySessionAccounts) : { flagged: false, value: 0 };
   const { reasons, severity } = summariseFlags([
     { reason: "impossible_travel", flagged: travel.flagged },
     { reason: "out_of_window", flagged: window.flagged },
@@ -260,6 +304,9 @@ export function evaluateClaimSignals(inp: ClaimSignalInputs): ClaimSignalEvaluat
     { reason: "repeated_device", flagged: device.flagged },
     { reason: "queued_near_ceiling", flagged: queued.flagged },
     { reason: "constant_batch_speed", flagged: constantSpeed.flagged },
+    { reason: "activity_near_ceiling", flagged: activityLag.flagged },
+    { reason: "activity_dense_session", flagged: dense.flagged },
+    { reason: "activity_shared_session", flagged: shared.flagged },
   ]);
   return {
     reasons,
@@ -271,6 +318,9 @@ export function evaluateClaimSignals(inp: ClaimSignalInputs): ClaimSignalEvaluat
       deviceAccountCount: device.value,
       queuedForMs: queued.value,
       batchSpeedCv: constantSpeed.value,
+      activityLagMs: activityLag.value,
+      activitySessionClaims: dense.value,
+      activitySessionAccounts: shared.value,
     },
   };
 }

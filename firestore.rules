@@ -122,6 +122,16 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // ── activityQuotas collection ────────────────────────────────────────────
+    // Per-user daily budget for workout claims (matchActivityRoute sessions +
+    // route km, claimActivityPostbox claims) plus the fingerprints/digests of
+    // recently matched sessions (free re-match). Server-only, like
+    // offlineFlushQuotas: a readable copy leaks remaining budget, a writable
+    // one removes it. Holds no coordinates or workout data.
+    match /activityQuotas/{uid} {
+      allow read, write: if false;
+    }
+
     // ── retention collection ─────────────────────────────────────────────────
     // Resume state for the scheduled data-retention sweep (its paging cursor /
     // watermark, so a crashed run continues rather than restarting). Purely

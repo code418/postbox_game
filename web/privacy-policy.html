@@ -69,7 +69,7 @@
   <p>Your privacy matters to us.</p>
 </header>
 <main>
-  <span class="last-updated">Last updated: October 2026</span>
+  <span class="last-updated">Last updated: November 2026</span>
 
   <p>This Privacy Policy explains how <strong>The Postbox Game</strong> ("the App", "we", "us") collects, uses, and protects your personal data when you use our mobile application. We are committed to complying with the UK General Data Protection Regulation (UK GDPR) and the Data Protection Act 2018.</p>
 
@@ -83,6 +83,7 @@
     <li><strong>Gameplay data:</strong> Postbox claims you make (postbox ID, timestamp, points awarded), your running scores, streaks, and leaderboard entries (display name and points only).</li>
     <li><strong>Device token:</strong> A random per-install identifier sent with claims to detect multi-account abuse. It is not derived from your hardware and identifies only the app installation; it is removed from claims after 90 days.</li>
     <li><strong>Friends list:</strong> User IDs of friends you choose to add within the App.</li>
+    <li><strong>Workout data (optional, Android):</strong> If you connect Health Connect, we read the walking, running and hiking sessions recorded in the last 36 hours (their type, start and end time, and which fitness app recorded them) and their GPS routes. See <a href="#health-connect">Workout Data from Health Connect</a> below.</li>
     <li><strong>Problem reports:</strong> If you report a postbox data problem, we store your report, its location, and any note or photos you attach (photos may include the time and place they were taken).</li>
     <li><strong>Anti-abuse records:</strong> Automated checks may record anomaly flags and an internal trust score for your account. While this system runs in "shadow mode" it has no effect on your account or gameplay.</li>
     <li><strong>Crash and performance data:</strong> Crash reports and performance traces collected by Firebase Crashlytics and Firebase Performance Monitoring to help us fix bugs. You can turn these off in Settings → Privacy (or the Privacy page in the Wear OS watch app). The watch app does not collect performance traces at all.</li>
@@ -94,6 +95,7 @@
     <li>To operate the App and provide gameplay features (claims, leaderboards, friends).</li>
     <li>To display your scores and display name on leaderboards and to friends.</li>
     <li>To keep the game fair by detecting location spoofing and multi-account abuse.</li>
+    <li>To let you claim postboxes that your recorded walks, runs and hikes passed (only if you connect Health Connect).</li>
     <li>To review postbox data problems you report and improve the postbox database.</li>
     <li>To improve the App by analysing crash reports, performance data, and aggregated usage statistics (each of which you can opt out of).</li>
     <li>To associate your gameplay history with your account so it persists across devices.</li>
@@ -104,7 +106,7 @@
   <ul>
     <li><strong>Contract:</strong> Processing your account and gameplay data is necessary to provide the service you signed up for.</li>
     <li><strong>Legitimate interests:</strong> Usage analytics, crash reporting, and performance monitoring to maintain and improve a working app (each can be turned off via the Settings → Privacy toggles (or the Privacy page in the Wear OS watch app)), and anti-abuse checks to keep the game fair.</li>
-    <li><strong>Consent:</strong> Location access, which you can grant or revoke at any time in your device settings.</li>
+    <li><strong>Consent:</strong> Location access, which you can grant or revoke at any time in your device settings, and connecting Health Connect, which you can undo at any time in Settings → Workouts or in Health Connect.</li>
   </ul>
 
   <h2>5. Data Sharing</h2>
@@ -120,6 +122,7 @@
   <ul>
     <li>Account data is retained for as long as your account exists; deleting your account anonymises your claims and removes your personal data (see Your Rights).</li>
     <li>The GPS position, timing metadata, and device token stored with a claim are automatically removed after 90 days.</li>
+    <li>Workout routes read from Health Connect are processed in memory to find the postboxes they passed and are never stored. For a postbox you choose to claim, the point where you passed it and which fitness app recorded the workout are stored with that claim and removed after 90 days.</li>
     <li>Photos and notes attached to a postbox problem report are removed 30 days after the report is reviewed.</li>
     <li>Anti-abuse anomaly records are deleted after 180 days.</li>
     <li>Leaderboard entries are retained for the relevant period (daily / weekly / monthly) then overwritten.</li>
@@ -133,23 +136,36 @@
     <li><strong>Rectification</strong> of inaccurate data (e.g. update your display name in the App).</li>
     <li><strong>Erasure</strong> ("right to be forgotten"): use Settings → "Delete account" in the App. Your personal data is deleted and your claims are anonymised immediately.</li>
     <li><strong>Restriction or objection</strong> to certain processing, including turning off crash reporting, performance monitoring, and analytics in Settings → Privacy (or the Privacy page in the Wear OS watch app).</li>
-    <li><strong>Withdraw consent</strong> for location access at any time via your device settings; analytics, crash reporting, and performance monitoring can each be turned off in Settings → Privacy (or the Privacy page in the Wear OS watch app).</li>
+    <li><strong>Withdraw consent</strong> for location access at any time via your device settings, and for Health Connect in Settings → Workouts or in Health Connect itself; analytics, crash reporting, and performance monitoring can each be turned off in Settings → Privacy (or the Privacy page in the Wear OS watch app).</li>
   </ul>
   <p>To exercise any right, contact us at <a href="mailto:richard@agilepixel.io">richard@agilepixel.io</a>. You also have the right to lodge a complaint with the <a href="https://ico.org.uk" target="_blank" rel="noopener">Information Commissioner's Office (ICO)</a>.</p>
 
   <h2>8. Location Data</h2>
   <p>The App requests access to your device's precise location (<em>while the app is in use</em>) to find nearby postboxes. We do not track your location in the background. The position you claimed from is stored with that claim for anti-cheat verification and automatically removed after 90 days. Other players never see your location – nearby postboxes are shown only as fuzzy directions.</p>
 
-  <h2>9. Children</h2>
+  <a id="health-connect"></a>
+  <h2>9. Workout Data from Health Connect</h2>
+  <p>Connecting Health Connect is optional and available on Android only. If you connect it:</p>
+  <ul>
+    <li>We read your walking, running and hiking sessions from the last 36 hours (type, start and end time, and which app recorded them) and their GPS routes. We never write anything to Health Connect, and we never read any other health data such as heart rate or sleep.</li>
+    <li>We read only while the App is open, never in the background.</li>
+    <li>Each new route is sent once over HTTPS to our servers (Google Firebase) to find postboxes within 30 metres of it and the time you passed each one. The route is processed in memory and discarded; it is never stored.</li>
+    <li>When you claim a postbox your workout passed, the point where you passed it, the time, and which fitness app recorded the workout are stored with that claim and removed after 90 days, exactly like a claim made on the spot.</li>
+    <li>Health Connect data is never used for advertising or analytics, never sold, and never shared with anyone other than Google Firebase processing it on our behalf.</li>
+    <li>You can disconnect at any time in Settings → Workouts or in Health Connect. Disconnecting stops all reading and deletes any workouts waiting to be claimed.</li>
+  </ul>
+  <p>The App's use of information received from Health Connect adheres to the Health Connect Permissions policy, including the Limited Use requirements.</p>
+
+  <h2>10. Children</h2>
   <p>The App is not directed at children under 13. We do not knowingly collect personal data from children under 13. If you believe a child has provided us with personal data, contact us and we will delete it.</p>
 
-  <h2>10. Security</h2>
+  <h2>11. Security</h2>
   <p>All data is transmitted over HTTPS and stored in Google Firebase's encrypted infrastructure. Access to Firestore is restricted by server-side security rules; users can only read and write data they are authorised to access.</p>
 
-  <h2>11. Changes to This Policy</h2>
+  <h2>12. Changes to This Policy</h2>
   <p>We may update this policy occasionally. Material changes will be notified within the App. The "last updated" date at the top of this page will always reflect the current version.</p>
 
-  <h2>12. Contact</h2>
+  <h2>13. Contact</h2>
   <p>For any privacy-related questions or requests: <a href="mailto:richard@agilepixel.io">richard@agilepixel.io</a></p>
 </main>
 <footer>

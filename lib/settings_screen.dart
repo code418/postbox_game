@@ -11,6 +11,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:postbox_game/activity/activity_claims_screen.dart';
+import 'package:postbox_game/activity/activity_helpers.dart';
 import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/analytics_user_properties.dart';
 import 'package:postbox_game/app_preferences.dart';
@@ -23,6 +25,8 @@ import 'package:postbox_game/county_heatmap.dart';
 import 'package:postbox_game/intro.dart';
 import 'package:postbox_game/maintenance_guard.dart';
 import 'package:postbox_game/notification_service.dart';
+import 'package:postbox_game/services/activity_claims_service.dart';
+import 'package:postbox_game/services/health_connect_bridge.dart';
 import 'package:postbox_game/services/notification_preprompt.dart';
 import 'package:postbox_game/services/telemetry_consent.dart';
 import 'package:share_plus/share_plus.dart';
@@ -37,10 +41,15 @@ class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
     super.key,
     this.notificationPermissionStatus = NotificationService.permissionStatus,
+    this.activityClaims,
   });
 
   /// Reads the OS notification permission. A seam for tests.
   final Future<AuthorizationStatus?> Function() notificationPermissionStatus;
+
+  /// Workout claims (Health Connect). A seam for tests; defaults to the
+  /// process-wide service.
+  final ActivityClaimsService? activityClaims;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -67,6 +76,12 @@ class _SettingsScreenState extends State<SettingsScreen>
   bool _privacyPrefsLoaded = false;
   bool _isExporting = false;
   final _userRepository = UserRepository();
+  late final ActivityClaimsService _activity =
+      widget.activityClaims ?? ActivityClaimsService.instance;
+  HcAvailability _hcAvailability = HcAvailability.unsupported;
+  Set<String> _hcGranted = const {};
+  bool _hcOptedIn = false;
+  bool _hcAutoCheck = true;
 
   @override
   void initState() {
@@ -76,6 +91,7 @@ class _SettingsScreenState extends State<SettingsScreen>
     _loadNotifPermission();
     _loadPrivacyPrefs();
     _loadLastPosition();
+    _loadWorkouts();
     WidgetsBinding.instance.addObserver(this);
   }
 
@@ -88,7 +104,118 @@ class _SettingsScreenState extends State<SettingsScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // Pick up a change made in system settings (via "Open Settings").
-    if (state == AppLifecycleState.resumed) _loadNotifPermission();
+    if (state == AppLifecycleState.resumed) {
+      _loadNotifPermission();
+      _loadWorkouts(); // a grant/revoke made in Health Connect itself
+    }
+  }
+
+  // ── Workouts (Health Connect) ─────────────────────────────────────────────
+
+  bool get _hcConnected =>
+      _hcOptedIn && _hcGranted.contains(HealthConnectPermissions.readExercise);
+
+  HealthConnectSettingsAction get _hcAction => healthConnectSettingsAction(
+        availability: _hcAvailability,
+        granted: _hcGranted,
+        optedIn: _hcOptedIn,
+      );
+
+  Future<void> _loadWorkouts() async {
+    if (!_activity.featureVisible) return;
+    final availability = await _activity.availability();
+    final granted = availability == HcAvailability.available
+        ? await _activity.grantedPermissions()
+        : <String>{};
+    final optedIn = await _activity.optedIn();
+    final auto = await _activity.autoCheckEnabled();
+    if (!mounted) return;
+    setState(() {
+      _hcAvailability = availability;
+      _hcGranted = granted;
+      _hcOptedIn = optedIn;
+      _hcAutoCheck = auto;
+    });
+  }
+
+  Future<void> _openWorkouts() async {
+    await Navigator.of(context).push(
+        MaterialPageRoute<void>(builder: (_) => ActivityClaimsScreen(service: _activity)));
+    unawaited(_loadWorkouts());
+  }
+
+  Future<void> _disconnectWorkouts() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Disconnect Health Connect?'),
+        content: const Text(
+            "We'll stop reading your workouts and forget any unclaimed ones. "
+            'Postboxes you already claimed stay claimed.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Disconnect')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await _activity.disconnect();
+    await _loadWorkouts();
+  }
+
+  List<Widget> _workoutTiles() {
+    final action = _hcAction;
+    return [
+      ListTile(
+        leading: const Icon(Icons.directions_run),
+        title: const Text('Claim from your workouts'),
+        subtitle: Text(_hcConnected
+            ? 'Connected to Health Connect'
+            : 'Claim postboxes your recorded walks and runs passed'),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: _openWorkouts,
+      ),
+      if (action == HealthConnectSettingsAction.install ||
+          action == HealthConnectSettingsAction.update ||
+          action == HealthConnectSettingsAction.grantRoutes ||
+          action == HealthConnectSettingsAction.manage)
+        ListTile(
+          leading: const Icon(Icons.health_and_safety_outlined),
+          title: Text(switch (action) {
+            HealthConnectSettingsAction.install => 'Get Health Connect',
+            HealthConnectSettingsAction.update => 'Update Health Connect',
+            HealthConnectSettingsAction.grantRoutes => 'Allow route access',
+            _ => 'Manage in Health Connect',
+          }),
+          subtitle: Text(switch (action) {
+            HealthConnectSettingsAction.grantRoutes =>
+              'Let every workout be checked without asking each time',
+            HealthConnectSettingsAction.manage => 'See or change what this app can read',
+            _ => 'Free from Google Play',
+          }),
+          onTap: () => (action == HealthConnectSettingsAction.install ||
+                  action == HealthConnectSettingsAction.update)
+              ? _activity.bridge.openInstall()
+              : _activity.bridge.openSettings(),
+        ),
+      if (_hcConnected) ...[
+        SwitchListTile(
+          secondary: const Icon(Icons.autorenew),
+          title: const Text('Check when I open the app'),
+          subtitle: const Text('Look for new walks and runs each time you come back'),
+          value: _hcAutoCheck,
+          onChanged: (v) async {
+            setState(() => _hcAutoCheck = v);
+            await _activity.setAutoCheckEnabled(v);
+          },
+        ),
+        ListTile(
+          leading: const Icon(Icons.link_off),
+          title: const Text('Disconnect Health Connect'),
+          onTap: _disconnectWorkouts,
+        ),
+      ],
+    ];
   }
 
   bool get _isIOS => !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
@@ -965,6 +1092,11 @@ class _SettingsScreenState extends State<SettingsScreen>
               value: _notifPrefs['streakReminder']!,
               onChanged: (v) => _setNotifPref('streakReminder', v),
             ),
+          ],
+          if (_activity.featureVisible) ...[
+            const Divider(height: 24),
+            _sectionHeader('Workouts'),
+            ..._workoutTiles(),
           ],
           const Divider(height: 24),
           _sectionHeader('Privacy'),

@@ -197,6 +197,14 @@ is billed per postbox doc returned. In dense urban cells this inflates reads/sca
 the top of the 10–60 band, multiplying the §5 totals. Not a hard limit, but it compounds
 the §5 read cost. **Fix:** §7.3.
 
+**Workout claims (Health Connect)** add a route-shaped fan-out: `matchActivityRoute`
+covers a route with precision-7 geohash cells (~150 m) and runs one prefix query
+per cell — roughly 150–250 queries plus the boxes found per 10 km in a city,
+paid once per new session version (unchanged re-submissions re-match free). The
+per-user budget (`MAX_ACTIVITY_SESSIONS_PER_DAY` 12, `MAX_ACTIVITY_ROUTE_M_PER_DAY`
+150 km, `MAX_ROUTE_CELLS` 1,500 per route) caps it at a few thousand reads per
+active user per day in the worst case.
+
 ---
 
 ## 7. Optimisation recommendations (ranked by impact)

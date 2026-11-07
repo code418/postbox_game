@@ -28,6 +28,50 @@ export interface NearbyPostbox {
  * are dropped. With `filterToRadius: false` the coarse 9-cell set is returned
  * unfiltered (plan_route trims it with its own geometry).
  */
+/** A postbox found by [queryPostboxesInCells]. */
+export interface CellPostbox {
+  id: string;
+  lat: number;
+  lng: number;
+  monarch?: string;
+}
+
+/**
+ * Every CLAIMABLE postbox stored under any of [cells] (geohash prefixes), for
+ * the workout-claim route matcher. Unlike queryPostboxesNear this DOES skip
+ * soft-pruned (`removedFromOsm`) boxes — the claim path's lookupPostboxes
+ * skips them too, so offering one would end in a `found:false` claim. Prefix
+ * range queries run [concurrency] at a time; results are de-duplicated.
+ */
+export async function queryPostboxesInCells(
+  db: firestore.Firestore,
+  cells: string[],
+  concurrency = 25,
+): Promise<CellPostbox[]> {
+  const seen = new Set<string>();
+  const out: CellPostbox[] = [];
+  // Sequential chunks bound the number of in-flight queries per route.
+  for (let i = 0; i < cells.length; i += concurrency) {
+    const chunk = cells.slice(i, i + concurrency);
+    // eslint-disable-next-line no-await-in-loop
+    const snaps = await Promise.all(
+      chunk.map((prefix) => db.collection("postbox").orderBy("geohash").startAt(prefix).endAt(prefix + "").get())
+    );
+    for (const snap of snaps) {
+      for (const doc of snap.docs) {
+        if (seen.has(doc.id)) continue;
+        seen.add(doc.id);
+        const data = doc.data() as PostboxDoc;
+        if (data.removedFromOsm === true) continue;
+        const pos = getLatLng(data.geopoint);
+        if (!pos) continue;
+        out.push({ id: doc.id, lat: pos.lat, lng: pos.lng, ...(data.monarch !== undefined ? { monarch: data.monarch } : {}) });
+      }
+    }
+  }
+  return out;
+}
+
 export async function queryPostboxesNear(
   db: firestore.Firestore,
   lat: number,

@@ -10,6 +10,7 @@ import {
   DEFAULT_TRUST_SCORE,
 } from "./_abuseSignals";
 import { getGameConfig } from "./_config";
+import { getActivityConfig } from "./_activityConfig";
 
 // SHADOW MODE: the detector only records flags + decays an internal trust score.
 // It NEVER blocks, voids, or otherwise affects a claim. Enforcement (step-up
@@ -66,6 +67,39 @@ export const onClaimCreated = onDocumentCreated(
         ? (await getGameConfig()).offlineGraceHours * 3600_000
         : undefined;
 
+      // Workout-claim metadata. `activity` is trustworthy because ONLY
+      // claimActivityPostbox writes it (from a verified server-signed token).
+      const activity = claim.activity === true;
+      const activityLagMs = typeof claim.activityLagMs === "number" ? (claim.activityLagMs as number) : undefined;
+      const activitySessionFp = typeof claim.activitySessionFp === "string"
+        ? (claim.activitySessionFp as string)
+        : undefined;
+      let activityGraceMs: number | undefined;
+      let activitySessionClaims: number | undefined;
+      let activitySessionAccounts: number | undefined;
+      if (activity && activitySessionFp) {
+        activityGraceMs = (await getActivityConfig()).graceHours * 3600_000;
+        // This user's claims from the same recorded session (equality filters
+        // only — merged single-field indexes, like the coordKey6 count).
+        const own = await database
+          .collection("claims")
+          .where("userid", "==", uid)
+          .where("activitySessionFp", "==", activitySessionFp)
+          .count()
+          .get();
+        activitySessionClaims = own.data().count;
+        // Distinct accounts that claimed from the same session (bounded read).
+        const sharers = await database
+          .collection("claims")
+          .where("activitySessionFp", "==", activitySessionFp)
+          .select("userid")
+          .limit(REPEATED_DEVICE_SCAN_LIMIT)
+          .get();
+        activitySessionAccounts = new Set(
+          sharers.docs.map((d) => d.data().userid).filter((u) => typeof u === "string"),
+        ).size;
+      }
+
       // Coordinate clustering: how many of this user's claims sit at the same
       // rounded coordinate (this one included). Two equality filters are served
       // by single-field indexes (zigzag merge) — no composite index needed.
@@ -113,6 +147,11 @@ export const onClaimCreated = onDocumentCreated(
         graceMs,
         batchSize,
         batchSpeedCv,
+        activity,
+        activityLagMs,
+        activityGraceMs,
+        activitySessionClaims,
+        activitySessionAccounts,
       });
       if (reasons.length === 0) return; // nothing anomalous
 

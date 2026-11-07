@@ -8,7 +8,44 @@
          ships without it; the full Auto experience lives in the off-Play `auto`
          flavour (src/auto/). -->
 
+    <!-- health-connect:begin (permissions) — workout claims, READ-ONLY.
+         Identical in src/phone and src/auto (pinned by
+         test/health_connect_manifest_test.dart); never in src/main or
+         src/wear. Must match the Play Console Health apps declaration. -->
+    <uses-permission android:name="android.permission.health.READ_EXERCISE"/>
+    <uses-permission android:name="android.permission.health.READ_EXERCISE_ROUTES"/>
+    <queries>
+        <package android:name="com.google.android.apps.healthdata"/>
+    </queries>
+    <!-- health-connect:end (permissions) -->
+
     <application>
+        <!-- health-connect:begin (privacy) — Health Connect's "privacy
+             policy" link: the rationale action (Android 13 and lower) and the
+             VIEW_PERMISSION_USAGE alias (Android 14+) both open the hosted
+             policy, the same one the Play listing links. -->
+        <activity
+            android:name="com.code418.postbox_game.health.HealthPrivacyActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE"/>
+            </intent-filter>
+        </activity>
+        <activity-alias
+            android:name="com.code418.postbox_game.health.ViewPermissionUsageActivity"
+            android:exported="true"
+            android:permission="android.permission.START_VIEW_PERMISSION_USAGE"
+            android:targetActivity="com.code418.postbox_game.health.HealthPrivacyActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW_PERMISSION_USAGE"/>
+                <category android:name="android.intent.category.HEALTH_PERMISSIONS"/>
+            </intent-filter>
+        </activity-alias>
+        <!-- health-connect:end (privacy) -->
         <!-- Invite links (docs/marketing-plan.md, Referral). Phone-side
              flavours only: the watch never receives a shared link. Merged
              into MainActivity from src/main. The https filter is an App Link,
