@@ -85,6 +85,13 @@
       },
       "description": "v1.5 offline play: per-user daily cap on flushed offline claims. Must start equal to the code default (30). Values outside the [1, 200] safety band are ignored; client and server fall back to 30. Publish to the SERVER template too.",
       "valueType": "NUMBER"
+    },
+    "unpacked_enabled": {
+      "defaultValue": {
+        "value": "false"
+      },
+      "description": "When true, shows the December 'Your Postboxes Unpacked' annual recap to all players (inside its 1 Dec-15 Jan window, once the snapshot is built). Admins see it regardless, for the soft launch.",
+      "valueType": "BOOLEAN"
     }
   },
   "version": {

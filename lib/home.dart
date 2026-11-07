@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:postbox_game/admin/admin_abuse_screen.dart';
@@ -25,9 +26,17 @@ import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/widgets/maintenance_banner.dart';
 import 'package:postbox_game/widgets/offline_banner.dart';
 import 'package:postbox_game/services/outbox_sync.dart';
+import 'package:postbox_game/unpacked/unpacked_repository.dart';
+import 'package:postbox_game/unpacked/unpacked_screen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class Home extends StatefulWidget {
-  const Home({super.key, this.initialIndex = 0, this.autoScan = false});
+  const Home({
+    super.key,
+    this.initialIndex = 0,
+    this.autoScan = false,
+    this.unpackedRepository,
+  });
 
   /// Index of the tab to show on first build. 0=Nearby, 1=Claim, 2=Scores,
   /// 3=Friends, 4=History.
@@ -37,6 +46,10 @@ class Home extends StatefulWidget {
   /// Used by the Android home-screen widget deep-link.
   final bool autoScan;
 
+  /// Source for the December "Your Postboxes Unpacked" recap menu entry.
+  /// Injectable for tests; defaults to the Firestore-backed repository.
+  final UnpackedRepository? unpackedRepository;
+
   @override
   State<Home> createState() => _HomeState();
 }
@@ -45,6 +58,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   late int _selectedIndex = widget.initialIndex;
   late final JamesController _jamesController = JamesController();
   bool _isAdmin = false;
+  UnpackedRecap? _unpacked;
   bool _inviteFlowRunning = false;
 
   static const _destinations = [
@@ -125,6 +139,39 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           AnalyticsUserProps.kIsAdmin, boolProp(isAdmin));
       if (mounted && isAdmin) setState(() => _isAdmin = true);
     });
+    unawaited(_loadUnpacked());
+  }
+
+  /// Offers the annual recap (menu entry + a once-per-year James nudge) when
+  /// UnpackedRepository says it's live for this player.
+  Future<void> _loadUnpacked() async {
+    String? uid;
+    try {
+      uid = FirebaseAuth.instance.currentUser?.uid;
+    } catch (_) {}
+    if (uid == null) return;
+    final recap =
+        await (widget.unpackedRepository ?? UnpackedRepository()).load(uid);
+    if (!mounted || recap == null) return;
+    setState(() => _unpacked = recap);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = 'unpacked_nudged_${recap.year}';
+      if (prefs.getBool(key) ?? false) return;
+      await prefs.setBool(key, true);
+      if (mounted) {
+        _jamesController.show(JamesMessages.unpackedNudge(recap.year));
+      }
+    } catch (_) {}
+  }
+
+  void _openUnpacked() {
+    final recap = _unpacked;
+    if (recap == null) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => UnpackedScreen(recap: recap)),
+    );
   }
 
   @override
@@ -201,6 +248,8 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
               icon: const Icon(Icons.more_vert),
               onSelected: (value) {
                 switch (value) {
+                  case 'unpacked':
+                    _openUnpacked();
                   case 'settings':
                     Navigator.pushNamed(context, '/settings');
                   case 'intro':
@@ -237,6 +286,15 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
                 }
               },
               itemBuilder: (_) => [
+                if (_unpacked != null)
+                  PopupMenuItem(
+                    value: 'unpacked',
+                    child: ListTile(
+                      leading: const Icon(Icons.card_giftcard_outlined),
+                      title: Text('Your ${_unpacked!.year} Postboxes Unpacked'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
                 const PopupMenuItem(
                   value: 'myReports',
                   child: ListTile(

@@ -49,6 +49,7 @@ export const onUserCreated = functions
       friendOvertakes: true,
       addedAsFriend: true,
       streakReminder: true,
+      unpackedReady: true,
     },
     // Initialise all numeric fields to 0 so Firestore queries that sort or
     // compare on these fields include new users before their first claim,

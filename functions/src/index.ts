@@ -15,6 +15,7 @@ import { onClaimCreated, reviewFlag } from "./abuse";
 import { dataRetentionSweep } from "./dataRetention";
 import { exportMyData } from "./exportMyData";
 import { flushOfflineClaims } from "./flushOfflineClaims";
+import { buildUnpacked, rebuildUnpacked, unpackedLaunchNotify } from "./buildUnpacked";
 import { getInviteCode, acceptInvite } from "./invites";
 
 export {
@@ -36,6 +37,9 @@ export {
   dataRetentionSweep,
   exportMyData,
   flushOfflineClaims,
+  buildUnpacked,
+  rebuildUnpacked,
+  unpackedLaunchNotify,
   getInviteCode,
   acceptInvite,
 };
