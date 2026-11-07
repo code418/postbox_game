@@ -130,8 +130,8 @@
   <p class="tagline">Hunt Britain's royal postboxes</p>
   <p class="pitch">Turn every walk into a treasure hunt. Every red postbox carries the royal cypher of the monarch who reigned when it was installed. Spot them, claim one a day for points, and chase the rare ones up the leaderboards.</p>
   <div class="badges" data-badges>
-    <a class="badge-apple" data-store="apple" href="https://apps.apple.com/app/id6819213888">
-      <img src="https://tools.applemarketingtools.com/api/badges/download-on-the-app-store/black/en-us?size=250x83" alt="Download on the App Store">
+    <a class="badge-apple" data-store="apple" href="https://apps.apple.com/gb/app/the-postbox-game/id6819213888">
+      <img src="/app-store-badge.svg" alt="Download on the App Store">
     </a>
     <a class="badge-google" data-store="google" href="https://play.google.com/store/apps/details?id=com.code418.postbox_game">
       <img src="https://play.google.com/intl/en_gb/badges/static/images/badges/en_badge_web_generic.png" alt="Get it on Google Play">
@@ -177,8 +177,8 @@
 
   <div class="closing">
     <div class="badges" data-badges>
-      <a class="badge-apple" data-store="apple" href="https://apps.apple.com/app/id6819213888">
-        <img src="https://tools.applemarketingtools.com/api/badges/download-on-the-app-store/black/en-us?size=250x83" alt="Download on the App Store">
+      <a class="badge-apple" data-store="apple" href="https://apps.apple.com/gb/app/the-postbox-game/id6819213888">
+        <img src="/app-store-badge.svg" alt="Download on the App Store">
       </a>
       <a class="badge-google" data-store="google" href="https://play.google.com/store/apps/details?id=com.code418.postbox_game">
         <img src="https://play.google.com/intl/en_gb/badges/static/images/badges/en_badge_web_generic.png" alt="Get it on Google Play">
@@ -195,7 +195,8 @@
   // It identifies the developer account, is the same for every campaign and is
   // public in every campaign link. Empty = plain store links with no `ct`.
   const APPLE_PROVIDER_TOKEN = '129562838';
-  const APP_STORE_ID = '6819213888';
+  // Keep the storefront: apps.apple.com 404s on desktop without one.
+  const APP_STORE_URL = 'https://apps.apple.com/gb/app/the-postbox-game/id6819213888';
   const PLAY_PACKAGE = 'com.code418.postbox_game';
 
   // Marketing links carry ?src=<channel> (e.g. /get?src=reddit_postboxes) so
@@ -207,8 +208,8 @@
   }
 
   function appStoreUrl(campaign) {
-    if (!APPLE_PROVIDER_TOKEN) return 'https://apps.apple.com/app/id' + APP_STORE_ID;
-    return 'https://apps.apple.com/app/apple-store/id' + APP_STORE_ID +
+    if (!APPLE_PROVIDER_TOKEN) return APP_STORE_URL;
+    return APP_STORE_URL +
       '?pt=' + encodeURIComponent(APPLE_PROVIDER_TOKEN) +
       '&ct=' + encodeURIComponent(campaign) + '&mt=8';
   }

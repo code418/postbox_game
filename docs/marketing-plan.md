@@ -15,7 +15,7 @@ Engineering work that supports the plan is listed in §14 and in the "Growth" no
 
 ## 1. Executive summary
 
-The Postbox Game is live on both stores. Android (phone and Wear OS) is on Google Play, and the iPhone app was approved for the [App Store](https://apps.apple.com/app/the-postbox-game/id6819213888) on 3 November 2026. The product already keeps players coming back: daily claims, streaks with a reminder push, friend pushes, county leaderboards, an Android widget, and a Wear tile and complications. What it lacked was any way for players to bring in other players. The only invite was a text message containing a 28-character account ID that the friend had to paste in by hand. There was nothing worth sharing, no link into the app, no rating prompt and no measurement of any of it.
+The Postbox Game is live on both stores. Android (phone and Wear OS) is on Google Play, and the iPhone app was approved for the [App Store](https://apps.apple.com/gb/app/the-postbox-game/id6819213888) on 3 November 2026. The product already keeps players coming back: daily claims, streaks with a reminder push, friend pushes, county leaderboards, an Android widget, and a Wear tile and complications. What it lacked was any way for players to bring in other players. The only invite was a text message containing a 28-character account ID that the friend had to paste in by hand. There was nothing worth sharing, no link into the app, no rating prompt and no measurement of any of it.
 
 With one or two hours a week and no budget, the plan rests on three bets:
 
