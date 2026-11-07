@@ -7,6 +7,7 @@ import {
   updateUserLeaderboards,
   mergeLifetimeEntries,
   LifetimeLeaderboardEntry,
+  AvatarMap,
   getWeekStart,
   getMonthStart,
 } from "./_leaderboardUtils";
@@ -159,6 +160,9 @@ export async function recomputeUserAggregates(
   const userSnap = await userRef.get();
   const displayName =
     (userSnap.data()?.displayName as string | undefined) || `Player_${uid.slice(0, 6)}`;
+  // Carry the player's avatar through, or rewriting their entries here would
+  // strip it from the boards until their next claim.
+  const avatar = userSnap.data()?.avatar as AvatarMap | undefined;
 
   // Re-derive maxDailyPoints from claims. A cypher correction can change the
   // best day's total (re-pointing dropped its sum below another day's), and
@@ -168,7 +172,7 @@ export async function recomputeUserAggregates(
   const maxDailyPoints = maxDailyFromClaims(allClaims.docs.map((d) => d.data() as { dailyDate?: string; points?: number }));
 
   // Re-sum + rewrite the per-period leaderboards (daily/weekly/monthly).
-  const periodSums = await updateUserLeaderboards(uid, displayName, today, db);
+  const periodSums = await updateUserLeaderboards(uid, displayName, today, db, avatar);
   const weekStart = getWeekStart(today);
   const monthStart = getMonthStart(today);
 
@@ -220,7 +224,8 @@ export async function recomputeUserAggregates(
       if (periodSums.monthlyPoints > 0) userUpdate.monthStart = monthStart;
       tx.set(userRef, userUpdate, { merge: true });
       const existing = (lSnap.data()?.entries ?? []) as LifetimeLeaderboardEntry[];
-      const updated = mergeLifetimeEntries(existing, uid, freshDisplayName, currentUnique, newLifetimePoints);
+      const freshAvatar = (uSnap.data()?.avatar as AvatarMap | undefined) ?? avatar;
+      const updated = mergeLifetimeEntries(existing, uid, freshDisplayName, currentUnique, newLifetimePoints, 100, freshAvatar);
       tx.set(lifetimeRef, { periodKey: "lifetime", entries: updated }, { merge: false });
     });
   } catch (err) {

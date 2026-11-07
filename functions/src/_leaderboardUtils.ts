@@ -30,10 +30,16 @@ export function getPeriodKey(name: string, startDate: string): string {
   return `month:${startDate.slice(0, 7)}`;
 }
 
+/** A user's avatar config — small map of {slotKey: optionIndex}. Embedded in
+ *  leaderboard entries so the global tab can render player avatars without an
+ *  N+1 read of users/{uid}. Schema mirrors `lib/avatar/avatar_config.dart`. */
+export type AvatarMap = Record<string, number>;
+
 export interface LeaderboardEntry {
   uid: string;
   displayName: string;
   points: number;
+  avatar?: AvatarMap;
 }
 
 /**
@@ -54,12 +60,15 @@ export function mergePeriodEntries(
   uid: string,
   displayName: string,
   userPoints: number,
-  limit = 100
+  limit = 100,
+  avatar?: AvatarMap
 ): LeaderboardEntry[] {
   const others = existing.filter((e) => e.uid !== uid);
   return [
     ...others,
-    ...(userPoints > 0 ? [{ uid, displayName, points: userPoints }] : []),
+    ...(userPoints > 0
+      ? [{ uid, displayName, points: userPoints, ...(avatar ? { avatar } : {}) }]
+      : []),
   ]
     .sort((a, b) => (b.points - a.points) || (a.uid < b.uid ? -1 : a.uid > b.uid ? 1 : 0))
     .slice(0, limit);
@@ -85,7 +94,8 @@ export async function updateUserLeaderboards(
   uid: string,
   displayName: string,
   today: string,
-  db: Firestore
+  db: Firestore,
+  avatar?: AvatarMap
 ): Promise<PeriodSums> {
   const weekStart = getWeekStart(today);
   const monthStart = getMonthStart(today);
@@ -134,7 +144,7 @@ export async function updateUserLeaderboards(
 
           // Upsert this user's entry, or remove it if they have 0 points (e.g.
           // updateDisplayName called before any claim in this period).
-          const updatedEntries = mergePeriodEntries(existing, uid, displayName, userPoints);
+          const updatedEntries = mergePeriodEntries(existing, uid, displayName, userPoints, 100, avatar);
           tx.set(leaderboardRef, { periodKey: currentPeriodKey, entries: updatedEntries }, { merge: false });
         });
       } catch (err) {
@@ -189,6 +199,7 @@ export interface LifetimeLeaderboardEntry {
   displayName: string;
   uniquePostboxesClaimed: number;
   totalPoints: number;
+  avatar?: AvatarMap;
 }
 
 /**
@@ -208,13 +219,14 @@ export function mergeLifetimeEntries(
   displayName: string,
   uniquePostboxesClaimed: number,
   totalPoints: number,
-  limit = 100
+  limit = 100,
+  avatar?: AvatarMap
 ): LifetimeLeaderboardEntry[] {
   const others = existing.filter((e) => e.uid !== uid);
   return [
     ...others,
     ...(uniquePostboxesClaimed > 0 || totalPoints > 0
-      ? [{ uid, displayName, uniquePostboxesClaimed, totalPoints }]
+      ? [{ uid, displayName, uniquePostboxesClaimed, totalPoints, ...(avatar ? { avatar } : {}) }]
       : []),
   ]
     .sort((a, b) => {

@@ -13,7 +13,7 @@ import * as functions from "firebase-functions";
 import { getGameConfig, resolvePointsForMonarch } from "./_config";
 import { getTodayLondon } from "./_dateUtils";
 import { lookupPostboxes, getLatLng } from "./_lookupPostboxes";
-import { updateUserLeaderboards, mergeLifetimeEntries, LifetimeLeaderboardEntry, getWeekStart, getMonthStart, countySlug } from "./_leaderboardUtils";
+import { updateUserLeaderboards, mergeLifetimeEntries, LifetimeLeaderboardEntry, AvatarMap, getWeekStart, getMonthStart, countySlug } from "./_leaderboardUtils";
 import { computeNewStreak, streakFromClaimDays } from "./_streakUtils";
 import { notifyFriendsFirstClaim, notifyFriendOvertake } from "./_notifications";
 import { checkNeighbourSpeeds, NeighbourPoint } from "./_travelSpeed";
@@ -334,6 +334,7 @@ export async function scoreClaimAt(
     const displayName =
       (userDoc.data()?.displayName as string | undefined) ||
       `Player_${userid.slice(0, 6)}`;
+    const userAvatar = userDoc.data()?.avatar as AvatarMap | undefined;
 
     // Run the period leaderboard update and the uniqueness checks in parallel.
     // updateUserLeaderboards uses Promise.allSettled internally and never
@@ -349,7 +350,7 @@ export async function scoreClaimAt(
     // display one. Pinned by the "backdated today must not clobber the daily
     // board" test.
     const [periodSums, uniqueCheckResults] = await Promise.all([
-      updateUserLeaderboards(userid, displayName, todayLondon, database),
+      updateUserLeaderboards(userid, displayName, todayLondon, database, userAvatar),
       Promise.allSettled(
         // For each postbox claimed this session, count the user's claims on
         // that box — the claim just written included. Exactly 1 → first-ever
@@ -417,6 +418,7 @@ export async function scoreClaimAt(
         // stale pre-fetched name when we write the lifetime entry below.
         const freshDisplayName =
           (d.displayName as string | undefined) || displayName;
+        const freshAvatar = (d.avatar as AvatarMap | undefined) ?? userAvatar;
 
         // Streak resilience: the parallel streak tx is fire-and-forget and
         // can silently fail (its error is just logged). Detect the post-tx
@@ -450,7 +452,7 @@ export async function scoreClaimAt(
         tx.set(userRef, userUpdate, { merge: true });
 
         const existingEntries = (lifetimeSnap.data()?.entries ?? []) as LifetimeLeaderboardEntry[];
-        const updatedEntries = mergeLifetimeEntries(existingEntries, userid, freshDisplayName, newUnique, newLifetimePoints);
+        const updatedEntries = mergeLifetimeEntries(existingEntries, userid, freshDisplayName, newUnique, newLifetimePoints, 100, freshAvatar);
         tx.set(lifetimeRef, { periodKey: "lifetime", entries: updatedEntries }, { merge: false });
       });
 
