@@ -163,7 +163,7 @@ dependencies {
     // only gate — and the car runtime never loads the Dart engine, so it can't
     // reach RemoteConfigService.
     autoImplementation 'com.google.firebase:firebase-config'
-    autoImplementation 'com.google.android.gms:play-services-location:21.3.0'
+    autoImplementation 'com.google.android.gms:play-services-location:21.4.0'
 
     // Wear OS glanceable surfaces: the Tile and the two watch-face
     // complications. Like the car above, these are flavour-scoped, so neither
