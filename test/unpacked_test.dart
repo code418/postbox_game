@@ -714,6 +714,11 @@ void main() {
       expect(JamesMessages.unpackedRarest('EVIIIR'), contains('Edward VIII'));
     });
 
+    test('the favourite-postbox line', () {
+      expect(JamesMessages.unpackedFavourite(41),
+          '41 claims! There are many slots out there, but this one is yours.');
+    });
+
     test('the totals line pays a penny a postbox', () {
       expect(JamesMessages.unpackedTotals(142),
           'Cor! If I had a penny for every postbox you claimed, I would have £1.42');

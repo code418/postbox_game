@@ -614,11 +614,10 @@ abstract final class JamesMessages {
           "Not on the podium this year. Plenty of postboxes out there, though... chop chop!",
       };
 
-  static String unpackedFavourite(int days) => days >= 20
-      ? "$days visits! At this point you two should move in together."
-      : days >= 5
-          ? "$days visits. Good, reliable box, that. Never lets you down."
-          : "$days visits. Early days, but I can see where this is going.";
+  /// The favourite-postbox card, by how many days the box was claimed.
+  static String unpackedFavourite(int days) =>
+      "$days ${days == 1 ? 'claim' : 'claims'}! There are many slots out "
+      "there, but this one is yours.";
 
   static String unpackedCounty(String county) =>
       "$county! You practically own the place now.";
