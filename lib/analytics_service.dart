@@ -180,13 +180,21 @@ class Analytics {
   /// Standard Firebase Analytics share event. [contentType] is what was
   /// shared (`invite`, `claim`, `streak`, `route`, `profile`); [itemId] a
   /// coarse label for it (e.g. the cypher for a claim card); [method] the
-  /// share target the OS reported, or `unknown`.
+  /// share target the OS reported, or `unknown`. [style] is how a share card
+  /// looked: `card`, `photo` (the player's photo with the branded strip) or
+  /// `photo_clean` (photo without branding); null for non-card shares.
   static Future<void> share({
     required String contentType,
     required String itemId,
     String method = 'unknown',
+    String? style,
   }) =>
-      _fa.logShare(contentType: contentType, itemId: itemId, method: method);
+      _fa.logShare(
+        contentType: contentType,
+        itemId: itemId,
+        method: method,
+        parameters: style == null ? null : {'style': style},
+      );
 
   /// An invite link or code reached the app. [source] is how: `link`
   /// (App Link / Universal Link), `scheme` (the invite page's open-in-app

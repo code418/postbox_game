@@ -25,8 +25,11 @@ import 'package:share_plus/share_plus.dart';
 const String _playStoreUrl =
     'https://play.google.com/store/apps/details?id=com.code418.postbox_game';
 
-/// App Store listing, from the app's Apple ID in App Store Connect.
-const String _appStoreUrl = 'https://apps.apple.com/app/id6819213888';
+/// App Store listing, on the same `invite` campaign as web/invite.html. Keep the
+/// /gb/ storefront: apps.apple.com 404s on desktop without one.
+const String _appStoreUrl =
+    'https://apps.apple.com/gb/app/the-postbox-game/id6819213888'
+    '?pt=129562838&ct=invite&mt=8';
 
 /// Builds the invite message shared via the OS share sheet.
 ///

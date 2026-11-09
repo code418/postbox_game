@@ -15,7 +15,7 @@ Engineering work that supports the plan is listed in §14 and in the "Growth" no
 
 ## 1. Executive summary
 
-The Postbox Game is live on both stores. Android (phone and Wear OS) is on Google Play, and the iPhone app was approved for the [App Store](https://apps.apple.com/app/the-postbox-game/id6819213888) on 3 November 2026. The product already keeps players coming back: daily claims, streaks with a reminder push, friend pushes, county leaderboards, an Android widget, and a Wear tile and complications. What it lacked was any way for players to bring in other players. The only invite was a text message containing a 28-character account ID that the friend had to paste in by hand. There was nothing worth sharing, no link into the app, no rating prompt and no measurement of any of it.
+The Postbox Game is live on both stores. Android (phone and Wear OS) is on Google Play, and the iPhone app was approved for the [App Store](https://apps.apple.com/gb/app/the-postbox-game/id6819213888) on 3 November 2026. The product already keeps players coming back: daily claims, streaks with a reminder push, friend pushes, county leaderboards, an Android widget, and a Wear tile and complications. What it lacked was any way for players to bring in other players. The only invite was a text message containing a 28-character account ID that the friend had to paste in by hand. There was nothing worth sharing, no link into the app, no rating prompt and no measurement of any of it.
 
 With one or two hours a week and no budget, the plan rests on three bets:
 
@@ -170,7 +170,7 @@ About 2 hours once, then 15 minutes a month.
 |---|---|---|---|
 | 1 | r/Postboxes | Home community, launch post | `reddit_postboxes` |
 | 2 | ~~r/CasualUK~~ | **Banned 3 Nov 2026** under Rule 5 (no advertising). Closed for good | ~~`reddit_casualuk`~~ |
-| 3 | LBSG, by email | Their members' knowledge puts them top of the leaderboards; ask for a newsletter mention (draft in §4.6c) | `lbsg` |
+| 3 | LBSG, by email | Their members' knowledge puts them top of the leaderboards; ask for a newsletter mention (draft in §4.6c). **Scheduled for 9 Nov 2026** to enquiries0501@lbsg.org | `lbsg` |
 | 4 | OSM UK community forum plus a weeklyOSM news tip | A game that turns walkers into OSM data fixers (reports produce `.osc` changesets) | `osm_forum`, `weeklyosm` |
 | 5 | r/WearOS | A real standalone Wear game with a tile and complications | `reddit_wearos` |
 | 6 | r/geocaching | "Geocaching for postboxes": rarity, collection, a daily claim | `reddit_geocaching` |
@@ -189,7 +189,7 @@ About 3 hours each: one hour to refresh the numbers, two to send emails.
 - **Targets:**
   - regional news desks and BBC local radio, matched to the county table (local papers love "your county's rarest box")
   - heritage and walking magazines' news pages
-  - the LBSG and the Postal Museum's social accounts, as a courtesy heads-up rather than a pitch
+  - the LBSG and the Postal Museum's social accounts, as a courtesy heads-up rather than a pitch (both were first emailed on 9 November 2026: §4.6c, §4.6g)
 - **Mechanism:** one release, with a one-line localised opening per county sent to that county's outlets. Use the brand Gmail. Attach the share-card image and a screenshot.
 - **Keep if:** at least one pickup, or tracked `press` installs, per burst. If burst 1 gets nothing, cut burst 2 to the anniversary-only version.
 
@@ -253,6 +253,8 @@ _(Removed by the r/Postboxes mods on 3 November 2026. Don't repost it. Send the 
 > https://the-postbox-game.web.app/get?src=[channel]
 
 #### c) LBSG outreach email
+
+**Scheduled for 9 November 2026** to the Group's general address, enquiries0501@lbsg.org (lbsg.org names no Secretary; the Chair is Andrew R Young). The version sent is a personal one, signed by the owner by name. It opens with the game's origin (a friend's long-running informal cypher-spotting game) and keeps this draft's OpenStreetMap and newsletter asks. Members get a quarterly Newsletter; 2026 is the Group's Golden Jubilee (founded 1976, 200th issue in March). The draft below is kept for reference.
 
 > **Subject:** A free postbox game that sends cypher fixes back to OpenStreetMap
 >
@@ -348,7 +350,31 @@ Most mapped Charles III boxes: Hampshire 8, Kent 6, Devon 4, West Sussex 4, Nort
 | Instagram bio | `instagram` | https://the-postbox-game.web.app/get?src=instagram |
 | Facebook page | `facebook_page` | https://the-postbox-game.web.app/get?src=facebook_page |
 | Press releases | `press` | https://the-postbox-game.web.app/get?src=press |
+| The Postal Museum | `postal_museum` | https://the-postbox-game.web.app/get?src=postal_museum |
 | In-app invites | `invite` | Generated per player: `https://the-postbox-game.web.app/invite/<CODE>` |
+
+#### g) The Postal Museum introduction email
+
+A courtesy introduction, not a request for promotion. The real ask is the 175th anniversary paragraph, followed up in spring 2027 (§10). It opens with the same origin story as the LBSG email, so the two tell the same story if they ever compare notes. **Scheduled for 9 November 2026,** the same morning as the LBSG email.
+
+> **Subject:** A free postbox game, and the 175th anniversary of the pillar box
+>
+> Dear Postal Museum team,
+>
+> For many years a close friend of mine has played an informal game spotting the cyphers on postboxes. Inspired by his interest, I developed The Postbox Game, a free app for iPhone and Android in which players find real postboxes on their walks and claim them by identifying the royal cypher. Rarer cyphers score more, so a Victorian or Edward VIII box is a real prize, and players end up learning to read the history in the street around them.
+>
+> Our postbox data comes from OpenStreetMap, and about a third of mapped boxes have no cypher recorded. Players can report a missing or wrong cypher, with photos, and accepted corrections go back to OpenStreetMap, so the map improves for everyone.
+>
+> I wanted to let you know about it, since the collection and research behind your work is the story the game is built on. I'd very much welcome any corrections to how we describe the cyphers and their history.
+>
+> Looking further ahead, 23 November 2027 marks 175 years since the first pillar boxes in the British Isles, in St Helier. We'd love to mark it in the game, and if the Museum is planning anything for the anniversary, I'd be glad to talk about whether the game could play a small part.
+>
+> The app is free, with no adverts or purchases: https://the-postbox-game.web.app/get?src=postal_museum
+>
+> With best wishes,
+> [Name]
+
+**Royal Mail is deliberately not contacted.** A commercial company's press office is very unlikely to promote a third-party app, and the game needs nothing from it (the data comes from OpenStreetMap). An approach would put the game in front of its brand and legal teams for no gain. Revisit only after real traction or press pickup, and then via its heritage or stamps side around the 175th, not corporate press.
 
 ---
 
@@ -450,9 +476,9 @@ Owner time is in brackets. "Eng" is engineering work done in the repo, not owner
 | **19 Oct** | Owner deploys hosting, functions and rules (§14); Play signing SHA-256 into `assetlinks.json`; Android release with Phase 1. Start a Play listing experiment (short description). Join r/Postboxes and read the rules | Ref, Acq | 1.5 h |
 | **26 Oct** | **iOS approval (expected; it came on 3 Nov):** featuring nomination; launch promotional text; **r/Postboxes launch post**. If review drags past 2 Nov, post anyway with "iPhone coming very soon" | Acq | 1.5 h |
 | **2 Nov** | **iOS live 3 Nov:** featuring nomination (done); Apple campaign provider token (done, §14); launch promotional text; r/Postboxes launch post and r/CasualUK post. **Outcome:** the mods removed both posts and r/CasualUK banned the account (§4.2), so Reddit is paused. (Associated Domains and the Phase 1 iOS build were already done: the approved build 454 carries both.) | Acq, Ref | 2 h |
-| **9 Nov** | LBSG email. Schedule the 23 November post | Acq | 1 h |
+| **9 Nov** | LBSG email and Postal Museum email (both scheduled for the morning of 9 Nov; §4.6c, §4.6g). Schedule the 23 November post, which needs the Instagram and Facebook accounts (§14 item 5). Reply to either email within a day | Acq | 1 h |
 | **16 Nov** | OSM UK forum post plus weeklyOSM tip (check the forum's rules on announcements first). Keyword review (30 days of data). Modmails (§4.6a): r/Postboxes, plus r/WearOS and r/geocaching asking about their slots | Acq | 2 h |
-| **23 Nov** | **Pillar box anniversary** (St Helier, 1852) post: warm-up for the 175th. r/WearOS post, only with the mods' written yes | Acq | 1 h |
+| **23 Nov** | **Pillar box anniversary** (St Helier, 1852) post: warm-up for the 175th. r/WearOS post, only with the mods' written yes. If the annual recap (PR #197) is shipping, sort its launch push's server Remote Config before 1 Dec (§14) | Acq, Ret | 1 h |
 | **30 Nov** | Prepare "Victorian Christmas": submit the In-App Event, schedule posts, Christmas promotional text. r/geocaching post, only with the mods' written yes | Ret, Acq | 1.5 h |
 | **7 Dec** | Eng ships Phase 2 (share cards, rating prompt). Featuring nomination for the update | Ref | 1 h |
 | **14 Dec** | **Victorian Christmas weekend:** flip Remote Config on Friday, off on Monday. Pick a weekend before Royal Mail's published last posting dates | Ret | 1 h |
@@ -475,7 +501,7 @@ Two weeks run over the 2-hour budget: the setup week (in effect) and the press w
 | Dec 2026 | Christmas posting | Victorian Christmas event; Christmas promotional text |
 | Jan 2027 | New Year walking resolutions, **the biggest acquisition window** | Press burst 1; walking and dog-walking communities; January promotional text; keyword refresh |
 | Feb–Mar 2027 | Quiet season | Recommended product work: weekly recap with a share card (§6) |
-| Mar–Apr 2027 | Easter walks, lighter evenings | Promotional text; family-walk angle in Facebook groups |
+| Mar–Apr 2027 | Easter walks, lighter evenings | Promotional text; family-walk angle in Facebook groups; **follow up with the Postal Museum about the 175th** (museums plan anniversaries months ahead; bring player numbers) |
 | 6 May 2027 | Coronation anniversary | "Coronation week" Charles III points event; post about how rare CIIIR boxes are |
 | Jun–Aug 2027 | Summer holidays, staycations | Holiday angle ("collect a county"); county leaderboard posts |
 | Sep 2027 | Prepare for the 175th | Refresh the data; press list; build the "175 week" event; submit the In-App Event early |
@@ -572,6 +598,11 @@ Do these in order. The engineering is already in the repo; these steps can't be 
 6. **Google Cloud Console → Billing → Budgets & alerts:** set a monthly budget alert at your comfort level.
 7. **After the Android release:** on a device, `adb shell pm get-app-links com.code418.postbox_game` should show the domain as `verified`.
 8. **Remote Config events:** for each event, edit `points_by_monarch`, publish, and put a calendar reminder to revert. Hold cypher-correction reviews for affected boxes until the event ends.
+9. **Before 1 December, if "Your Postboxes Unpacked" (PR #197) ships: make the launch push possible.** The recap's one-time "your recap is ready" push only sends when `unpacked_notify_enabled` is on in Remote Config's **server** template, the set the Cloud Functions read. This project only publishes the **client** template (the app's). With no server template the read fails, and `unpackedLaunchNotify` fails closed: no push, ever. Turning the flag on next to the app's other settings sends nothing. Either:
+   - publish a server template with `unpacked_notify_enabled` on. It must also carry the same `points_by_monarch` and `claim_radius_meters` values as the client template, because the scoring functions read the server template the moment one exists, or
+   - change how the push is switched on before it ships.
+
+   `unpackedLaunchNotify` checks every day at 10:00 London through December, so the push goes out the morning after both the flag and the recap data are in place. The in-app recap itself is gated by the client flag `unpacked_enabled`, which works as normal.
 
 ---
 
@@ -581,7 +612,7 @@ Do these in order. The engineering is already in the repo; these steps can't be 
 2. **Families with children.** "Family walks" is a strong angle (Victorians is a primary-school history topic), but targeting children has implications for age rating and consent. The current position is to market to adults, with families as a side benefit.
 3. **Cosmetic referral badge** once badges ship (v1.8). Yes or no?
 4. ~~**Android-first launch if iOS review drags.** Post on r/Postboxes with Android only after 2 November, or wait?~~ Resolved: iOS was approved on 3 November 2026.
-5. **Named spokesperson for press burst 2 (the 175th)?** Press coverage would improve. Revisit in September 2027.
+5. **Named spokesperson for press burst 2 (the 175th)?** Press coverage would improve. Revisit in September 2027. **Partly settled 9 November 2026:** the LBSG and Postal Museum emails are signed by the owner by name, so outreach to organisations is no longer anonymous (a society newsletter may name the maker). Social accounts and press burst 1 can still use the brand Gmail; decision 1 (the support page's personal address) is worth settling to match.
 6. **Custom domain.** Not free (about £10 a year). Revisit only if budget appears; the `web.app` domain works fine.
 
 ---

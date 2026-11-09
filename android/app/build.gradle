@@ -163,7 +163,7 @@ dependencies {
     // only gate — and the car runtime never loads the Dart engine, so it can't
     // reach RemoteConfigService.
     autoImplementation 'com.google.firebase:firebase-config'
-    autoImplementation 'com.google.android.gms:play-services-location:21.3.0'
+    autoImplementation 'com.google.android.gms:play-services-location:21.4.0'
 
     // Wear OS glanceable surfaces: the Tile and the two watch-face
     // complications. Like the car above, these are flavour-scoped, so neither
@@ -192,7 +192,7 @@ dependencies {
     // is compileOnly — adding it for real would be a duplicate-class failure,
     // and forcing listenablefuture:1.0 back would be the same collision.
     // Version tracks whatever the plugins resolve at runtime.
-    wearCompileOnly 'com.google.guava:guava:32.1.3-android'
+    wearCompileOnly 'com.google.guava:guava:33.8.0-android'
     // No tiles-tooling / tiles-tooling-preview: those exist for @Preview
     // rendering in Android Studio, and this tile is built with protolayout
     // builders rather than Compose. Leaving them out keeps the AAB smaller.

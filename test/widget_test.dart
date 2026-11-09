@@ -1017,7 +1017,8 @@ void main() {
     test('includes the App Store link too, whatever the sender uses', () {
       for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
         expect(buildInviteMessage('abc123', platform: platform),
-            contains('https://apps.apple.com/app/id6819213888'),
+            contains('https://apps.apple.com/gb/app/the-postbox-game/'
+                'id6819213888?pt=129562838&ct=invite&mt=8'),
             reason: '$platform');
       }
     });
