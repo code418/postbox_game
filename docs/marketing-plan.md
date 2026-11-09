@@ -478,7 +478,7 @@ Owner time is in brackets. "Eng" is engineering work done in the repo, not owner
 | **2 Nov** | **iOS live 3 Nov:** featuring nomination (done); Apple campaign provider token (done, §14); launch promotional text; r/Postboxes launch post and r/CasualUK post. **Outcome:** the mods removed both posts and r/CasualUK banned the account (§4.2), so Reddit is paused. (Associated Domains and the Phase 1 iOS build were already done: the approved build 454 carries both.) | Acq, Ref | 2 h |
 | **9 Nov** | LBSG email and Postal Museum email (both scheduled for the morning of 9 Nov; §4.6c, §4.6g). Schedule the 23 November post, which needs the Instagram and Facebook accounts (§14 item 5). Reply to either email within a day | Acq | 1 h |
 | **16 Nov** | OSM UK forum post plus weeklyOSM tip (check the forum's rules on announcements first). Keyword review (30 days of data). Modmails (§4.6a): r/Postboxes, plus r/WearOS and r/geocaching asking about their slots | Acq | 2 h |
-| **23 Nov** | **Pillar box anniversary** (St Helier, 1852) post: warm-up for the 175th. r/WearOS post, only with the mods' written yes. If the annual recap (PR #197) is shipping, sort its launch push's server Remote Config before 1 Dec (§14) | Acq, Ret | 1 h |
+| **23 Nov** | **Pillar box anniversary** (St Helier, 1852) post: warm-up for the 175th. r/WearOS post, only with the mods' written yes. If the annual recap (PR #197) is shipping, its app release should be live by now (§14 item 9) | Acq, Ret | 1 h |
 | **30 Nov** | Prepare "Victorian Christmas": submit the In-App Event, schedule posts, Christmas promotional text. r/geocaching post, only with the mods' written yes | Ret, Acq | 1.5 h |
 | **7 Dec** | Eng ships Phase 2 (share cards, rating prompt). Featuring nomination for the update | Ref | 1 h |
 | **14 Dec** | **Victorian Christmas weekend:** flip Remote Config on Friday, off on Monday. Pick a weekend before Royal Mail's published last posting dates | Ret | 1 h |
@@ -598,11 +598,11 @@ Do these in order. The engineering is already in the repo; these steps can't be 
 6. **Google Cloud Console → Billing → Budgets & alerts:** set a monthly budget alert at your comfort level.
 7. **After the Android release:** on a device, `adb shell pm get-app-links com.code418.postbox_game` should show the domain as `verified`.
 8. **Remote Config events:** for each event, edit `points_by_monarch`, publish, and put a calendar reminder to revert. Hold cypher-correction reviews for affected boxes until the event ends.
-9. **Before 1 December, if "Your Postboxes Unpacked" (PR #197) ships: make the launch push possible.** The recap's one-time "your recap is ready" push only sends when `unpacked_notify_enabled` is on in Remote Config's **server** template, the set the Cloud Functions read. This project only publishes the **client** template (the app's). With no server template the read fails, and `unpackedLaunchNotify` fails closed: no push, ever. Turning the flag on next to the app's other settings sends nothing. Either:
-   - publish a server template with `unpacked_notify_enabled` on. It must also carry the same `points_by_monarch` and `claim_radius_meters` values as the client template, because the scoring functions read the server template the moment one exists, or
-   - change how the push is switched on before it ships.
-
-   `unpackedLaunchNotify` checks every day at 10:00 London through December, so the push goes out the morning after both the flag and the recap data are in place. The in-app recap itself is gated by the client flag `unpacked_enabled`, which works as normal.
+9. **If "Your Postboxes Unpacked" (PR #197) ships: release the app, then switch it on in December.**
+   - **Before about 20 November:** get an app release that includes the recap live on both stores. The recap screen only exists in that release. The "your recap is ready" push also only goes to players who have it: it skips anyone whose app is older.
+   - **Late November (optional):** check the recap before players see it. In Google Cloud Console → Cloud Scheduler, force-run the `buildUnpacked` job, then open the recap in the app on an admin account.
+   - **From 1 December** (the recap data is built at 03:00): in Remote Config, set `unpacked_enabled` to true and publish. That shows the recap in the app. When you're happy with it, set `unpacked_notify_enabled` to true and publish. The push goes out once, at the next 10:00.
+   - Change each flag's **default value**. The push ignores conditional values, so turning a flag on only for some users won't trigger it.
 
 ---
 
