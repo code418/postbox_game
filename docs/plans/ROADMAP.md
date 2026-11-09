@@ -1,17 +1,23 @@
 # Postbox Game — Roadmap
 
-Working backlog, organised by app release. Current shipped version is
-`pubspec.yaml`'s `1.4.0+18`. Each release names a **theme** and a **ship gate**;
-items inside it can be re-ordered freely.
+Working backlog, organised by app release. Current version is `pubspec.yaml`'s
+`1.5.3+25`; 1.5.3 is live on the App Store (build 454, since 3 Nov 2026). Each
+release names a **theme** and a **ship gate**; items inside it can be re-ordered
+freely.
+
+**Last reviewed: 2026-11-09** against `master`, the open PRs and the deployed
+function list. v1.5 and v1.6 are both shipped; the next release is v1.7. Loose
+ends from shipped releases are collected under [Open carry-overs](#open-carry-overs).
 
 This file replaces the bulk-created draft PRs `#94`–`#112` (closed once this
 lands). Their original bodies are preserved below for diff archaeology.
 
-**Growth (Oct 2026):** the free launch marketing plan lives in
+**Growth (Oct–Nov 2026):** the free launch marketing plan lives in
 [`docs/marketing-plan.md`](../marketing-plan.md). As part of it, the invite loop
 (invite codes + links, two-way friend add, "Added you"), share cards, the in-app
-review prompt and growth analytics were built ahead of v1.7/v2.0; it recommends
-the v1.7 order weekly recap → Postbox of the Day → friend challenges.
+review prompt, the post-claim notification pre-prompt and growth analytics were
+built ahead of v1.7/v2.0 (see **Done**). The plan recommends the v1.7 order
+weekly recap → Postbox of the Day → friend challenges.
 
 ## Status legend
 
@@ -28,13 +34,52 @@ the v1.7 order weekly recap → Postbox of the Day → friend challenges.
 | **v1.2** | Intro polish | Done |
 | **v1.3** | Platform foundations (EU region + observability) | Done |
 | **v1.4** | Trust & safety (GDPR, anti-cheat) | Done |
-| **v1.5** | Resilience & offline play | In flight |
-| **v1.6** | Reach (iOS + Sign in with Apple) | Deferred |
-| **v1.7** | Engagement & avatars (social loops + Postie avatar) | Deferred |
+| **v1.5** | Resilience & offline play | Done |
+| **v1.6** | Reach (iOS + Sign in with Apple) | Done |
+| **v1.7** | Engagement & avatars (social loops + Postie avatar) | Next (Queued) |
 | **v1.8** | Collection & content | Deferred |
 | **v1.9** | Localisation | Deferred |
 | **v2.0** | Growth (Analytics + experimentation) | Deferred |
 | **Backlog** | Speculative big-rocks | Speculative |
+
+## Open carry-overs
+
+Loose ends from shipped releases. Each is a decision or a small task rather than
+a feature, so none of them blocks v1.7.
+
+- **Abuse Phase 2 enforcement** (from v1.4). `SHADOW_MODE` is still `true` in
+  `functions/src/abuse.ts`, long after the two-week observation window ended.
+  Pull the `moderationFlags` exports, tune the thresholds, then decide whether
+  to flip it.
+- **Travel-speed hard reject is off** (from v1.5). PR #180 (2026-07-24) made
+  it log-only: speeds are still computed, logged as "would-reject" and fed to
+  the shadow detector. Re-enable with `TRAVEL_SPEED_ENFORCEMENT=on`. Before
+  that, separate the two causes recorded in `functions/src/_travelSpeed.ts`:
+  the threshold is below UK rail speeds, and the check compares per account
+  rather than per device. The offline scan token, not this check, is what
+  stops a replayed outbox, so v1.5's offline guarantees don't depend on it.
+- **App Check monitor window never closed** (from v1.5). Only the claim path
+  (`startScoring`, `nearbyPostboxes`, `flushOfflineClaims`) enforces. Every
+  other callable still runs log-only `monitorAppCheck`, and the 7-day window is
+  long over. Flip them to `requireAppCheck`, or record why they stay log-only.
+  Not verified: console-side enforcement for Firestore/Storage, and the
+  denial-rate alert.
+- **Off-Play `auto` flavour vs Play Integrity** (from v1.5). `startScoring` now
+  enforces App Check, and the sideloaded Android Auto build uses
+  `AndroidPlayIntegrityProvider`. Confirm the car's claim button still passes.
+- **iOS analytics default** (from v1.4/v1.6). `ios/Runner/Info.plist` has no
+  `FIREBASE_ANALYTICS_COLLECTION_ENABLED` key, the iOS mirror of the Android
+  manifest flag. The runtime toggle is persisted by the SDK, so the exposure is
+  probably limited to first launch. Confirm, then add the key or drop the item.
+- **Sign in with Apple follow-ups** (from v1.6):
+  - No account-linking policy: nothing in `lib/` handles
+    `account-exists-with-different-credential`, which three providers make
+    routine.
+  - Apple token revocation on deletion is best-effort. Only the native iOS
+    flow yields the authorisation code, and revocation needs the provider's
+    OAuth code-flow keys in the Firebase console. Confirm those are set.
+  - `UserRepository.signOut()` still calls `_googleSignIn.signOut()`
+    unconditionally (harmless, but not the provider-agnostic clean-up planned).
 
 ---
 
@@ -187,8 +232,9 @@ exceptions in key flows to non-fatals.
 > **Carried forward**: (a) the abuse **Phase 2 enforcement** decision — after
 > the two-week shadow-mode observation window, tune thresholds from the flag
 > exports and decide whether to flip `SHADOW_MODE`; (b) the iOS side of the
-> telemetry work (`FirebaseAnalyticsCollectionEnabled` in `Info.plist`), which
-> is on the v1.6 iOS checklist.
+> telemetry work (`FIREBASE_ANALYTICS_COLLECTION_ENABLED` in `Info.plist`), which
+> was on the v1.6 iOS checklist. Both are still open as of 2026-11-09: see
+> [Open carry-overs](#open-carry-overs).
 
 > **App Check enforcement split across v1.5 and v1.6**: server-side enforcement
 > is a prerequisite of v1.5 offline play; the iOS `AppleProvider` half lands
@@ -324,9 +370,19 @@ Risk: the first sweep night backfills history in bounded pages (~6k docs/night)
 
 ---
 
-## v1.5 — Resilience & offline play  (In flight)
+## v1.5 — Resilience & offline play  (Done)
 
-> **Status**: implemented on branch `feat/v1.5-resilience-offline` (`1.5.0+20`) —
+> **Shipped**: PR #179 merged 2026-07-23 as `1.5.0+20`, followed by `1.5.1+21`
+> (Android 16 target) and `1.5.3`. The backend is deployed: `flushOfflineClaims`
+> is live in `europe-west2`, and no `us-central1` copies of any function remain
+> (checked 2026-11-09). The Android Auto drive-by bug below is fixed: `ClaimAction.kt` pins
+> `europe-west2`, and `test/firebase_functions_region_test.dart` now scans `.kt`
+> sources too. Phase 4 was never built, as the gate intended. One post-ship
+> change: PR #180 (2026-07-24) made the travel-speed hard reject log-only. That
+> change and the unclosed App Check monitor window are under
+> [Open carry-overs](#open-carry-overs).
+>
+> **Original status note**: implemented on branch `feat/v1.5-resilience-offline` (`1.5.0+20`) —
 > App Check server-side enforcement + offline Phases 1–3 + the drive-by fixes.
 > Phase 4 stays unbuilt per the gate below. Implementation divergences, all
 > deliberate: (1) the claim-history cached-read chip was dropped — History is
@@ -568,7 +624,10 @@ The high-value, low-risk half.
   connectivity-restored / app-resume / manual "Send now", reconciling results honestly into
   the UI and James).
 
-#### Phase 4 — Blind capture and offline discovery  (Conditional — do not start by default)
+#### Phase 4 — Blind capture and offline discovery  (Not built; parked)
+
+> Phases 1–3 shipped, and no evidence has been recorded that the warm path
+> misses real use, so this stays parked. Promote it only on evidence, as below.
 
 **Explicitly gated on evidence.** This phase carries most of the attack surface and the
 least payoff: no quiz, no feedback at the box, and it is what forces postbox coordinates
@@ -621,7 +680,7 @@ the live deployment, pin the region, and extend the guard test to cover Kotlin s
 
 ---
 
-## v1.6 — Reach (iOS)  (Deferred)
+## v1.6 — Reach (iOS)  (Done)
 
 **Theme**: open the door to users outside the Android-phone + Wear OS + Android Auto
 funnel. Second half of the old combined v1.5; nothing here shares work with the offline
@@ -629,9 +688,34 @@ release except App Check, whose server-side half lands in v1.5.
 
 **Ship gate**: signed iOS build available on TestFlight; Sign in with Apple works
 end-to-end on iOS including account deletion with token revocation; iOS `AppleProvider`
-registered and passing against the App Check enforcement switched on in v1.5.
+registered and passing against the App Check enforcement switched on in v1.5. ✅ met,
+and exceeded: the app went past TestFlight to the App Store.
+
+> **Shipped**: live on the App Store since **3 Nov 2026**
+> (`https://apps.apple.com/gb/app/the-postbox-game/id6819213888`, build 454,
+> version 1.5.3), iPhone-only. Work landed in PRs #199 (new Apple team + signed
+> TestFlight builds from the `build-ios` CI job), #201 (launch image + icon),
+> #202 (Sign in with Apple), #203 (web App Check via reCAPTCHA Enterprise), #205
+> (App Store submission kit), and #217 (backing up "Data Not Used to Track You"
+> in the binary after the first submission was rejected under 5.1.2(i)). iOS push
+> delivery and foreground banners were fixed in `a31b8ed`. Divergences from the
+> plan below, both deliberate: (1) Sign in with Apple **and** Google popup sign-in
+> are offered on iOS, Android **and the web**, not iOS-only, so the Apple Services
+> ID and its return URL are in scope; (2) Mac Catalyst was skipped, and the
+> build is iPhone-only (`TARGETED_DEVICE_FAMILY = 1`) so no iPad review was
+> needed. Still open: the account-linking policy, the iOS analytics plist key,
+> and confirming Apple token revocation. See
+> [Open carry-overs](#open-carry-overs).
 
 ### iOS support  (new)
+
+> ✅ Shipped. Signing, TestFlight upload and App Store release all run from the
+> `build-ios` job (manual signing, team `M24Q4KZ737`, profile
+> `Postbox Game App Store`). `Info.plist` usage strings are present. App Store
+> Connect listing copy lives in `fastlane/metadata/ios/`, the screenshots in
+> `screenshots/marketing/appstore/`, and the App Privacy / review checklist in
+> `docs/app-store-submission.md`. `AppleAppAttestProvider` is wired. The
+> `FIREBASE_ANALYTICS_COLLECTION_ENABLED` key was **not** added (carry-over).
 
 **Already done** (since this item was first written): `ios/Podfile` exists and
 `pod install` resolves the Firebase 12.x pods against a minimum iOS of 15.0;
@@ -656,6 +740,15 @@ Backend risk: callable region pinning (v1.3, done) and App Check enforcement (v1
 
 ### Sign in with Apple  (new)
 
+> ✅ Shipped in PR #202, with no new dependency, as planned:
+> `signInWithProvider(AppleAuthProvider())` on iOS and Android, and
+> `signInWithPopup` on the web. `deleteAccount()` has an `apple.com` branch that
+> re-authenticates and calls `revokeTokenWithAuthorizationCode` (best-effort:
+> only the native iOS flow yields the code). Diverged from the recommendation
+> below: the button is shown on Android and the web too. **Not done**: the
+> account-linking policy and the provider-agnostic `signOut()`. Both are under
+> [Open carry-overs](#open-carry-overs).
+
 **Not optional.** App Store Review Guideline 4.8 requires an equivalent
 privacy-preserving login wherever a third-party social login is offered, so the
 existing Google button makes Sign in with Apple a hard gate on the iOS binary.
@@ -678,6 +771,10 @@ Tests: extend the `firebase_auth_mocks` suite to cover the new re-auth branch an
 
 ### App Check — iOS provider  (remainder of #96; server half in v1.5)
 
+> ✅ Shipped. `AppleAppAttestProvider` is activated in `lib/main.dart`, and the
+> App Attest entitlement is in `ios/Runner/Runner.entitlements`. The web got
+> `ReCaptchaEnterpriseProvider` in the same push (PR #203).
+
 Activate `AppleProvider` (`DeviceCheck` / `AppAttest`) and register the app in the
 Firebase console. **Not optional and not last**: v1.5 turns on `enforceAppCheck` for the
 callables, so until this is wired the iOS build cannot successfully call `startScoring`,
@@ -685,7 +782,15 @@ callables, so until this is wired the iOS build cannot successfully call `startS
 
 ---
 
-## v1.7 — Engagement & avatars  (Deferred)
+## v1.7 — Engagement & avatars  (Next — Queued)
+
+> **Status (2026-11-09)**: the next release; nothing in it has started on
+> `master`. Two related PRs are open: **#113** (Postie avatars, below, still
+> unmerged and due a rebase) and the draft **#197** (a December annual recap,
+> see the recap item). The marketing plan's order for the rest is weekly
+> recap → Postbox of the Day → friend challenges. Share cards
+> (`lib/widgets/share_card.dart`) already exist, so the recap's share button
+> can reuse them instead of building a new PNG renderer.
 
 **Theme**: build the daily-return loop and the friend-pressure loop on top of the now-stable v1.4 platform and the widened v1.6 audience — and ship the visible-identity work (Postie avatars) so users have something to flex with on the new live leaderboards.
 **Ship gate**: DAU / WAU lift measurable in Analytics; POTD claim rate ≥ 30 % of DAU; weekly recap engaged-with by ≥ 25 % of recipients; avatar coverage > 50 % of WAU within two weeks of release.
@@ -738,6 +843,11 @@ Soft-launch: enable without 2× multiplier for a week to validate selection + no
 Sunday 18:00 London scheduled function. For each user with ≥1 claim that week: aggregate claims, compute rank delta vs. previous week, pick a James line keyed by the most interesting stat ("A record week, squire!"). Mirror monthly on the 1st.
 
 Data: `recaps/{uid}/periods/{YYYY-WW}` and `recaps/{uid}/periods/{YYYY-MM}` = `{claims, uniquePostboxes, rarestMonarch, topFriend, rankDelta, generatedAt}`. Idempotent — skip if recap doc already exists.
+
+> **Related draft: PR #197**, "Your Postboxes Unpacked", is an annual December
+> recap of story cards narrated by James. It ships dark behind two Remote Config
+> flags. If it merges first, build the weekly/monthly recap on its card and
+> aggregation pieces rather than alongside them.
 
 Client: `lib/recap_screen.dart` full-bleed scroll narrated by James. Share button uses `share_plus` to render a PNG card. Badge dot on home tab for unread recaps. Batch writes in chunks of 400. Backfill-safe — on first run, only generate the current week forward.
 
@@ -908,6 +1018,12 @@ Backlog idea (depends on this): regionally-flavoured James — a Welsh James for
 
 ### Custom Analytics events and BigQuery export  (was #95)
 
+> **Partly started**: `lib/analytics_service.dart` exists, and the growth work
+> already logs `share`, `invite_link_opened`, `invite_accepted`,
+> `tutorial_complete`, `first_claim`, `sign_up`, `notification_preprompt` and
+> `review_prompt_requested`. The claim/funnel events below and the BigQuery
+> export are not done.
+
 Instrument key actions + enable Firebase Analytics → BigQuery daily export so cohort/funnel/retention analysis runs in SQL.
 
 Initial events: `claim_success` (monarch, region outcode, points, isFirstOfDay), `claim_failed_quiz`, `nearby_viewed`, `compass_viewed`, `friend_added`, `leaderboard_viewed`, `james_line_shown`, `streak_broken`, `signup_complete`.
@@ -941,6 +1057,14 @@ New `onRareClaim` Firestore trigger sends to `rare_finds` / `monarch_{code}` / `
 No release commitment yet. Promote into a versioned release when there's a clear product reason.
 
 ### Firebase Hosting + App Links / Universal Links  (was #102)
+
+> **Partly done (Oct 2026, growth work)**: Hosting serves `web/invite.html` and
+> `web/get.html`, and both `/.well-known/assetlinks.json` and
+> `apple-app-site-association` go out with JSON content-type headers. `app_links`
+> handles `https://the-postbox-game.web.app/invite/{CODE}` and
+> `postboxgame://invite/{CODE}`. The iOS Associated Domains entitlement shipped
+> in build 454. What remains is the surfaces below (`/claim`, `/u`,
+> `/challenge`) and server-rendered OG tags.
 
 Dynamic Links is deprecated and removed. Replace with Hosting-served deep-link landing pages and the required Android `assetlinks.json` / Apple AASA files.
 
@@ -1102,12 +1226,49 @@ Roll out the BQ model with monitoring only first; review prediction quality manu
   Settings opt-outs, in-app/hosted privacy policy, `exportMyData` DSAR bundle,
   nightly `dataRetention` sweep); abuse detection in shadow mode (impossible
   travel, out-of-window, coord cluster, repeated device) with an admin review
-  screen. Shipped as `1.4.0+18` (PR #170). App Check enforcement was split out
-  to v1.6; abuse Phase 2 enforcement remains deferred.
+  screen. Shipped as `1.4.0+18` (PR #170). App Check enforcement was split
+  across v1.5 (server side) and v1.6 (iOS provider); abuse Phase 2 enforcement
+  remains deferred.
+- **v1.5** — Resilience & offline play: server-side App Check enforcement on the
+  claim path; Phase 1 flaky-link survival (`attempts/{attemptId}` replay,
+  timeouts + jittered retry, a `networkError` sheet stage, last-known-position
+  fallback, `OfflineBanner`, cached-read chips); Phase 2 backdated-claim backend
+  (`_claimCore.ts`, `eventTime` + backfill, the two-sided travel-speed check,
+  `streakFromClaimDays`, `flushOfflineClaims`); Phase 3 warm-path offline
+  claiming (HMAC `scanId`, `claim_outbox.dart`, `outbox_sync.dart`). Phase 4 was
+  not built. PR #179, shipped as `1.5.0+20`. Travel-speed hard reject made
+  log-only in #180.
+- **v1.6** — Reach: iOS on the App Store since 3 Nov 2026 (build 454, 1.5.3,
+  iPhone-only, signed CI builds to TestFlight); Sign in with Apple on iOS,
+  Android and the web, with Apple token revocation on deletion; iOS App Attest
+  and web reCAPTCHA Enterprise App Check providers. PRs #199, #201, #202, #203,
+  #205, #217.
+- **Growth (Oct–Nov 2026, built ahead of v1.7/v2.0)** — invite codes and links
+  with the two-way friend add and "Added you" (`c35ae5e`, `9a36a69`,
+  `1619813`); share cards (redesigned in #238 with an optional player photo,
+  shared as re-rendered pixels only, so no EXIF); the post-claim notification
+  pre-prompt and store-review prompt; growth analytics events; iOS push delivery
+  and foreground banners (`a31b8ed`). Plan and checklist in
+  `docs/marketing-plan.md`.
+- **Shipped outside the release plan** — the streak-loss reminder notification
+  (`streakReminder`, #168); the daily OSM → Firestore import in CI
+  (`osm-import.yml`, #214); R8 optimised resource shrinking (#183).
 
-## Open exploration (no release commitment)
+## Open drafts and exploration (no release commitment)
 
-- **#120** — Android XR scaffold (draft). Exploratory; revisit when Jetpack XR artefacts are out of alpha. Close after 6 months untouched.
+- **#223** — Claim postboxes from recorded workouts (Health Connect). **Held as a
+  draft on purpose.** Health permissions in a Play release make every later Play
+  upload wait on Google approving the Health apps declaration, and minSdk 26
+  drops Android 7 devices. Before merging, finish the PR's checklist: the Fitbit
+  route check on a real phone, the Play declaration and Data safety answers, and
+  the deploy order (hosting → functions + rules → RC). Separately, an open
+  product decision before widening `ACTIVITY_CLAIMS_AUDIENCE` beyond `admin`:
+  the server can't prove a route was walked, and the abuse signals only record.
+- **#197** — "Your Postboxes Unpacked", an annual December recap (draft, ships
+  dark behind Remote Config). It needs merging and enabling before December to
+  be useful this year. Overlaps the v1.7 weekly/monthly recap.
+- **#113** — Postie avatars. Not a draft, but still unmerged; tracked under v1.7.
+- **#120** — Android XR scaffold (draft, opened 2026-05-15). Exploratory; revisit when Jetpack XR artefacts are out of alpha. Close after 6 months untouched.
 
 ---
 
