@@ -19,7 +19,6 @@ import 'package:postbox_game/james_messages.dart';
 import 'package:postbox_game/james_strip.dart';
 import 'package:postbox_game/location_service.dart';
 import 'package:postbox_game/maintenance_guard.dart';
-import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/remote_config_service.dart';
 import 'package:postbox_game/reports/report_missing_postbox_screen.dart';
 import 'package:postbox_game/services/claim_events.dart';
@@ -32,6 +31,7 @@ import 'package:postbox_game/services/perf_service.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/widgets/postbox_map.dart';
 import 'package:postbox_game/widgets/postbox_marker.dart';
+import 'package:postbox_game/widgets/cypher_quiz_options.dart';
 import 'package:postbox_game/widgets/quiz_helpers.dart';
 import 'package:postbox_game/widgets/share_card.dart';
 
@@ -1472,77 +1472,13 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: AppSpacing.xl),
-              ..._quizOptions.map((code) {
-                final isSelected = _selectedAnswer == code;
-                final isCorrectSelected = isSelected && _isClaiming;
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                    decoration: BoxDecoration(
-                      color: isCorrectSelected
-                          ? _success(context).withValues(alpha: 0.10)
-                          : Colors.transparent,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: OutlinedButton(
-                      onPressed: _isClaiming ? null : () => _onQuizAnswer(code),
-                      style: OutlinedButton.styleFrom(
-                        minimumSize: Size(double.infinity, _optionHeight),
-                        side: BorderSide(
-                          color: isCorrectSelected
-                              ? _success(context)
-                              : (Theme.of(context).brightness == Brightness.dark
-                                  ? AppColors.brandTextDark
-                                  : AppColors.brandTextLight),
-                          width: isCorrectSelected ? 2 : 1,
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          if (isCorrectSelected) ...[
-                            SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: _success(context),
-                              ),
-                            ),
-                            const SizedBox(width: AppSpacing.sm),
-                          ],
-                          Column(
-                            children: [
-                              Text(
-                                isCorrectSelected ? 'Correct! Claiming…' : code,
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 16,
-                                  color: isCorrectSelected
-                                      ? _success(context)
-                                      : null,
-                                ),
-                              ),
-                              if (!isCorrectSelected)
-                                Text(
-                                  MonarchInfo.labels[code] ?? code,
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .bodySmall
-                                      ?.copyWith(
-                                          color: Theme.of(context)
-                                              .colorScheme
-                                              .onSurfaceVariant),
-                                ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                );
-              }),
+              CypherQuizOptions(
+                options: _quizOptions,
+                selected: _selectedAnswer,
+                busy: _isClaiming,
+                onAnswer: _onQuizAnswer,
+                optionHeight: _optionHeight,
+              ),
               const SizedBox(height: AppSpacing.md),
               TextButton(
                 onPressed: _isClaiming

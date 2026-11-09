@@ -25,6 +25,10 @@ import 'package:postbox_game/services/crashlytics_helper.dart';
 /// - [killSwitchOfflineClaims]  — disable offline claim capture/flush (v1.5).
 /// - [offlineClaimGraceHours]   — how long a banked capture stays flushable.
 /// - [maxOfflineClaimsPerDay]   — per-user daily cap on flushed claims.
+/// - [activityClaimsEnabled]    — show workout claims (Health Connect).
+/// - [killSwitchActivityClaims] — emergency off for workout claims.
+/// - [activityClaimGraceHours]  — how long a passed box stays claimable.
+/// - [activityOriginAllowlist]  — fitness apps whose routes are accepted.
 ///
 /// Defaults match today's shipped behaviour so the app degrades to the current
 /// experience if Remote Config never resolves.
@@ -66,6 +70,10 @@ class RemoteConfigService {
   static const String keyKillSwitchOfflineClaims = 'kill_switch_offline_claims';
   static const String keyOfflineClaimGraceHours = 'offline_claim_grace_hours';
   static const String keyMaxOfflineClaimsPerDay = 'max_offline_claims_per_day';
+  static const String keyActivityClaimsEnabled = 'activity_claims_enabled';
+  static const String keyKillSwitchActivityClaims = 'kill_switch_activity_claims';
+  static const String keyActivityClaimGraceHours = 'activity_claim_grace_hours';
+  static const String keyActivityOriginAllowlist = 'activity_origin_allowlist';
 
   static const String welcomeVariantClassic = 'classic';
   static const String welcomeVariantCheeky = 'cheeky';
@@ -89,6 +97,18 @@ class RemoteConfigService {
   static const int defaultMaxOfflineClaimsPerDay = 30;
   static const int minMaxOfflineClaimsPerDay = 1;
   static const int maxMaxOfflineClaimsPerDay = 200;
+
+  /// Workout-claim (Health Connect) tunables. The grace default + band and the
+  /// allowlist JSON mirror functions/src/_activityConfig.ts (pinned by
+  /// test/cross_language_sync_test.dart); the server is authoritative and
+  /// re-checks both on every match and claim.
+  static const int defaultActivityClaimGraceHours = 36;
+  static const int minActivityClaimGraceHours = 1;
+  static const int maxActivityClaimGraceHours = 168;
+  static const String defaultActivityOriginAllowlistJson =
+      '["com.fitbit.FitbitMobile","com.google.android.apps.fitness",'
+      '"com.sec.android.app.shealth","com.garmin.android.apps.connectmobile",'
+      '"com.strava"]';
 
   /// Default `points_by_monarch` JSON. MUST equal [MonarchInfo.points] — pinned
   /// by test/cross_language_sync_test.dart. Remote Config only overrides on top.
@@ -115,6 +135,10 @@ class RemoteConfigService {
     keyKillSwitchOfflineClaims: false,
     keyOfflineClaimGraceHours: defaultOfflineClaimGraceHours,
     keyMaxOfflineClaimsPerDay: defaultMaxOfflineClaimsPerDay,
+    keyActivityClaimsEnabled: false,
+    keyKillSwitchActivityClaims: false,
+    keyActivityClaimGraceHours: defaultActivityClaimGraceHours,
+    keyActivityOriginAllowlist: defaultActivityOriginAllowlistJson,
   };
 
   static const Duration _fetchTimeout = Duration(seconds: 10);
@@ -216,6 +240,55 @@ class RemoteConfigService {
     return raw;
   }
   bool get killSwitchReporting => _rc.getBool(keyKillSwitchReporting);
+
+  /// Show workout claims (Health Connect). Defaults OFF — the inverse of the
+  /// kill-switch convention, because this is a new opt-in surface rolled out
+  /// to the Admin audience first. The server has its own audience gate
+  /// (ACTIVITY_CLAIMS_AUDIENCE), so flipping this alone grants nothing.
+  bool get activityClaimsEnabled => _rc.getBool(keyActivityClaimsEnabled);
+
+  /// Emergency off for workout claims (also read server-side from the client
+  /// template's default value).
+  bool get killSwitchActivityClaims => _rc.getBool(keyKillSwitchActivityClaims);
+
+  /// Enabled and not killed: the single check every entry point uses.
+  bool get activityClaimsAvailable => activityClaimsEnabled && !killSwitchActivityClaims;
+
+  /// How long after a box is passed it stays claimable (hours), bounded.
+  int get activityClaimGraceHours {
+    final raw = _rc.getInt(keyActivityClaimGraceHours);
+    if (raw < minActivityClaimGraceHours || raw > maxActivityClaimGraceHours) {
+      return defaultActivityClaimGraceHours;
+    }
+    return raw;
+  }
+
+  /// Fitness apps whose recorded routes may claim. A malformed or empty
+  /// remote value falls back to the default list (never "allow none").
+  List<String> get activityOriginAllowlist =>
+      parseOriginAllowlist(_rc.getString(keyActivityOriginAllowlist)) ??
+      parseOriginAllowlist(defaultActivityOriginAllowlistJson)!;
+
+  /// Parse the allowlist JSON (an array of Android package names). Mirrors
+  /// parseOriginAllowlist in functions/src/_activityConfig.ts.
+  @visibleForTesting
+  static List<String>? parseOriginAllowlist(String raw) {
+    if (raw.trim().isEmpty) return null;
+    Object? decoded;
+    try {
+      decoded = jsonDecode(raw);
+    } catch (_) {
+      return null;
+    }
+    if (decoded is! List || decoded.isEmpty || decoded.length > 50) return null;
+    final re = RegExp(r'^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$');
+    final out = <String>[];
+    for (final p in decoded) {
+      if (p is! String || p.length > 128 || !re.hasMatch(p)) return null;
+      if (!out.contains(p)) out.add(p);
+    }
+    return out;
+  }
   String get jamesWelcomeVariant => _rc.getString(keyJamesWelcomeVariant);
   bool get maintenanceMode => _rc.getBool(keyMaintenanceMode);
   String get maintenanceMessage {

@@ -16,6 +16,8 @@ import { dataRetentionSweep } from "./dataRetention";
 import { exportMyData } from "./exportMyData";
 import { flushOfflineClaims } from "./flushOfflineClaims";
 import { getInviteCode, acceptInvite } from "./invites";
+import { matchActivityRoute } from "./matchActivityRoute";
+import { claimActivityPostbox } from "./claimActivityPostbox";
 
 export {
   nearbyPostboxes,
@@ -38,4 +40,6 @@ export {
   flushOfflineClaims,
   getInviteCode,
   acceptInvite,
+  matchActivityRoute,
+  claimActivityPostbox,
 };

@@ -126,11 +126,38 @@ class Analytics {
   static Future<void> claimSuccess({
     required int pointsEarned,
     required int claimedCount,
+    String? source,
   }) =>
       _log('claim_success', {
         'points_earned': pointsEarned,
         'claimed_count': claimedCount,
+        // Only non-live claims say where they came from (e.g. 'workout'), so
+        // live claim_success events keep their existing shape.
+        if (source != null) 'source': source,
       });
+
+  // ---------------------------------------------------------------------------
+  // Workout claims (Health Connect)
+  //
+  // Outcomes only. NO value derived from Health Connect data (exercise type,
+  // recording app, times, distances, counts) is ever sent to Analytics: the
+  // Health Connect Limited Use rules forbid using it for analytics/ads.
+  // ---------------------------------------------------------------------------
+
+  /// The player tried to connect Health Connect.
+  /// [outcome]: granted | partial | denied | unavailable.
+  static Future<void> activityConnect({required String outcome}) =>
+      _log('activity_connect', {'outcome': outcome});
+
+  /// A workout check ran. [trigger]: resume | manual.
+  /// [outcome]: candidates | none | consent_needed | error.
+  static Future<void> activityCheck({required String trigger, required String outcome}) =>
+      _log('activity_check', {'trigger': trigger, 'outcome': outcome});
+
+  /// A workout-claim attempt settled. [outcome]: success | already_claimed |
+  /// not_found | expired | quiz_failed | dismissed | error.
+  static Future<void> activityClaim({required String outcome}) =>
+      _log('activity_claim', {'outcome': outcome});
 
   /// Claim failed for a known reason.
   static Future<void> claimFailed({required String reason}) =>

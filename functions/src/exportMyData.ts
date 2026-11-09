@@ -5,7 +5,7 @@
 // erasure and access surfaces must never disagree about what exists):
 // users/{uid} + countyStats, claims, reports, moderationFlags (anti-abuse
 // profiling records are access-subject data too), fcmTokens, reportQuotas,
-// offlineFlushQuotas, trustScores, leaderboard entries, the user's invite
+// offlineFlushQuotas, activityQuotas, trustScores, leaderboard entries, the user's invite
 // code(s) and referral record, and the Firebase Auth record (email lives only
 // in Auth). The client offers it as
 // Settings → "Download my data".
@@ -47,6 +47,9 @@ export interface ExportParts {
   trustScore: Record<string, unknown> | null;
   reportQuota: Record<string, unknown> | null;
   offlineFlushQuota: Record<string, unknown> | null;
+  /** activityQuotas/{uid}: workout-claim daily budget + seen-session
+   *  fingerprints. Optional so older callers/tests needn't supply it. */
+  activityQuota?: Record<string, unknown> | null;
   fcmTokens: Record<string, unknown> | null;
   leaderboards: Array<{ board: string; entry: Record<string, unknown> }>;
   /** The user's own invite code doc(s) (invites/{code}, keyed by uid). */
@@ -72,6 +75,7 @@ export function buildExportBundle(parts: ExportParts): Record<string, unknown> {
     trustScore: serialiseForExport(parts.trustScore),
     reportQuota: serialiseForExport(parts.reportQuota),
     offlineFlushQuota: serialiseForExport(parts.offlineFlushQuota),
+    activityQuota: serialiseForExport(parts.activityQuota ?? null),
     fcmTokens: serialiseForExport(parts.fcmTokens),
     leaderboards: serialiseForExport(parts.leaderboards),
     invites: serialiseForExport(parts.invites),
@@ -110,6 +114,7 @@ export const exportMyData = functions.https.onCall(async (request) => {
     fcmSnap,
     quotaSnap,
     offlineQuotaSnap,
+    activityQuotaSnap,
     trustSnap,
     invitesSnap,
     referralSnap,
@@ -125,6 +130,7 @@ export const exportMyData = functions.https.onCall(async (request) => {
     db.collection("fcmTokens").doc(uid).get(),
     db.collection("reportQuotas").doc(uid).get(),
     db.collection("offlineFlushQuotas").doc(uid).get(),
+    db.collection("activityQuotas").doc(uid).get(),
     db.collection("trustScores").doc(uid).get(),
     db.collection("invites").where("uid", "==", uid).get(),
     db.collection("referrals").doc(uid).get(),
@@ -180,6 +186,7 @@ export const exportMyData = functions.https.onCall(async (request) => {
     trustScore: trustSnap.exists ? withId(trustSnap) : null,
     reportQuota: quotaSnap.exists ? withId(quotaSnap) : null,
     offlineFlushQuota: offlineQuotaSnap.exists ? withId(offlineQuotaSnap) : null,
+    activityQuota: activityQuotaSnap.exists ? withId(activityQuotaSnap) : null,
     fcmTokens: fcmSnap.exists ? withId(fcmSnap) : null,
     leaderboards,
     invites: invitesSnap.docs.map(withId),

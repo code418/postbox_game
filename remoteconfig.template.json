@@ -85,6 +85,39 @@
       },
       "description": "v1.5 offline play: per-user daily cap on flushed offline claims. Must start equal to the code default (30). Values outside the [1, 200] safety band are ignored; client and server fall back to 30. Publish to the SERVER template too.",
       "valueType": "NUMBER"
+    },
+    "activity_claims_enabled": {
+      "defaultValue": {
+        "value": "false"
+      },
+      "conditionalValues": {
+        "Admin": {
+          "value": "true"
+        }
+      },
+      "description": "Shows workout claims (Health Connect): claim postboxes a recorded walk/run passed. OFF for everyone except the Admin audience. The server also gates on its ACTIVITY_CLAIMS_AUDIENCE env var.",
+      "valueType": "BOOLEAN"
+    },
+    "kill_switch_activity_claims": {
+      "defaultValue": {
+        "value": "false"
+      },
+      "description": "Emergency off for workout claims. The app hides every entry point and the matchActivityRoute/claimActivityPostbox callables refuse (they read this template's default value).",
+      "valueType": "BOOLEAN"
+    },
+    "activity_claim_grace_hours": {
+      "defaultValue": {
+        "value": "36"
+      },
+      "description": "Hours after a workout passes a postbox that it stays claimable (1-168). Read by the app and, from this template's default value, by the server.",
+      "valueType": "NUMBER"
+    },
+    "activity_origin_allowlist": {
+      "defaultValue": {
+        "value": "[\"com.fitbit.FitbitMobile\",\"com.google.android.apps.fitness\",\"com.sec.android.app.shealth\",\"com.garmin.android.apps.connectmobile\",\"com.strava\"]"
+      },
+      "description": "JSON array of fitness-app package names whose Health Connect routes may claim. Malformed or empty falls back to the built-in list. Read by the app and the server.",
+      "valueType": "JSON"
     }
   },
   "version": {

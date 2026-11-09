@@ -14,7 +14,13 @@ const WRITE_BATCH_SIZE = 400;
  *  kept so the global claim/postbox-history record stays intact. Exported for
  *  reuse by the 90-day retention sweep (dataRetention.ts) so erasure and
  *  retention can never disagree about what counts as claim PII. */
-export const CLAIM_PII_FIELDS = ["userLat", "userLng", "coordKey6", "clientTsMs", "travelSpeed", "deviceIdHash"] as const;
+export const CLAIM_PII_FIELDS = [
+  "userLat", "userLng", "coordKey6", "clientTsMs", "travelSpeed", "deviceIdHash",
+  // Workout-claim provenance (claimActivityPostbox): which fitness app
+  // recorded the run, how, a fingerprint linking the claims of one run, and
+  // the pass-to-claim lag. `activity`/`activitySource` stay, like `offline`.
+  "activityOrigin", "activityRecordingMethod", "activitySessionFp", "activityLagMs",
+] as const;
 
 /** Firestore field names on a report that carry PII and must be removed when a
  *  report is anonymised: `note` is free text, and `photos[]` embeds EXIF GPS
@@ -146,6 +152,8 @@ export async function deleteUserDocs(db: Firestore, uid: string): Promise<void> 
     // of reportQuotas; it must be erased on deletion too or a deleted account
     // leaves a residual per-user activity record behind.
     db.collection("offlineFlushQuotas").doc(uid),
+    // Workout-claim daily budget + seen-session fingerprints.
+    db.collection("activityQuotas").doc(uid),
     db.collection("trustScores").doc(uid),
     db.collection("referrals").doc(uid),
   ];

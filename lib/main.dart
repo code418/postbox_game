@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:postbox_game/authentication_bloc/bloc.dart';
 import 'package:postbox_game/services/claim_outbox.dart';
+import 'package:postbox_game/services/activity_claims_service.dart';
 import 'package:postbox_game/services/connectivity_service.dart';
 import 'package:postbox_game/services/outbox_sync.dart';
 import 'package:postbox_game/services/scan_cache.dart';
@@ -310,6 +311,8 @@ class _PostboxGameState extends State<PostboxGame> with WidgetsBindingObserver {
                 // outbox's pending count is per-account.
                 ScanCache.clear();
                 unawaited(ClaimOutbox.instance.refreshOwnership());
+                // Workout-claim candidates carry uid-bound tokens too.
+                unawaited(ActivityClaimsService.instance.onSignedOut());
                 unawaited(Analytics.setUserId(null));
                 unawaited(CrashlyticsHelper.setContext(
                     CrashlyticsHelper.keyAuthState, 'signed_out'));

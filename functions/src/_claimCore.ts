@@ -18,6 +18,7 @@ import { computeNewStreak, streakFromClaimDays } from "./_streakUtils";
 import { notifyFriendsFirstClaim, notifyFriendOvertake } from "./_notifications";
 import { checkNeighbourSpeeds, NeighbourPoint } from "./_travelSpeed";
 import { coordKey } from "./_abuseSignals";
+import type { LookupResult } from "./types";
 
 const database = admin.firestore();
 
@@ -75,6 +76,23 @@ export interface OfflineClaimMeta {
   batchSpeedCv?: number;
 }
 
+/** Provenance for a claim adjudicated by claimActivityPostbox (a postbox a
+ *  recorded workout route passed). Derived SERVER-SIDE from the verified
+ *  candidate token — never from client payload — so `activity` can't be
+ *  self-declared to dodge or game the abuse signals. */
+export interface ActivityClaimMeta {
+  /** Route source ("health_connect"). */
+  source: string;
+  /** Package name of the fitness app that recorded the workout. */
+  origin: string;
+  /** "active" | "automatic" | "unknown" (manual entries are never accepted). */
+  recordingMethod: string;
+  /** Keyed fingerprint of the source session id. */
+  sessionFp: string;
+  /** How long after the pass the claim was made. */
+  lagMs: number;
+}
+
 /** Optional inputs to [scoreClaimAt] beyond the position. */
 export interface ScoreClaimOptions {
   /** Client wall-clock at claim time (shadow-mode out-of-window signal). */
@@ -91,6 +109,26 @@ export interface ScoreClaimOptions {
   claimDate?: string;
   /** Present iff this claim is being adjudicated by flushOfflineClaims. */
   offline?: OfflineClaimMeta;
+  /** Present iff this claim is being adjudicated by claimActivityPostbox. */
+  activity?: ActivityClaimMeta;
+  /** When set, only these postbox ids may be claimed even if others are in
+   *  range — a workout candidate's quiz covers exactly its own boxes. */
+  restrictToPostboxIds?: readonly string[];
+}
+
+/**
+ * Pure: narrow a lookup result to [ids] (no-op when undefined). Applied right
+ * after lookupPostboxes so the found:false path, the already-claimed fast
+ * path, the transactions and the county aggregation all see the same set.
+ */
+export function restrictLookup(results: LookupResult, ids: readonly string[] | undefined): LookupResult {
+  if (!ids) return results;
+  const allow = new Set(ids);
+  const postboxes: LookupResult["postboxes"] = {};
+  for (const [k, v] of Object.entries(results.postboxes)) {
+    if (allow.has(k)) postboxes[k] = v;
+  }
+  return { ...results, postboxes, counts: { ...results.counts, total: Object.keys(postboxes).length } };
 }
 
 /** Everything needed to construct one claim document. Pure — exported for
@@ -113,9 +151,14 @@ export interface BuildClaimDataInput {
   travelSpeed?: number;
   deviceIdHash?: string;
   offline?: OfflineClaimMeta;
+  activity?: ActivityClaimMeta;
 }
 
 export function buildClaimData(inp: BuildClaimDataInput): Record<string, unknown> {
+  if (inp.offline && inp.activity) {
+    // Each provenance drives different abuse signals; one claim can't be both.
+    throw new Error("a claim cannot be both offline and activity");
+  }
   const d: Record<string, unknown> = {
     userid: inp.userid,
     timestamp: inp.timestamp,
@@ -150,6 +193,19 @@ export function buildClaimData(inp: BuildClaimDataInput): Record<string, unknown
       d.batchSpeedCv = inp.offline.batchSpeedCv;
     }
   }
+  if (inp.activity) {
+    // userLat/userLng above is the route anchor (the projected point where the
+    // workout passed the box) and eventTime the interpolated pass time. The
+    // four provenance fields below are PII-stripped by the 90-day sweep and on
+    // account deletion (CLAIM_PII_FIELDS); `activity`/`activitySource` stay,
+    // like `offline`.
+    d.activity = true;
+    d.activitySource = inp.activity.source;
+    d.activityOrigin = inp.activity.origin;
+    d.activityRecordingMethod = inp.activity.recordingMethod;
+    d.activitySessionFp = inp.activity.sessionFp;
+    d.activityLagMs = inp.activity.lagMs;
+  }
   return d;
 }
 
@@ -164,7 +220,7 @@ export async function scoreClaimAt(
   lng: number,
   opts: ScoreClaimOptions = {},
 ): Promise<Record<string, unknown>> {
-  const { clientTsMs, deviceIdHash, offline } = opts;
+  const { clientTsMs, deviceIdHash, offline, activity } = opts;
   const nowMs = Date.now();
   const eventTimeMs = opts.eventTimeMs ?? nowMs;
 
@@ -186,7 +242,10 @@ export async function scoreClaimAt(
   // the hard-coded constants when Remote Config is absent/invalid.
   const gameConfig = await getGameConfig();
 
-  const results = await lookupPostboxes(lat, lng, gameConfig.claimRadiusMeters, claimDate);
+  const results = restrictLookup(
+    await lookupPostboxes(lat, lng, gameConfig.claimRadiusMeters, claimDate),
+    opts.restrictToPostboxIds,
+  );
 
   if (results.counts.total === 0) {
     return { found: false, claimed: 0, points: 0, allClaimedToday: false, dailyDate: claimDate };
@@ -256,6 +315,7 @@ export async function scoreClaimAt(
           travelSpeed,
           deviceIdHash,
           offline,
+          activity,
         }));
         // Keep dailyClaim on the postbox doc for display purposes (shows
         // "someone found this today" in future UI); does not gate claiming.

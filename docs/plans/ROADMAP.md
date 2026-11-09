@@ -1105,6 +1105,18 @@ Roll out the BQ model with monitoring only first; review prediction quality manu
   screen. Shipped as `1.4.0+18` (PR #170). App Check enforcement was split out
   to v1.6; abuse Phase 2 enforcement remains deferred.
 
+## In flight — Workout claims (Health Connect)
+
+Claim postboxes a recorded walk / run / hike passed (Fitbit, Samsung Health,
+Garmin, Strava… via Health Connect on Android), for the London day it passed
+them, after the cypher quiz. Server: `matchActivityRoute` /
+`claimActivityPostbox` on a source-agnostic route matcher (`_routeMatch.ts`,
+`_activityMatch.ts`). Client: thin Kotlin bridge in the phone-side flavours +
+`lib/activity/`. Behind the Admin-only `activity_claims_enabled` flag and the
+`ACTIVITY_CLAIMS_AUDIENCE` env var. **Ship gate:** Fitbit-routes check, Play
+Health apps declaration approved — see `docs/health-connect-declaration.md`.
+Next sources, in order: HealthKit (iOS parity), Strava, Google Health API.
+
 ## Open exploration (no release commitment)
 
 - **#120** — Android XR scaffold (draft). Exploratory; revisit when Jetpack XR artefacts are out of alpha. Close after 6 months untouched.
