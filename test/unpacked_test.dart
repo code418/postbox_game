@@ -714,6 +714,38 @@ void main() {
       expect(JamesMessages.unpackedRarest('EVIIIR'), contains('Edward VIII'));
     });
 
+    test('the Together line', () {
+      expect(
+          JamesMessages.unpackedCommunity.resolve(),
+          "Brings a tear to my eye to see so many claimed. I couldn't do any "
+          "of this without you, and when I say 'this' I mean 'not much in "
+          "the scheme of things'");
+    });
+
+    testWidgets('the long Together line still fits a small phone',
+        (tester) async {
+      tester.view.physicalSize = const Size(1125, 2001); // iPhone SE
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MediaQuery(
+        data:
+            const MediaQueryData(size: Size(375, 667), disableAnimations: true),
+        child: MaterialApp(
+            theme: AppTheme.light,
+            home: UnpackedScreen(recap: _fullRecap(), today: '2026-12-20')),
+      ));
+      await tester.pump();
+      for (var i = 0; i < 14 && find.text('TOGETHER').evaluate().isEmpty; i++) {
+        await tester.tap(find.bySemanticsLabel('Next card'));
+        await tester.pump();
+      }
+      expect(find.textContaining('Brings a tear'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      // The last of the stats stays clear of the guide's bubble.
+      expect(tester.getRect(find.text('DAYS WITH A CLAIM')).bottom,
+          lessThan(tester.getRect(find.textContaining('Brings a tear')).top));
+    });
+
     test('the favourite-postbox line', () {
       expect(JamesMessages.unpackedFavourite(41),
           '41 claims! There are many slots out there, but this one is yours.');
@@ -740,6 +772,7 @@ void main() {
         JamesMessages.unpackedTopScorer(everyone: true),
         JamesMessages.unpackedTopScorer(everyone: false),
         for (final n in [1, 42, 142, 123456]) JamesMessages.unpackedTotals(n),
+        JamesMessages.unpackedCommunity.resolve(),
       ];
       for (final l in lines) {
         expect(l, isNot(contains('\u2014')), reason: l);

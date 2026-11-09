@@ -624,7 +624,11 @@ abstract final class JamesMessages {
 
   static const unpackedCommunity = JamesMessage(
     'jamesUnpackedCommunity',
-    ["Look at all you lot. Proper community, this."],
+    [
+      "Brings a tear to my eye to see so many claimed. I couldn't do any of "
+          "this without you, and when I say 'this' I mean 'not much in the "
+          "scheme of things'"
+    ],
   );
 
   static const unpackedOutro = JamesMessage(
