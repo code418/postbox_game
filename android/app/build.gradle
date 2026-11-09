@@ -219,7 +219,7 @@ dependencies {
     // it. Coroutines run the suspend API (auto already declares them above).
     phoneImplementation 'androidx.health.connect:connect-client:1.1.0'
     autoImplementation 'androidx.health.connect:connect-client:1.1.0'
-    phoneImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1'
+    phoneImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0' // = auto's pin above
 
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'androidx.test:runner:1.7.0'

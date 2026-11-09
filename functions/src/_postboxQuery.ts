@@ -22,12 +22,6 @@ export interface NearbyPostbox {
   distanceM: number;
 }
 
-/**
- * Postbox docs around (lat, lng), from the 9 geohash cells covering
- * `radiusM`, de-duplicated, in discovery order. Docs with no usable geopoint
- * are dropped. With `filterToRadius: false` the coarse 9-cell set is returned
- * unfiltered (plan_route trims it with its own geometry).
- */
 /** A postbox found by [queryPostboxesInCells]. */
 export interface CellPostbox {
   id: string;
@@ -72,6 +66,12 @@ export async function queryPostboxesInCells(
   return out;
 }
 
+/**
+ * Postbox docs around (lat, lng), from the 9 geohash cells covering
+ * `radiusM`, de-duplicated, in discovery order. Docs with no usable geopoint
+ * are dropped. With `filterToRadius: false` the coarse 9-cell set is returned
+ * unfiltered (plan_route trims it with its own geometry).
+ */
 export async function queryPostboxesNear(
   db: firestore.Firestore,
   lat: number,
