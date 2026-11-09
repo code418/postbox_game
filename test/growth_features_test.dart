@@ -20,6 +20,7 @@ import 'package:postbox_game/services/invite_service.dart';
 import 'package:postbox_game/services/notification_preprompt.dart';
 import 'package:postbox_game/services/pending_invite_store.dart';
 import 'package:postbox_game/services/review_prompt_service.dart';
+import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/widgets/share_card.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -237,12 +238,31 @@ void main() {
       expect(plain.headline, 'I claimed a postbox!');
     });
 
-    test('the share text always carries the link', () {
-      const link = 'https://the-postbox-game.web.app/invite/ABCD2345';
+    test('shares link to the store landing page, tagged as a share', () {
+      expect(kShareLinkUrl,
+          'https://the-postbox-game.web.app/get?src=postbox_share');
       final text = buildShareText(
-          claimShareCard(claimedCount: 1, points: 12, cypher: 'EVIIIR'), link);
-      expect(text, contains(link));
+          claimShareCard(claimedCount: 1, points: 12, cypher: 'EVIIIR'),
+          kShareLinkUrl);
+      expect(text, endsWith('Claim your postboxes: $kShareLinkUrl'));
+      expect(text, isNot(contains('Play with me')));
       expect(text, isNot(contains(emDash)));
+    });
+
+    testWidgets('the card prints the same link under the same call to action',
+        (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        home: Center(
+          child: ShareCard(
+              data: claimShareCard(claimedCount: 1, points: 2, cypher: 'EIIR'),
+              link: kShareLinkUrl),
+        ),
+      ));
+      expect(
+          find.text('Claim your postboxes: '
+              'the-postbox-game.web.app/get?src=postbox_share'),
+          findsOneWidget);
+      expect(find.textContaining('Play with me'), findsNothing);
     });
 
     testWidgets('the card lays out at its capture size without overflow',
@@ -259,9 +279,7 @@ void main() {
       ]) {
         await tester.pumpWidget(MaterialApp(
           home: Center(
-            child: ShareCard(
-                data: data,
-                link: 'https://the-postbox-game.web.app/invite/ABCD2345'),
+            child: ShareCard(data: data, link: kShareLinkUrl),
           ),
         ));
         expect(tester.takeException(), isNull, reason: data.headline);
@@ -274,7 +292,7 @@ void main() {
     });
 
     group('with a photo', () {
-      const link = 'https://the-postbox-game.web.app/invite/ABCD2345';
+      const link = kShareLinkUrl;
       final fixture =
           File('test/fixtures/share_photo_with_gps.jpg').readAsBytesSync();
 
@@ -433,13 +451,17 @@ void main() {
     });
 
     group('share sheet photo flow', () {
-      const link = 'https://the-postbox-game.web.app/invite/ABCD2345';
+      const link = kShareLinkUrl;
       final fixture =
           File('test/fixtures/share_photo_with_gps.jpg').readAsBytesSync();
 
+      // Always under the real app theme: its buttons have an infinite
+      // minimum width, which the default test theme hides (see the layout
+      // test below).
       Future<List<ImageSource>> pumpSheet(WidgetTester tester) async {
         final picks = <ImageSource>[];
         await tester.pumpWidget(MaterialApp(
+          theme: AppTheme.light,
           home: Scaffold(
             body: ShareCardSheet(
               data: claimShareCard(claimedCount: 1, points: 7, cypher: 'VR'),
@@ -454,6 +476,64 @@ void main() {
           ),
         ));
         return picks;
+      }
+
+      Finder button(String label) => find
+          .ancestor(
+              of: find.text(label),
+              matching: find.bySubtype<ButtonStyleButton>())
+          .first;
+
+      // The theme sets minimumSize: Size(double.infinity, 52) on filled and
+      // outlined buttons. In a bare Row that is an unbounded minimum, so the
+      // row fails layout and, in a release build, paints nothing: the card
+      // showed with no Add photo and no Share button under it.
+      for (final theme in {
+        'light': AppTheme.light,
+        'dark': AppTheme.dark,
+      }.entries) {
+        testWidgets(
+            'Add photo and Share lay out side by side under the ${theme.key} '
+            'app theme', (tester) async {
+          tester.view.physicalSize = const Size(1080, 2400);
+          tester.view.devicePixelRatio = 2.625;
+          addTearDown(tester.view.reset);
+          await tester.pumpWidget(MaterialApp(
+            theme: theme.value,
+            home: Scaffold(
+              body: Builder(
+                // The real entry point, as the claim sheet calls it.
+                builder: (context) => TextButton(
+                  onPressed: () => showShareCardSheet(
+                    context,
+                    data: claimShareCard(
+                        claimedCount: 1, points: 2, cypher: 'EIIR'),
+                    contentType: 'claim',
+                    itemId: 'EIIR',
+                  ),
+                  child: const Text('open'),
+                ),
+              ),
+            ),
+          ));
+          await tester.tap(find.text('open'));
+          await tester.pumpAndSettle();
+          expect(tester.takeException(), isNull);
+          // Every entry point shares the generic link, not an invite code.
+          expect(find.textContaining('get?src=postbox_share'), findsOneWidget);
+
+          final screen = tester.view.physicalSize / tester.view.devicePixelRatio;
+          final add = tester.getRect(button('Add photo'));
+          final share = tester.getRect(button('Share'));
+          for (final rect in [add, share]) {
+            expect(rect.left, greaterThanOrEqualTo(0));
+            expect(rect.right, lessThanOrEqualTo(screen.width));
+            expect(rect.bottom, lessThanOrEqualTo(screen.height));
+            expect(rect.height, greaterThanOrEqualTo(48));
+          }
+          expect(add.right, lessThanOrEqualTo(share.left));
+          expect(add.center.dy, closeTo(share.center.dy, 1));
+        });
       }
 
       /// Lets the real image decode behind a pick finish.
@@ -476,6 +556,12 @@ void main() {
         expect(find.text(kSharePhotoPrivacyTitle), findsOneWidget);
         expect(find.text(kSharePhotoPrivacyBody), findsOneWidget);
         expect(kSharePhotoPrivacyBody, contains('where you live'));
+        // Side by side: an unstyled themed FilledButton would take the whole
+        // action row and push Cancel above it.
+        final cancel = tester.getRect(button('Cancel'));
+        final gotIt = tester.getRect(button('Got it'));
+        expect(cancel.right, lessThanOrEqualTo(gotIt.left));
+        expect(cancel.center.dy, closeTo(gotIt.center.dy, 1));
 
         // Cancel opens no picker and remembers nothing.
         await tester.tap(find.text('Cancel'));
