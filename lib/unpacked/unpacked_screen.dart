@@ -5,17 +5,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:postbox_game/analytics_service.dart';
-import 'package:postbox_game/deep_links.dart';
 import 'package:postbox_game/james_messages.dart';
 import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/postman_james.dart';
-import 'package:postbox_game/services/invite_service.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/unpacked/unpacked_repository.dart';
 import 'package:postbox_game/unpacked/unpacked_share_card.dart';
 import 'package:postbox_game/unpacked/unpacked_stats.dart';
 import 'package:postbox_game/widgets/share_card.dart'
-    show kGetAppUrl, renderShareCardPng;
+    show kShareLinkUrl, renderShareCardPng;
 import 'package:share_plus/share_plus.dart';
 
 /// One story card's content. Built from the snapshot by [buildUnpackedCards];
@@ -45,10 +43,12 @@ String _pct(int p, String what) => 'More $what than $p% of players.';
 String _plural(int n, String one, String many) => '$n ${n == 1 ? one : many}';
 
 /// The text that travels with the shared image. Like every other share card
-/// it carries the sharer's invite link, so each share is also an invite.
-String unpackedShareText(int year, String link) =>
+/// it carries the generic, campaign-tagged [kShareLinkUrl] rather than the
+/// sharer's invite link: a share is public, and the two-way friend add stays
+/// with the Friends screen's invite.
+String unpackedShareText(int year) =>
     'My $year Postboxes Unpacked 📮 Hunting royal postboxes on '
-    'The Postbox Game. Play with me: $link';
+    'The Postbox Game. Claim your postboxes: $kShareLinkUrl';
 
 /// The ordered story for [recap]. Pure (aside from James's random variants)
 /// so tests can assert which cards appear for a given snapshot.
@@ -289,12 +289,11 @@ class _UnpackedScreenState extends State<UnpackedScreen>
       // 3x, so the 360x640 card becomes a 1080x1920 PNG.
       final png = await renderShareCardPng(boundary);
       if (png == null) return;
-      final link = await _shareLink();
       final fileName = 'postboxes-unpacked-${recap.year}.png';
       final result = await SharePlus.instance.share(ShareParams(
         files: [XFile.fromData(png, mimeType: 'image/png', name: fileName)],
         fileNameOverrides: [fileName],
-        text: unpackedShareText(recap.year, link),
+        text: unpackedShareText(recap.year),
       ));
       if (result.status != ShareResultStatus.dismissed) {
         unawaited(Analytics.share(
@@ -313,20 +312,6 @@ class _UnpackedScreenState extends State<UnpackedScreen>
     } finally {
       if (mounted) setState(() => _sharing = false);
     }
-  }
-
-  /// The sharer's invite link, or the generic get-the-app link when the
-  /// invite code can't be fetched (as [showShareCardSheet] does).
-  Future<String> _shareLink() async {
-    String? uid = widget.uid;
-    try {
-      uid ??= FirebaseAuth.instance.currentUser?.uid;
-    } catch (_) {}
-    String? code;
-    try {
-      code = uid == null ? null : await InviteService.myCode(uid);
-    } catch (_) {}
-    return code != null ? inviteUrlFor(code) : kGetAppUrl;
   }
 
   @override

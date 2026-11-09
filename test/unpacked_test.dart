@@ -7,10 +7,12 @@ import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/james_messages.dart';
 import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/remote_config_service.dart';
+import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/unpacked/unpacked_repository.dart';
 import 'package:postbox_game/unpacked/unpacked_screen.dart';
 import 'package:postbox_game/unpacked/unpacked_share_card.dart';
 import 'package:postbox_game/unpacked/unpacked_stats.dart';
+import 'package:postbox_game/widgets/share_card.dart' show kShareLinkUrl;
 
 // "Your Postboxes Unpacked" (December annual recap): snapshot parsing, the
 // availability gate (Remote Config flag + window + admin soft launch), which
@@ -301,15 +303,14 @@ void main() {
   });
 
   group('copy', () {
-    test('the share text carries the invite link', () {
-      const link = 'https://the-postbox-game.web.app/invite/ABCD2345';
-      final text = unpackedShareText(2026, link);
+    test('the share text carries the generic share link, not an invite', () {
+      final text = unpackedShareText(2026);
       expect(text, startsWith('My 2026 Postboxes Unpacked'));
-      expect(text, endsWith(link));
+      expect(text, endsWith('Claim your postboxes: $kShareLinkUrl'));
+      expect(text, isNot(contains('/invite/')));
     });
 
-    test('the nudge does not call the player "postie" (that is the guide)',
-        () {
+    test('the nudge does not call the player "postie" (that is the guide)', () {
       final nudge = JamesMessages.unpackedNudge(2026);
       expect(nudge, contains('2026 Postboxes Unpacked'));
       expect(nudge.toLowerCase(), isNot(contains('postie')));
@@ -327,7 +328,8 @@ void main() {
         // Reduced motion: no auto-advance timer, so the test drives every
         // transition explicitly.
         data: const MediaQueryData(disableAnimations: true),
-        child: MaterialApp(home: UnpackedScreen(recap: _recap())),
+        child: MaterialApp(
+            theme: AppTheme.light, home: UnpackedScreen(recap: _recap())),
       ));
       await tester.pump();
     }
@@ -372,6 +374,7 @@ void main() {
       await tester.pumpWidget(MediaQuery(
         data: const MediaQueryData(disableAnimations: true),
         child: MaterialApp(
+          theme: AppTheme.light,
           home: UnpackedScreen(
             uid: 'me',
             repository: UnpackedRepository(
@@ -394,6 +397,7 @@ void main() {
     testWidgets('shows a friendly message when no recap is available',
         (tester) async {
       await tester.pumpWidget(MaterialApp(
+        theme: AppTheme.light,
         home: UnpackedScreen(
           uid: 'me',
           repository: UnpackedRepository(
@@ -419,9 +423,10 @@ void main() {
       tester.view.devicePixelRatio = 3;
       addTearDown(tester.view.reset);
       await tester.pumpWidget(MediaQuery(
-        data: const MediaQueryData(
-            size: Size(780, 360), disableAnimations: true),
-        child: MaterialApp(home: UnpackedScreen(recap: _recap())),
+        data:
+            const MediaQueryData(size: Size(780, 360), disableAnimations: true),
+        child: MaterialApp(
+            theme: AppTheme.light, home: UnpackedScreen(recap: _recap())),
       ));
       await tester.pump();
       expect(tester.takeException(), isNull, reason: 'intro card');
@@ -438,6 +443,7 @@ void main() {
     testWidgets('a one-day "streak" is left off the card', (tester) async {
       Future<void> pumpCard(int streakDays) async {
         await tester.pumpWidget(MaterialApp(
+          theme: AppTheme.light,
           home: Center(
             child: UnpackedShareCard(
               stats: UnpackedStats.fromMap({
@@ -462,6 +468,7 @@ void main() {
       tester.view.devicePixelRatio = 3;
       addTearDown(tester.view.reset);
       await tester.pumpWidget(MaterialApp(
+        theme: AppTheme.light,
         home: Center(
           child: UnpackedShareCard(
             stats: UnpackedStats.fromMap({
