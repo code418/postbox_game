@@ -1,9 +1,15 @@
+import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:exif/exif.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' show UserMetadata;
 import 'package:firebase_auth_mocks/firebase_auth_mocks.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:postbox_game/deep_links.dart';
 import 'package:postbox_game/friends_screen.dart';
 import 'package:postbox_game/james_messages.dart';
@@ -265,6 +271,258 @@ void main() {
           expect((t.data ?? '').toLowerCase(), isNot(contains('james')));
         }
       }
+    });
+
+    group('with a photo', () {
+      const link = 'https://the-postbox-game.web.app/invite/ABCD2345';
+      final fixture =
+          File('test/fixtures/share_photo_with_gps.jpg').readAsBytesSync();
+
+      Iterable<String> texts(WidgetTester tester) => tester
+          .widgetList<Text>(find.byType(Text))
+          .map((t) => t.data ?? '');
+
+      testWidgets('branded and clean variants lay out at the capture size',
+          (tester) async {
+        for (final aspect in [0.75, 0.8, 1.5]) {
+          final photo = SharePhoto(bytes: fixture, aspectRatio: aspect);
+          for (final data in [
+            claimShareCard(
+                claimedCount: 1, points: 7, cypher: 'VR', streak: 30),
+            claimShareCard(claimedCount: 1, points: 4, cypher: 'SCOTTISH_CROWN'),
+            claimShareCard(claimedCount: 3, points: 6),
+          ]) {
+            for (final clean in [false, true]) {
+              await tester.pumpWidget(MaterialApp(
+                home: Center(
+                  child: ShareCard(
+                    data: data.copyWith(photo: photo, clean: clean),
+                    link: link,
+                    photoScale: 2,
+                    photoOffset: const Offset(40, -30),
+                  ),
+                ),
+              ));
+              final why = '${data.headline} aspect $aspect clean $clean';
+              expect(tester.takeException(), isNull, reason: why);
+              expect(tester.getSize(find.byType(ShareCard)), kShareCardSize,
+                  reason: why);
+            }
+          }
+        }
+      });
+
+      testWidgets('the branded strip carries the era and the link',
+          (tester) async {
+        await tester.pumpWidget(MaterialApp(
+          home: Center(
+            child: ShareCard(
+              data: claimShareCard(claimedCount: 1, points: 7, cypher: 'VR')
+                  .copyWith(
+                      photo: SharePhoto(bytes: fixture, aspectRatio: 0.75)),
+              link: link,
+            ),
+          ),
+        ));
+        expect(texts(tester), contains('Victoria (1837–1901)'));
+        expect(texts(tester), contains('The Postbox Game'));
+        expect(texts(tester).any((t) => t.contains('the-postbox-game.web.app')),
+            isTrue);
+      });
+
+      testWidgets('the clean variant shows only the cypher caption',
+          (tester) async {
+        await tester.pumpWidget(MaterialApp(
+          home: Center(
+            child: ShareCard(
+              data: claimShareCard(claimedCount: 1, points: 7, cypher: 'VR')
+                  .copyWith(
+                      photo: SharePhoto(bytes: fixture, aspectRatio: 0.75),
+                      clean: true),
+              link: link,
+            ),
+          ),
+        ));
+        expect(texts(tester), containsAll(['VR', 'Victoria (1837–1901)']));
+        expect(texts(tester).any((t) => t.contains('web.app')), isFalse);
+        expect(texts(tester), isNot(contains('The Postbox Game')));
+      });
+
+      test('a clean share still sends the link in its text', () {
+        final data = claimShareCard(claimedCount: 1, points: 7, cypher: 'VR')
+            .copyWith(
+                photo: SharePhoto(bytes: fixture, aspectRatio: 1),
+                clean: true);
+        expect(buildShareText(data, link), contains(link));
+        expect(data.shareStyle, 'photo_clean');
+        expect(data.copyWith(clean: false).shareStyle, 'photo');
+        expect(data.copyWith(clearPhoto: true).shareStyle, 'card');
+      });
+
+      test('framing never lets the photo uncover the card', () {
+        // A 4:5 photo exactly covers the 4:5 card: no pan at 1x.
+        expect(
+            clampPhotoOffset(const Offset(50, 50),
+                scale: 1, aspectRatio: 0.8),
+            Offset.zero);
+        // A 3:2 landscape overhangs sideways only: (450 * 1.5 - 360) / 2.
+        expect(
+            clampPhotoOffset(const Offset(-500, 80),
+                scale: 1, aspectRatio: 1.5),
+            const Offset(-157.5, 0));
+        // At 2x the card can pan by half its own size again.
+        expect(
+            clampPhotoOffset(const Offset(999, 999),
+                scale: 2, aspectRatio: 0.8),
+            const Offset(180, 225));
+      });
+
+      testWidgets(
+          'the shared PNG is re-rendered pixels, with none of the photo\'s '
+          'GPS or camera metadata', (tester) async {
+        // The fixture really does carry a GPS block and a camera make.
+        final source = await tester.runAsync(() => readExifFromBytes(fixture));
+        expect(source!.keys, contains('GPS GPSLatitude'));
+        expect(source.keys, contains('Image Make'));
+
+        final key = GlobalKey();
+        await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+        final photo = (await tester.runAsync(() async {
+          final p = await SharePhoto.decode(fixture);
+          await precacheImage(
+              MemoryImage(fixture), tester.element(find.byType(SizedBox)));
+          return p;
+        }))!;
+        expect(photo.aspectRatio, closeTo(96 / 120, 0.01));
+        await tester.pumpWidget(MaterialApp(
+          home: Center(
+            child: RepaintBoundary(
+              key: key,
+              child: ShareCard(
+                data: claimShareCard(claimedCount: 1, points: 7, cypher: 'VR')
+                    .copyWith(photo: photo),
+                link: link,
+              ),
+            ),
+          ),
+        ));
+        final boundary =
+            key.currentContext!.findRenderObject()! as RenderRepaintBoundary;
+        final png = (await tester.runAsync(() => renderShareCardPng(boundary)))!;
+
+        // PNG signature, then only chunks that hold no metadata.
+        expect(png.sublist(0, 8), [137, 80, 78, 71, 13, 10, 26, 10]);
+        final chunks = <String>[];
+        final view = ByteData.sublistView(png);
+        for (var i = 8; i + 8 <= png.length;) {
+          final length = view.getUint32(i);
+          chunks.add(String.fromCharCodes(png.sublist(i + 4, i + 8)));
+          i += 12 + length;
+        }
+        expect(chunks.first, 'IHDR');
+        expect(chunks.last, 'IEND');
+        for (final c in ['eXIf', 'tEXt', 'iTXt', 'zTXt']) {
+          expect(chunks, isNot(contains(c)));
+        }
+        expect(await tester.runAsync(() => readExifFromBytes(png)), isEmpty);
+
+        // 1080 x 1350, whatever the photo's own size.
+        expect(view.getUint32(16), 1080);
+        expect(view.getUint32(20), 1350);
+      });
+    });
+
+    group('share sheet photo flow', () {
+      const link = 'https://the-postbox-game.web.app/invite/ABCD2345';
+      final fixture =
+          File('test/fixtures/share_photo_with_gps.jpg').readAsBytesSync();
+
+      Future<List<ImageSource>> pumpSheet(WidgetTester tester) async {
+        final picks = <ImageSource>[];
+        await tester.pumpWidget(MaterialApp(
+          home: Scaffold(
+            body: ShareCardSheet(
+              data: claimShareCard(claimedCount: 1, points: 7, cypher: 'VR'),
+              link: link,
+              contentType: 'claim',
+              itemId: 'VR',
+              pickPhoto: (source) async {
+                picks.add(source);
+                return fixture;
+              },
+            ),
+          ),
+        ));
+        return picks;
+      }
+
+      /// Lets the real image decode behind a pick finish.
+      Future<void> settleDecode(WidgetTester tester) async {
+        for (var i = 0; i < 5; i++) {
+          await tester.runAsync(
+              () => Future<void>.delayed(const Duration(milliseconds: 50)));
+          await tester.pump();
+        }
+      }
+
+      testWidgets('warns about what a photo can show before the first pick',
+          (tester) async {
+        SharedPreferences.setMockInitialValues({});
+        final picks = await pumpSheet(tester);
+        expect(find.text('Hide branding'), findsNothing);
+
+        await tester.tap(find.text('Add photo'));
+        await tester.pumpAndSettle();
+        expect(find.text(kSharePhotoPrivacyTitle), findsOneWidget);
+        expect(find.text(kSharePhotoPrivacyBody), findsOneWidget);
+        expect(kSharePhotoPrivacyBody, contains('where you live'));
+
+        // Cancel opens no picker and remembers nothing.
+        await tester.tap(find.text('Cancel'));
+        await tester.pumpAndSettle();
+        expect(picks, isEmpty);
+        final prefs = await SharedPreferences.getInstance();
+        expect(prefs.getBool(kSharePhotoPrivacyAckKey), isNull);
+
+        await tester.tap(find.text('Add photo'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Got it'));
+        await tester.pumpAndSettle();
+        expect(prefs.getBool(kSharePhotoPrivacyAckKey), isTrue);
+        await tester.tap(find.text('Choose from library'));
+        await tester.pump();
+        await settleDecode(tester);
+
+        expect(picks, [ImageSource.gallery]);
+        expect(find.text('Change photo'), findsOneWidget);
+        expect(find.text('Hide branding'), findsOneWidget);
+        expect(find.text(kSharePhotoReminder), findsOneWidget);
+
+        // Acknowledged: the next change goes straight to the source choice.
+        await tester.tap(find.text('Change photo'));
+        await tester.pumpAndSettle();
+        expect(find.text(kSharePhotoPrivacyTitle), findsNothing);
+        expect(find.text('Take a photo'), findsOneWidget);
+      });
+
+      testWidgets('removing the photo returns to the plain card',
+          (tester) async {
+        SharedPreferences.setMockInitialValues({kSharePhotoPrivacyAckKey: true});
+        await pumpSheet(tester);
+        await tester.tap(find.text('Add photo'));
+        await tester.pumpAndSettle();
+        expect(find.text(kSharePhotoPrivacyTitle), findsNothing);
+        await tester.tap(find.text('Take a photo'));
+        await tester.pump();
+        await settleDecode(tester);
+        expect(find.text('Hide branding'), findsOneWidget);
+
+        await tester.tap(find.byTooltip('Remove photo'));
+        await tester.pump();
+        expect(find.text('Hide branding'), findsNothing);
+        expect(find.text(kSharePhotoReminder), findsNothing);
+        expect(find.text('Add photo'), findsOneWidget);
+      });
     });
   });
 
