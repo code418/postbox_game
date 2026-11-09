@@ -15,7 +15,9 @@ import {
   LaunchNotifyState,
   UNPACKED_SNAPSHOT_VERSION,
   FIRST_UNPACKED_YEAR,
+  applyBoxFans,
   applyPercentiles,
+  boxFans,
   communityHighlights,
   countyCounts,
   dayLeaders,
@@ -32,6 +34,7 @@ import {
   topOfFriendsDays,
   summarise,
   unpackedCutoff,
+  unpackedLastFirstClass,
   unpackedWindow,
   unpackedYearFor,
 } from "./_unpacked";
@@ -186,6 +189,10 @@ export async function buildUnpackedSnapshots(
     stats.otherCounties = otherCountiesFor(countsByUid.get(uid)!, stats.topCounty?.name ?? null, playersByCounty);
   }
 
+  // "Your favourite postbox": was the player its number one fan?
+  const fans = boxFans(finished.map(({ uid }) => players.get(uid)!.boxClaims));
+  for (const { stats } of finished) applyBoxFans(stats.favouritePostboxes, fans);
+
   // "Longest streak" and the award podium: each player's friends, from the
   // friends arrays on their user docs.
   const streakByUid = new Map(finished.map(({ uid, stats }) => [uid, stats.longestStreak.days]));
@@ -252,6 +259,7 @@ export async function buildUnpackedSnapshots(
     ...summarise(year, finished.map((f) => f.stats), allPostboxes.size),
     highlights,
     ...window,
+    lastFirstClass: unpackedLastFirstClass(year),
     version: UNPACKED_SNAPSHOT_VERSION,
     throughDate: end,
     generatedAt,

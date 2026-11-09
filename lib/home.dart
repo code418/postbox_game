@@ -26,6 +26,7 @@ import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/widgets/maintenance_banner.dart';
 import 'package:postbox_game/widgets/offline_banner.dart';
 import 'package:postbox_game/services/outbox_sync.dart';
+import 'package:postbox_game/unpacked/unpacked_banner.dart';
 import 'package:postbox_game/unpacked/unpacked_repository.dart';
 import 'package:postbox_game/unpacked/unpacked_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -59,6 +60,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   late final JamesController _jamesController = JamesController();
   bool _isAdmin = false;
   UnpackedRecap? _unpacked;
+  bool _showUnpackedBanner = false;
   bool _inviteFlowRunning = false;
 
   static const _destinations = [
@@ -135,8 +137,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       // audiences can target admins / non-admins. Always push, even when
       // false, so a non-admin device doesn't silently inherit a stale
       // "true" from a previous account.
-      Analytics.setUserProperty(
-          AnalyticsUserProps.kIsAdmin, boolProp(isAdmin));
+      Analytics.setUserProperty(AnalyticsUserProps.kIsAdmin, boolProp(isAdmin));
       if (mounted && isAdmin) setState(() => _isAdmin = true);
     });
     unawaited(_loadUnpacked());
@@ -156,6 +157,10 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     setState(() => _unpacked = recap);
     try {
       final prefs = await SharedPreferences.getInstance();
+      if (!(prefs.getBool(unpackedBannerDoneKey(recap.year)) ?? false) &&
+          mounted) {
+        setState(() => _showUnpackedBanner = true);
+      }
       final key = 'unpacked_nudged_${recap.year}';
       if (prefs.getBool(key) ?? false) return;
       await prefs.setBool(key, true);
@@ -165,9 +170,21 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     } catch (_) {}
   }
 
+  /// The banner has done its job (opened or dismissed): hide it for good.
+  Future<void> _retireUnpackedBanner() async {
+    final recap = _unpacked;
+    if (recap == null) return;
+    setState(() => _showUnpackedBanner = false);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(unpackedBannerDoneKey(recap.year), true);
+    } catch (_) {}
+  }
+
   void _openUnpacked() {
     final recap = _unpacked;
     if (recap == null) return;
+    unawaited(_retireUnpackedBanner());
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => UnpackedScreen(recap: recap)),
@@ -354,6 +371,12 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           children: [
             const MaintenanceBanner(),
             const OfflineBanner(),
+            if (_unpacked != null && _showUnpackedBanner && _selectedIndex == 0)
+              UnpackedReadyBanner(
+                year: _unpacked!.year,
+                onOpen: _openUnpacked,
+                onDismiss: () => unawaited(_retireUnpackedBanner()),
+              ),
             Expanded(
               child: Stack(
                 children: [

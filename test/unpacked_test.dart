@@ -9,6 +9,7 @@ import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/postman_james.dart';
 import 'package:postbox_game/remote_config_service.dart';
 import 'package:postbox_game/theme.dart';
+import 'package:postbox_game/unpacked/unpacked_banner.dart';
 import 'package:postbox_game/unpacked/unpacked_repository.dart';
 import 'package:postbox_game/unpacked/unpacked_screen.dart';
 import 'package:postbox_game/unpacked/unpacked_share_card.dart';
@@ -689,8 +690,10 @@ void main() {
     test('the favourite postbox card names the box and where it is', () {
       final c = card('favourite');
       expect(c.headline, 'Box BS8 102');
-      expect(unpackedPlainText(c.detail!),
-          'Claimed on 41 days. Victoria (1837–1901), in Bristol.');
+      expect(
+          unpackedPlainText(c.detail!),
+          'Claimed on 41 days. Victoria (1837–1901), in Bristol. '
+          'Nobody else claimed it all year.');
     });
   });
 
@@ -833,9 +836,11 @@ void main() {
       await pump(tester, _fullRecap(), size: const Size(1125, 2001));
       await tapTo(tester, 'YOUR ROYAL ROLL-CALL');
       final guide = tester.getRect(find.byType(PostmanJames).first);
+      expect(find.text('9 of 9 cyphers'), findsOneWidget);
+      expect(find.text('Plus 9 plain boxes with no cypher.'), findsOneWidget);
       for (final key in _fullSnapshot()['monarchCounts'].keys) {
-        final label =
-            MonarchInfo.labels[key == 'NONE' ? MonarchInfo.plainKey : key]!;
+        if (key == 'NONE') continue; // a footnote, not a bar
+        final label = MonarchInfo.labels[key]!;
         expect(find.text(label), findsOneWidget, reason: label);
         expect(tester.getRect(find.text(label)).bottom,
             lessThanOrEqualTo(guide.top),
@@ -852,10 +857,11 @@ void main() {
       expect(find.text('You'), findsOneWidget);
       expect(find.text('gone'), findsNothing);
       await tapTo(tester, 'AND NOW, THE AWARDS');
-      // Sam 143 days, you 15, Alex 40: you take bronze.
-      expect(find.text('GOLD'), findsOneWidget);
-      expect(find.text('BRONZE'), findsOneWidget);
-      expect(find.text('143 days'), findsOneWidget);
+      // Sam 143 days, Alex 40, you 15: you take bronze.
+      expect(find.bySemanticsLabel(RegExp(r'^Gold: Sam, 143 days')),
+          findsOneWidget);
+      expect(find.bySemanticsLabel(RegExp(r'^Bronze: You, 15 days')),
+          findsOneWidget);
       expect(tester.takeException(), isNull);
     });
 
@@ -919,9 +925,9 @@ void main() {
           unpackedChristmasPost('2026-12-18', summary), ChristmasPost.before);
       expect(unpackedChristmasPost('2026-12-19', summary),
           ChristmasPost.firstClass);
-      expect(unpackedChristmasPost('2026-12-22', summary),
+      expect(unpackedChristmasPost('2026-12-21', summary),
           ChristmasPost.firstClass);
-      expect(unpackedChristmasPost('2026-12-23', summary),
+      expect(unpackedChristmasPost('2026-12-22', summary),
           ChristmasPost.lastMinute);
       expect(unpackedChristmasPost('2026-12-24', summary),
           ChristmasPost.lastMinute);
@@ -949,7 +955,9 @@ void main() {
     });
 
     test('the guide hurries the Christmas cards along, then stops', () {
-      expect(intro('2026-12-20').james, contains('first-class stamp'));
+      expect(intro('2026-12-20').james,
+          contains('first-class stamp by Monday 21 December'));
+      expect(intro('2026-12-22').james, contains('hand-deliver'));
       expect(intro('2026-12-24').james, contains('hand-deliver'));
       expect(intro('2026-11-20', complete: false).james,
           contains('Friday 18 December'));
@@ -962,6 +970,198 @@ void main() {
       ]) {
         expect(intro(d).james, isNot(contains('\u2014')));
       }
+    });
+  });
+
+  group('final pass', () {
+    UnpackedCardData card(String id, {Map<String, dynamic>? stats}) =>
+        buildUnpackedCards(_fullRecap(stats: stats), today: '2026-12-20')
+            .firstWhere((c) => c.id == id);
+
+    test('the roll-call is a collection with plain boxes as a footnote', () {
+      final c = card('monarchs', stats: {
+        ..._fullSnapshot(),
+        'monarchCounts': {'EIIR': 104, 'GR': 22, 'NONE': 20, 'VR': 8},
+      });
+      expect(unpackedPlainText(c.headline), '3 of 9 cyphers');
+      expect(c.detail, isNull);
+      final full = card('monarchs');
+      expect(unpackedPlainText(full.headline), '9 of 9 cyphers');
+      expect(full.detail, 'The full set! Every cypher collected.');
+    });
+
+    test('cypher short names drop the reign dates only', () {
+      expect(cypherShortName('EVIIIR'), 'Edward VIII');
+      expect(cypherShortName('CIIIR'), 'Charles III');
+      expect(cypherShortName('GR'), 'George (generic)');
+      expect(
+          cypherShortName('SCOTTISH_CROWN'), 'Scottish Crown (Scotland only)');
+    });
+
+    test('Home turf says how many of your boxes were there', () {
+      final c = card('county', stats: {
+        ..._fullSnapshot(),
+        'uniquePostboxes': 142,
+        'topCounty': {'name': 'Bristol, City of', 'uniquePostboxes': 88},
+        'countiesVisited': 4,
+      });
+      expect(c.headline, 'Bristol');
+      expect(unpackedPlainText(c.detail!),
+          '88 of your 142 postboxes were here. You hunted in 4 counties.');
+      final all = card('county', stats: {
+        ..._fullSnapshot(),
+        'uniquePostboxes': 9,
+        'topCounty': {'name': 'Kent', 'uniquePostboxes': 9},
+        'countiesVisited': 1,
+      });
+      expect(
+          unpackedPlainText(all.detail!), 'All 9 of your postboxes were here.');
+    });
+
+    test('Days at the top says whose table it was', () {
+      expect(
+          unpackedPlainText(card('top', stats: {
+            ..._fullSnapshot(),
+            'topScorerDays': {'friends': 14, 'everyone': 3},
+          }).detail!),
+          'Top among your friends on 14 days, and top of everyone on 3!');
+      expect(unpackedPlainText(card('top').detail!),
+          'Top among your friends on 12 days.');
+      final everyone = card('top', stats: {
+        ..._fullSnapshot(),
+        'topScorerDays': {'friends': 0, 'everyone': 2},
+      });
+      expect(unpackedPlainText(everyone.headline), '2 days');
+      expect(unpackedPlainText(everyone.detail!),
+          'Top of everyone who played on 2 days!');
+    });
+
+    test('streaks and the rarest find carry their dates', () {
+      expect(unpackedPlainText(card('streak').detail!),
+          startsWith('From 1 to 5 April.'));
+      final across = card('streak', stats: {
+        ..._fullSnapshot(),
+        'longestStreak': {
+          'days': 12,
+          'start': '2026-05-28',
+          'end': '2026-06-08'
+        },
+      });
+      expect(unpackedPlainText(across.detail!),
+          startsWith('From 28 May to 8 June.'));
+      expect(unpackedPlainText(card('rarest').detail!),
+          'Worth 7 points (box BS1 23). Found on Friday 3 April.');
+    });
+
+    test('the favourite postbox knows its number one fan', () {
+      String detail(Map<String, dynamic> fav) => unpackedPlainText(card(
+            'favourite',
+            stats: {
+              ..._fullSnapshot(),
+              'favouritePostboxes': [
+                {'claims': 41, 'monarch': 'VR', 'reference': 'BS8 7', ...fav},
+              ],
+            },
+          ).detail!);
+      expect(detail({'fans': 6, 'topFan': true}),
+          endsWith('Nobody claimed it more than you.'));
+      expect(detail({'fans': 1, 'topFan': true}),
+          endsWith('Nobody else claimed it all year.'));
+      expect(detail({'fans': 6, 'topFan': false}),
+          endsWith('Victoria (1837–1901).'));
+    });
+
+    test('the award field ranks friends and finds the player', () {
+      final a = unpackedAward(_fullRecap())!;
+      expect(a.field.map((e) => e.name), ['Sam', 'Alex', 'You']);
+      expect(a.place, 2);
+      expect(unpackedMedal(a.place), 'Bronze');
+      expect(unpackedMedal(3), isNull);
+    });
+
+    testWidgets('the podium puts an off-podium player underneath',
+        (tester) async {
+      tester.view.physicalSize = const Size(1080, 2340);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      final stats = {
+        ..._fullSnapshot(),
+        'friendAwards': [
+          {'uid': 'sam', 'daysActive': 143, 'uniquePostboxes': 300},
+          {'uid': 'alex', 'daysActive': 40, 'uniquePostboxes': 90},
+          {'uid': 'kim', 'daysActive': 30, 'uniquePostboxes': 60},
+        ],
+      };
+      await tester.pumpWidget(MediaQuery(
+        data: const MediaQueryData(disableAnimations: true),
+        child: MaterialApp(
+          theme: AppTheme.light,
+          home: UnpackedScreen(
+            today: '2026-12-20',
+            recap: UnpackedRecap(
+              summary: UnpackedSummary.fromMap(_fullSummary(), year: 2026),
+              stats: UnpackedStats.fromMap(stats, year: 2026),
+              friendNames: const {'sam': 'Sam', 'alex': 'Alex', 'kim': 'Kim'},
+            ),
+          ),
+        ),
+      ));
+      await tester.pump();
+      for (var i = 0;
+          i < 14 && find.text('AND NOW, THE AWARDS').evaluate().isEmpty;
+          i++) {
+        await tester.tap(find.bySemanticsLabel('Next card'));
+        await tester.pump();
+      }
+      expect(
+          find.text('You came 4th, with 15 days out hunting.'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('the share image names the cypher and shows a medal',
+        (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        theme: AppTheme.light,
+        home: Center(
+          child: UnpackedShareCard(
+            stats: UnpackedStats.fromMap({
+              ..._snapshot(),
+              'rarestFind': {'monarch': 'EVIIIR', 'points': 12}
+            }, year: 2026),
+            medal: 'Silver',
+          ),
+        ),
+      ));
+      expect(find.text('Edward VIII'), findsOneWidget);
+      expect(find.text('EVIIIR'), findsNothing);
+      expect(find.text('MIKE H AWARD'), findsOneWidget);
+      expect(find.text('Silver'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('the ready banner opens or dismisses, under the real theme',
+        (tester) async {
+      var opened = 0, dismissed = 0;
+      for (final theme in [AppTheme.light, AppTheme.dark]) {
+        await tester.pumpWidget(MaterialApp(
+          theme: theme,
+          home: Scaffold(
+            body: UnpackedReadyBanner(
+              year: 2026,
+              onOpen: () => opened++,
+              onDismiss: () => dismissed++,
+            ),
+          ),
+        ));
+        expect(
+            find.text('Your 2026 Postboxes Unpacked is ready'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+        await tester.tap(find.text('Open'));
+        await tester.tap(find.byTooltip('Dismiss'));
+      }
+      expect(opened, 2);
+      expect(dismissed, 2);
+      expect(unpackedBannerDoneKey(2026), 'unpacked_banner_done_2026');
     });
   });
 }

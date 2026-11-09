@@ -6624,6 +6624,22 @@ describe("Unpacked: pure helpers", () => {
     });
   });
 
+  describe("box fans", () => {
+    const boxes = (o: Record<string, number>) => new Map(Object.entries(o).map(([id, claims]) => [id, { claims }]));
+    it("counts each box's claimers and its best claimer's days", () => {
+      const fans = unpacked.boxFans([boxes({ a: 41, b: 2 }), boxes({ a: 50 }), boxes({ a: 41, c: 3 })]);
+      assert.deepStrictEqual(fans.get("a"), { fans: 3, most: 50 });
+      assert.deepStrictEqual(fans.get("b"), { fans: 1, most: 2 });
+    });
+    it("marks the player the top fan when nobody claimed it on more days (ties count)", () => {
+      const fav = (postboxId: string, claims: number) =>
+        ({ postboxId, claims, monarch: null, reference: null, county: null, fans: 1, topFan: true });
+      const favourites = [fav("a", 41), fav("b", 2), fav("z", 9)];
+      unpacked.applyBoxFans(favourites, new Map([["a", { fans: 3, most: 50 }], ["b", { fans: 2, most: 2 }]]));
+      assert.deepStrictEqual(favourites.map((f) => [f.fans, f.topFan]), [[3, false], [2, true], [1, true]]);
+    });
+  });
+
   describe("friendAwardsFor", () => {
     const st = (daysActive: number, uniquePostboxes: number) => ({ daysActive, uniquePostboxes });
     const stats = new Map([
@@ -6757,7 +6773,8 @@ describe("Unpacked: pure helpers", () => {
         { date: "2026-03-02", points: 2, claims: 1 },
       ]);
       // Only box "a" was claimed twice.
-      assert.deepStrictEqual(s.favouritePostboxes, [{ claims: 2, monarch: "EIIR", reference: null, county: "Kent" }]);
+      assert.deepStrictEqual(s.favouritePostboxes,
+        [{ postboxId: "a", claims: 2, monarch: "EIIR", reference: null, county: "Kent", fans: 1, topFan: true }]);
       // Filled in by the builder, not here.
       assert.deepStrictEqual(s.otherCounties, []);
       assert.deepStrictEqual(s.friendStreaks, []);
@@ -6776,10 +6793,10 @@ describe("Unpacked: pure helpers", () => {
       days("plain", 2);
       days("once", 1, "EVIIIR"); // claimed once: never a favourite
       const s = unpacked.finalizeUnpacked(acc, new Map([["victorian", { reference: "BS8 102", county: "Bristol" }]]))!;
-      assert.deepStrictEqual(s.favouritePostboxes, [
-        { claims: 4, monarch: "VR", reference: "BS8 102", county: "Bristol" },
-        { claims: 4, monarch: "EIIR", reference: null, county: null },
-        { claims: 3, monarch: "GR", reference: null, county: null },
+      assert.deepStrictEqual(s.favouritePostboxes.map((f) => [f.postboxId, f.claims, f.monarch, f.reference]), [
+        ["victorian", 4, "VR", "BS8 102"],
+        ["common", 4, "EIIR", null],
+        ["george", 3, "GR", null],
       ]);
     });
 
@@ -7059,6 +7076,7 @@ describe("Unpacked: buildUnpackedSnapshots (mock Firestore)", () => {
     assert.strictEqual(summary.uniquePostboxes, 2);
     assert.strictEqual(summary.topMonarch, "VR");
     assert.strictEqual(summary.availableFrom, "2026-12-19");
+    assert.strictEqual(summary.lastFirstClass, "2026-12-21");
     assert.strictEqual(summary.availableUntil, "2027-01-15");
     const h = summary.highlights as unpacked.CommunityHighlights;
     assert.deepStrictEqual(h.rarestCypher, { monarch: "VR", boxes: 1 });

@@ -13,9 +13,19 @@ import 'package:postbox_game/unpacked/unpacked_stats.dart';
 /// Shows only the player's own aggregate numbers (no location, no other
 /// players' names), so sharing it publicly leaks nothing.
 class UnpackedShareCard extends StatelessWidget {
-  const UnpackedShareCard({super.key, required this.stats});
+  const UnpackedShareCard({super.key, required this.stats, this.medal});
 
   final UnpackedStats stats;
+
+  /// "Gold", "Silver" or "Bronze" when the player placed in the Mike H
+  /// Award; shown as a row with a medal-coloured trophy.
+  final String? medal;
+
+  static const Map<String, Color> medalColours = {
+    'Gold': Color(0xFFFFC83D),
+    'Silver': Color(0xFFC9CED6),
+    'Bronze': Color(0xFFD08A4C),
+  };
 
   static const Size logicalSize = Size(360, 640);
   static const double _padding = AppSpacing.lg + 4;
@@ -23,16 +33,19 @@ class UnpackedShareCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final n = NumberFormat.decimalPattern('en_GB');
-    final rows = <(String, String)>[
-      ('Postboxes found', n.format(stats.uniquePostboxes)),
-      ('Points scored', n.format(stats.totalPoints)),
+    // (label, value, trophy colour for the award row).
+    final rows = <(String, String, Color?)>[
+      ('Postboxes found', n.format(stats.uniquePostboxes), null),
+      ('Points scored', n.format(stats.totalPoints), null),
       if (stats.longestStreakDays > 1)
-        ('Longest streak', '${stats.longestStreakDays} days'),
+        ('Longest streak', '${stats.longestStreakDays} days', null),
       if (stats.rarestMonarch != null &&
           stats.rarestMonarch != MonarchInfo.plainKey)
-        ('Rarest find', stats.rarestMonarch!),
+        ('Rarest find', cypherShortName(stats.rarestMonarch!), null),
       if (stats.topCountyName != null)
-        ('Top county', countyDisplayName(stats.topCountyName!)),
+        ('Top county', countyDisplayName(stats.topCountyName!), null),
+      if (medal != null && medalColours.containsKey(medal))
+        ('Mike H Award', medal!, medalColours[medal]),
     ];
 
     return SizedBox.fromSize(
@@ -85,7 +98,7 @@ class UnpackedShareCard extends StatelessWidget {
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          for (final (label, value) in rows)
+                          for (final (label, value, trophy) in rows)
                             Padding(
                               padding:
                                   const EdgeInsets.only(bottom: AppSpacing.md),
@@ -101,15 +114,26 @@ class UnpackedShareCard extends StatelessWidget {
                                       letterSpacing: 1.5,
                                     ),
                                   ),
-                                  Text(
-                                    value,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: GoogleFonts.plusJakartaSans(
-                                      color: Colors.white,
-                                      fontSize: 28,
-                                      fontWeight: FontWeight.w800,
-                                    ),
+                                  Row(
+                                    children: [
+                                      if (trophy != null) ...[
+                                        Icon(Icons.emoji_events,
+                                            color: trophy, size: 28),
+                                        const SizedBox(width: AppSpacing.xs),
+                                      ],
+                                      Flexible(
+                                        child: Text(
+                                          value,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: GoogleFonts.plusJakartaSans(
+                                            color: trophy ?? Colors.white,
+                                            fontSize: 28,
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ],
                               ),

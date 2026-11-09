@@ -43,6 +43,9 @@ class UnpackedStats {
     this.topFriendsDays = 0,
     this.topEveryoneDays = 0,
     this.complete = false,
+    this.longestStreakStart,
+    this.longestStreakEnd,
+    this.rarestDate,
   });
 
   final int year;
@@ -51,6 +54,10 @@ class UnpackedStats {
   final int totalPoints;
   final int daysActive;
   final int longestStreakDays;
+
+  /// First and last London days of [longestStreakDays], when known.
+  final String? longestStreakStart;
+  final String? longestStreakEnd;
 
   /// 1–12, or 0 when unknown.
   final int busiestMonth;
@@ -66,6 +73,9 @@ class UnpackedStats {
   final String? rarestMonarch;
   final int rarestPoints;
   final String? rarestReference;
+
+  /// London day the [rarestMonarch] box was first found, when known.
+  final String? rarestDate;
 
   /// Claims per cypher, plain boxes keyed by [MonarchInfo.plainKey], sorted
   /// most-claimed first.
@@ -228,6 +238,9 @@ class UnpackedStats {
       topFriendsDays: _int(_map(m['topScorerDays'])['friends']),
       topEveryoneDays: _int(_map(m['topScorerDays'])['everyone']),
       complete: m['complete'] == true,
+      longestStreakStart: _str(streak['start']),
+      longestStreakEnd: _str(streak['end']),
+      rarestDate: _str(rarest['dailyDate']),
       otherCounties: List.unmodifiable([
         for (final c in _maps(m['otherCounties']))
           if (_str(c['name']) != null)
@@ -257,6 +270,8 @@ class UnpackedStats {
               monarch: _str(b['monarch']) ?? MonarchInfo.plainKey,
               reference: _str(b['reference']),
               county: _str(b['county']),
+              fans: _int(b['fans']) > 0 ? _int(b['fans']) : 1,
+              topFan: b['topFan'] != false,
             ),
       ]),
     );
@@ -311,11 +326,19 @@ class UnpackedFavourite {
     required this.monarch,
     this.reference,
     this.county,
+    this.fans = 1,
+    this.topFan = true,
   });
   final int claims;
   final String monarch;
   final String? reference;
   final String? county;
+
+  /// Players who claimed this box this year, the player included.
+  final int fans;
+
+  /// Nobody claimed it on more days than the player.
+  final bool topFan;
 }
 
 /// The anonymous community figures on the "Together" card
@@ -381,7 +404,8 @@ class UnpackedSummary {
     required this.availableFrom,
     required this.availableUntil,
     this.highlights,
-  });
+    String? lastFirstClass,
+  }) : lastFirstClass = lastFirstClass ?? '$year-12-21';
 
   final int year;
   final int players;
@@ -395,6 +419,10 @@ class UnpackedSummary {
 
   /// Null for a summary built before the highlights existed.
   final UnpackedHighlights? highlights;
+
+  /// Royal Mail's last first-class posting day before Christmas, for the
+  /// guide's Christmas-card nudge (`unpackedLastFirstClass` on the server).
+  final String lastFirstClass;
 
   factory UnpackedSummary.fromMap(Map<String, dynamic> m, {required int year}) {
     return UnpackedSummary(
@@ -411,6 +439,7 @@ class UnpackedSummary {
       highlights: m['highlights'] is Map
           ? UnpackedHighlights.fromMap(UnpackedStats._map(m['highlights']))
           : null,
+      lastFirstClass: UnpackedStats._str(m['lastFirstClass']),
     );
   }
 
@@ -425,6 +454,12 @@ class UnpackedSummary {
 /// match on the stored name.
 String countyDisplayName(String name) =>
     name.replaceFirst(RegExp(r',\s*(City|County) of\s*$'), '');
+
+/// A cypher's name without its reign dates: "Edward VIII", "George (generic)",
+/// "Plain / no cypher". For the share image and the "still to find" list,
+/// where the dates would crowd the text.
+String cypherShortName(String key) => (MonarchInfo.labels[key] ?? key)
+    .replaceFirst(RegExp(r'\s*\(\d[^)]*\)$'), '');
 
 /// Which recap year is current on [todayLondon]: this year in December, last
 /// year during January. Mirrors `unpackedYearFor` in functions/src/_unpacked.ts.

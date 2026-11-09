@@ -470,7 +470,7 @@ abstract final class JamesMessages {
 
   /// One-time Home nudge when the recap becomes available.
   static String unpackedNudge(int year) =>
-      "Psst... your $year Postboxes Unpacked is ready. Have a look in the menu, top right!";
+      "Psst... your $year Postboxes Unpacked is ready. Tap the banner at the top, or find it in the menu!";
 
   /// The recap's opening line. Around Christmas it nudges the player to get
   /// their friends' Christmas cards posted while there's still time:
@@ -481,6 +481,7 @@ abstract final class JamesMessages {
     int year, {
     ChristmasPost christmas = ChristmasPost.after,
     String lastSecondClass = 'Friday 18 December',
+    String lastFirstClass = 'Monday 21 December',
   }) =>
       switch (christmas) {
         ChristmasPost.before =>
@@ -488,8 +489,8 @@ abstract final class JamesMessages {
               "get those cards to your friends written! Now, let's unpack your $year.",
         ChristmasPost.firstClass =>
           "Second-class post has been and gone, so any Christmas cards for "
-              "your friends still on the mantelpiece need a first-class stamp. "
-              "Chop chop! Now, let's unpack your $year.",
+              "your friends still on the mantelpiece need a first-class stamp "
+              "by $lastFirstClass. Chop chop! Now, let's unpack your $year.",
         ChristmasPost.lastMinute =>
           "Cutting it fine for Christmas cards now... I'd hand-deliver them, "
               "if I were you. Right, let's unpack your $year.",
@@ -673,10 +674,10 @@ enum ChristmasPost {
   /// On or before the last second-class day.
   before,
 
-  /// After it, until 22 December: first class is the way now.
+  /// After it, up to the last first-class day (21 December in 2026).
   firstClass,
 
-  /// 23 and 24 December.
+  /// After that, up to Christmas Eve: hand-deliver them.
   lastMinute,
 
   /// Christmas Day onwards (and the rest of the year).

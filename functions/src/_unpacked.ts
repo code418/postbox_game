@@ -105,10 +105,16 @@ export interface UnpackedStats {
    *  go to the rarer cypher, then the postbox id. Empty when no box was
    *  claimed twice. */
   favouritePostboxes: Array<{
+    postboxId: string;
     claims: number;
     monarch: string | null;
     reference: string | null;
     county: string | null;
+    /** How many players claimed this box this year (the player included),
+     *  and whether nobody claimed it on more days than the player. Filled in
+     *  by the builder ([applyBoxFans]); 1 / true until then. */
+    fans: number;
+    topFan: boolean;
   }>;
   /** The player's next-best counties after [topCounty], by distinct boxes,
    *  limited to counties where at least one other player also claimed.
@@ -296,10 +302,13 @@ export function finalizeUnpacked(
     .map(([id, b]) => {
       const m = meta.get(id);
       return {
+        postboxId: id,
         claims: b.claims,
         monarch: b.monarch,
         reference: typeof m?.reference === "string" && m.reference.length > 0 ? m.reference : null,
         county: typeof m?.county === "string" && m.county.length > 0 ? m.county : null,
+        fans: 1,
+        topFan: true,
       };
     });
 
@@ -339,6 +348,36 @@ export function finalizeUnpacked(
     topScorerDays: { friends: 0, everyone: 0 },
     percentiles: { uniquePostboxes: 0, totalPoints: 0, longestStreak: 0 },
   };
+}
+
+/** Per box: how many players claimed it, and the most days any one of them
+ *  did. Built once over every player's per-box claim counts. */
+export function boxFans(
+  players: Iterable<ReadonlyMap<string, { claims: number }>>,
+): Map<string, { fans: number; most: number }> {
+  const out = new Map<string, { fans: number; most: number }>();
+  for (const boxes of players) {
+    for (const [id, { claims }] of boxes) {
+      const b = out.get(id) ?? { fans: 0, most: 0 };
+      b.fans++;
+      b.most = Math.max(b.most, claims);
+      out.set(id, b);
+    }
+  }
+  return out;
+}
+
+/** Fills each favourite's `fans` / `topFan` from [fans] (see [boxFans]). */
+export function applyBoxFans(
+  favourites: UnpackedStats["favouritePostboxes"],
+  fans: ReadonlyMap<string, { fans: number; most: number }>,
+): void {
+  for (const f of favourites) {
+    const b = fans.get(f.postboxId);
+    if (!b) continue;
+    f.fans = b.fans;
+    f.topFan = f.claims >= b.most;
+  }
 }
 
 /**
@@ -617,6 +656,13 @@ export interface UnpackedWindow {
  *  Check Royal Mail's published dates each year. */
 export function unpackedCutoff(year: number): string {
   return `${year}-12-18`;
+}
+
+/** Royal Mail's last recommended first-class posting date before Christmas
+ *  (Monday 21 December in 2026). The recap's Christmas-card nudge points at
+ *  it. Check Royal Mail's published dates each year, with [unpackedCutoff]. */
+export function unpackedLastFirstClass(year: number): string {
+  return `${year}-12-21`;
 }
 
 /** The recap for [year] opens the day after [unpackedCutoff] (19 December),

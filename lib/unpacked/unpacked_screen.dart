@@ -97,10 +97,12 @@ ChristmasPost unpackedChristmasPost(String today, UnpackedSummary summary) {
   if (today.compareTo('$y-10-01') >= 0 && today.compareTo(cutoff) <= 0) {
     return ChristmasPost.before;
   }
-  if (today.compareTo(cutoff) > 0 && today.compareTo('$y-12-22') <= 0) {
+  if (today.compareTo(cutoff) > 0 &&
+      today.compareTo(summary.lastFirstClass) <= 0) {
     return ChristmasPost.firstClass;
   }
-  if (today == '$y-12-23' || today == '$y-12-24') {
+  if (today.compareTo(summary.lastFirstClass) > 0 &&
+      today.compareTo('$y-12-24') <= 0) {
     return ChristmasPost.lastMinute;
   }
   return ChristmasPost.after;
@@ -136,6 +138,7 @@ List<UnpackedCardData> buildUnpackedCards(UnpackedRecap recap,
               ? 'Friday 18 December'
               : _longDate(_ymd(opens.subtract(const Duration(days: 1))));
         }(),
+        lastFirstClass: _longDate(sum.lastFirstClass),
       ),
       decoration: const _Watermark.svg('assets/postbox.svg'),
     ),
@@ -165,8 +168,9 @@ List<UnpackedCardData> buildUnpackedCards(UnpackedRecap recap,
       eyebrow: 'YOUR RAREST FIND',
       headline: MonarchInfo.labels[rarest] ?? rarest,
       detail: [
-        'Worth ${_plural(s.rarestPoints, 'point', 'points')}',
-        if (s.rarestReference != null) '(box ${s.rarestReference})',
+        'Worth ${_plural(s.rarestPoints, 'point', 'points')}'
+            '${s.rarestReference != null ? ' (box ${s.rarestReference})' : ''}.',
+        if (s.rarestDate != null) 'Found on ${_longDate(s.rarestDate!)}.',
       ].join(' '),
       james: JamesMessages.unpackedRarest(rarest),
       decoration: s.rarestCounty != null
@@ -176,15 +180,47 @@ List<UnpackedCardData> buildUnpackedCards(UnpackedRecap recap,
   }
 
   if (s.monarchCounts.isNotEmpty) {
+    // A collection: which of the known cyphers the player has, with plain
+    // boxes as a footnote (they aren't a cypher) and the rest still to find.
+    final cyphers = [
+      for (final e in s.monarchCounts)
+        if (e.key != MonarchInfo.plainKey) e,
+    ];
+    final plain = s.monarchCounts
+        .where((e) => e.key == MonarchInfo.plainKey)
+        .fold<int>(0, (a, e) => a + e.value);
+    final have = {for (final e in cyphers) e.key};
+    final collected = MonarchInfo.all.where(have.contains).length;
+    final missing = [
+      for (final m in MonarchInfo.all)
+        if (!have.contains(m)) cypherShortName(m),
+    ];
     cards.add(UnpackedCardData(
       id: 'monarchs',
       background: const Color(0xFF14365C),
       eyebrow: 'YOUR ROYAL ROLL-CALL',
-      headline: '${s.monarchCounts.length} '
-          '${s.monarchCounts.length == 1 ? 'cypher' : 'cyphers'}',
-      // Every cypher the player collected, so the rare ones (always the
-      // smallest counts) aren't cut off the bottom.
-      body: _MonarchBars(counts: s.monarchCounts),
+      headline: '${_n(collected)} of ${MonarchInfo.all.length} cyphers',
+      detail: missing.isEmpty ? 'The full set! Every cypher collected.' : null,
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Every cypher collected, so the rare ones (always the smallest
+          // counts) aren't cut off the bottom.
+          if (cyphers.isNotEmpty) _MonarchBars(counts: cyphers),
+          if (plain > 0)
+            _Note('Plus ${_plural(plain, 'plain box', 'plain boxes')} '
+                'with no cypher.'),
+          if (missing.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.md),
+            _TitledText(
+              title: 'Still to find',
+              text: missing.length == MonarchInfo.all.length
+                  ? 'Every one of them. Happy hunting!'
+                  : missing.join(', '),
+            ),
+          ],
+        ],
+      ),
       james: JamesMessages.unpackedMonarchs.resolve(),
     ));
   }
@@ -291,9 +327,11 @@ List<UnpackedCardData> buildUnpackedCards(UnpackedRecap recap,
       background: const Color(0xFF7A3300),
       eyebrow: 'YOUR LONGEST STREAK',
       headline: _plural(s.longestStreakDays, 'day', 'days'),
-      detail: s.percentileStreak >= 50
-          ? _pct(s.percentileStreak, 'days in a row')
-          : null,
+      detail: [
+        if (s.longestStreakStart != null && s.longestStreakEnd != null)
+          'From ${_dateRange(s.longestStreakStart!, s.longestStreakEnd!)}.',
+        if (s.percentileStreak >= 50) _pct(s.percentileStreak, 'days in a row'),
+      ].join(' ').emptyToNull,
       body: friends.isEmpty
           ? null
           : _InfoRows(
@@ -310,22 +348,19 @@ List<UnpackedCardData> buildUnpackedCards(UnpackedRecap recap,
   }
 
   if (s.topFriendsDays > 0 || s.topEveryoneDays > 0) {
-    final best = s.topFriendsDays > s.topEveryoneDays
-        ? s.topFriendsDays
-        : s.topEveryoneDays;
+    final friends = s.topFriendsDays;
+    final everyone = s.topEveryoneDays;
     cards.add(UnpackedCardData(
       id: 'top',
       background: const Color(0xFF3D1F6B),
       eyebrow: 'DAYS AT THE TOP',
-      headline: _plural(best, 'day', 'days'),
-      detail: 'Days you scored the most points (or tied for the most) of '
-          'everyone who played that day.',
-      body: _InfoRows(rows: [
-        if (s.topFriendsDays > 0)
-          ('Top among your friends', _plural(s.topFriendsDays, 'day', 'days')),
-        if (s.topEveryoneDays > 0)
-          ('Top among all players', _plural(s.topEveryoneDays, 'day', 'days')),
-      ]),
+      headline: _plural(friends > 0 ? friends : everyone, 'day', 'days'),
+      detail: friends > 0
+          ? 'Top among your friends on ${_plural(friends, 'day', 'days')}'
+              '${everyone > 0 ? ', and top of everyone on ${_n(everyone)}!' : '.'}'
+          : 'Top of everyone who played on ${_plural(everyone, 'day', 'days')}!',
+      body: const _Note('The day\'s highest points score. Ties count, and a '
+          'day only counts when someone else scored too.'),
       james: JamesMessages.unpackedTopScorer(everyone: s.topEveryoneDays > 0),
       decoration: const _Watermark.icon(Icons.leaderboard_outlined),
     ));
@@ -337,16 +372,25 @@ List<UnpackedCardData> buildUnpackedCards(UnpackedRecap recap,
       background: const Color(0xFF1B5E20),
       eyebrow: 'YOUR HOME TURF',
       headline: countyDisplayName(s.topCountyName!),
-      detail: '${_plural(s.topCountyBoxes, 'postbox', 'postboxes')} there'
-          '${s.countiesVisited > 1 ? ', out of ${_n(s.countiesVisited)} counties visited.' : '.'}',
+      detail: [
+        s.uniquePostboxes <= 1
+            ? 'Your postbox was here.'
+            : s.topCountyBoxes >= s.uniquePostboxes
+                ? 'All ${_n(s.uniquePostboxes)} of your postboxes were here.'
+                : '${_n(s.topCountyBoxes)} of your '
+                    '${_plural(s.uniquePostboxes, 'postbox', 'postboxes')} '
+                    'were here.',
+        if (s.countiesVisited > 1)
+          'You hunted in ${_plural(s.countiesVisited, 'county', 'counties')}.',
+      ].join(' '),
       body: s.otherCounties.isEmpty
           ? null
-          : _InfoRows(title: 'Also on your round', rows: [
+          : _InfoRows(title: 'Also on your round', stacked: true, rows: [
               for (final c in s.otherCounties)
                 (
                   countyDisplayName(c.name),
-                  '${_plural(c.uniquePostboxes, 'box', 'boxes')}, '
-                      'with ${_plural(c.otherPlayers, 'other', 'others')}'
+                  '${_plural(c.uniquePostboxes, 'box', 'boxes')} · '
+                      '${_plural(c.otherPlayers, 'other player hunts', 'other players hunt')} here'
                 ),
             ]),
       james: JamesMessages.unpackedCounty(countyDisplayName(s.topCountyName!)),
@@ -371,7 +415,8 @@ List<UnpackedCardData> buildUnpackedCards(UnpackedRecap recap,
       eyebrow: 'YOUR FAVOURITE POSTBOX',
       headline: _favouriteName(top),
       detail: 'Claimed on ${_plural(top.claims, 'day', 'days')}. '
-          '$cypher${top.reference != null && top.county != null ? ', in ${countyDisplayName(top.county!)}' : ''}.',
+          '$cypher${top.reference != null && top.county != null ? ', in ${countyDisplayName(top.county!)}' : ''}.'
+          '${top.fans <= 1 ? ' Nobody else claimed it all year.' : top.topFan ? ' Nobody claimed it more than you.' : ''}',
       body: s.favouritePostboxes.length < 2
           ? null
           : _InfoRows(title: 'Also a favourite', rows: [
@@ -426,7 +471,8 @@ List<UnpackedCardData> buildUnpackedCards(UnpackedRecap recap,
         if ((h?.daysSoFar ?? 0) > 0)
           (
             'Days with a claim',
-            '${_n(h!.daysWithClaims)} of ${_n(h.daysSoFar)}'
+            'Someone was out hunting on ${_n(h!.daysWithClaims)} of '
+                '${_n(h.daysSoFar)} days'
           ),
       ]),
       james: JamesMessages.unpackedCommunity.resolve(),
@@ -438,24 +484,8 @@ List<UnpackedCardData> buildUnpackedCards(UnpackedRecap recap,
 
   // The jokey award: a podium of the player and their friends by days out
   // hunting (then boxes found). Needs at least one friend whose name loaded.
-  final awardFriends = [
-    for (final f in s.friendAwards)
-      if (recap.friendNames[f.uid] != null)
-        (recap.friendNames[f.uid]!, f.daysActive, f.uniquePostboxes, false),
-  ];
-  if (awardFriends.isNotEmpty) {
-    // The player goes above a friend with identical numbers.
-    final field = [
-      ...awardFriends,
-      (_you, s.daysActive, s.uniquePostboxes, true),
-    ]..sort((a, b) {
-        final c = b.$2.compareTo(a.$2);
-        if (c != 0) return c;
-        final d = b.$3.compareTo(a.$3);
-        if (d != 0) return d;
-        return a.$4 ? -1 : (b.$4 ? 1 : 0);
-      });
-    final place = field.indexWhere((r) => r.$4);
+  final award = unpackedAward(recap);
+  if (award != null) {
     cards.add(UnpackedCardData(
       id: 'award',
       background: const Color(0xFF1C1407),
@@ -465,21 +495,17 @@ List<UnpackedCardData> buildUnpackedCards(UnpackedRecap recap,
           : 'The ${s.year}\nMike H Award',
       detail: 'For dedication in the hunt for postboxes, among you and your '
           'friends. Judged on days out hunting.',
-      body: _Podium(
-        rows: [
-          for (final (i, (name, days, _, you)) in field.take(3).indexed)
-            (_medals[i], name, _plural(days, 'day', 'days'), you),
-          if (place >= 3)
-            (
-              '${place + 1}th',
-              _you,
-              _plural(s.daysActive, 'day', 'days'),
-              true
-            ),
+      body: _PodiumSteps(
+        steps: [
+          for (final e in award.field.take(3))
+            (e.name, _plural(e.days, 'day', 'days'), e.you),
         ],
+        ownPlace: award.place >= 3
+            ? 'You came ${_ordinal(award.place + 1)}, with '
+                '${_plural(s.daysActive, 'day', 'days')} out hunting.'
+            : null,
       ),
-      james: JamesMessages.unpackedAward(place),
-      decoration: const _Watermark.icon(Icons.emoji_events_outlined),
+      james: JamesMessages.unpackedAward(award.place),
     ));
   }
 
@@ -495,6 +521,64 @@ List<UnpackedCardData> buildUnpackedCards(UnpackedRecap recap,
 
 const String _you = 'You';
 
+/// One entrant in the award: name, days out hunting, boxes found, the player?
+typedef AwardEntrant = ({String name, int days, int boxes, bool you});
+
+/// The Mike H Award field: the player and every friend whose name loaded,
+/// by days out hunting, then boxes found (the player first on a tie), and
+/// the player's place (0 = gold). Null when no friend qualifies.
+({List<AwardEntrant> field, int place})? unpackedAward(UnpackedRecap recap) {
+  final s = recap.stats;
+  final friends = <AwardEntrant>[
+    for (final f in s.friendAwards)
+      if (recap.friendNames[f.uid] != null)
+        (
+          name: recap.friendNames[f.uid]!,
+          days: f.daysActive,
+          boxes: f.uniquePostboxes,
+          you: false
+        ),
+  ];
+  if (friends.isEmpty) return null;
+  final field = [
+    ...friends,
+    (name: _you, days: s.daysActive, boxes: s.uniquePostboxes, you: true),
+  ]..sort((a, b) {
+      final c = b.days.compareTo(a.days);
+      if (c != 0) return c;
+      final d = b.boxes.compareTo(a.boxes);
+      if (d != 0) return d;
+      return a.you ? -1 : (b.you ? 1 : 0);
+    });
+  return (field: field, place: field.indexWhere((e) => e.you));
+}
+
+/// The medal for a podium [place] (0–2), else null.
+String? unpackedMedal(int place) =>
+    place >= 0 && place < _medals.length ? _medals[place] : null;
+
+String _ordinal(int n) {
+  final teen = n % 100 >= 11 && n % 100 <= 13;
+  final suffix = teen
+      ? 'th'
+      : switch (n % 10) { 1 => 'st', 2 => 'nd', 3 => 'rd', _ => 'th' };
+  return '$n$suffix';
+}
+
+/// "14 to 25 June", or "28 May to 8 June" across a month end.
+String _dateRange(String start, String end) {
+  final a = DateTime.tryParse(start);
+  final b = DateTime.tryParse(end);
+  if (a == null || b == null) return '$start to $end';
+  return a.month == b.month
+      ? '${a.day} to ${_prettyDate(end)}'
+      : '${_prettyDate(start)} to ${_prettyDate(end)}';
+}
+
+extension on String {
+  String? get emptyToNull => isEmpty ? null : this;
+}
+
 /// Box counts per county → map strengths (0.2–1), square-rooted so a
 /// county with a handful of boxes still shows next to a home county.
 Map<String, double> _strengths(Map<String, int> counts) {
@@ -507,11 +591,7 @@ Map<String, double> _strengths(Map<String, int> counts) {
 
 const List<String> _medals = ['Gold', 'Silver', 'Bronze'];
 
-const Map<String, Color> _medalColours = {
-  'Gold': Color(0xFFFFC83D),
-  'Silver': Color(0xFFC9CED6),
-  'Bronze': Color(0xFFD08A4C),
-};
+const Map<String, Color> _medalColours = UnpackedShareCard.medalColours;
 
 /// A favourite box's name: its reference, else where it is.
 String _favouriteName(UnpackedFavourite b) => b.reference != null
@@ -751,6 +831,8 @@ class _UnpackedScreenState extends State<UnpackedScreen>
                         ? _ShareCardPage(
                             data: c,
                             stats: recap.stats,
+                            medal: unpackedMedal(
+                                unpackedAward(recap)?.place ?? -1),
                             shareKey: _shareKey,
                             sharing: _sharing,
                             onShare: _share,
@@ -1390,78 +1472,165 @@ class _InfoRows extends StatelessWidget {
   }
 }
 
-/// The award podium: medal, name, days out. The player's row is gold text.
-class _Podium extends StatelessWidget {
-  const _Podium({required this.rows});
+/// A small muted line under a card's main content.
+class _Note extends StatelessWidget {
+  const _Note(this.text);
 
-  /// (medal or place, name, value, isYou).
-  final List<(String, String, String, bool)> rows;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpacing.xs),
+      child: _CountUpText(
+        text,
+        style: GoogleFonts.plusJakartaSans(
+            color: Colors.white.withValues(alpha: 0.75), fontSize: 14),
+      ),
+    );
+  }
+}
+
+/// A gold small-caps title over a line of text.
+class _TitledText extends StatelessWidget {
+  const _TitledText({required this.title, required this.text});
+
+  final String title;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title.toUpperCase(),
+          style: GoogleFonts.plusJakartaSans(
+            color: postalGold,
+            fontSize: 12,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 1.5,
+          ),
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        Text(
+          text,
+          style: GoogleFonts.plusJakartaSans(
+              color: Colors.white, fontSize: 15, height: 1.35),
+        ),
+      ],
+    );
+  }
+}
+
+/// The award podium: gold on the tall middle step, silver to its left and
+/// bronze to its right. The steps rise as the card comes in, bronze first
+/// and gold last.
+class _PodiumSteps extends StatelessWidget {
+  const _PodiumSteps({required this.steps, this.ownPlace});
+
+  /// (name, value, isYou), gold first: two or three of them.
+  final List<(String, String, bool)> steps;
+
+  /// The player's place when they're off the podium.
+  final String? ownPlace;
+
+  static const List<double> _heights = [118, 88, 64];
 
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
-        for (final (i, (medal, name, value, you)) in rows.indexed)
-          _Reveal(
-            index: i,
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: AppSpacing.sm + 4),
-              child: Row(
-                children: [
-                  SizedBox(
-                    width: 104,
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.emoji_events,
-                          size: 22,
-                          color: _medalColours[medal] ?? Colors.white38,
-                        ),
-                        const SizedBox(width: AppSpacing.xs + 2),
-                        // Shrinks rather than overflows with large text.
-                        Flexible(
-                          child: FittedBox(
-                            fit: BoxFit.scaleDown,
-                            alignment: Alignment.centerLeft,
+        // Sized by its content (the card shrinks to fit), so large text
+        // can't overflow a fixed height.
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            // Left to right: silver, gold, bronze.
+            for (final i in const [1, 0, 2])
+              Expanded(
+                child: i < steps.length
+                    ? _step(context, i)
+                    : const SizedBox.shrink(),
+              ),
+          ],
+        ),
+        if (ownPlace != null) ...[
+          const SizedBox(height: AppSpacing.sm),
+          _Note(ownPlace!),
+        ],
+      ],
+    );
+  }
+
+  Widget _step(BuildContext context, int i) {
+    final (name, value, you) = steps[i];
+    final medal = _medals[i];
+    final colour = _medalColours[medal]!;
+    final start = 0.1 + (2 - i) * 0.15;
+    final rise = _phase(context, start, start + 0.45);
+    return Semantics(
+      container: true,
+      label: '$medal: $name, ${unpackedPlainText(value)}',
+      child: ExcludeSemantics(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              Icon(Icons.emoji_events, color: colour, size: i == 0 ? 34 : 26),
+              const SizedBox(height: 2),
+              Text(
+                name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: GoogleFonts.plusJakartaSans(
+                  color: you ? postalGold : Colors.white,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              _CountUpText(
+                value,
+                textAlign: TextAlign.center,
+                style: GoogleFonts.plusJakartaSans(
+                    color: Colors.white70, fontSize: 13),
+              ),
+              const SizedBox(height: 6),
+              AnimatedBuilder(
+                animation: rise,
+                builder: (context, _) => ClipRect(
+                  child: Container(
+                    height: _heights[i] * rise.value,
+                    width: double.infinity,
+                    alignment: Alignment.topCenter,
+                    decoration: BoxDecoration(
+                      color: colour.withValues(alpha: 0.9),
+                      borderRadius:
+                          const BorderRadius.vertical(top: Radius.circular(6)),
+                    ),
+                    child: _heights[i] * rise.value > 44
+                        ? Padding(
+                            padding: const EdgeInsets.only(top: 6),
                             child: Text(
-                              medal.toUpperCase(),
-                              style: GoogleFonts.plusJakartaSans(
-                                color: _medalColours[medal] ?? Colors.white70,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w800,
-                                letterSpacing: 1.2,
+                              '${i + 1}',
+                              style: GoogleFonts.playfairDisplay(
+                                color: const Color(0xFF1C1407),
+                                fontSize: 28,
+                                fontWeight: FontWeight.w700,
                               ),
                             ),
-                          ),
-                        ),
-                      ],
-                    ),
+                          )
+                        : null,
                   ),
-                  Expanded(
-                    child: Text(
-                      name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.plusJakartaSans(
-                        color: you ? postalGold : Colors.white,
-                        fontSize: 17,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: AppSpacing.sm),
-                  _CountUpText(
-                    value,
-                    style: GoogleFonts.plusJakartaSans(
-                      color: Colors.white.withValues(alpha: 0.85),
-                      fontSize: 15,
-                    ),
-                  ),
-                ],
+                ),
               ),
-            ),
+            ],
           ),
-      ],
+        ),
+      ),
     );
   }
 }
@@ -1473,10 +1642,12 @@ class _ShareCardPage extends StatelessWidget {
     required this.shareKey,
     required this.sharing,
     required this.onShare,
+    this.medal,
   });
 
   final UnpackedCardData data;
   final UnpackedStats stats;
+  final String? medal;
   final GlobalKey shareKey;
   final bool sharing;
   final VoidCallback onShare;
@@ -1493,7 +1664,7 @@ class _ShareCardPage extends StatelessWidget {
               child: FittedBox(
                 child: RepaintBoundary(
                   key: shareKey,
-                  child: UnpackedShareCard(stats: stats),
+                  child: UnpackedShareCard(stats: stats, medal: medal),
                 ),
               ),
             ),
