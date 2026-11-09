@@ -19,7 +19,7 @@ The Postbox Game is live on both stores. Android (phone and Wear OS) is on Googl
 
 With one or two hours a week and no budget, the plan rests on three bets:
 
-1. **Every player is a recruiter.** Invite links open the app and add the friend in both directions. Every peak moment produces a share card that carries the sharer's invite link: a rare find, a streak milestone, a finished route. A rating prompt after good moments raises store ranking. These are built once and keep working without the owner.
+1. **Every player is a recruiter.** Invite links open the app and add the friend in both directions. Every peak moment produces a share card that carries a tracked store link (`src=postbox_share`): a rare find, a streak milestone, a finished route. A rating prompt after good moments raises store ranking. These are built once and keep working without the owner.
 2. **A niche-community launch burst, led by [r/Postboxes](https://www.reddit.com/r/Postboxes/).** The people who already care about postbox cyphers are the people most likely to evangelise a game about them. Start with r/Postboxes and the Letter Box Study Group, then add one community a week, with every link tracked. Keep the channels that produce installs and drop the ones that don't. **Update, 3 November 2026:** moderators removed both the r/Postboxes and the r/CasualUK launch posts, and r/CasualUK banned the account permanently. Reddit is now ask-first only (§4.2), and the burst leans on channels where permission is asked anyway: the LBSG, the OSM UK forum and the January press push.
 3. **Seasonal, data-led content and store optimisation, about an hour a week.** The postbox dataset is a story generator. Only 143 Edward VIII boxes are mapped, and fewer Charles III boxes are mapped than that. Pair that data with dated hooks: the pillar box anniversary each 23 November, Christmas posting, January walking resolutions, and the 175th anniversary in November 2027 as the year's main PR moment.
 
@@ -117,7 +117,7 @@ Story angles that fall straight out of these numbers:
 |---|---|---|
 | Invite was a raw 28-character account ID pasted by hand | 8-character invite codes and links that add the friend both ways | Built (Phase 0/1) |
 | No link could open the app | App Links, Universal Links and a `postboxgame://` scheme | Built (Phase 1), needs the console steps in §14 |
-| Nothing worth sharing | Share cards for claims, streaks, routes and profiles, each carrying the invite link | Built (Phase 2) |
+| Nothing worth sharing | Share cards for claims, streaks, routes and profiles, each carrying the tracked `/get?src=postbox_share` link (the sharer's invite link until November 2026) | Built (Phase 2) |
 | No rating prompt | In-app review after good moments, at most once every 90 days | Built (Phase 2) |
 | No growth analytics | `share`, `invite_link_opened`, `invite_accepted`, `tutorial_complete`, `first_claim`, `sign_up` (now including Google and Apple), `review_prompt_requested` | Built |
 | Notification permission asked straight after login (iOS gives one shot) | Ask after the first claim, with a short pre-prompt from the guide | Built (Phase 1) |
@@ -352,6 +352,7 @@ Most mapped Charles III boxes: Hampshire 8, Kent 6, Devon 4, West Sussex 4, Nort
 | Press releases | `press` | https://the-postbox-game.web.app/get?src=press |
 | The Postal Museum | `postal_museum` | https://the-postbox-game.web.app/get?src=postal_museum |
 | In-app invites | `invite` | Generated per player: `https://the-postbox-game.web.app/invite/<CODE>` |
+| In-app share cards | `postbox_share` | https://the-postbox-game.web.app/get?src=postbox_share (built into the app) |
 
 #### g) The Postal Museum introduction email
 
