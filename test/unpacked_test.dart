@@ -717,6 +717,17 @@ void main() {
       expect(JamesMessages.unpackedRarest('EVIIIR'), contains('Edward VIII'));
     });
 
+    test('the Share card lines', () {
+      final lines = {
+        for (var i = 0; i < 60; i++) JamesMessages.unpackedOutro.resolve()
+      };
+      expect(lines, {
+        "Same time next year? I'll bring biscuits.",
+        "How can you unpack a postbox? Listen, don't lecture me about mixed "
+            "metaphors alright?",
+      });
+    });
+
     test('the Together line', () {
       expect(
           JamesMessages.unpackedCommunity.resolve(),

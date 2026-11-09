@@ -636,7 +636,8 @@ abstract final class JamesMessages {
     'jamesUnpackedOutro',
     [
       "Same time next year? I'll bring biscuits.",
-      "Go on, show it off. You've earned it.",
+      "How can you unpack a postbox? Listen, don't lecture me about mixed "
+          "metaphors alright?",
     ],
   );
 
