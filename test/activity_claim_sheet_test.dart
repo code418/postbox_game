@@ -140,4 +140,12 @@ void main() {
     await settle(tester);
     expect(find.text('That pass is too long ago to claim now.'), findsOneWidget);
   });
+
+  group('dayLineFor counts in London days', () {
+    test('today, yesterday (across a month end) and older', () {
+      expect(ActivityClaimSheet.dayLineFor('2026-11-01', today: '2026-11-01'), 'Counts for today.');
+      expect(ActivityClaimSheet.dayLineFor('2026-10-31', today: '2026-11-01'), startsWith('Counts for yesterday'));
+      expect(ActivityClaimSheet.dayLineFor('2026-10-30', today: '2026-11-01'), 'Counts for 2026-10-30.');
+    });
+  });
 }

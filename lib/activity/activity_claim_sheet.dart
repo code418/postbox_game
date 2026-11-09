@@ -8,6 +8,7 @@ import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/firebase_functions_eu.dart';
 import 'package:postbox_game/james_controller.dart';
 import 'package:postbox_game/james_messages.dart';
+import 'package:postbox_game/london_date.dart';
 import 'package:postbox_game/maintenance_guard.dart';
 import 'package:postbox_game/services/activity_claims_service.dart';
 import 'package:postbox_game/services/claim_events.dart';
@@ -55,6 +56,18 @@ class ActivityClaimSheet extends StatefulWidget {
         showDragHandle: true,
         builder: (_) => ActivityClaimSheet(candidate: candidate, james: james, service: service),
       );
+
+  /// Which day a claim counts for. [claimDate] is a London day (the server
+  /// dates passes in Europe/London), so [today] must be London's too
+  /// ([todayLondon]), not the device's local date.
+  @visibleForTesting
+  static String dayLineFor(String claimDate, {required String today}) {
+    if (claimDate == today) return 'Counts for today.';
+    if (claimDate == yesterdayFor(today)) {
+      return "Counts for yesterday: your streak, weekly and lifetime totals (yesterday's daily board has closed).";
+    }
+    return 'Counts for $claimDate.';
+  }
 
   @override
   State<ActivityClaimSheet> createState() => _ActivityClaimSheetState();
@@ -130,16 +143,7 @@ class _ActivityClaimSheetState extends State<ActivityClaimSheet> {
     if (mounted) Navigator.of(context).pop();
   }
 
-  String _dayLine() {
-    final now = DateTime.now();
-    String ymd(DateTime d) =>
-        '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
-    if (_c.claimDate == ymd(now)) return 'Counts for today.';
-    if (_c.claimDate == ymd(now.subtract(const Duration(days: 1)))) {
-      return "Counts for yesterday: your streak, weekly and lifetime totals (yesterday's daily board has closed).";
-    }
-    return 'Counts for ${_c.claimDate}.';
-  }
+  String _dayLine() => ActivityClaimSheet.dayLineFor(_c.claimDate, today: todayLondon());
 
   String _settledMessage(ActivityClaimOutcome o) => switch (o.kind) {
         ActivityClaimKind.alreadyClaimed => 'Already yours for that day.',
