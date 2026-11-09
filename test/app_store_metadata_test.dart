@@ -95,6 +95,47 @@ void main() {
     }
   });
 
+  group('hosted web pages', () {
+    final pages = Directory('web')
+        .listSync()
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.html'))
+        .toList();
+
+    test('serve the App Store badge from this site', () {
+      // Apple retired tools.applemarketingtools.com (NXDOMAIN) and the hot-linked
+      // badge broke on every page. Root-absolute because /invite/** rewrites to
+      // invite.html, so a relative path would fetch HTML instead of the image.
+      final badge = RegExp(r'class="badge-apple"[^>]*>\s*<img src="([^"]+)"');
+      final withBadge = <String>[];
+      for (final page in pages) {
+        final matches = badge.allMatches(page.readAsStringSync());
+        if (matches.isNotEmpty) withBadge.add(page.uri.pathSegments.last);
+        for (final match in matches) {
+          expect(match.group(1), '/app-store-badge.svg', reason: page.path);
+        }
+      }
+      expect(withBadge,
+          containsAll(['invite.html', 'get.html', 'support.html']));
+      expect(File('web/app-store-badge.svg').existsSync(), isTrue);
+    });
+
+    test('link to an App Store URL that names a storefront', () {
+      // apps.apple.com 404s on desktop for /app/id... and /app/apple-store/id...
+      for (final page in pages) {
+        expect(page.readAsStringSync(), isNot(contains('apps.apple.com/app/')),
+            reason: page.path);
+      }
+    });
+
+    test('invite page falls back to the invite campaign link without JS', () {
+      expect(
+          File('web/invite.html').readAsStringSync(),
+          contains('href="https://apps.apple.com/gb/app/the-postbox-game/'
+              'id6819213888?pt=129562838&amp;ct=invite&amp;mt=8"'));
+    });
+  });
+
   group('iPhone 6.9" screenshots', () {
     for (final theme in ['light', 'dark']) {
       test('$theme set: 1-10 PNGs at 1320x2868 without alpha', () {

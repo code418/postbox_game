@@ -45,6 +45,20 @@ lib/secrets.dart
 *.jks
 *.keystore
 *.der
+# Apple signing material and App Store Connect API keys. CI reads these from
+# GitHub secrets; local copies must never be committed. Globs, not filenames,
+# so the API key ID isn't published here.
+*.p8
+*.p12
+*.p12.b64
+*.mobileprovision
+*.cer
+*.csr
+*.pem
+*.key
+/apple_key_info
+/recpcha secret key
+/openssl x509 -inform DER -in distributio
 **/android/key.properties
 # Firebase service account key (client config like google-services.json is usually committed)
 **/*credentials*.json
@@ -127,6 +141,11 @@ functions/.last_import_manifest.json
 # UIDs + GPS movement traces; must never be committed
 /audit_*
 functions/audit_exports/
+
+# Firestore migration snapshots (pre-/post-region-move exports); may hold user
+# data. Same patterns firebase.json's functions.ignore keeps out of deploys.
+/functions/pre-*.json
+/functions/post-*.json
 
 .claude/skills
 
