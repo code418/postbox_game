@@ -6,14 +6,17 @@
 // users/{uid} + countyStats, claims, reports, moderationFlags (anti-abuse
 // profiling records are access-subject data too), fcmTokens, reportQuotas,
 // offlineFlushQuotas, trustScores, leaderboard entries, the user's invite
-// code(s) and referral record, and the Firebase Auth record (email lives only
-// in Auth). The client offers it as
+// code(s) and referral record, their annual-recap snapshots
+// (unpacked/{year}/players/{uid}), and the Firebase Auth record (email lives
+// only in Auth). The client offers it as
 // Settings → "Download my data".
 
 import "./adminInit";
 import { monitorAppCheck } from "./_appCheck";
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions";
+import { getTodayLondon } from "./_dateUtils";
+import { unpackedYearsToErase } from "./_unpacked";
 
 /** Newest-first cap on exported claims: ~300 B/doc keeps the worst case ~6 MB,
  *  under the 10 MB callable response limit. `claimsTruncated` flags the cut. */
@@ -53,6 +56,9 @@ export interface ExportParts {
   invites: Array<Record<string, unknown>>;
   /** referrals/{uid}: who invited this user, when they joined via an invite. */
   referral: Record<string, unknown> | null;
+  /** The user's "Your Postboxes Unpacked" snapshots, one per recap year
+   *  (unpacked/{year}/players/{uid}), each tagged with its `year`. */
+  unpacked: Array<Record<string, unknown>>;
 }
 
 /** Assemble the versioned response bundle (all values run through
@@ -76,6 +82,7 @@ export function buildExportBundle(parts: ExportParts): Record<string, unknown> {
     leaderboards: serialiseForExport(parts.leaderboards),
     invites: serialiseForExport(parts.invites),
     referral: serialiseForExport(parts.referral),
+    unpacked: serialiseForExport(parts.unpacked),
     notes: {
       photos:
         "Files referenced by reports[].photos[].storagePath are available on request " +
@@ -113,6 +120,7 @@ export const exportMyData = functions.https.onCall(async (request) => {
     trustSnap,
     invitesSnap,
     referralSnap,
+    unpackedSnaps,
     authUser,
   ] = await Promise.all([
     db.collection("users").doc(uid).get(),
@@ -128,6 +136,12 @@ export const exportMyData = functions.https.onCall(async (request) => {
     db.collection("trustScores").doc(uid).get(),
     db.collection("invites").where("uid", "==", uid).get(),
     db.collection("referrals").doc(uid).get(),
+    // The same years account deletion erases.
+    Promise.all(
+      unpackedYearsToErase(getTodayLondon()).map((y) =>
+        db.collection("unpacked").doc(String(y)).collection("players").doc(uid).get(),
+      ),
+    ),
     admin.auth().getUser(uid).catch(() => null),
   ]);
 
@@ -184,5 +198,6 @@ export const exportMyData = functions.https.onCall(async (request) => {
     leaderboards,
     invites: invitesSnap.docs.map(withId),
     referral: referralSnap.exists ? withId(referralSnap) : null,
+    unpacked: unpackedSnaps.filter((s) => s.exists).map((s) => ({ ...(s.data() ?? {}) })),
   });
 });

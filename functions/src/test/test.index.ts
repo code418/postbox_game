@@ -3134,6 +3134,8 @@ describe("rebuildPeriodLeaderboard (unit, mock Firestore)", () => {
 
 import {
   updateFcmTokens,
+  sanitiseAppVersion,
+  fcmTokenDocUpdate,
   diffFriends,
   shouldNotifyFirstClaim,
   shouldNotifyOvertake,
@@ -3165,6 +3167,39 @@ describe("isStaleTokenError", () => {
     assert.strictEqual(isStaleTokenError("messaging/message-rate-exceeded"), false);
     assert.strictEqual(isStaleTokenError("messaging/internal-error"), false);
     assert.strictEqual(isStaleTokenError(undefined), false);
+  });
+});
+
+describe("sanitiseAppVersion", () => {
+  it("keeps a short dotted-numeric version, trimmed", () => {
+    assert.strictEqual(sanitiseAppVersion("1.6.0"), "1.6.0");
+    assert.strictEqual(sanitiseAppVersion(" 2.0 "), "2.0");
+    assert.strictEqual(sanitiseAppVersion("10"), "10");
+  });
+  it("ignores anything else rather than failing the registration", () => {
+    for (const bad of [undefined, null, 1.6, "", "1.6.0+27", "v1.6", "1..6", "1.2.3.4.5", "9".repeat(40), { v: "1" }]) {
+      assert.strictEqual(sanitiseAppVersion(bad), null, `expected null for ${JSON.stringify(bad)}`);
+    }
+  });
+});
+
+describe("fcmTokenDocUpdate", () => {
+  it("skips the write when neither the token nor the version changed", () => {
+    assert.strictEqual(fcmTokenDocUpdate({ tokens: ["t1"], appVersion: "1.6.0" }, "t1", "1.6.0"), null);
+    assert.strictEqual(fcmTokenDocUpdate({ tokens: ["t1"] }, "t1", null), null);
+  });
+  it("writes a new version for a known token (an app update)", () => {
+    assert.deepStrictEqual(fcmTokenDocUpdate({ tokens: ["t1"], appVersion: "1.6.0" }, "t1", "1.6.1"),
+      { tokens: ["t1"], appVersion: "1.6.1" });
+    assert.deepStrictEqual(fcmTokenDocUpdate({ tokens: ["t1"] }, "t1", "1.6.0"), { tokens: ["t1"], appVersion: "1.6.0" });
+  });
+  it("an older build (no version) adds its token but never clears a stored version", () => {
+    const u = fcmTokenDocUpdate({ tokens: ["t1"], appVersion: "1.6.0" }, "t2", null);
+    assert.deepStrictEqual(u, { tokens: ["t1", "t2"] }, "merge write leaves appVersion in place");
+  });
+  it("handles a missing or malformed doc", () => {
+    assert.deepStrictEqual(fcmTokenDocUpdate(undefined, "t1", null), { tokens: ["t1"] });
+    assert.deepStrictEqual(fcmTokenDocUpdate({ tokens: "junk" }, "t1", "1.6.0"), { tokens: ["t1"], appVersion: "1.6.0" });
   });
 });
 
@@ -5939,6 +5974,7 @@ describe("exportMyData: buildExportBundle", () => {
     leaderboards: [{ board: "lifetime", entry: { uid: "u1", totalPoints: 12 } }],
     invites: [{ id: "ABCD2345", uid: "u1", referralCount: 2 }],
     referral: { id: "u1", inviterUid: "u9", code: "WXYZ6789" },
+    unpacked: [{ year: 2026, totalClaims: 3, generatedAt: adminRet.firestore.Timestamp.fromMillis(1_800_000_000_000) }],
   };
 
   it("assembles the versioned bundle with Firestore types serialised", () => {
@@ -5961,6 +5997,9 @@ describe("exportMyData: buildExportBundle", () => {
     // deletion, so they are exported too.
     assert.deepStrictEqual(bundle.invites, [{ id: "ABCD2345", uid: "u1", referralCount: 2 }]);
     assert.deepStrictEqual(bundle.referral, { id: "u1", inviterUid: "u9", code: "WXYZ6789" });
+    // GDPR access must mirror erasure: recap snapshots are erased on deletion.
+    assert.deepStrictEqual(bundle.unpacked,
+      [{ year: 2026, totalClaims: 3, generatedAt: new Date(1_800_000_000_000).toISOString() }]);
   });
 
   it("keeps a sane claims cap constant", () => {
@@ -6504,6 +6543,7 @@ describe("route alternatives (_routePlanner)", () => {
 import * as unpacked from "../_unpacked";
 import {
   buildUnpackedSnapshots,
+  launchFlagOn,
   parseRebuildYear,
   sendLaunchNotifications,
   shouldNotifyUnpackedReady,
@@ -6690,6 +6730,12 @@ describe("Unpacked: pure helpers", () => {
       assert.match(unpacked.launchNotifyBody({ year: 2026, uniquePostboxes: 1 }), /1 postbox in 2026/);
       assert.match(unpacked.launchNotifyBody({ year: 2026, uniquePostboxes: 12 }), /12 postboxes in 2026/);
     });
+    it("never names the guide, uses no em-dash, and avoids \"Wrapped\"", () => {
+      const body = unpacked.launchNotifyBody({ year: 2026, uniquePostboxes: 12 });
+      assert.doesNotMatch(body, /James/);
+      assert.doesNotMatch(body, /\u2014/);
+      assert.doesNotMatch(body, /wrap/i);
+    });
     it("is opt-out: only an explicit false suppresses the push", () => {
       assert.strictEqual(shouldNotifyUnpackedReady(undefined), true);
       assert.strictEqual(shouldNotifyUnpackedReady({ notificationPrefs: {} }), true);
@@ -6697,9 +6743,53 @@ describe("Unpacked: pure helpers", () => {
     });
   });
 
+  describe("recapYearToBuild", () => {
+    it("prepares the current year from February to December", () => {
+      assert.strictEqual(unpacked.recapYearToBuild("2026-11-20"), 2026);
+      assert.strictEqual(unpacked.recapYearToBuild("2026-12-01"), 2026);
+      assert.strictEqual(unpacked.recapYearToBuild("2027-02-01"), 2027);
+    });
+    it("rebuilds the previous year in January, the tail of its window", () => {
+      assert.strictEqual(unpacked.recapYearToBuild("2027-01-01"), 2026);
+      assert.strictEqual(unpacked.recapYearToBuild("2027-01-31"), 2026);
+    });
+  });
+
+  describe("hasRecapCapableApp", () => {
+    it("is true only when the app reported a version", () => {
+      assert.strictEqual(unpacked.hasRecapCapableApp({ tokens: ["t"], appVersion: "1.6.0" }), true);
+      assert.strictEqual(unpacked.hasRecapCapableApp({ tokens: ["t"] }), false);
+      assert.strictEqual(unpacked.hasRecapCapableApp({ tokens: ["t"], appVersion: "" }), false);
+      assert.strictEqual(unpacked.hasRecapCapableApp(undefined), false);
+    });
+  });
+
+  describe("launchFlagOn (client Remote Config template)", () => {
+    const t = (params: Record<string, string>) => ({
+      parameters: Object.fromEntries(Object.entries(params).map(([k, v]) => [k, { defaultValue: { value: v } }])),
+    });
+    it("needs both the in-app flag and the push flag", () => {
+      assert.strictEqual(launchFlagOn(t({ unpacked_enabled: "true", unpacked_notify_enabled: "true" })), true);
+      assert.strictEqual(launchFlagOn(t({ unpacked_enabled: "false", unpacked_notify_enabled: "true" })), false);
+      assert.strictEqual(launchFlagOn(t({ unpacked_enabled: "true", unpacked_notify_enabled: "false" })), false);
+      assert.strictEqual(launchFlagOn(t({ unpacked_notify_enabled: "true" })), false);
+      assert.strictEqual(launchFlagOn({ parameters: {} }), false);
+    });
+    it("reads defaults only: a conditional value does not count", () => {
+      const conditional = {
+        parameters: {
+          unpacked_enabled: { defaultValue: { value: "true" } },
+          unpacked_notify_enabled: { defaultValue: { value: "false" }, conditionalValues: { admins: { value: "true" } } },
+        },
+      };
+      assert.strictEqual(launchFlagOn(conditional), false);
+    });
+  });
+
   describe("parseRebuildYear", () => {
-    it("defaults to the current year and accepts past years back to the first", () => {
+    it("defaults to the recap year being prepared and accepts past years back to the first", () => {
       assert.strictEqual(parseRebuildYear(undefined, "2027-03-01"), 2027);
+      assert.strictEqual(parseRebuildYear(undefined, "2027-01-10"), 2026);
       assert.strictEqual(parseRebuildYear(2026, "2027-03-01"), 2026);
     });
     it("rejects future, pre-launch, and non-integer years", () => {
@@ -6807,25 +6897,42 @@ describe("Unpacked: buildUnpackedSnapshots (mock Firestore)", () => {
 });
 
 describe("Unpacked: sendLaunchNotifications (mock Firestore)", () => {
-  it("pushes to every player with a snapshot except those who opted out or no longer exist", async () => {
+  it("pushes to every player with a snapshot except those who opted out, no longer exist, or run an old app",
+    async () => {
     const players = [
       { id: "a", data: () => ({ year: 2026, uniquePostboxes: 3 }) },
       { id: "b", data: () => ({ year: 2026, uniquePostboxes: 1 }) },
       { id: "gone", data: () => ({ year: 2026, uniquePostboxes: 5 }) },
+      { id: "old", data: () => ({ year: 2026, uniquePostboxes: 2 }) },
     ];
-    const users: Record<string, Record<string, unknown>> = {
-      a: { notificationPrefs: {} },
-      b: { notificationPrefs: { unpackedReady: false } },
+    const docs: Record<string, Record<string, Record<string, unknown>>> = {
+      users: {
+        a: { notificationPrefs: {} },
+        b: { notificationPrefs: { unpackedReady: false } },
+        old: { notificationPrefs: {} },
+      },
+      fcmTokens: {
+        a: { tokens: ["ta"], appVersion: "1.6.0" },
+        b: { tokens: ["tb"], appVersion: "1.6.0" },
+        // "gone" deleted their account; its token doc went with it (but
+        // getAll still returns a snapshot, with exists=false).
+        old: { tokens: ["to"] }, // registered by a build before the recap
+      },
     };
     const db = {
       collection: (name: string) => ({
         doc: (id: string) => ({
           id,
+          path: `${name}/${id}`,
           collection: () => ({ async get() { assert.strictEqual(name, "unpacked"); return { docs: players }; } }),
         }),
       }),
-      async getAll(...refs: Array<{ id: string }>) {
-        return refs.filter((r) => users[r.id]).map((r) => ({ id: r.id, data: () => users[r.id] }));
+      // Like Firestore: one snapshot per ref, missing docs with exists=false.
+      async getAll(...refs: Array<{ id: string; path: string }>) {
+        return refs.map((r) => {
+          const data = docs[r.path.split("/")[0]]?.[r.id];
+          return { id: r.id, exists: data !== undefined, data: () => data };
+        });
       },
     };
     const sent: Array<[string, string]> = [];

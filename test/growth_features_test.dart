@@ -688,6 +688,19 @@ void main() {
     });
   });
 
+  group('NotificationService.registerTokenPayload', () {
+    test('carries the app version, which gates the annual recap push', () {
+      expect(NotificationService.registerTokenPayload('tok', '1.6.0'),
+          {'token': 'tok', 'appVersion': '1.6.0'});
+    });
+    test('falls back to the token alone when the version is unknown', () {
+      expect(NotificationService.registerTokenPayload('tok', null),
+          {'token': 'tok'});
+      expect(NotificationService.registerTokenPayload('tok', ''),
+          {'token': 'tok'});
+    });
+  });
+
   group('isFirstSignIn', () {
     test('true when creation and last sign-in coincide', () {
       final t = DateTime(2026, 10, 12, 9);

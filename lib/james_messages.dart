@@ -470,7 +470,7 @@ abstract final class JamesMessages {
 
   /// One-time Home nudge when the recap becomes available.
   static String unpackedNudge(int year) =>
-      "Psst... your $year Postboxes Unpacked is ready. Top-right menu, postie!";
+      "Psst... your $year Postboxes Unpacked is ready. Have a look in the menu, top right!";
 
   static String unpackedIntro(int year) =>
       "Right then. Kettle's on. Let's unpack your $year, shall we?";

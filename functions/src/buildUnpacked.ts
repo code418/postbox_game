@@ -7,6 +7,7 @@ import { monitorAppCheck } from "./_appCheck";
 import { getTodayLondon } from "./_dateUtils";
 import { DELETED_UID } from "./_accountDeletion";
 import { sendToUser } from "./_notifications";
+import { clientTemplateFlag } from "./_config";
 import {
   UnpackedAccumulator,
   UnpackedStats,
@@ -17,8 +18,10 @@ import {
   applyPercentiles,
   decideLaunchNotify,
   finalizeUnpacked,
+  hasRecapCapableApp,
   launchNotifyBody,
   postboxIdFromPath,
+  recapYearToBuild,
   summarise,
   unpackedWindow,
   unpackedYearFor,
@@ -32,9 +35,14 @@ const CLAIMS_PAGE_SIZE = 5000;
 const GET_ALL_CHUNK = 100;
 const WRITE_BATCH_SIZE = 400;
 
-/** Remote Config (server template) key gating the launch push. Separate from
- *  the client's `unpacked_enabled` so the recap can be soft-launched (visible
- *  in-app) before anyone is pinged about it. */
+/** Remote Config key that shows the recap in-app (the app's
+ *  `RemoteConfigService.keyUnpackedEnabled`). The push needs it on as well,
+ *  so nobody is pinged about a recap they can't open. */
+export const KEY_UNPACKED_ENABLED = "unpacked_enabled";
+
+/** Remote Config key gating the launch push. Separate from
+ *  [KEY_UNPACKED_ENABLED] so the recap can be soft-launched (visible in-app)
+ *  before anyone is pinged about it. */
 export const KEY_UNPACKED_NOTIFY_ENABLED = "unpacked_notify_enabled";
 
 const NOTIFY_STATE_DOC = "notificationState/unpacked";
@@ -178,20 +186,23 @@ export async function buildUnpackedSnapshots(
 
 // 03:00 London on 1 December: build the recap of the year so far, ahead of
 // the launch push (and the operator flipping `unpacked_enabled`) later that
-// morning. Re-run on demand with rebuildUnpacked.
+// morning. Re-run on demand by force-running this job in Cloud Scheduler (a
+// January run rebuilds the previous year: see recapYearToBuild) or with
+// rebuildUnpacked for a specific year.
 export const buildUnpacked = onSchedule(
   { schedule: "0 3 1 12 *", timeZone: "Europe/London", timeoutSeconds: 540, memory: "1GiB" },
   async () => {
-    const year = parseInt(getTodayLondon().slice(0, 4), 10);
+    const year = recapYearToBuild(getTodayLondon());
     const r = await buildUnpackedSnapshots(year);
     logger.info(`buildUnpacked: ${r.players} players from ${r.claimsRead} claims (year=${year}, through=${r.throughDate})`);
   },
 );
 
-/** Validates the admin callable's `year` argument. */
+/** Validates the admin callable's `year` argument. Omitted, it is the recap
+ *  year being prepared ([recapYearToBuild]). */
 export function parseRebuildYear(raw: unknown, todayLondon: string): number {
   const current = parseInt(todayLondon.slice(0, 4), 10);
-  if (raw === undefined || raw === null) return current;
+  if (raw === undefined || raw === null) return recapYearToBuild(todayLondon);
   if (typeof raw !== "number" || !Number.isInteger(raw) || raw < FIRST_UNPACKED_YEAR || raw > current) {
     throw new functions.https.HttpsError(
       "invalid-argument",
@@ -217,15 +228,27 @@ export const rebuildUnpacked = functions.https.onCall(
   },
 );
 
-/** Reads the server-side launch-push flag. Fails closed: if Remote Config
- *  can't be read, nobody is notified (retried by tomorrow's run). */
-async function fetchNotifyFlag(): Promise<boolean> {
+/** The launch push's switch, read from a CLIENT Remote Config template (the
+ *  one the app reads and this project publishes; there is no server
+ *  template). Both the in-app flag and the push flag must be on. Only each
+ *  parameter's default value counts, not conditional values. */
+export function launchFlagOn(
+  template: Parameters<typeof clientTemplateFlag>[0],
+): boolean {
+  return clientTemplateFlag(template, KEY_UNPACKED_ENABLED) &&
+    clientTemplateFlag(template, KEY_UNPACKED_NOTIFY_ENABLED);
+}
+
+/** Reads the launch-push switch. Fails closed: if Remote Config can't be
+ *  read, nobody is notified (retried by tomorrow's run). `readOk` tells a
+ *  failed read apart from flags that are simply off, for the log. */
+async function fetchLaunchFlag(): Promise<{ flagOn: boolean; readOk: boolean }> {
   try {
-    const template = await admin.remoteConfig().getServerTemplate();
-    return template.evaluate().getValue(KEY_UNPACKED_NOTIFY_ENABLED).asBoolean();
+    const template = await admin.remoteConfig().getTemplate();
+    return { flagOn: launchFlagOn(template), readOk: true };
   } catch (e) {
     logger.warn("unpackedLaunchNotify: Remote Config read failed; not sending", e);
-    return false;
+    return { flagOn: false, readOk: false };
   }
 }
 
@@ -236,8 +259,9 @@ export function shouldNotifyUnpackedReady(fdata: Record<string, unknown> | undef
 }
 
 /**
- * Sends the launch push to every player with a snapshot who hasn't opted out.
- * Exported (with injectable send) for testing.
+ * Sends the launch push to every player with a snapshot who hasn't opted out
+ * and whose app can open the recap ([hasRecapCapableApp]). Exported (with
+ * injectable send) for testing.
  */
 export async function sendLaunchNotifications(
   year: number,
@@ -251,9 +275,20 @@ export async function sendLaunchNotifications(
     const chunk = docs.slice(i, i + GET_ALL_CHUNK);
     // Chunked sequentially so a big player base never fans out unbounded.
     // eslint-disable-next-line no-await-in-loop
-    const users = await database.getAll(...chunk.map((d) => database.collection("users").doc(d.id)));
-    const prefsByUid = new Map(users.map((u) => [u.id, u.data() as Record<string, unknown> | undefined]));
-    const eligible = chunk.filter((d) => prefsByUid.has(d.id) && shouldNotifyUnpackedReady(prefsByUid.get(d.id)));
+    const [users, tokens] = await Promise.all([
+      database.getAll(...chunk.map((d) => database.collection("users").doc(d.id))),
+      database.getAll(...chunk.map((d) => database.collection("fcmTokens").doc(d.id))),
+    ]);
+    const prefsByUid = new Map(
+      users.filter((u) => u.exists).map((u) => [u.id, u.data() as Record<string, unknown> | undefined]),
+    );
+    const tokensByUid = new Map(
+      tokens.filter((t) => t.exists).map((t) => [t.id, t.data() as Record<string, unknown> | undefined]),
+    );
+    const eligible = chunk.filter((d) =>
+      prefsByUid.has(d.id) &&
+      shouldNotifyUnpackedReady(prefsByUid.get(d.id)) &&
+      hasRecapCapableApp(tokensByUid.get(d.id)));
     // eslint-disable-next-line no-await-in-loop
     await Promise.allSettled(
       eligible.map((d) =>
@@ -270,14 +305,15 @@ export async function sendLaunchNotifications(
 }
 
 // 10:00 London every day in December: once the snapshot exists AND an operator
-// has turned `unpacked_notify_enabled` on, send the "ready" push exactly once
-// for the year (transactional marker, as streakReminder does).
+// has turned both `unpacked_enabled` and `unpacked_notify_enabled` on in the
+// client Remote Config template, send the "ready" push exactly once for the
+// year (transactional marker, as streakReminder does).
 export const unpackedLaunchNotify = onSchedule(
   { schedule: "0 10 * 12 *", timeZone: "Europe/London", timeoutSeconds: 540 },
   async () => {
     const today = getTodayLondon();
     const year = unpackedYearFor(today);
-    const [summary, flagOn] = await Promise.all([summaryRef(db, year).get(), fetchNotifyFlag()]);
+    const [summary, { flagOn, readOk }] = await Promise.all([summaryRef(db, year).get(), fetchLaunchFlag()]);
 
     const stateRef = db.doc(NOTIFY_STATE_DOC);
     const fire = await db.runTransaction(async (tx) => {
@@ -293,7 +329,10 @@ export const unpackedLaunchNotify = onSchedule(
       return fire;
     });
     if (!fire) {
-      logger.info(`unpackedLaunchNotify: not sending (year=${year}, summary=${summary.exists}, flag=${flagOn})`);
+      logger.info(
+        `unpackedLaunchNotify: not sending (year=${year}, summary=${summary.exists}, ` +
+          `flag=${readOk ? flagOn : "unreadable"})`,
+      );
       return;
     }
     const sent = await sendLaunchNotifications(year);

@@ -6,7 +6,8 @@ import 'package:postbox_game/unpacked/unpacked_stats.dart';
 
 /// The shareable 9:16 summary card. Laid out at a fixed logical size
 /// ([logicalSize]) so the exported image is identical on every device;
-/// [UnpackedScreen] renders it at `pixelRatio: 3` → 1080 × 1920 PNG.
+/// [UnpackedScreen] captures it with `renderShareCardPng` (3x) → a
+/// 1080 × 1920 PNG.
 ///
 /// Shows only the player's own aggregate numbers (no location, no other
 /// players' names), so sharing it publicly leaks nothing.
@@ -16,7 +17,6 @@ class UnpackedShareCard extends StatelessWidget {
   final UnpackedStats stats;
 
   static const Size logicalSize = Size(360, 640);
-  static const double exportPixelRatio = 3;
   static const double _padding = AppSpacing.lg + 4;
 
   @override
@@ -24,7 +24,7 @@ class UnpackedShareCard extends StatelessWidget {
     final rows = <(String, String)>[
       ('Postboxes found', '${stats.uniquePostboxes}'),
       ('Points scored', '${stats.totalPoints}'),
-      if (stats.longestStreakDays > 0)
+      if (stats.longestStreakDays > 1)
         ('Longest streak', '${stats.longestStreakDays} days'),
       if (stats.rarestMonarch != null &&
           stats.rarestMonarch != MonarchInfo.plainKey)

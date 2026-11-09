@@ -4,6 +4,7 @@ import 'package:firebase_remote_config/firebase_remote_config.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:postbox_game/analytics_service.dart';
+import 'package:postbox_game/james_messages.dart';
 import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/remote_config_service.dart';
 import 'package:postbox_game/unpacked/unpacked_repository.dart';
@@ -272,6 +273,18 @@ void main() {
       expect(ids, ['intro', 'totals', 'share']);
     });
 
+    test('a single postbox, point and day read in the singular', () {
+      final totals = buildUnpackedCards(_recap(
+        stats: {
+          ..._snapshot(boxes: 1),
+          'totalPoints': 1,
+          'daysActive': 1,
+        },
+      )).firstWhere((c) => c.id == 'totals');
+      expect(totals.headline, '1 postbox');
+      expect(totals.detail, startsWith('1 point across 1 day out and about.'));
+    });
+
     test('percentile lines only appear when they flatter', () {
       final high =
           buildUnpackedCards(_recap()).firstWhere((c) => c.id == 'totals');
@@ -287,9 +300,27 @@ void main() {
     });
   });
 
+  group('copy', () {
+    test('the share text carries the invite link', () {
+      const link = 'https://the-postbox-game.web.app/invite/ABCD2345';
+      final text = unpackedShareText(2026, link);
+      expect(text, startsWith('My 2026 Postboxes Unpacked'));
+      expect(text, endsWith(link));
+    });
+
+    test('the nudge does not call the player "postie" (that is the guide)',
+        () {
+      final nudge = JamesMessages.unpackedNudge(2026);
+      expect(nudge, contains('2026 Postboxes Unpacked'));
+      expect(nudge.toLowerCase(), isNot(contains('postie')));
+      expect(nudge, isNot(contains('\u2014')));
+    });
+  });
+
   group('UnpackedScreen', () {
-    Future<void> pumpScreen(WidgetTester tester) async {
-      tester.view.physicalSize = const Size(1080, 2340);
+    Future<void> pumpScreen(WidgetTester tester,
+        {Size physicalSize = const Size(1080, 2340)}) async {
+      tester.view.physicalSize = physicalSize;
       tester.view.devicePixelRatio = 3;
       addTearDown(tester.view.reset);
       await tester.pumpWidget(MediaQuery(
@@ -379,7 +410,52 @@ void main() {
     });
   });
 
+  group('UnpackedScreen in landscape', () {
+    testWidgets('every card, and the share page, fit a landscape phone',
+        (tester) async {
+      // 780 x 360 logical: a phone on its side, the tightest height the app
+      // allows.
+      tester.view.physicalSize = const Size(2340, 1080);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MediaQuery(
+        data: const MediaQueryData(
+            size: Size(780, 360), disableAnimations: true),
+        child: MaterialApp(home: UnpackedScreen(recap: _recap())),
+      ));
+      await tester.pump();
+      expect(tester.takeException(), isNull, reason: 'intro card');
+      for (var i = 0; i < 8; i++) {
+        await tester.tap(find.bySemanticsLabel('Next card'));
+        await tester.pump();
+        expect(tester.takeException(), isNull, reason: 'card ${i + 2}');
+      }
+      expect(find.text('Share my year'), findsOneWidget);
+    });
+  });
+
   group('UnpackedShareCard', () {
+    testWidgets('a one-day "streak" is left off the card', (tester) async {
+      Future<void> pumpCard(int streakDays) async {
+        await tester.pumpWidget(MaterialApp(
+          home: Center(
+            child: UnpackedShareCard(
+              stats: UnpackedStats.fromMap({
+                ..._snapshot(),
+                'longestStreak': {'days': streakDays},
+              }, year: 2026),
+            ),
+          ),
+        ));
+      }
+
+      await pumpCard(1);
+      expect(find.text('LONGEST STREAK'), findsNothing);
+      await pumpCard(5);
+      expect(find.text('LONGEST STREAK'), findsOneWidget);
+      expect(find.text('5 days'), findsOneWidget);
+    });
+
     testWidgets('lays out at its fixed export size without overflow',
         (tester) async {
       tester.view.physicalSize = const Size(1080, 2340);

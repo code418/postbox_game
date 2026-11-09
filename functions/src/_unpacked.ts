@@ -317,6 +317,15 @@ export function unpackedYearFor(todayLondon: string): number {
   return todayLondon.slice(5, 7) === "12" ? year : year - 1;
 }
 
+/** The recap year a build on [todayLondon] should prepare: the previous year
+ *  in January (its window's tail, when a refresh can at last count all of
+ *  December), otherwise the current year (December, plus the pre-launch
+ *  admin builds in the autumn). */
+export function recapYearToBuild(todayLondon: string): number {
+  const year = parseInt(todayLondon.slice(0, 4), 10);
+  return todayLondon.slice(5, 7) === "01" ? year - 1 : year;
+}
+
 export interface LaunchNotifyState {
   /** Recap years whose "ready" push has already gone out. */
   sentYears?: number[];
@@ -343,8 +352,20 @@ export function decideLaunchNotify(
   return { fire: true, newState: { sentYears: [...sentYears, year].sort((a, b) => a - b) } };
 }
 
-/** Push body for the launch notification. */
+/** Push body for the launch notification. (No character name: the guide is
+ *  never named in user-facing copy.) */
 export function launchNotifyBody(s: Pick<UnpackedStats, "year" | "uniquePostboxes">): string {
   const boxes = s.uniquePostboxes === 1 ? "1 postbox" : `${s.uniquePostboxes} postboxes`;
-  return `You found ${boxes} in ${s.year}. Postman James has your year all wrapped up — come and unpack it!`;
+  return `You found ${boxes} in ${s.year}. Your year in postboxes is ready to unpack!`;
+}
+
+/**
+ * True when [tokenData] (an `fcmTokens/{uid}` doc) shows the player's app can
+ * open the recap. Only builds that ship the recap screen report an
+ * `appVersion` to registerFcmToken, so its presence is the signal: an older
+ * install would get "come and unpack it!" and find nothing to open.
+ */
+export function hasRecapCapableApp(tokenData: Record<string, unknown> | undefined): boolean {
+  const v = tokenData?.appVersion;
+  return typeof v === "string" && v.length > 0;
 }

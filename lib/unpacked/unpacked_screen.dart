@@ -1,18 +1,21 @@
 import 'dart:async';
-import 'dart:ui' as ui;
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:postbox_game/analytics_service.dart';
+import 'package:postbox_game/deep_links.dart';
 import 'package:postbox_game/james_messages.dart';
 import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/postman_james.dart';
+import 'package:postbox_game/services/invite_service.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/unpacked/unpacked_repository.dart';
 import 'package:postbox_game/unpacked/unpacked_share_card.dart';
 import 'package:postbox_game/unpacked/unpacked_stats.dart';
+import 'package:postbox_game/widgets/share_card.dart'
+    show kGetAppUrl, renderShareCardPng;
 import 'package:share_plus/share_plus.dart';
 
 /// One story card's content. Built from the snapshot by [buildUnpackedCards];
@@ -39,6 +42,14 @@ class UnpackedCardData {
 
 String _pct(int p, String what) => 'More $what than $p% of players.';
 
+String _plural(int n, String one, String many) => '$n ${n == 1 ? one : many}';
+
+/// The text that travels with the shared image. Like every other share card
+/// it carries the sharer's invite link, so each share is also an invite.
+String unpackedShareText(int year, String link) =>
+    'My $year Postboxes Unpacked 📮 Hunting royal postboxes on '
+    'The Postbox Game. Play with me: $link';
+
 /// The ordered story for [recap]. Pure (aside from James's random variants)
 /// so tests can assert which cards appear for a given snapshot.
 List<UnpackedCardData> buildUnpackedCards(UnpackedRecap recap) {
@@ -59,11 +70,10 @@ List<UnpackedCardData> buildUnpackedCards(UnpackedRecap recap) {
       id: 'totals',
       background: postalRed,
       eyebrow: 'THIS YEAR YOU FOUND',
-      headline:
-          '${s.uniquePostboxes} ${s.uniquePostboxes == 1 ? 'postbox' : 'postboxes'}',
+      headline: _plural(s.uniquePostboxes, 'postbox', 'postboxes'),
       detail: [
-        '${s.totalPoints} points across ${s.daysActive} '
-            '${s.daysActive == 1 ? 'day' : 'days'} out and about.',
+        '${_plural(s.totalPoints, 'point', 'points')} across '
+            '${_plural(s.daysActive, 'day', 'days')} out and about.',
         if (s.percentileBoxes >= 50) _pct(s.percentileBoxes, 'postboxes'),
       ].join(' '),
       james: JamesMessages.unpackedTotals(s.uniquePostboxes),
@@ -269,22 +279,31 @@ class _UnpackedScreenState extends State<UnpackedScreen>
     if (recap == null || _sharing) return;
     setState(() => _sharing = true);
     try {
+      // google_fonts loads at runtime: a capture taken before the font
+      // arrives renders in the fallback face.
+      await GoogleFonts.pendingFonts();
+      await WidgetsBinding.instance.endOfFrame;
       final boundary = _shareKey.currentContext?.findRenderObject()
           as RenderRepaintBoundary?;
       if (boundary == null) return;
-      final image = await boundary.toImage(
-          pixelRatio: UnpackedShareCard.exportPixelRatio);
-      final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
-      image.dispose();
-      if (bytes == null) return;
-      await SharePlus.instance.share(ShareParams(
-        files: [
-          XFile.fromData(bytes.buffer.asUint8List(), mimeType: 'image/png'),
-        ],
-        fileNameOverrides: ['postboxes-unpacked-${recap.year}.png'],
-        text: 'My ${recap.year} Postboxes Unpacked 📮 #ThePostboxGame',
+      // 3x, so the 360x640 card becomes a 1080x1920 PNG.
+      final png = await renderShareCardPng(boundary);
+      if (png == null) return;
+      final link = await _shareLink();
+      final fileName = 'postboxes-unpacked-${recap.year}.png';
+      final result = await SharePlus.instance.share(ShareParams(
+        files: [XFile.fromData(png, mimeType: 'image/png', name: fileName)],
+        fileNameOverrides: [fileName],
+        text: unpackedShareText(recap.year, link),
       ));
-      unawaited(Analytics.unpackedShared(year: recap.year));
+      if (result.status != ShareResultStatus.dismissed) {
+        unawaited(Analytics.share(
+          contentType: 'unpacked',
+          itemId: '${recap.year}',
+          method: result.raw.isNotEmpty ? result.raw : 'unknown',
+          style: 'unpacked',
+        ));
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -294,6 +313,20 @@ class _UnpackedScreenState extends State<UnpackedScreen>
     } finally {
       if (mounted) setState(() => _sharing = false);
     }
+  }
+
+  /// The sharer's invite link, or the generic get-the-app link when the
+  /// invite code can't be fetched (as [showShareCardSheet] does).
+  Future<String> _shareLink() async {
+    String? uid = widget.uid;
+    try {
+      uid ??= FirebaseAuth.instance.currentUser?.uid;
+    } catch (_) {}
+    String? code;
+    try {
+      code = uid == null ? null : await InviteService.myCode(uid);
+    } catch (_) {}
+    return code != null ? inviteUrlFor(code) : kGetAppUrl;
   }
 
   @override

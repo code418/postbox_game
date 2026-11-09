@@ -41,6 +41,7 @@ import 'package:postbox_game/deep_links.dart';
 import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/remote_config_service.dart';
 import 'package:postbox_game/services/home_widget_service.dart';
+import 'package:postbox_game/unpacked/unpacked_stats.dart';
 
 /// Extracts the string literals from the first `[ ... ]` array literal that
 /// follows [anchor] in [source]. Handles both single- and double-quoted entries
@@ -814,6 +815,62 @@ void main() {
       expect(source, contains('"${RemoteConfigService.keyMaintenanceMode}"'),
           reason: 'the car reads the maintenance flag by raw key; it must '
               'match RemoteConfigService.keyMaintenanceMode');
+    });
+  });
+
+  group('annual recap ("Unpacked") facts shared with the Cloud Functions', () {
+    // The recap's availability window lives in functions/src/_unpacked.ts
+    // (written onto each summary doc) and as the app's fallback when a summary
+    // lacks the fields. The Remote Config keys are read by the app AND, for
+    // the launch push, by functions/src/buildUnpacked.ts from the client
+    // template: a key renamed on one side would leave the push off forever.
+    late String unpackedTs;
+    late String buildTs;
+    late Map<String, dynamic> templateParams;
+
+    setUpAll(() {
+      unpackedTs = File('functions/src/_unpacked.ts').readAsStringSync();
+      buildTs = File('functions/src/buildUnpacked.ts').readAsStringSync();
+      templateParams = (jsonDecode(
+              File('remoteconfig.template.json').readAsStringSync())
+          as Map<String, dynamic>)['parameters'] as Map<String, dynamic>;
+    });
+
+    test('the window fallback matches unpackedWindow', () {
+      final from = RegExp(r'availableFrom: `\$\{year\}-(\d\d-\d\d)`')
+          .firstMatch(unpackedTs)
+          ?.group(1);
+      final until =
+          RegExp(r'availableUntil: `\$\{year \+ 1\}-(\d\d-\d\d)`')
+              .firstMatch(unpackedTs)
+              ?.group(1);
+      expect(from, isNotNull, reason: 'availableFrom not found in _unpacked.ts');
+      expect(until, isNotNull,
+          reason: 'availableUntil not found in _unpacked.ts');
+
+      final dart = UnpackedSummary.fromMap(const {}, year: 2026);
+      expect(dart.availableFrom, '2026-$from');
+      expect(dart.availableUntil, '2027-$until');
+    });
+
+    test('the launch push reads the same keys the app and template use', () {
+      String tsKey(String name) {
+        final v = RegExp('export const $name = "([^"]+)"')
+            .firstMatch(buildTs)
+            ?.group(1);
+        expect(v, isNotNull, reason: '$name not found in buildUnpacked.ts');
+        return v!;
+      }
+
+      final enabled = tsKey('KEY_UNPACKED_ENABLED');
+      final notify = tsKey('KEY_UNPACKED_NOTIFY_ENABLED');
+      expect(enabled, RemoteConfigService.keyUnpackedEnabled);
+      for (final key in [enabled, notify]) {
+        expect(templateParams.containsKey(key), isTrue,
+            reason: '$key is read by unpackedLaunchNotify but is missing from '
+                'remoteconfig.template.json, so the push could never be '
+                'switched on');
+      }
     });
   });
 }
