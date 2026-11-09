@@ -14,6 +14,11 @@
 //    route needs a per-run OK waits for the player to tap "Check" (which is
 //    the only caller of requestRouteConsent).
 //  - Each version of a session is sent at most once with a final verdict.
+//  - Every change to the stored state is serialised (_serial / _update). A
+//    check holds no state across its slow reads and calls; it folds its
+//    results into a fresh copy at the end, so a claim, dismiss or snooze made
+//    meanwhile survives, and nothing is saved back after a disconnect or
+//    sign-out.
 //  - Every claim carries an attemptId; a transport failure keeps it so the
 //    server replays the stored response (claimActivityPostbox is the second
 //    non-idempotent write after startScoring, made safe the same way).
@@ -87,6 +92,17 @@ class ActivityClaimOutcome {
   final String? message;
 }
 
+/// What [ActivityClaimsService._processRoute] found for one session: the
+/// verdict to record (null when the check stopped before one), the
+/// candidates to add, whether the run needs a per-run route OK, and why the
+/// check stopped early (null to carry on).
+typedef _RouteOutcome = ({
+  SessionRecord? record,
+  List<ActivityCandidate> candidates,
+  bool consent,
+  String? stop,
+});
+
 /// Max sessions a silent check reads; a manual refresh reads a few more.
 const int _maxAutoSessions = 5;
 const int _maxManualSessions = 10;
@@ -136,7 +152,33 @@ class ActivityClaimsService {
   /// Claimable candidates the banner hasn't been told "Not now" about.
   final ValueNotifier<int> bannerCount = ValueNotifier<int>(0);
 
+  /// Single flight for checks. Taken before a check's first await (see
+  /// [autoCheck]) so two resumes in quick succession can't both start one.
   bool _checking = false;
+
+  /// Serialises every load → modify → save of the stored state. A check holds
+  /// no state across its slow reads and calls: it folds its results into a
+  /// fresh copy at the end ([_apply]), so a claim, dismiss or snooze made
+  /// while it ran is never overwritten.
+  Future<void> _storeQueue = Future<void>.value();
+
+  /// Bumped whenever the stored state is forgotten (disconnect, sign-out); a
+  /// check that started before then must not save its results afterwards.
+  int _generation = 0;
+
+  Future<T> _serial<T>(Future<T> Function() body) {
+    final run = _storeQueue.then((_) => body());
+    _storeQueue = run.then<void>((_) {}, onError: (Object _) {});
+    return run;
+  }
+
+  /// Load, change and save this player's state as one serialised step.
+  Future<void> _update(String uid, void Function(ActivityState state) change) => _serial(() async {
+        final state = await _store.load(uid);
+        change(state);
+        await _store.save(uid, state);
+        _updateBanner(state);
+      });
 
   HealthConnectBridge get bridge => _bridge;
   RemoteConfigService get _rc => _remoteConfig();
@@ -205,15 +247,17 @@ class ActivityClaimsService {
   /// Revoke Health Connect access and forget this account's workout state.
   Future<void> disconnect() async {
     final uid = _uid();
+    _generation++;
     await _bridge.revokeAll();
-    await _store.clear(forUid: uid);
+    await _serial(() => _store.clear(forUid: uid));
     bannerCount.value = 0;
   }
 
   /// Sign-out: drop the previous player's candidates (tokens are uid-bound).
   Future<void> onSignedOut() async {
+    _generation++;
     bannerCount.value = 0;
-    await _store.clear();
+    await _serial(() => _store.clear());
   }
 
   /// The silent foreground check. Returns null when skipped (feature off,
@@ -222,13 +266,19 @@ class ActivityClaimsService {
     if (!featureVisible || _checking) return null;
     final uid = _uid();
     if (uid == null || _rc.maintenanceMode || !_isOnline()) return null;
-    if (!await _store.optedIn(uid) || !await _store.autoCheck(uid)) return null;
-    final now = _clock();
-    if (!autoCheckDue(await _store.lastAutoCheckMs(uid), now)) return null;
-    if (await _bridge.availability() != HcAvailability.available) return null;
-    if (!(await grantedPermissions()).contains(HealthConnectPermissions.readExercise)) return null;
-    await _store.setLastAutoCheckMs(uid, now);
-    return _check(uid, ActivityCheckTrigger.resume, _maxAutoSessions);
+    // Taken before the first await, so an overlapping resume returns above.
+    _checking = true;
+    try {
+      if (!await _store.optedIn(uid) || !await _store.autoCheck(uid)) return null;
+      final now = _clock();
+      if (!autoCheckDue(await _store.lastAutoCheckMs(uid), now)) return null;
+      if (await _bridge.availability() != HcAvailability.available) return null;
+      if (!(await grantedPermissions()).contains(HealthConnectPermissions.readExercise)) return null;
+      await _store.setLastAutoCheckMs(uid, now);
+      return await _check(uid, ActivityCheckTrigger.resume, _maxAutoSessions);
+    } finally {
+      _checking = false;
+    }
   }
 
   /// A check the player asked for (pull to refresh). Still never prompts for
@@ -238,7 +288,12 @@ class ActivityClaimsService {
     if (uid == null || !featureVisible) return const ActivityCheckSummary(error: 'not_available');
     if (_checking) return const ActivityCheckSummary();
     if (_rc.maintenanceMode) return const ActivityCheckSummary(error: 'maintenance');
-    return _check(uid, ActivityCheckTrigger.manual, _maxManualSessions);
+    _checking = true;
+    try {
+      return await _check(uid, ActivityCheckTrigger.manual, _maxManualSessions);
+    } finally {
+      _checking = false;
+    }
   }
 
   /// The player tapped "Check" on a session whose route needs a per-run OK:
@@ -247,113 +302,132 @@ class ActivityClaimsService {
     final uid = _uid();
     if (uid == null || !featureVisible) return const ActivityCheckSummary(error: 'not_available');
     if (_checking) return const ActivityCheckSummary();
+    if (_rc.maintenanceMode) return const ActivityCheckSummary(error: 'maintenance');
     _checking = true;
+    final generation = _generation;
     try {
-      final state = await _store.load(uid);
       HcRouteResult route;
       try {
         route = await _bridge.requestRouteConsent(session.id);
       } on HealthConnectException catch (e) {
         return ActivityCheckSummary(error: e.code);
       }
-      final r = await _processRoute(state, session, route);
-      await _store.save(uid, state);
-      _updateBanner(state);
-      return ActivityCheckSummary(checked: 1, newCandidates: r.added, error: r.stop);
+      final r = await _processRoute(session, route);
+      final added = await _apply(uid, generation, [r]);
+      return ActivityCheckSummary(checked: 1, newCandidates: added, error: r.stop);
     } finally {
       _checking = false;
     }
   }
 
+  /// One check. The caller holds [_checking]. Decisions are made from a
+  /// read-only snapshot; results are applied at the end by [_apply].
   Future<ActivityCheckSummary> _check(String uid, ActivityCheckTrigger trigger, int maxSessions) async {
-    _checking = true;
     final triggerName = trigger == ActivityCheckTrigger.resume ? 'resume' : 'manual';
+    final generation = _generation;
+    final now = _clock();
+    final snapshot = await _store.load(uid);
+    snapshot.prune(now, graceMs);
+    List<HcSession> sessions;
     try {
-      final now = _clock();
-      final state = await _store.load(uid);
-      state.prune(now, graceMs);
-      List<HcSession> sessions;
-      try {
-        sessions = await _bridge.readSessions(
-          // A session that ENDED inside the window may have started up to
-          // 12 h earlier.
-          sinceMs: now - graceMs - maxSessionDuration.inMilliseconds,
-          untilMs: now + const Duration(minutes: 5).inMilliseconds,
-        );
-      } on HealthConnectException catch (e) {
-        unawaited(Analytics.activityCheck(trigger: triggerName, outcome: 'error'));
-        return ActivityCheckSummary(error: e.code);
-      }
-      final todo = eligibleSessions(sessions,
-          nowMs: now,
-          graceMs: graceMs,
-          originAllowlist: _rc.activityOriginAllowlist,
-          processedKeys: state.processedKeys);
-      var checked = 0;
-      var added = 0;
-      var consent = 0;
-      String? stop;
-      for (final s in todo.take(maxSessions)) {
-        final wasConsent = state.sessions[s.versionKey]?.verdict == 'consent_required';
-        HcRouteResult route;
-        try {
-          route = await _bridge.readRoute(s.id);
-        } on HealthConnectException catch (e) {
-          stop = e.code == 'permission_denied' ? 'permission_denied' : 'error';
-          break;
-        }
-        checked++;
-        final r = await _processRoute(state, s, route);
-        added += r.added;
-        if (r.consent && !wasConsent) consent++;
-        if (r.stop != null) {
-          stop = r.stop;
-          break;
-        }
-      }
-      await _store.save(uid, state);
-      _updateBanner(state);
-      unawaited(Analytics.activityCheck(
-          trigger: triggerName,
-          outcome: stop != null
-              ? 'error'
-              : added > 0
-                  ? 'candidates'
-                  : consent > 0
-                      ? 'consent_needed'
-                      : 'none'));
-      return ActivityCheckSummary(checked: checked, newCandidates: added, consentNeeded: consent, error: stop);
-    } finally {
-      _checking = false;
+      sessions = await _bridge.readSessions(
+        // A session that ENDED inside the window may have started up to
+        // 12 h earlier.
+        sinceMs: now - graceMs - maxSessionDuration.inMilliseconds,
+        untilMs: now + const Duration(minutes: 5).inMilliseconds,
+      );
+    } on HealthConnectException catch (e) {
+      unawaited(Analytics.activityCheck(trigger: triggerName, outcome: 'error'));
+      return ActivityCheckSummary(error: e.code);
     }
+    final todo = eligibleSessions(sessions,
+        nowMs: now,
+        graceMs: graceMs,
+        originAllowlist: _rc.activityOriginAllowlist,
+        processedKeys: snapshot.processedKeys);
+    var checked = 0;
+    var consent = 0;
+    String? stop;
+    final outcomes = <_RouteOutcome>[];
+    for (final s in todo.take(maxSessions)) {
+      final wasConsent = snapshot.sessions[s.versionKey]?.verdict == 'consent_required';
+      HcRouteResult route;
+      try {
+        route = await _bridge.readRoute(s.id);
+      } on HealthConnectException catch (e) {
+        stop = e.code == 'permission_denied' ? 'permission_denied' : 'error';
+        break;
+      }
+      checked++;
+      final r = await _processRoute(s, route);
+      outcomes.add(r);
+      if (r.consent && !wasConsent) consent++;
+      if (r.stop != null) {
+        stop = r.stop;
+        break;
+      }
+    }
+    final added = await _apply(uid, generation, outcomes);
+    unawaited(Analytics.activityCheck(
+        trigger: triggerName,
+        outcome: stop != null
+            ? 'error'
+            : added > 0
+                ? 'candidates'
+                : consent > 0
+                    ? 'consent_needed'
+                    : 'none'));
+    return ActivityCheckSummary(checked: checked, newCandidates: added, consentNeeded: consent, error: stop);
   }
 
-  /// Record a session's route outcome; match it when there is a route.
-  Future<({int added, bool consent, String? stop})> _processRoute(
-      ActivityState state, HcSession s, HcRouteResult route) async {
+  /// Fold a check's results into a FRESH copy of the stored state, inside the
+  /// store queue, so anything settled while the check ran is kept. Skipped
+  /// when the state was forgotten mid-check. Returns the candidates added.
+  Future<int> _apply(String uid, int generation, List<_RouteOutcome> outcomes) => _serial(() async {
+        if (generation != _generation) return 0;
+        final state = await _store.load(uid);
+        state.prune(_clock(), graceMs);
+        var added = 0;
+        for (final o in outcomes) {
+          final record = o.record;
+          if (record != null) state.sessions[record.session.versionKey] = record;
+          added += state.addCandidates(o.candidates);
+        }
+        await _store.save(uid, state);
+        _updateBanner(state);
+        return added;
+      });
+
+  /// A session's route outcome (matched when there is a route), to be applied
+  /// by [_apply]. Touches no stored state itself.
+  Future<_RouteOutcome> _processRoute(HcSession s, HcRouteResult route) async {
     final now = _clock();
-    void record(String verdict, {int passed = 0, int alreadyClaimed = 0}) {
-      state.sessions[s.versionKey] = SessionRecord(
-          session: s, verdict: verdict, checkedAtMs: now, passed: passed, alreadyClaimed: alreadyClaimed);
-    }
+    _RouteOutcome recorded(String verdict,
+            {int passed = 0,
+            int alreadyClaimed = 0,
+            List<ActivityCandidate> candidates = const [],
+            bool consent = false}) =>
+        (
+          record: SessionRecord(
+              session: s, verdict: verdict, checkedAtMs: now, passed: passed, alreadyClaimed: alreadyClaimed),
+          candidates: candidates,
+          consent: consent,
+          stop: null,
+        );
+    // Stopped without a verdict: the session is tried again next time.
+    _RouteOutcome stopped(String stop) => (record: null, candidates: const [], consent: false, stop: stop);
 
     switch (route) {
       case HcRouteConsentRequired():
       case HcRouteUnsupported():
-        record('consent_required');
-        return (added: 0, consent: true, stop: null);
+        return recorded('consent_required', consent: true);
       case HcRouteDenied():
-        record('denied');
-        return (added: 0, consent: false, stop: null);
+        return recorded('denied');
       case HcRouteNoData():
-        record('no_route');
-        return (added: 0, consent: false, stop: null);
+        return recorded('no_route');
       case HcRouteData(:final points):
         final simplified = simplifyRoute(points);
-        if (simplified.length < 2) {
-          record('no_route');
-          return (added: 0, consent: false, stop: null);
-        }
+        if (simplified.length < 2) return recorded('no_route');
         try {
           // Safe to retry: matching is read-only server-side (an unchanged
           // route re-matches free of quota).
@@ -361,37 +435,35 @@ class ActivityClaimsService {
           final data = Map<String, dynamic>.from(res.data as Map);
           if (data['ok'] != true) {
             final reason = data['reason'];
-            record(reason is String && reason.isNotEmpty ? reason : 'error');
-            return (added: 0, consent: false, stop: null);
+            return recorded(reason is String && reason.isNotEmpty ? reason : 'error');
           }
           final raw = data['candidates'];
           final candidates = raw is List
               ? raw.map((c) => ActivityCandidate.tryParse(c, session: s)).whereType<ActivityCandidate>().toList()
               : <ActivityCandidate>[];
           final already = data['alreadyClaimed'];
-          record('ok',
+          return recorded('ok',
               passed: candidates.fold(0, (n, c) => n + c.boxes.length),
-              alreadyClaimed: already is num ? already.toInt() : 0);
-          return (added: state.addCandidates(candidates), consent: false, stop: null);
+              alreadyClaimed: already is num ? already.toInt() : 0,
+              candidates: candidates);
         } on FirebaseFunctionsException catch (e) {
           final reason = _reason(e);
           if (retryableCallableCodes.contains(e.code)) {
-            return (added: 0, consent: false, stop: reason == 'maintenance' ? 'maintenance' : 'offline');
+            return stopped(reason == 'maintenance' ? 'maintenance' : 'offline');
           }
           switch (e.code) {
             case 'resource-exhausted':
-              return (added: 0, consent: false, stop: 'quota_exceeded');
+              return stopped('quota_exceeded');
             case 'permission-denied':
             case 'failed-precondition':
-              return (added: 0, consent: false, stop: 'not_available');
+              return stopped('not_available');
             case appVerificationFailedCode:
-              return (added: 0, consent: false, stop: 'app_verification');
+              return stopped('app_verification');
             case 'invalid-argument':
               // A payload the server can't read won't improve on resubmission.
-              record('error');
-              return (added: 0, consent: false, stop: null);
+              return recorded('error');
             default:
-              return (added: 0, consent: false, stop: 'error');
+              return stopped('error');
           }
         }
     }
@@ -455,21 +527,21 @@ class ActivityClaimsService {
     }
 
     // Settle the candidate locally for every definitive answer.
-    final state = await _store.load(uid);
-    final now = _clock();
-    switch (outcome.kind) {
-      case ActivityClaimKind.claimed:
-      case ActivityClaimKind.alreadyClaimed:
-        state.claimed[c.key] = now;
-      case ActivityClaimKind.notFound:
-      case ActivityClaimKind.expired:
-      case ActivityClaimKind.badToken:
-        state.dismissed[c.key] = now;
-      default:
-        break;
-    }
-    await _store.save(uid, state);
-    _updateBanner(state);
+    final kind = outcome.kind;
+    await _update(uid, (state) {
+      final now = _clock();
+      switch (kind) {
+        case ActivityClaimKind.claimed:
+        case ActivityClaimKind.alreadyClaimed:
+          state.claimed[c.key] = now;
+        case ActivityClaimKind.notFound:
+        case ActivityClaimKind.expired:
+        case ActivityClaimKind.badToken:
+          state.dismissed[c.key] = now;
+        default:
+          break;
+      }
+    });
     unawaited(Analytics.activityClaim(
         outcome: switch (outcome.kind) {
           ActivityClaimKind.claimed => 'success',
@@ -485,10 +557,7 @@ class ActivityClaimsService {
   Future<void> dismiss(ActivityCandidate c) async {
     final uid = _uid();
     if (uid == null) return;
-    final state = await _store.load(uid);
-    state.dismissed[c.key] = _clock();
-    await _store.save(uid, state);
-    _updateBanner(state);
+    await _update(uid, (state) => state.dismissed[c.key] = _clock());
     unawaited(Analytics.activityClaim(outcome: 'dismissed'));
   }
 
@@ -497,13 +566,12 @@ class ActivityClaimsService {
   Future<void> snoozeBanner() async {
     final uid = _uid();
     if (uid == null) return;
-    final state = await _store.load(uid);
-    final now = _clock();
-    for (final c in state.claimable(now, graceMs)) {
-      state.snoozed[c.key] = now;
-    }
-    await _store.save(uid, state);
-    _updateBanner(state);
+    await _update(uid, (state) {
+      final now = _clock();
+      for (final c in state.claimable(now, graceMs)) {
+        state.snoozed[c.key] = now;
+      }
+    });
   }
 
   /// Recompute [bannerCount] from the stored state (e.g. on screen open).

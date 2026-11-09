@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:postbox_game/activity/activity_helpers.dart';
@@ -188,6 +190,15 @@ void main() {
       expect(matchCalls, hasLength(1));
     });
 
+    test('in maintenance it neither prompts nor matches', () async {
+      await store.setOptedIn('u1', true);
+      rc.maintenance = true;
+      final summary = await makeService().checkWithConsent(run('s1'));
+      expect(summary.error, 'maintenance');
+      expect(bridge.consentRequests, isEmpty);
+      expect(matchCalls, isEmpty);
+    });
+
     test('a declined prompt is recorded but not final', () async {
       await store.setOptedIn('u1', true);
       final svc = makeService();
@@ -286,6 +297,82 @@ void main() {
     await svc.snoozeBanner();
     expect(svc.bannerCount.value, 0);
     expect((await svc.loadState()).claimable(now, svc.graceMs), hasLength(1));
+  });
+
+  group('concurrency', () {
+    // Turns the event loop until [cond] holds (bounded), so a test can hold a
+    // matchActivityRoute call open and act while it is in flight.
+    Future<void> until(bool Function() cond) async {
+      for (var i = 0; i < 1000 && !cond(); i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      expect(cond(), isTrue, reason: 'condition never held');
+    }
+
+    Map<String, Object> matched(String key) => {
+          'ok': true,
+          'candidates': [candidateDto(key, t0 + 900000)],
+          'alreadyClaimed': 0,
+          'expiredPasses': 0,
+          'truncated': false,
+        };
+
+    test('a claim made while a check is in flight survives the check', () async {
+      await store.setOptedIn('u1', true);
+      bridge.sessions = [run('s1')];
+      bridge.routes['s1'] = HcRouteData(eastTrack(t0));
+      final svc = makeService();
+      await svc.autoCheck();
+      final c = (await svc.loadState()).candidates.single;
+
+      // A second run syncs; its match is held open while the player claims k1.
+      bridge.sessions = [run('s1'), run('s2')];
+      bridge.routes['s2'] = HcRouteData(eastTrack(t0));
+      final gate = Completer<Object?>();
+      matchImpl = (_) => gate.future;
+      final check = svc.refresh();
+      await until(() => matchCalls.length == 2);
+
+      expect((await svc.claim(c, attemptId: 'a1')).kind, ActivityClaimKind.claimed);
+      gate.complete(matched('k2'));
+      expect((await check).newCandidates, 1);
+
+      final state = await svc.loadState();
+      expect(state.claimed.keys, ['k1'], reason: "the check's save must not undo the claim");
+      expect(state.claimable(now, svc.graceMs).map((x) => x.key), ['k2']);
+      expect(svc.bannerCount.value, 1);
+    });
+
+    test('overlapping resume checks run once', () async {
+      await store.setOptedIn('u1', true);
+      bridge.sessions = [run('s1')];
+      bridge.routes['s1'] = HcRouteData(eastTrack(t0));
+      final svc = makeService();
+      final results = await Future.wait([svc.autoCheck(), svc.autoCheck()]);
+      expect(results.whereType<ActivityCheckSummary>(), hasLength(1));
+      expect(bridge.readSessionsCalls, 1);
+      expect(matchCalls, hasLength(1));
+    });
+
+    test('disconnecting mid-check does not bring the forgotten state back', () async {
+      await store.setOptedIn('u1', true);
+      bridge.sessions = [run('s1')];
+      bridge.routes['s1'] = HcRouteData(eastTrack(t0));
+      final gate = Completer<Object?>();
+      matchImpl = (_) => gate.future;
+      final svc = makeService();
+      final check = svc.refresh();
+      await until(() => matchCalls.isNotEmpty);
+
+      await svc.disconnect();
+      gate.complete(matched('k1'));
+      await check;
+
+      final state = await svc.loadState();
+      expect(state.candidates, isEmpty);
+      expect(state.sessions, isEmpty);
+      expect(svc.bannerCount.value, 0);
+    });
   });
 
   group('MethodChannelHealthConnectBridge', () {
