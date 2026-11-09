@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -13,13 +12,20 @@ import 'package:image_picker/image_picker.dart';
 import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/deep_links.dart';
 import 'package:postbox_game/monarch_info.dart';
-import 'package:postbox_game/services/invite_service.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// The landing page for shares made without an invite code.
+/// The app's store landing page (web/get.html).
 const String kGetAppUrl = 'https://$kInviteHost/get';
+
+/// The link every share card carries, on the card and in the share text: the
+/// landing page tagged `src=postbox_share`, which web/get.html passes to the
+/// stores as the campaign, so installs from shares are attributed to them.
+/// Generic rather than the sharer's invite link (until Nov 2026 it was the
+/// invite link), so tapping a share doesn't add the sharer as a friend; the
+/// two-way friend add stays with the Friends screen's invite.
+const String kShareLinkUrl = '$kGetAppUrl?src=postbox_share';
 
 /// A photo the player added to a share, with the aspect ratio it displays
 /// at (after any EXIF rotation the decoder applies).
@@ -157,11 +163,11 @@ ShareCardData claimShareCard({
   );
 }
 
-/// The text that travels with the image. Always carries a link, so every
-/// share is also an invite, including a [ShareCardData.clean] photo.
+/// The text that travels with the image. Always carries the link, including
+/// for a [ShareCardData.clean] photo.
 String buildShareText(ShareCardData data, String link) =>
     '${data.headline} Hunting royal postboxes on The Postbox Game. '
-    'Play with me: $link';
+    'Claim your postboxes: $link';
 
 /// Logical size of the card. Captured at 3x: 1080 x 1350, Instagram's 4:5
 /// portrait, which every other network also displays uncropped.
@@ -315,11 +321,11 @@ class ShareCard extends StatelessWidget {
         width: double.infinity,
         color: royalNavy,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        // Scaled to fit, never truncated: the invite code is at the end.
+        // Scaled to fit, never truncated: the link has to stay typeable.
         child: FittedBox(
           fit: BoxFit.scaleDown,
           child: Text(
-            'Play with me: $_shortLink',
+            'Claim your postboxes: $_shortLink',
             maxLines: 1,
             style: _body.copyWith(fontSize: 13, fontWeight: FontWeight.w600),
           ),
@@ -563,8 +569,8 @@ class ShareCard extends StatelessWidget {
               _brand(size: 11),
               const SizedBox(width: 10),
               Expanded(
-                // Scaled to fit, never truncated: the invite code is at
-                // the end.
+                // Scaled to fit, never truncated: the link has to stay
+                // typeable.
                 child: FittedBox(
                   fit: BoxFit.scaleDown,
                   alignment: Alignment.centerRight,
@@ -642,23 +648,18 @@ Future<void> showShareCardSheet(
   required ShareCardData data,
   required String contentType,
   required String itemId,
-}) async {
-  final uid = FirebaseAuth.instance.currentUser?.uid;
-  final code = uid == null ? null : await InviteService.myCode(uid);
-  final link = code != null ? inviteUrlFor(code) : kGetAppUrl;
-  if (!context.mounted) return;
-  await showModalBottomSheet<void>(
-    context: context,
-    isScrollControlled: true,
-    showDragHandle: true,
-    builder: (_) => ShareCardSheet(
-      data: data,
-      link: link,
-      contentType: contentType,
-      itemId: itemId,
-    ),
-  );
-}
+}) =>
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => ShareCardSheet(
+        data: data,
+        link: kShareLinkUrl,
+        contentType: contentType,
+        itemId: itemId,
+      ),
+    );
 
 /// The share sheet's body: the card preview, the photo controls and the
 /// Share button. Public for tests, which inject [pickPhoto].
@@ -747,6 +748,7 @@ class _ShareCardSheetState extends State<ShareCardSheet> {
             child: const Text('Cancel'),
           ),
           FilledButton(
+            style: dialogActionStyle(),
             onPressed: () => Navigator.of(context).pop(true),
             child: const Text('Got it'),
           ),
@@ -953,13 +955,17 @@ class _ShareCardSheetState extends State<ShareCardSheet> {
               ),
             ] else
               const SizedBox(height: AppSpacing.sm),
+            // Expanded, not bare: the app theme gives filled and outlined
+            // buttons an infinite minimum width, which a Row can't bound, so
+            // unwrapped they fail layout and the whole row vanishes.
             Row(
-              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                OutlinedButton.icon(
-                  onPressed: _picking || _sharing ? null : _addPhoto,
-                  icon: const Icon(Icons.add_a_photo_outlined),
-                  label: Text(hasPhoto ? 'Change photo' : 'Add photo'),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _picking || _sharing ? null : _addPhoto,
+                    icon: const Icon(Icons.add_a_photo_outlined),
+                    label: Text(hasPhoto ? 'Change photo' : 'Add photo'),
+                  ),
                 ),
                 if (hasPhoto)
                   IconButton(
@@ -968,17 +974,19 @@ class _ShareCardSheetState extends State<ShareCardSheet> {
                     icon: const Icon(Icons.close),
                   ),
                 const SizedBox(width: AppSpacing.sm),
-                FilledButton.icon(
-                  onPressed: _sharing || _picking ? null : _share,
-                  icon: _sharing
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2, color: Colors.white),
-                        )
-                      : const Icon(Icons.ios_share),
-                  label: const Text('Share'),
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: _sharing || _picking ? null : _share,
+                    icon: _sharing
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Icon(Icons.ios_share),
+                    label: const Text('Share'),
+                  ),
                 ),
               ],
             ),
