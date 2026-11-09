@@ -599,10 +599,10 @@ Do these in order. The engineering is already in the repo; these steps can't be 
 6. **Google Cloud Console → Billing → Budgets & alerts:** set a monthly budget alert at your comfort level.
 7. **After the Android release:** on a device, `adb shell pm get-app-links com.code418.postbox_game` should show the domain as `verified`.
 8. **Remote Config events:** for each event, edit `points_by_monarch`, publish, and put a calendar reminder to revert. Hold cypher-correction reviews for affected boxes until the event ends.
-9. **If "Your Postboxes Unpacked" (PR #197) ships: release the app, then switch it on in December.**
+9. **If "Your Postboxes Unpacked" (PR #197) ships: release the app, then switch it on on 19 December.** The recap counts claims up to Friday 18 December, the last second-class posting day, and opens the next day.
    - **Before about 20 November:** get an app release that includes the recap live on both stores. The recap screen only exists in that release. The "your recap is ready" push also only goes to players who have it: it skips anyone whose app is older.
-   - **Late November (optional):** check the recap before players see it. In Google Cloud Console → Cloud Scheduler, force-run the `buildUnpacked` job, then open the recap in the app on an admin account.
-   - **From 1 December** (the recap data is built at 03:00): in Remote Config, set `unpacked_enabled` to true and publish. That shows the recap in the app. When you're happy with it, set `unpacked_notify_enabled` to true and publish. The push goes out once, at the next 10:00.
+   - **Before 19 December (optional):** check the recap before players see it. In Google Cloud Console → Cloud Scheduler, force-run the `buildUnpacked` job (it counts the year so far), then open the recap in the app on an admin account.
+   - **From 19 December** (the final recap data is built at 03:00): in Remote Config, set `unpacked_enabled` to true and publish. That shows the recap in the app. When you're happy with it, set `unpacked_notify_enabled` to true and publish. The push goes out once, at the next 10:00.
    - Change each flag's **default value**. The push ignores conditional values, so turning a flag on only for some users won't trigger it.
 
 ---
