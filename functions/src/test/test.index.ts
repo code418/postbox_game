@@ -6591,6 +6591,130 @@ describe("Unpacked: pure helpers", () => {
     });
   });
 
+  describe("otherCountiesFor", () => {
+    const counts = new Map([["Bristol", 9], ["Somerset", 4], ["Devon", 4], ["Cornwall", 2], ["Dorset", 1]]);
+    const players = new Map([["Bristol", 40], ["Somerset", 6], ["Devon", 2], ["Cornwall", 1], ["Dorset", 3]]);
+    it("lists the next counties after home, only where someone else claimed too", () => {
+      assert.deepStrictEqual(unpacked.otherCountiesFor(counts, "Bristol", players), [
+        // Devon and Somerset tie on boxes: alphabetical.
+        { name: "Devon", uniquePostboxes: 4, otherPlayers: 1 },
+        { name: "Somerset", uniquePostboxes: 4, otherPlayers: 5 },
+        // Cornwall is the player's alone, so it is skipped.
+        { name: "Dorset", uniquePostboxes: 1, otherPlayers: 2 },
+      ]);
+    });
+    it("respects the limit and copes with no home county", () => {
+      assert.strictEqual(unpacked.otherCountiesFor(counts, null, players, 1)[0].name, "Bristol");
+      assert.deepStrictEqual(unpacked.otherCountiesFor(new Map(), null, players), []);
+    });
+  });
+
+  describe("friendStreaksFor", () => {
+    const streaks = new Map([["me", 12], ["sam", 21], ["alex", 9], ["kim", 9], ["idle", 0]]);
+    it("lists friends with a recap, longest first, skipping self, duplicates and non-players", () => {
+      assert.deepStrictEqual(
+        unpacked.friendStreaksFor("me", ["alex", "sam", "me", "sam", "kim", "stranger", "idle", 42], streaks),
+        [{ uid: "sam", days: 21 }, { uid: "alex", days: 9 }, { uid: "kim", days: 9 }],
+      );
+    });
+    it("caps the list and treats a malformed friends field as none", () => {
+      assert.strictEqual(unpacked.friendStreaksFor("me", ["alex", "sam", "kim"], streaks, 2).length, 2);
+      assert.deepStrictEqual(unpacked.friendStreaksFor("me", undefined, streaks), []);
+      assert.deepStrictEqual(unpacked.friendStreaksFor("me", "sam", streaks), []);
+    });
+  });
+
+  describe("friendAwardsFor", () => {
+    const st = (daysActive: number, uniquePostboxes: number) => ({ daysActive, uniquePostboxes });
+    const stats = new Map([
+      ["me", st(61, 142)], ["sam", st(143, 300)], ["alex", st(40, 90)], ["kim", st(40, 95)],
+      ["lee", st(12, 20)], ["idle", st(0, 0)],
+    ]);
+    it("ranks friends by days out hunting, then boxes found, keeping three", () => {
+      assert.deepStrictEqual(
+        unpacked.friendAwardsFor("me", ["alex", "sam", "me", "kim", "lee", "idle", "stranger", "sam"], stats),
+        [
+          { uid: "sam", daysActive: 143, uniquePostboxes: 300 },
+          { uid: "kim", daysActive: 40, uniquePostboxes: 95 },
+          { uid: "alex", daysActive: 40, uniquePostboxes: 90 },
+        ],
+      );
+    });
+    it("treats a malformed friends field as none", () => {
+      assert.deepStrictEqual(unpacked.friendAwardsFor("me", null, stats), []);
+    });
+  });
+
+  describe("top scorer days", () => {
+    const days = (o: Record<string, number>) => new Map(Object.entries(o).map(([d, points]) => [d, { points }]));
+    const me = days({ "2026-01-01": 9, "2026-01-02": 4, "2026-01-03": 2, "2026-01-04": 7 });
+    const sam = days({ "2026-01-01": 4, "2026-01-02": 4, "2026-01-03": 7 });
+    const kim = days({ "2026-01-02": 2, "2026-01-05": 12 });
+    it("counts days on top of everyone, ties included, only when someone else scored", () => {
+      const leaders = unpacked.dayLeaders([me, sam, kim]);
+      // 1st: 9 beats 4. 2nd: joint top on 4. 3rd: 2 loses to 7. 4th: alone, so no.
+      assert.strictEqual(unpacked.topOfEveryoneDays(me, leaders), 2);
+      assert.strictEqual(unpacked.topOfEveryoneDays(kim, leaders), 0, "kim's 12 was a solo day");
+      assert.strictEqual(unpacked.topOfEveryoneDays(sam, leaders), 2, "joint top on the 2nd, top on the 3rd");
+    });
+    it("tracks the runner-up so a lone leader is compared with the next best", () => {
+      const a = days({ d: 9 });
+      const b = days({ d: 9 });
+      const c = days({ d: 5 });
+      const leaders = unpacked.dayLeaders([a, b, c]);
+      assert.deepStrictEqual(leaders.get("d"), { best: 9, bestCount: 2, second: 5, scorers: 3 });
+      assert.strictEqual(unpacked.topOfEveryoneDays(c, leaders), 0);
+      assert.strictEqual(unpacked.topOfEveryoneDays(a, leaders), 1);
+    });
+    it("counts days on top of friends only when a friend also scored", () => {
+      assert.strictEqual(unpacked.topOfFriendsDays(me, [sam]), 2); // 1st and 2nd
+      assert.strictEqual(unpacked.topOfFriendsDays(me, [kim]), 1); // only the 2nd overlaps
+      assert.strictEqual(unpacked.topOfFriendsDays(me, []), 0);
+    });
+  });
+
+  describe("communityHighlights", () => {
+    const stat = (days: number) => ({ longestStreak: { days } }) as unknown as unpacked.UnpackedStats;
+    it("picks the rarest cypher by points, the busiest day, and counts days and counties", () => {
+      const h = unpacked.communityHighlights({
+        year: 2026,
+        throughDate: "2026-01-10",
+        stats: [stat(3), stat(7), stat(1)],
+        boxMonarch: new Map<string, string | null>([
+          ["a", "EIIR"], ["b", "VR"], ["c", "EVIIR"], ["d", "CIIIR"], ["e", "CIIIR"], ["f", null],
+        ]),
+        boxCounties: ["Kent", "Kent", "Avon"],
+        dayClaims: new Map([["2026-01-02", 5], ["2026-01-01", 5], ["2026-01-05", 2]]),
+      });
+      // EVIIR and CIIIR tie on points; EVIIR has fewer boxes, so it's rarer.
+      assert.deepStrictEqual(h.rarestCypher, { monarch: "EVIIR", boxes: 1 });
+      assert.deepStrictEqual(h.busiestDay, { date: "2026-01-01", claims: 5 }, "earliest of a tie");
+      assert.strictEqual(h.longestStreak, 7);
+      assert.strictEqual(h.countiesCovered, 2);
+      assert.strictEqual(h.daysWithClaims, 3);
+      assert.strictEqual(h.daysSoFar, 10);
+    });
+    it("is empty-safe", () => {
+      const h = unpacked.communityHighlights({
+        year: 2026, throughDate: "2026-12-01", stats: [], boxMonarch: new Map([["p", null]]),
+        boxCounties: [], dayClaims: new Map(),
+      });
+      assert.strictEqual(h.rarestCypher, null, "plain boxes only");
+      assert.strictEqual(h.busiestDay, null);
+      assert.strictEqual(h.longestStreak, 0);
+      assert.strictEqual(h.daysSoFar, 335);
+    });
+    it("the cut-off is 18 December, the day before the recap opens", () => {
+      assert.strictEqual(unpacked.unpackedCutoff(2026), "2026-12-18");
+    });
+    it("daysFromNewYear counts inclusively", () => {
+      assert.strictEqual(unpacked.daysFromNewYear(2026, "2026-01-01"), 1);
+      assert.strictEqual(unpacked.daysFromNewYear(2026, "2026-12-31"), 365);
+      assert.strictEqual(unpacked.daysFromNewYear(2024, "2024-12-31"), 366);
+      assert.strictEqual(unpacked.daysFromNewYear(2026, "2025-12-31"), 0);
+    });
+  });
+
   describe("UnpackedAccumulator + finalizeUnpacked", () => {
     it("aggregates totals, rarest find, busiest month/day/weekday, and top county", () => {
       const acc = new unpacked.UnpackedAccumulator("u1", 2026);
@@ -6617,11 +6741,46 @@ describe("Unpacked: pure helpers", () => {
       assert.deepStrictEqual(s.busiestMonth, { month: 3, claims: 3 });
       assert.deepStrictEqual(s.busiestDay, { date: "2026-03-03", points: 11, claims: 2 });
       assert.deepStrictEqual(s.rarestFind,
-        { postboxId: "b", monarch: "VR", points: 7, dailyDate: "2026-03-03", reference: "BS1 1" });
+        { postboxId: "b", monarch: "VR", points: 7, dailyDate: "2026-03-03", reference: "BS1 1", county: "Avon" });
+      assert.deepStrictEqual(s.monthCounts, [0, 0, 3, 0, 0, 0, 1, 1, 1, 0, 0, 0]);
+      // 2 Mar Mon (2) · 3 Mar Tue (7 + 4) · 4 Jul Sat (2) · 1 Aug Sat (7) · 9 Sep Wed (2).
+      assert.deepStrictEqual(s.weekdayPoints, [2, 11, 2, 0, 0, 9, 0]);
+      assert.deepStrictEqual(s.countyBoxes, { Kent: 2, Avon: 2 });
       assert.deepStrictEqual(s.monarchCounts, { EIIR: 2, VR: 2, GR: 1, NONE: 1 });
       // Avon 2 (b, c) ties Kent 2 (a, d) → alphabetical first wins.
       assert.deepStrictEqual(s.topCounty, { name: "Avon", uniquePostboxes: 2 });
       assert.strictEqual(s.countiesVisited, 2);
+      // By claims, then points, then the earlier date.
+      assert.deepStrictEqual(s.busiestDays, [
+        { date: "2026-03-03", points: 11, claims: 2 },
+        { date: "2026-08-01", points: 7, claims: 1 },
+        { date: "2026-03-02", points: 2, claims: 1 },
+      ]);
+      // Only box "a" was claimed twice.
+      assert.deepStrictEqual(s.favouritePostboxes, [{ claims: 2, monarch: "EIIR", reference: null, county: "Kent" }]);
+      // Filled in by the builder, not here.
+      assert.deepStrictEqual(s.otherCounties, []);
+      assert.deepStrictEqual(s.friendStreaks, []);
+      assert.deepStrictEqual(s.friendAwards, []);
+      assert.deepStrictEqual(s.topScorerDays, { friends: 0, everyone: 0 });
+    });
+
+    it("ranks favourite postboxes by days claimed, then rarity, keeping at most three", () => {
+      const acc = new unpacked.UnpackedAccumulator("u1", 2026);
+      const days = (box: string, n: number, monarch?: string) => {
+        for (let i = 1; i <= n; i++) acc.add(claim(`2026-05-${String(i).padStart(2, "0")}`, box, 2, monarch));
+      };
+      days("common", 4, "EIIR");
+      days("victorian", 4, "VR"); // ties on days, rarer cypher first
+      days("george", 3, "GR");
+      days("plain", 2);
+      days("once", 1, "EVIIIR"); // claimed once: never a favourite
+      const s = unpacked.finalizeUnpacked(acc, new Map([["victorian", { reference: "BS8 102", county: "Bristol" }]]))!;
+      assert.deepStrictEqual(s.favouritePostboxes, [
+        { claims: 4, monarch: "VR", reference: "BS8 102", county: "Bristol" },
+        { claims: 4, monarch: "EIIR", reference: null, county: null },
+        { claims: 3, monarch: "GR", reference: null, county: null },
+      ]);
     });
 
     it("ignores claims from another year and returns null when nothing is left", () => {
@@ -6690,9 +6849,9 @@ describe("Unpacked: pure helpers", () => {
   describe("window + year helpers", () => {
     const w = unpacked.unpackedWindow(2026);
     it("opens 1 December and closes 15 January (inclusive)", () => {
-      assert.deepStrictEqual(w, { availableFrom: "2026-12-01", availableUntil: "2027-01-15" });
-      assert.strictEqual(unpacked.isWithinWindow("2026-11-30", w), false);
-      assert.strictEqual(unpacked.isWithinWindow("2026-12-01", w), true);
+      assert.deepStrictEqual(w, { availableFrom: "2026-12-19", availableUntil: "2027-01-15" });
+      assert.strictEqual(unpacked.isWithinWindow("2026-12-18", w), false, "the cut-off day itself is still being counted");
+      assert.strictEqual(unpacked.isWithinWindow("2026-12-19", w), true);
       assert.strictEqual(unpacked.isWithinWindow("2027-01-15", w), true);
       assert.strictEqual(unpacked.isWithinWindow("2027-01-16", w), false);
     });
@@ -6708,19 +6867,19 @@ describe("Unpacked: pure helpers", () => {
 
   describe("decideLaunchNotify", () => {
     it("fires once per year when the flag is on, the summary exists and the window is open", () => {
-      const first = unpacked.decideLaunchNotify(undefined, 2026, "2026-12-01", true, true);
+      const first = unpacked.decideLaunchNotify(undefined, 2026, "2026-12-19", true, true);
       assert.strictEqual(first.fire, true);
       assert.deepStrictEqual(first.newState, { sentYears: [2026] });
       const again = unpacked.decideLaunchNotify(first.newState, 2026, "2026-12-02", true, true);
       assert.strictEqual(again.fire, false);
     });
     it("holds off while the flag is off, the summary is missing, or outside the window", () => {
-      assert.strictEqual(unpacked.decideLaunchNotify(undefined, 2026, "2026-12-01", true, false).fire, false);
-      assert.strictEqual(unpacked.decideLaunchNotify(undefined, 2026, "2026-12-01", false, true).fire, false);
-      assert.strictEqual(unpacked.decideLaunchNotify(undefined, 2026, "2026-11-30", true, true).fire, false);
+      assert.strictEqual(unpacked.decideLaunchNotify(undefined, 2026, "2026-12-19", true, false).fire, false);
+      assert.strictEqual(unpacked.decideLaunchNotify(undefined, 2026, "2026-12-19", false, true).fire, false);
+      assert.strictEqual(unpacked.decideLaunchNotify(undefined, 2026, "2026-12-18", true, true).fire, false);
     });
     it("keeps earlier years in the sent list", () => {
-      const r = unpacked.decideLaunchNotify({ sentYears: [2026] }, 2027, "2027-12-01", true, true);
+      const r = unpacked.decideLaunchNotify({ sentYears: [2026] }, 2027, "2027-12-19", true, true);
       assert.deepStrictEqual(r, { fire: true, newState: { sentYears: [2026, 2027] } });
     });
   });
@@ -6802,7 +6961,11 @@ describe("Unpacked: pure helpers", () => {
 
 describe("Unpacked: buildUnpackedSnapshots (mock Firestore)", () => {
   type Claim = { id: string; userid: string; dailyDate: string; points: number; monarch?: string; postboxes: string };
-  function makeDb(claims: Claim[], postboxes: Record<string, Record<string, unknown>>) {
+  function makeDb(
+    claims: Claim[],
+    postboxes: Record<string, Record<string, unknown>>,
+    users: Record<string, Record<string, unknown>> = {},
+  ) {
     const writes = new Map<string, Record<string, unknown>>();
     const docRef = (path: string): Record<string, unknown> => ({
       id: path.split("/").pop(),
@@ -6838,7 +7001,7 @@ describe("Unpacked: buildUnpackedSnapshots (mock Firestore)", () => {
       },
       async getAll(...refs: Array<{ id: string; _path: string }>) {
         return refs.map((r) => {
-          const p = postboxes[r.id];
+          const p = r._path.startsWith("users/") ? users[r.id] : postboxes[r.id];
           return { id: r.id, exists: p !== undefined, data: () => p };
         });
       },
@@ -6864,6 +7027,7 @@ describe("Unpacked: buildUnpackedSnapshots (mock Firestore)", () => {
         { id: "c6", userid: "bob", dailyDate: "2026-12-02", points: 9, postboxes: "/postbox/p4" }, // after throughDate
       ],
       { p1: { county: "Bristol", reference: "BS1 1" }, p2: { county: "Bristol" } },
+      { alice: { friends: ["bob", "stranger"] }, bob: { friends: [] } },
     );
 
     const r = await buildUnpackedSnapshots(2026, db, "2026-12-01");
@@ -6875,24 +7039,67 @@ describe("Unpacked: buildUnpackedSnapshots (mock Firestore)", () => {
     assert.deepStrictEqual(alice.topCounty, { name: "Bristol", uniquePostboxes: 2 });
     assert.deepStrictEqual(alice.percentiles, { uniquePostboxes: 50, totalPoints: 50, longestStreak: 50 });
     assert.strictEqual(alice.throughDate, "2026-12-01");
+    assert.strictEqual(alice.complete, false, "an early build is the year so far");
     assert.strictEqual(alice.version, unpacked.UNPACKED_SNAPSHOT_VERSION);
     assert.ok(writes.has("unpacked/2026/players/bob"));
     assert.ok(!writes.has("unpacked/2026/players/deleted"), "anonymised claims are skipped");
+    // Bob (1-day best streak) is alice's friend with a recap; "stranger" has none.
+    assert.deepStrictEqual(alice.friendStreaks, [{ uid: "bob", days: 1 }]);
+    assert.deepStrictEqual(alice.friendAwards, [{ uid: "bob", daysActive: 1, uniquePostboxes: 1 }]);
+    // 1 April: alice and bob both scored 7, so it's a joint top for both.
+    assert.deepStrictEqual(alice.topScorerDays, { friends: 1, everyone: 1 });
+    assert.deepStrictEqual(writes.get("unpacked/2026/players/bob")!.topScorerDays, { friends: 0, everyone: 1 });
+    assert.deepStrictEqual(writes.get("unpacked/2026/players/bob")!.friendStreaks, []);
+    // Bristol is alice's home turf, so there is nothing after it.
+    assert.deepStrictEqual(alice.otherCounties, []);
 
     const summary = writes.get("unpacked/2026")!;
     assert.strictEqual(summary.players, 2);
     assert.strictEqual(summary.totalClaims, 3);
     assert.strictEqual(summary.uniquePostboxes, 2);
     assert.strictEqual(summary.topMonarch, "VR");
-    assert.strictEqual(summary.availableFrom, "2026-12-01");
+    assert.strictEqual(summary.availableFrom, "2026-12-19");
     assert.strictEqual(summary.availableUntil, "2027-01-15");
+    const h = summary.highlights as unpacked.CommunityHighlights;
+    assert.deepStrictEqual(h.rarestCypher, { monarch: "VR", boxes: 1 });
+    assert.deepStrictEqual(h.busiestDay, { date: "2026-04-01", claims: 2 });
+    assert.strictEqual(h.longestStreak, 2);
+    assert.strictEqual(h.countiesCovered, 1);
+    assert.strictEqual(h.daysWithClaims, 2, "the deleted user's claim isn't counted");
+    assert.strictEqual(h.daysSoFar, 335);
   });
 
-  it("caps the range at 31 December when run after the year ends", async () => {
-    const { db } = makeDb([], {});
+  it("lists other counties only where another player claimed too", async () => {
+    const c = (id: string, userid: string, box: string) =>
+      ({ id, userid, dailyDate: "2026-06-01", points: 2, postboxes: `/postbox/${box}` });
+    const { db, writes } = makeDb(
+      [c("1", "amy", "k1"), c("2", "amy", "k2"), c("3", "amy", "s1"), c("4", "amy", "d1"), c("5", "ben", "s2")],
+      { k1: { county: "Kent" }, k2: { county: "Kent" }, s1: { county: "Surrey" }, s2: { county: "Surrey" },
+        d1: { county: "Devon" } },
+    );
+    await buildUnpackedSnapshots(2026, db, "2026-12-01");
+    const amy = writes.get("unpacked/2026/players/amy")!;
+    assert.deepStrictEqual(amy.topCounty, { name: "Kent", uniquePostboxes: 2 });
+    // Devon is amy's alone, so only Surrey (shared with ben) is listed.
+    assert.deepStrictEqual(amy.otherCounties, [{ name: "Surrey", uniquePostboxes: 1, otherPlayers: 1 }]);
+    // Surrey is the only county with two players.
+    assert.deepStrictEqual((writes.get("unpacked/2026")!.highlights as unpacked.CommunityHighlights).sharedCounties,
+      ["Surrey"]);
+  });
+
+  it("stops counting at the last second-class posting day, however late it runs", async () => {
+    const { db, writes } = makeDb(
+      [
+        { id: "a", userid: "amy", dailyDate: "2026-12-18", points: 2, postboxes: "/postbox/p1" },
+        { id: "b", userid: "amy", dailyDate: "2026-12-19", points: 9, postboxes: "/postbox/p2" },
+      ],
+      {},
+    );
     const r = await buildUnpackedSnapshots(2026, db, "2027-01-05");
-    assert.strictEqual(r.throughDate, "2026-12-31");
-    assert.strictEqual(r.players, 0);
+    assert.strictEqual(r.throughDate, "2026-12-18");
+    const amy = writes.get("unpacked/2026/players/amy")!;
+    assert.strictEqual(amy.totalPoints, 2, "the 19 December claim is after the cut-off");
+    assert.strictEqual(amy.complete, true);
   });
 });
 

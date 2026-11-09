@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:intl/intl.dart';
 import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/unpacked/unpacked_stats.dart';
@@ -21,15 +22,17 @@ class UnpackedShareCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final n = NumberFormat.decimalPattern('en_GB');
     final rows = <(String, String)>[
-      ('Postboxes found', '${stats.uniquePostboxes}'),
-      ('Points scored', '${stats.totalPoints}'),
+      ('Postboxes found', n.format(stats.uniquePostboxes)),
+      ('Points scored', n.format(stats.totalPoints)),
       if (stats.longestStreakDays > 1)
         ('Longest streak', '${stats.longestStreakDays} days'),
       if (stats.rarestMonarch != null &&
           stats.rarestMonarch != MonarchInfo.plainKey)
         ('Rarest find', stats.rarestMonarch!),
-      if (stats.topCountyName != null) ('Top county', stats.topCountyName!),
+      if (stats.topCountyName != null)
+        ('Top county', countyDisplayName(stats.topCountyName!)),
     ];
 
     return SizedBox.fromSize(

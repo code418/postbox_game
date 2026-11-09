@@ -6,12 +6,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/james_messages.dart';
 import 'package:postbox_game/monarch_info.dart';
+import 'package:postbox_game/postman_james.dart';
 import 'package:postbox_game/remote_config_service.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/unpacked/unpacked_repository.dart';
 import 'package:postbox_game/unpacked/unpacked_screen.dart';
 import 'package:postbox_game/unpacked/unpacked_share_card.dart';
 import 'package:postbox_game/unpacked/unpacked_stats.dart';
+import 'package:postbox_game/unpacked/uk_county_map.dart';
 import 'package:postbox_game/widgets/share_card.dart' show kShareLinkUrl;
 
 // "Your Postboxes Unpacked" (December annual recap): snapshot parsing, the
@@ -76,9 +78,86 @@ Map<String, dynamic> _summary({int players = 40}) => {
       'uniquePostboxes': 610,
       'totalPoints': 2400,
       'topMonarch': 'GR',
-      'availableFrom': '2026-12-01',
+      'availableFrom': '2026-12-19',
       'availableUntil': '2027-01-15',
     };
+
+/// A snapshot with every field the builder writes, as of the review pass.
+Map<String, dynamic> _fullSnapshot() => {
+      ..._snapshot(),
+      'monarchCounts': {
+        'EIIR': 50,
+        'GR': 12,
+        'NONE': 9,
+        'GVR': 7,
+        'GVIR': 6,
+        'VR': 4,
+        'SCOTTISH_CROWN': 3,
+        'EVIIR': 2,
+        'CIIIR': 1,
+        'EVIIIR': 1,
+      },
+      'busiestDays': [
+        {'date': '2026-06-20', 'claims': 9, 'points': 38},
+        {'date': '2026-04-03', 'claims': 7, 'points': 16},
+        {'date': '2026-08-01', 'claims': 5, 'points': 22},
+      ],
+      'monthCounts': [1, 0, 2, 8, 3, 31, 4, 6, 2, 1, 0, 0],
+      'weekdayPoints': [10, 4, 0, 6, 12, 142, 30],
+      'countyBoxes': {'Bristol': 9, 'Somerset': 2},
+      'rarestFind': {
+        'postboxId': 'osm_1',
+        'monarch': 'VR',
+        'points': 7,
+        'dailyDate': '2026-04-03',
+        'reference': 'BS1 23',
+        'county': 'Bristol',
+      },
+      'otherCounties': [
+        {'name': 'Somerset', 'uniquePostboxes': 2, 'otherPlayers': 6},
+      ],
+      'favouritePostboxes': [
+        {
+          'claims': 41,
+          'monarch': 'VR',
+          'reference': 'BS8 102',
+          'county': 'Bristol'
+        },
+        {'claims': 9, 'monarch': null, 'reference': null, 'county': 'Somerset'},
+      ],
+      'friendStreaks': [
+        {'uid': 'sam', 'days': 21},
+        {'uid': 'gone', 'days': 30},
+        {'uid': 'alex', 'days': 3},
+      ],
+      'friendAwards': [
+        {'uid': 'sam', 'daysActive': 143, 'uniquePostboxes': 300},
+        {'uid': 'alex', 'daysActive': 40, 'uniquePostboxes': 90},
+      ],
+      'topScorerDays': {'friends': 12, 'everyone': 0},
+    };
+
+Map<String, dynamic> _fullSummary() => {
+      ..._summary(),
+      'uniquePostboxes': 9840,
+      'totalClaims': 15200,
+      'highlights': {
+        'countiesCovered': 63,
+        'rarestCypher': {'monarch': 'EVIIIR', 'boxes': 4},
+        'longestStreak': 87,
+        'busiestDay': {'date': '2026-06-20', 'claims': 412},
+        'daysWithClaims': 298,
+        'daysSoFar': 335,
+        'sharedCounties': ['Bristol', 'Kent'],
+      },
+    };
+
+/// The full recap, with "gone" (a deleted friend) missing from the names.
+UnpackedRecap _fullRecap({Map<String, dynamic>? stats}) => UnpackedRecap(
+      summary: UnpackedSummary.fromMap(_fullSummary(), year: 2026),
+      stats: UnpackedStats.fromMap(stats ?? _fullSnapshot(), year: 2026),
+      friendNames: const {'sam': 'Sam', 'alex': 'Alex'},
+    );
 
 UnpackedRecap _recap({Map<String, dynamic>? stats, int players = 40}) =>
     UnpackedRecap(
@@ -145,15 +224,15 @@ void main() {
 
     test('summary window is inclusive at both ends', () {
       final s = UnpackedSummary.fromMap(_summary(), year: 2026);
-      expect(s.isOpenOn('2026-11-30'), isFalse);
-      expect(s.isOpenOn('2026-12-01'), isTrue);
+      expect(s.isOpenOn('2026-12-18'), isFalse);
+      expect(s.isOpenOn('2026-12-19'), isTrue);
       expect(s.isOpenOn('2027-01-15'), isTrue);
       expect(s.isOpenOn('2027-01-16'), isFalse);
     });
 
-    test('a summary without window fields falls back to 1 Dec - 15 Jan', () {
+    test('a summary without window fields falls back to 19 Dec - 15 Jan', () {
       final s = UnpackedSummary.fromMap(const {}, year: 2026);
-      expect(s.availableFrom, '2026-12-01');
+      expect(s.availableFrom, '2026-12-19');
       expect(s.availableUntil, '2027-01-15');
     });
   });
@@ -175,7 +254,7 @@ void main() {
     UnpackedRepository repo({
       bool flag = true,
       bool admin = false,
-      String today = '2026-12-05',
+      String today = '2026-12-20',
     }) =>
         UnpackedRepository(
           firestore: db,
@@ -199,7 +278,7 @@ void main() {
     });
 
     test('hidden outside the window', () async {
-      expect(await repo(today: '2026-11-30').load('me'), isNull);
+      expect(await repo(today: '2026-12-18').load('me'), isNull);
       expect(await repo(today: '2027-01-16').load('me'), isNull);
     });
 
@@ -236,7 +315,7 @@ void main() {
         config: RemoteConfigService(
             remoteConfig: _StubRemoteConfig(unpackedEnabled: true)),
         isAdmin: () async => throw StateError('boom'),
-        today: () => '2026-12-05',
+        today: () => '2026-12-20',
       );
       expect(await r.load('me'), isNull);
     });
@@ -283,14 +362,16 @@ void main() {
           'daysActive': 1,
         },
       )).firstWhere((c) => c.id == 'totals');
-      expect(totals.headline, '1 postbox');
-      expect(totals.detail, startsWith('1 point across 1 day out and about.'));
+      expect(unpackedPlainText(totals.headline), '1 postbox');
+      expect(unpackedPlainText(totals.detail!),
+          startsWith('1 point across 1 day out and about.'));
     });
 
     test('percentile lines only appear when they flatter', () {
       final high =
           buildUnpackedCards(_recap()).firstWhere((c) => c.id == 'totals');
-      expect(high.detail, contains('More postboxes than 87% of players.'));
+      expect(unpackedPlainText(high.detail!),
+          contains('More postboxes than 87% of players.'));
 
       final low = buildUnpackedCards(_recap(
         stats: {
@@ -298,7 +379,7 @@ void main() {
           'percentiles': {'uniquePostboxes': 20}
         },
       )).firstWhere((c) => c.id == 'totals');
-      expect(low.detail, isNot(contains('%')));
+      expect(unpackedPlainText(low.detail!), isNot(contains('%')));
     });
   });
 
@@ -382,7 +463,7 @@ void main() {
               config: RemoteConfigService(
                   remoteConfig: _StubRemoteConfig(unpackedEnabled: true)),
               isAdmin: () async => false,
-              today: () => '2026-12-05',
+              today: () => '2026-12-20',
             ),
           ),
         ),
@@ -405,7 +486,7 @@ void main() {
             config: RemoteConfigService(
                 remoteConfig: _StubRemoteConfig(unpackedEnabled: true)),
             isAdmin: () async => false,
-            today: () => '2026-12-05',
+            today: () => '2026-12-20',
           ),
         ),
       ));
@@ -484,13 +565,354 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(tester.getSize(find.byType(UnpackedShareCard)),
           UnpackedShareCard.logicalSize);
-      expect(find.text('1234'), findsOneWidget);
+      expect(find.text('1,234'), findsOneWidget);
       expect(find.text('More postboxes than 87% of players'), findsOneWidget);
       // Nothing drew outside the fixed export frame.
       expect(
-          tester.getRect(find.text('1234')).bottom,
+          tester.getRect(find.text('1,234')).bottom,
           lessThanOrEqualTo(
               tester.getRect(find.byType(UnpackedShareCard)).bottom));
+    });
+  });
+
+  group('review pass: new fields', () {
+    test('parses every new snapshot and summary field', () {
+      final r = _fullRecap();
+      final s = r.stats;
+      expect(s.busiestDays.map((d) => d.date),
+          ['2026-06-20', '2026-04-03', '2026-08-01']);
+      expect(s.monthCounts, hasLength(12));
+      expect(s.weekdayPoints, [10, 4, 0, 6, 12, 142, 30]);
+      expect(s.countyBoxes, {'Bristol': 9, 'Somerset': 2});
+      expect(s.rarestCounty, 'Bristol');
+      expect(s.otherCounties.single.otherPlayers, 6);
+      expect(s.favouritePostboxes.last.monarch, MonarchInfo.plainKey);
+      expect(s.friendUids, {'sam', 'gone', 'alex'});
+      expect(s.topFriendsDays, 12);
+      expect(s.topEveryoneDays, 0);
+      final h = r.summary.highlights!;
+      expect(h.rarestCypher, 'EVIIIR');
+      expect(h.sharedCounties, ['Bristol', 'Kent']);
+    });
+
+    test('an older snapshot still parses: one busiest day, no charts', () {
+      final s = UnpackedStats.fromMap(_snapshot(), year: 2026);
+      expect(s.busiestDays.single.date, '2026-04-03');
+      expect(s.monthCounts, isEmpty);
+      expect(s.weekdayPoints, isEmpty);
+      expect(s.friendStreaks, isEmpty);
+      expect(
+          UnpackedSummary.fromMap(_summary(), year: 2026).highlights, isNull);
+    });
+
+    test('a chart field of the wrong length is ignored', () {
+      final s = UnpackedStats.fromMap({
+        ..._snapshot(),
+        'weekdayPoints': [1, 2, 3]
+      }, year: 2026);
+      expect(s.weekdayPoints, isEmpty);
+    });
+  });
+
+  group('review pass: cards', () {
+    test('a full recap tells the whole story, in order', () {
+      expect(buildUnpackedCards(_fullRecap()).map((c) => c.id), [
+        'intro',
+        'totals',
+        'rarest',
+        'monarchs',
+        'month',
+        'weekday',
+        'streak',
+        'top',
+        'county',
+        'favourite',
+        'community',
+        'award',
+        'share',
+      ]);
+    });
+
+    UnpackedCardData card(String id, [UnpackedRecap? recap]) =>
+        buildUnpackedCards(recap ?? _fullRecap()).firstWhere((c) => c.id == id);
+
+    test('counts use thousands separators', () {
+      expect(unpackedPlainText(card('community').headline), '9,840 postboxes');
+    });
+
+    test('"Together" drops the most-claimed cypher', () {
+      final c = card('community');
+      expect(unpackedPlainText(c.detail!),
+          'Found by you and 39 other players this year, across 63 counties.');
+      expect(c.detail, isNot(contains('most-claimed')));
+    });
+
+    test('the month card no longer repeats the favourite weekday', () {
+      expect(unpackedPlainText(card('month').detail!), '8 claims that month.');
+    });
+
+    test('the weekday card leads with the best day for points', () {
+      final c = card('weekday');
+      expect(c.headline, 'Saturdays');
+      expect(unpackedPlainText(c.detail!),
+          '142 points on Saturdays, more than any other day of the week.');
+    });
+
+    test('no weekday or top-scorer card without the data', () {
+      final ids = buildUnpackedCards(_recap()).map((c) => c.id);
+      expect(ids, isNot(contains('weekday')));
+      expect(ids, isNot(contains('top')));
+      expect(ids, isNot(contains('award')));
+      expect(ids, isNot(contains('favourite')));
+    });
+
+    test('the award is inaugural in 2026 and dated after', () {
+      expect(card('award').headline, 'The Inaugural\nMike H Award');
+      final later = _fullSnapshot()..['year'] = 2027;
+      final r = UnpackedRecap(
+        summary: UnpackedSummary.fromMap(_fullSummary(), year: 2027),
+        stats: UnpackedStats.fromMap(later, year: 2027),
+        friendNames: const {'sam': 'Sam'},
+      );
+      expect(card('award', r).headline, 'The 2027\nMike H Award');
+    });
+
+    test('the award needs a friend whose name loaded', () {
+      final r = UnpackedRecap(
+        summary: UnpackedSummary.fromMap(_fullSummary(), year: 2026),
+        stats: UnpackedStats.fromMap(_fullSnapshot(), year: 2026),
+      );
+      final ids = buildUnpackedCards(r).map((c) => c.id);
+      expect(ids, isNot(contains('award')));
+    });
+
+    test('the favourite postbox card names the box and where it is', () {
+      final c = card('favourite');
+      expect(c.headline, 'Box BS8 102');
+      expect(unpackedPlainText(c.detail!),
+          'Claimed on 41 days. Victoria (1837–1901), in Bristol.');
+    });
+  });
+
+  group('review pass: the guide', () {
+    test('the rarest-find line plays down a common Elizabeth II', () {
+      for (var i = 0; i < 30; i++) {
+        expect(JamesMessages.unpackedRarest('EIIR'),
+            matches(RegExp(r'\b(not|hardly)\b', caseSensitive: false)));
+      }
+    });
+
+    test('rarer cyphers get their own lines', () {
+      final common = {
+        for (var i = 0; i < 30; i++) JamesMessages.unpackedRarest('EIIR')
+      };
+      for (final m in ['VR', 'EVIIR', 'CIIIR', 'EVIIIR', 'GR']) {
+        for (var i = 0; i < 10; i++) {
+          expect(common, isNot(contains(JamesMessages.unpackedRarest(m))));
+        }
+      }
+      expect(JamesMessages.unpackedRarest('EVIIIR'), contains('Edward VIII'));
+    });
+
+    test('the new lines follow the house rules', () {
+      final lines = [
+        for (final m in ['EIIR', 'GR', 'VR', 'EVIIR', 'CIIIR', 'EVIIIR'])
+          for (var i = 0; i < 10; i++) JamesMessages.unpackedRarest(m),
+        for (final p in [0, 1, 2, 3]) JamesMessages.unpackedAward(p),
+        for (final d in [1, 9, 41]) JamesMessages.unpackedFavourite(d),
+        JamesMessages.unpackedWeekday('Saturday'),
+        JamesMessages.unpackedWeekday('Tuesday'),
+        JamesMessages.unpackedTopScorer(everyone: true),
+        JamesMessages.unpackedTopScorer(everyone: false),
+      ];
+      for (final l in lines) {
+        expect(l, isNot(contains('\u2014')), reason: l);
+        expect(l, isNot(contains('James')), reason: l);
+      }
+    });
+  });
+
+  group('review pass: friend names', () {
+    test('the repository looks names up and drops deleted friends', () async {
+      final db = FakeFirebaseFirestore();
+      await db.collection('unpacked').doc('2026').set(_fullSummary());
+      await db
+          .collection('unpacked')
+          .doc('2026')
+          .collection('players')
+          .doc('me')
+          .set(_fullSnapshot());
+      await db.collection('users').doc('sam').set({'displayName': ' Sam '});
+      await db.collection('users').doc('alex').set({'displayName': ''});
+      // "gone" has no user doc: the account was deleted.
+      final r = await UnpackedRepository(
+        firestore: db,
+        config: RemoteConfigService(
+            remoteConfig: _StubRemoteConfig(unpackedEnabled: true)),
+        isAdmin: () async => false,
+        today: () => '2026-12-20',
+      ).load('me');
+      expect(r!.friendNames, {'sam': 'Sam', 'alex': 'A friend'});
+    });
+  });
+
+  group('review pass: screen', () {
+    Future<void> pump(WidgetTester tester, UnpackedRecap recap,
+        {Size size = const Size(1080, 2340), bool reduceMotion = true}) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MediaQuery(
+        data: MediaQueryData(size: size / 3, disableAnimations: reduceMotion),
+        child: MaterialApp(
+            theme: AppTheme.light, home: UnpackedScreen(recap: recap)),
+      ));
+      await tester.pump();
+    }
+
+    Future<void> tapTo(WidgetTester tester, String text) async {
+      for (var i = 0; i < 14 && find.text(text).evaluate().isEmpty; i++) {
+        await tester.tap(find.bySemanticsLabel('Next card'));
+        await tester.pump();
+      }
+      expect(find.text(text), findsWidgets);
+    }
+
+    testWidgets('the roll-call lists every cypher, and fits a small phone',
+        (tester) async {
+      // An iPhone SE: 375 x 667.
+      await pump(tester, _fullRecap(), size: const Size(1125, 2001));
+      await tapTo(tester, 'YOUR ROYAL ROLL-CALL');
+      final guide = tester.getRect(find.byType(PostmanJames).first);
+      for (final key in _fullSnapshot()['monarchCounts'].keys) {
+        final label =
+            MonarchInfo.labels[key == 'NONE' ? MonarchInfo.plainKey : key]!;
+        expect(find.text(label), findsOneWidget, reason: label);
+        expect(tester.getRect(find.text(label)).bottom,
+            lessThanOrEqualTo(guide.top),
+            reason: '$label is hidden behind the guide');
+      }
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('streak friends and the award podium show names, not uids',
+        (tester) async {
+      await pump(tester, _fullRecap());
+      await tapTo(tester, 'YOUR LONGEST STREAK');
+      expect(find.text('Sam'), findsOneWidget);
+      expect(find.text('You'), findsOneWidget);
+      expect(find.text('gone'), findsNothing);
+      await tapTo(tester, 'AND NOW, THE AWARDS');
+      // Sam 143 days, you 15, Alex 40: you take bronze.
+      expect(find.text('GOLD'), findsOneWidget);
+      expect(find.text('BRONZE'), findsOneWidget);
+      expect(find.text('143 days'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('every card of a full recap fits in landscape', (tester) async {
+      await pump(tester, _fullRecap(), size: const Size(2340, 1080));
+      for (var i = 0; i < 12; i++) {
+        expect(tester.takeException(), isNull, reason: 'card ${i + 1}');
+        await tester.tap(find.bySemanticsLabel('Next card'));
+        await tester.pump();
+      }
+      expect(find.text('Share my year'), findsOneWidget);
+    });
+
+    testWidgets('counts run up from 0 as a card comes in', (tester) async {
+      await pump(tester, _recap(), reduceMotion: false);
+      await tester.tap(find.bySemanticsLabel('Next card'));
+      await tester.pump();
+      expect(find.text('0 postboxes'), findsOneWidget);
+      await tester.pump(const Duration(milliseconds: 1500));
+      expect(find.text('12 postboxes'), findsOneWidget);
+      // Leave nothing running.
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('reduced motion shows the final numbers at once',
+        (tester) async {
+      await pump(tester, _recap());
+      await tester.tap(find.bySemanticsLabel('Next card'));
+      await tester.pump();
+      expect(find.text('12 postboxes'), findsOneWidget);
+    });
+  });
+
+  group('county names', () {
+    test('the cards drop the ONS "City of" / "County of" tail', () {
+      expect(countyDisplayName('Bristol, City of'), 'Bristol');
+      expect(countyDisplayName('Kingston upon Hull, City of'),
+          'Kingston upon Hull');
+      expect(countyDisplayName('Herefordshire, County of'), 'Herefordshire');
+      expect(countyDisplayName('City of Edinburgh'), 'City of Edinburgh');
+      expect(countyDisplayName('Newry, Mourne and Down'),
+          'Newry, Mourne and Down');
+    });
+  });
+
+  group('UkCountyMap', () {
+    test('county names match whatever their punctuation', () {
+      expect(countyKey('Bristol, City of'), 'bristol-city-of');
+      expect(countyKey('  Kingston upon Hull, City of '),
+          'kingston-upon-hull-city-of');
+    });
+  });
+
+  group('review pass: the Christmas post', () {
+    final summary = UnpackedSummary.fromMap(_summary(), year: 2026);
+
+    test('the cut-off is the eve of the window opening', () {
+      expect(
+          unpackedChristmasPost('2026-11-25', summary), ChristmasPost.before);
+      expect(
+          unpackedChristmasPost('2026-12-18', summary), ChristmasPost.before);
+      expect(unpackedChristmasPost('2026-12-19', summary),
+          ChristmasPost.firstClass);
+      expect(unpackedChristmasPost('2026-12-22', summary),
+          ChristmasPost.firstClass);
+      expect(unpackedChristmasPost('2026-12-23', summary),
+          ChristmasPost.lastMinute);
+      expect(unpackedChristmasPost('2026-12-24', summary),
+          ChristmasPost.lastMinute);
+      expect(unpackedChristmasPost('2026-12-25', summary), ChristmasPost.after);
+      expect(unpackedChristmasPost('2027-01-10', summary), ChristmasPost.after);
+    });
+
+    UnpackedCardData intro(String today, {bool complete = true}) =>
+        buildUnpackedCards(
+          _recap(stats: {
+            ..._snapshot(),
+            'throughDate': complete ? '2026-12-18' : '2026-11-20',
+            'complete': complete,
+          }),
+          today: today,
+        ).first;
+
+    test('the final recap says what it counts', () {
+      expect(
+          intro('2026-12-20').detail,
+          'Your year up to Friday 18 December, the last day for second-class '
+          'Christmas post.');
+      expect(intro('2026-11-20', complete: false).detail,
+          'Your year so far, up to 20 November.');
+    });
+
+    test('the guide hurries the Christmas cards along, then stops', () {
+      expect(intro('2026-12-20').james, contains('first-class stamp'));
+      expect(intro('2026-12-24').james, contains('hand-deliver'));
+      expect(intro('2026-11-20', complete: false).james,
+          contains('Friday 18 December'));
+      expect(intro('2026-12-28').james, isNot(contains('Christmas')));
+      for (final d in [
+        '2026-11-20',
+        '2026-12-20',
+        '2026-12-24',
+        '2026-12-28'
+      ]) {
+        expect(intro(d).james, isNot(contains('\u2014')));
+      }
     });
   });
 }

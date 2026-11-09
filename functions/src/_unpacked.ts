@@ -12,6 +12,8 @@
  * retroactive cypher corrections.
  */
 
+import { pointsForMonarch } from "./_getPoints";
+
 /** First year the feature shipped. Account deletion erases every year from
  *  here to the current one. */
 export const FIRST_UNPACKED_YEAR = 2026;
@@ -25,8 +27,24 @@ export function unpackedYearsToErase(todayLondon: string): number[] {
 }
 
 /** Bumped whenever the snapshot shape changes incompatibly, so an old client
- *  can tell a newer snapshot apart (it renders what it understands). */
+ *  can tell a newer snapshot apart (it renders what it understands). Adding
+ *  a field (as `busiestDays` was) is compatible and needs no bump. */
 export const UNPACKED_SNAPSHOT_VERSION = 1;
+
+/** How many days the "Busiest days" list keeps. */
+export const BUSIEST_DAYS_LIMIT = 3;
+
+/** How many friends the "Longest streak" comparison lists. */
+export const FRIEND_STREAKS_LIMIT = 5;
+
+/** How many counties "Home turf" lists after the top one. */
+export const OTHER_COUNTIES_LIMIT = 3;
+
+/** How many friends the award podium considers (the player makes a 4th). */
+export const FRIEND_AWARDS_LIMIT = 3;
+
+/** How many boxes "Your favourite postbox" lists. */
+export const FAVOURITE_POSTBOXES_LIMIT = 3;
 
 /** The subset of a claim doc the recap reads. */
 export interface UnpackedClaim {
@@ -44,6 +62,9 @@ export interface PostboxMeta {
 
 export interface UnpackedStats {
   year: number;
+  /** True when the build counted all the way to [unpackedCutoff]; false for
+   *  an early (pre-cut-off) admin build. Set by the builder. */
+  complete?: boolean;
   totalClaims: number;
   uniquePostboxes: number;
   totalPoints: number;
@@ -55,13 +76,22 @@ export interface UnpackedStats {
   busiestMonth: { month: number; claims: number };
   /** 1 = Monday … 7 = Sunday (ISO). Ties go to the earlier weekday. */
   favouriteWeekday: { weekday: number; claims: number };
+  /** Claims per month, January first (12 entries). */
+  monthCounts: number[];
+  /** Points per weekday, Monday first (7 entries). */
+  weekdayPoints: number[];
   busiestDay: { date: string; points: number; claims: number };
+  /** The year's top days by claims (then points, then the earlier date),
+   *  at most [BUSIEST_DAYS_LIMIT]. Unlike [busiestDay] (most points), this
+   *  ranks by how many boxes were claimed. */
+  busiestDays: Array<{ date: string; points: number; claims: number }>;
   rarestFind: {
     postboxId: string;
     monarch: string | null;
     points: number;
     dailyDate: string;
     reference: string | null;
+    county: string | null;
   };
   /** Claims per cypher; plain/unknown boxes are counted under "NONE". */
   monarchCounts: Record<string, number>;
@@ -69,6 +99,33 @@ export interface UnpackedStats {
    *  carries a county. Ties go to the alphabetically first county. */
   topCounty: { name: string; uniquePostboxes: number } | null;
   countiesVisited: number;
+  /** Distinct boxes per county the player claimed in (for the map). */
+  countyBoxes: Record<string, number>;
+  /** The boxes claimed on the most days (each at least 2), most first; ties
+   *  go to the rarer cypher, then the postbox id. Empty when no box was
+   *  claimed twice. */
+  favouritePostboxes: Array<{
+    claims: number;
+    monarch: string | null;
+    reference: string | null;
+    county: string | null;
+  }>;
+  /** The player's next-best counties after [topCounty], by distinct boxes,
+   *  limited to counties where at least one other player also claimed.
+   *  Filled in by the builder once every player is known. */
+  otherCounties: Array<{ name: string; uniquePostboxes: number; otherPlayers: number }>;
+  /** Friends' best streaks of the year, longest first (uids only; the app
+   *  looks the names up, so a deleted friend drops out). Filled in by the
+   *  builder. */
+  friendStreaks: Array<{ uid: string; days: number }>;
+  /** The award podium's friends: the top friends by days out hunting (then
+   *  boxes found), at most [FRIEND_AWARDS_LIMIT]. Uids only, like
+   *  [friendStreaks]. Filled in by the builder. */
+  friendAwards: Array<{ uid: string; daysActive: number; uniquePostboxes: number }>;
+  /** Days the player scored the most points (or tied for the most), among
+   *  their friends and among every player. A day counts only when someone
+   *  else in that group also scored. Filled in by the builder. */
+  topScorerDays: { friends: number; everyone: number };
   /** Share of players (0–99) this player strictly beat. Filled in once every
    *  player has been finalised. */
   percentiles: { uniquePostboxes: number; totalPoints: number; longestStreak: number };
@@ -135,7 +192,10 @@ export class UnpackedAccumulator {
   readonly monarchCounts: Record<string, number> = {};
   readonly monthCounts = new Array<number>(12).fill(0);
   readonly weekdayCounts = new Array<number>(7).fill(0);
+  readonly weekdayPoints = new Array<number>(7).fill(0);
   readonly dayTotals = new Map<string, { points: number; claims: number }>();
+  /** Claims (days) per postbox, with the box's cypher. */
+  readonly boxClaims = new Map<string, { claims: number; monarch: string | null }>();
   rarest: { postboxId: string; monarch: string | null; points: number; dailyDate: string } | null = null;
 
   constructor(readonly uid: string, readonly year: number) {}
@@ -154,10 +214,15 @@ export class UnpackedAccumulator {
     const month = parseInt(c.dailyDate.slice(5, 7), 10);
     if (month >= 1 && month <= 12) this.monthCounts[month - 1]++;
     this.weekdayCounts[isoWeekday(c.dailyDate) - 1]++;
+    this.weekdayPoints[isoWeekday(c.dailyDate) - 1] += points;
     const day = this.dayTotals.get(c.dailyDate) ?? { points: 0, claims: 0 };
     day.points += points;
     day.claims++;
     this.dayTotals.set(c.dailyDate, day);
+    const box = this.boxClaims.get(c.postboxId) ?? { claims: 0, monarch: null };
+    box.claims++;
+    if (box.monarch === null && monarchKey !== "NONE") box.monarch = monarchKey;
+    this.boxClaims.set(c.postboxId, box);
 
     // Rarest = most points; the EARLIEST such claim wins a tie (then postbox
     // id, so the result never depends on query order).
@@ -178,6 +243,22 @@ export class UnpackedAccumulator {
   }
 }
 
+/** Distinct claimed boxes per county for one player (boxes without a county
+ *  are left out). */
+export function countyCounts(
+  postboxes: Iterable<string>,
+  meta: ReadonlyMap<string, PostboxMeta>,
+): Map<string, number> {
+  const perCounty = new Map<string, number>();
+  for (const id of postboxes) {
+    const county = meta.get(id)?.county;
+    if (typeof county === "string" && county.length > 0) {
+      perCounty.set(county, (perCounty.get(county) ?? 0) + 1);
+    }
+  }
+  return perCounty;
+}
+
 /**
  * Turns an accumulator into the stored snapshot. Returns null for a player
  * with no claims in the year (nothing to unpack). Percentiles are zeroed here
@@ -195,22 +276,37 @@ export function finalizeUnpacked(
     const t = acc.dayTotals.get(date)!;
     if (t.points > busiestDay.points) busiestDay = { date, points: t.points, claims: t.claims };
   }
+  const busiestDays = sortedDays
+    .map((date) => ({ date, ...acc.dayTotals.get(date)! }))
+    .sort((a, b) => b.claims - a.claims || b.points - a.points || a.date.localeCompare(b.date))
+    .slice(0, BUSIEST_DAYS_LIMIT)
+    .map(({ date, points, claims }) => ({ date, points, claims }));
 
-  const perCounty = new Map<string, number>();
-  for (const id of acc.postboxes) {
-    const county = meta.get(id)?.county;
-    if (typeof county === "string" && county.length > 0) {
-      perCounty.set(county, (perCounty.get(county) ?? 0) + 1);
-    }
-  }
+  const perCounty = countyCounts(acc.postboxes, meta);
   let topCounty: UnpackedStats["topCounty"] = null;
   for (const [name, n] of [...perCounty.entries()].sort(([a], [b]) => a.localeCompare(b))) {
     if (topCounty === null || n > topCounty.uniquePostboxes) topCounty = { name, uniquePostboxes: n };
   }
 
+  const favouritePostboxes = [...acc.boxClaims.entries()]
+    .filter(([, b]) => b.claims >= 2)
+    .sort(([idA, a], [idB, b]) =>
+      b.claims - a.claims || pointsForMonarch(b.monarch) - pointsForMonarch(a.monarch) || idA.localeCompare(idB))
+    .slice(0, FAVOURITE_POSTBOXES_LIMIT)
+    .map(([id, b]) => {
+      const m = meta.get(id);
+      return {
+        claims: b.claims,
+        monarch: b.monarch,
+        reference: typeof m?.reference === "string" && m.reference.length > 0 ? m.reference : null,
+        county: typeof m?.county === "string" && m.county.length > 0 ? m.county : null,
+      };
+    });
+
   const month = argMax(acc.monthCounts);
   const weekday = argMax(acc.weekdayCounts);
   const ref = meta.get(acc.rarest.postboxId)?.reference;
+  const rarestCounty = meta.get(acc.rarest.postboxId)?.county;
 
   return {
     year: acc.year,
@@ -223,12 +319,227 @@ export function finalizeUnpacked(
     longestStreak: longestStreak(sortedDays),
     busiestMonth: { month: month + 1, claims: acc.monthCounts[month] },
     favouriteWeekday: { weekday: weekday + 1, claims: acc.weekdayCounts[weekday] },
+    monthCounts: [...acc.monthCounts],
+    weekdayPoints: [...acc.weekdayPoints],
     busiestDay,
-    rarestFind: { ...acc.rarest, reference: typeof ref === "string" && ref.length > 0 ? ref : null },
+    busiestDays,
+    rarestFind: {
+      ...acc.rarest,
+      reference: typeof ref === "string" && ref.length > 0 ? ref : null,
+      county: typeof rarestCounty === "string" && rarestCounty.length > 0 ? rarestCounty : null,
+    },
     monarchCounts: { ...acc.monarchCounts },
     topCounty,
     countiesVisited: perCounty.size,
+    countyBoxes: Object.fromEntries(perCounty),
+    favouritePostboxes,
+    otherCounties: [],
+    friendStreaks: [],
+    friendAwards: [],
+    topScorerDays: { friends: 0, everyone: 0 },
     percentiles: { uniquePostboxes: 0, totalPoints: 0, longestStreak: 0 },
+  };
+}
+
+/**
+ * "Home turf"'s other counties: the player's best counties after [home], by
+ * distinct boxes (ties alphabetical), keeping only counties where at least
+ * one other player claimed too, so no listed area is the player's alone.
+ * [playersByCounty] counts every player with a box in each county.
+ */
+export function otherCountiesFor(
+  counts: ReadonlyMap<string, number>,
+  home: string | null,
+  playersByCounty: ReadonlyMap<string, number>,
+  limit = OTHER_COUNTIES_LIMIT,
+): UnpackedStats["otherCounties"] {
+  return [...counts.entries()]
+    .filter(([name]) => name !== home && (playersByCounty.get(name) ?? 0) >= 2)
+    .sort(([a, n], [b, m]) => m - n || a.localeCompare(b))
+    .slice(0, limit)
+    .map(([name, n]) => ({ name, uniquePostboxes: n, otherPlayers: (playersByCounty.get(name) ?? 1) - 1 }));
+}
+
+/**
+ * The friends shown on "Longest streak": each of [friends] (a `users` doc's
+ * `friends` array, untrusted) who has a recap this year, with their best
+ * streak, longest first (ties by uid, so the order is stable). The player
+ * and duplicates are skipped.
+ */
+export function friendStreaksFor(
+  uid: string,
+  friends: unknown,
+  streakByUid: ReadonlyMap<string, number>,
+  limit = FRIEND_STREAKS_LIMIT,
+): UnpackedStats["friendStreaks"] {
+  if (!Array.isArray(friends)) return [];
+  const seen = new Set<string>();
+  const out: UnpackedStats["friendStreaks"] = [];
+  for (const f of friends) {
+    if (typeof f !== "string" || f === uid || seen.has(f)) continue;
+    seen.add(f);
+    const days = streakByUid.get(f);
+    if (days !== undefined && days >= 1) out.push({ uid: f, days });
+  }
+  return out.sort((a, b) => b.days - a.days || a.uid.localeCompare(b.uid)).slice(0, limit);
+}
+
+/** The friend candidates for the award podium: each of [friends] with a
+ *  recap this year, ranked by days out hunting, then boxes found, then uid.
+ *  The player and duplicates are skipped. */
+export function friendAwardsFor(
+  uid: string,
+  friends: unknown,
+  statsByUid: ReadonlyMap<string, Pick<UnpackedStats, "daysActive" | "uniquePostboxes">>,
+  limit = FRIEND_AWARDS_LIMIT,
+): UnpackedStats["friendAwards"] {
+  if (!Array.isArray(friends)) return [];
+  const seen = new Set<string>();
+  const out: UnpackedStats["friendAwards"] = [];
+  for (const f of friends) {
+    if (typeof f !== "string" || f === uid || seen.has(f)) continue;
+    seen.add(f);
+    const st = statsByUid.get(f);
+    if (st && st.daysActive > 0) out.push({ uid: f, daysActive: st.daysActive, uniquePostboxes: st.uniquePostboxes });
+  }
+  return out
+    .sort((a, b) => b.daysActive - a.daysActive || b.uniquePostboxes - a.uniquePostboxes || a.uid.localeCompare(b.uid))
+    .slice(0, limit);
+}
+
+/** Per day: the best score, how many players had it, the best score below
+ *  it, and how many players scored at all. Built once over every player. */
+export interface DayLeaders {
+  best: number;
+  bestCount: number;
+  second: number;
+  scorers: number;
+}
+
+export function dayLeaders(
+  players: Iterable<ReadonlyMap<string, { points: number }>>,
+): Map<string, DayLeaders> {
+  const out = new Map<string, DayLeaders>();
+  for (const days of players) {
+    for (const [date, { points }] of days) {
+      if (points <= 0) continue;
+      const d = out.get(date) ?? { best: 0, bestCount: 0, second: 0, scorers: 0 };
+      d.scorers++;
+      if (points > d.best) {
+        d.second = d.best;
+        d.best = points;
+        d.bestCount = 1;
+      } else if (points === d.best) {
+        d.bestCount++;
+      } else if (points > d.second) {
+        d.second = points;
+      }
+      out.set(date, d);
+    }
+  }
+  return out;
+}
+
+/** Days [mine] was top (or joint top) of every player, given [leaders]. A
+ *  day counts only when another player also scored. */
+export function topOfEveryoneDays(
+  mine: ReadonlyMap<string, { points: number }>,
+  leaders: ReadonlyMap<string, DayLeaders>,
+): number {
+  let n = 0;
+  for (const [date, { points }] of mine) {
+    const d = leaders.get(date);
+    if (points <= 0 || !d || d.scorers < 2) continue;
+    const othersBest = points === d.best ? (d.bestCount > 1 ? d.best : d.second) : d.best;
+    if (points >= othersBest) n++;
+  }
+  return n;
+}
+
+/** Days [mine] was top (or joint top) of the player's [friends] (their
+ *  per-day totals). A day counts only when a friend also scored. */
+export function topOfFriendsDays(
+  mine: ReadonlyMap<string, { points: number }>,
+  friends: ReadonlyArray<ReadonlyMap<string, { points: number }>>,
+): number {
+  let n = 0;
+  for (const [date, { points }] of mine) {
+    if (points <= 0) continue;
+    let best = 0;
+    for (const f of friends) best = Math.max(best, f.get(date)?.points ?? 0);
+    if (best > 0 && points >= best) n++;
+  }
+  return n;
+}
+
+/** Anonymous community-wide figures for the "Together" card. */
+export interface CommunityHighlights {
+  /** Counties with at least one claimed box. */
+  countiesCovered: number;
+  /** The rarest cypher anyone found (by its points value; ties go to the
+   *  one with fewer boxes, then alphabetical), with how many distinct boxes
+   *  of it were found. Null when only plain boxes were claimed. */
+  rarestCypher: { monarch: string; boxes: number } | null;
+  /** The best streak any player managed. Nobody is named. */
+  longestStreak: number;
+  /** The day with the most claims across everyone (earliest on a tie). */
+  busiestDay: { date: string; claims: number } | null;
+  /** Days with at least one claim, out of the days counted so far. */
+  daysWithClaims: number;
+  daysSoFar: number;
+  /** Counties where at least two players claimed, alphabetical (for the
+   *  map; a county with a single player is left off). Filled in by the
+   *  builder. */
+  sharedCounties: string[];
+}
+
+/** Inclusive count of days from 1 January of [year] to [through]. */
+export function daysFromNewYear(year: number, through: string): number {
+  const start = Date.UTC(year, 0, 1);
+  const end = Date.parse(through + "T00:00:00Z");
+  return Number.isFinite(end) && end >= start ? Math.round((end - start) / 86_400_000) + 1 : 0;
+}
+
+/**
+ * Builds the community highlights. [boxMonarch] maps every claimed box to
+ * its cypher (null for plain), [boxCounties] lists each claimed box's
+ * county where known, and [dayClaims] counts everyone's claims per day.
+ */
+export function communityHighlights(input: {
+  year: number;
+  throughDate: string;
+  stats: readonly UnpackedStats[];
+  boxMonarch: ReadonlyMap<string, string | null>;
+  boxCounties: Iterable<string>;
+  dayClaims: ReadonlyMap<string, number>;
+}): CommunityHighlights {
+  const cypherBoxes = new Map<string, number>();
+  for (const m of input.boxMonarch.values()) {
+    if (m) cypherBoxes.set(m, (cypherBoxes.get(m) ?? 0) + 1);
+  }
+  let rarestCypher: CommunityHighlights["rarestCypher"] = null;
+  for (const [monarch, boxes] of [...cypherBoxes.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+    const r = rarestCypher;
+    const p = pointsForMonarch(monarch);
+    if (r === null || p > pointsForMonarch(r.monarch) ||
+      (p === pointsForMonarch(r.monarch) && boxes < r.boxes)) {
+      rarestCypher = { monarch, boxes };
+    }
+  }
+
+  let busiestDay: CommunityHighlights["busiestDay"] = null;
+  for (const [date, claims] of [...input.dayClaims.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+    if (busiestDay === null || claims > busiestDay.claims) busiestDay = { date, claims };
+  }
+
+  return {
+    countiesCovered: new Set(input.boxCounties).size,
+    rarestCypher,
+    longestStreak: input.stats.reduce((best, s) => Math.max(best, s.longestStreak.days), 0),
+    busiestDay,
+    daysWithClaims: input.dayClaims.size,
+    daysSoFar: daysFromNewYear(input.year, input.throughDate),
+    sharedCounties: [],
   };
 }
 
@@ -301,9 +612,17 @@ export interface UnpackedWindow {
   availableUntil: string; // inclusive London date
 }
 
-/** The recap for [year] is open from 1 December to 15 January (London). */
+/** The last day the recap for [year] counts: Royal Mail's last recommended
+ *  second-class posting date before Christmas (Friday 18 December in 2026).
+ *  Check Royal Mail's published dates each year. */
+export function unpackedCutoff(year: number): string {
+  return `${year}-12-18`;
+}
+
+/** The recap for [year] opens the day after [unpackedCutoff] (19 December),
+ *  once that day's claims are in, and closes on 15 January (London). */
 export function unpackedWindow(year: number): UnpackedWindow {
-  return { availableFrom: `${year}-12-01`, availableUntil: `${year + 1}-01-15` };
+  return { availableFrom: `${year}-12-19`, availableUntil: `${year + 1}-01-15` };
 }
 
 export function isWithinWindow(todayLondon: string, w: UnpackedWindow): boolean {

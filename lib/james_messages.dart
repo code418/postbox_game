@@ -472,8 +472,30 @@ abstract final class JamesMessages {
   static String unpackedNudge(int year) =>
       "Psst... your $year Postboxes Unpacked is ready. Have a look in the menu, top right!";
 
-  static String unpackedIntro(int year) =>
-      "Right then. Kettle's on. Let's unpack your $year, shall we?";
+  /// The recap's opening line. Around Christmas it nudges the player to get
+  /// their friends' Christmas cards posted while there's still time:
+  /// [christmas] says where the posting dates are (see
+  /// `unpackedChristmasPost`), and [lastSecondClass] names the last
+  /// second-class day, e.g. "Friday 18 December".
+  static String unpackedIntro(
+    int year, {
+    ChristmasPost christmas = ChristmasPost.after,
+    String lastSecondClass = 'Friday 18 December',
+  }) =>
+      switch (christmas) {
+        ChristmasPost.before =>
+          "Last second-class post for Christmas is $lastSecondClass, so "
+              "get those cards to your friends written! Now, let's unpack your $year.",
+        ChristmasPost.firstClass =>
+          "Second-class post has been and gone, so any Christmas cards for "
+              "your friends still on the mantelpiece need a first-class stamp. "
+              "Chop chop! Now, let's unpack your $year.",
+        ChristmasPost.lastMinute =>
+          "Cutting it fine for Christmas cards now... I'd hand-deliver them, "
+              "if I were you. Right, let's unpack your $year.",
+        ChristmasPost.after =>
+          "Right then. Kettle's on. Let's unpack your $year, shall we?",
+      };
 
   static String unpackedTotals(int boxes) => boxes >= 100
       ? "$boxes postboxes! Royal Mail ought to put you on the payroll."
@@ -481,12 +503,67 @@ abstract final class JamesMessages {
           ? "$boxes postboxes. That's a proper round, that is."
           : "$boxes postboxes. Every one a little red friend.";
 
-  static const unpackedRarest = JamesMessage(
-    'jamesUnpackedRarest',
+  /// The "Rarest find" line, matched to how rare the cypher really is: the
+  /// player's best find of the year can still be a common Elizabeth II, and
+  /// the line plays that down rather than calling it rare.
+  static String unpackedRarest(String monarch) => switch (monarch) {
+        'EIIR' => _unpackedRarestCommon.resolve(),
+        'VR' => _unpackedRarestVictorian.resolve(),
+        'EVIIR' => _unpackedRarestEdwardian.resolve(),
+        'CIIIR' => _unpackedRarestCharles.resolve(),
+        'EVIIIR' => _unpackedRarestEdwardVIII.resolve(),
+        // The Georges and the Scottish Crown.
+        _ => _unpackedRarestUncommon.resolve(),
+      };
+
+  static const _unpackedRarestCommon = JamesMessage(
+    'jamesUnpackedRarestCommon',
     [
-      "Now THAT one I'd have framed.",
+      "Elizabeth II, eh? Not exactly rare... there's one on every other "
+          "corner. Find me something older next year!",
+      "Not the rarest of the rare, I'll grant you. Her late Majesty is on "
+          "half the postboxes in the land.",
+      "A fine box, but hardly a rarity. Next year, hunt down a Victorian!",
+    ],
+  );
+
+  static const _unpackedRarestUncommon = JamesMessage(
+    'jamesUnpackedRarestUncommon',
+    [
+      "A cut above the usual, that. Not every street has one.",
+      "Getting warmer! A proper bit of history, that one.",
+    ],
+  );
+
+  static const _unpackedRarestVictorian = JamesMessage(
+    'jamesUnpackedRarestVictorian',
+    [
+      "A Victorian! Now THAT one I'd have framed.",
       "Ooh, a proper antique. Mind the paintwork.",
-      "Rare as a second-class stamp arriving on time.",
+    ],
+  );
+
+  static const _unpackedRarestEdwardian = JamesMessage(
+    'jamesUnpackedRarestEdwardian',
+    [
+      "Edward VII? Rare as a second-class stamp arriving on time.",
+      "Edwardian! They don't make them like that any more. Literally.",
+    ],
+  );
+
+  static const _unpackedRarestCharles = JamesMessage(
+    'jamesUnpackedRarestCharles',
+    [
+      "A Charles III! Fresh paint and everything. There aren't many of "
+          "those about yet.",
+    ],
+  );
+
+  static const _unpackedRarestEdwardVIII = JamesMessage(
+    'jamesUnpackedRarestEdwardVIII',
+    [
+      "Edward VIII! He was king for less than a year, so his boxes are as "
+          "rare as they come. Frame it!",
     ],
   );
 
@@ -504,6 +581,31 @@ abstract final class JamesMessages {
   static String unpackedStreak(int days) => days >= 7
       ? "$days days on the trot. I've had holidays shorter than that."
       : "$days days running. Not bad... next year, a fortnight?";
+
+  static String unpackedWeekday(String day) =>
+      day == 'Saturday' || day == 'Sunday'
+          ? "${day}s! The postboxes don't get a day off, and neither do you."
+          : "${day}s, eh? Taking the long way round to work, I'll bet.";
+
+  static String unpackedTopScorer({required bool everyone}) => everyone
+      ? "Top of the whole lot! Somebody fetch the bunting."
+      : "Top of the pile among your friends. Don't let it go to your head.";
+
+  /// The award card, by the player's place (0 = gold).
+  static String unpackedAward(int place) => switch (place) {
+        0 => "Gold! I'd shake your hand, but mine are full of letters.",
+        1 =>
+          "Silver. Very respectable. Someone out there walks even more than you, mind.",
+        2 => "Bronze! On the podium, and that's what counts.",
+        _ =>
+          "Not on the podium this year. Plenty of postboxes out there, though... chop chop!",
+      };
+
+  static String unpackedFavourite(int days) => days >= 20
+      ? "$days visits! At this point you two should move in together."
+      : days >= 5
+          ? "$days visits. Good, reliable box, that. Never lets you down."
+          : "$days visits. Early days, but I can see where this is going.";
 
   static String unpackedCounty(String county) =>
       "$county! You practically own the place now.";
@@ -547,4 +649,20 @@ abstract final class JamesMessages {
     'jamesIntroStep3',
     ['Do you know what I see?'],
   );
+}
+
+/// Where today sits against the Christmas posting dates, for
+/// [JamesMessages.unpackedIntro].
+enum ChristmasPost {
+  /// On or before the last second-class day.
+  before,
+
+  /// After it, until 22 December: first class is the way now.
+  firstClass,
+
+  /// 23 and 24 December.
+  lastMinute,
+
+  /// Christmas Day onwards (and the rest of the year).
+  after,
 }

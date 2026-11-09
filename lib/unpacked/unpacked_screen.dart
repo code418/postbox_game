@@ -3,15 +3,19 @@ import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:intl/intl.dart';
 import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/james_messages.dart';
+import 'package:postbox_game/london_date.dart';
 import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/postman_james.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/unpacked/unpacked_repository.dart';
 import 'package:postbox_game/unpacked/unpacked_share_card.dart';
 import 'package:postbox_game/unpacked/unpacked_stats.dart';
+import 'package:postbox_game/unpacked/uk_county_map.dart';
 import 'package:postbox_game/widgets/share_card.dart'
     show kShareLinkUrl, renderShareCardPng;
 import 'package:share_plus/share_plus.dart';
@@ -27,6 +31,7 @@ class UnpackedCardData {
     this.detail,
     this.james,
     this.body,
+    this.decoration,
   });
 
   final String id;
@@ -36,11 +41,40 @@ class UnpackedCardData {
   final String? detail;
   final String? james;
   final Widget? body;
+
+  /// Fills the space left under the text (a map, or a faint illustration).
+  /// Dropped when the text leaves too little room for it.
+  final Widget? decoration;
 }
 
-String _pct(int p, String what) => 'More $what than $p% of players.';
+String _pct(int p, String what) => 'More $what than ${_n(p)}% of players.';
 
-String _plural(int n, String one, String many) => '$n ${n == 1 ? one : many}';
+final NumberFormat _grouped = NumberFormat.decimalPattern('en_GB');
+
+/// [v] with thousands separators: 9,840.
+String _fmt(int v) => _grouped.format(v);
+
+// Card text marks each count it shows, so the count can run up from 0 as
+// the card comes in ([_CountUpText]) while years, dates and box references
+// stay put. A mark is the number between two private-use characters.
+const String _numOpen = '\uE000';
+const String _numClose = '\uE001';
+final RegExp _numMark = RegExp('$_numOpen(-?\\d+)$_numClose');
+
+/// A count in card text: shown as [v] with thousands separators, and
+/// animated up from 0 when the card appears.
+String _n(int v) => '$_numOpen$v$_numClose';
+
+/// Card text with each count at [t] (0–1) of its value.
+String _countUp(String text, double t) => text.replaceAllMapped(
+    _numMark, (m) => _fmt((int.parse(m[1]!) * t).round()));
+
+/// Card text as it finally reads, for tests and screen readers.
+@visibleForTesting
+String unpackedPlainText(String text) => _countUp(text, 1);
+
+String _plural(int n, String one, String many) =>
+    '${_n(n)} ${n == 1 ? one : many}';
 
 /// The text that travels with the shared image. Like every other share card
 /// it carries the generic, campaign-tagged [kShareLinkUrl] rather than the
@@ -52,7 +86,33 @@ String unpackedShareText(int year) =>
 
 /// The ordered story for [recap]. Pure (aside from James's random variants)
 /// so tests can assert which cards appear for a given snapshot.
-List<UnpackedCardData> buildUnpackedCards(UnpackedRecap recap) {
+/// Where [today] sits against [year]'s Christmas posting dates. The last
+/// second-class day is the eve of the recap's window opening.
+@visibleForTesting
+ChristmasPost unpackedChristmasPost(String today, UnpackedSummary summary) {
+  final opens = DateTime.tryParse(summary.availableFrom);
+  if (opens == null) return ChristmasPost.after;
+  final y = opens.year;
+  final cutoff = _ymd(opens.subtract(const Duration(days: 1)));
+  if (today.compareTo('$y-10-01') >= 0 && today.compareTo(cutoff) <= 0) {
+    return ChristmasPost.before;
+  }
+  if (today.compareTo(cutoff) > 0 && today.compareTo('$y-12-22') <= 0) {
+    return ChristmasPost.firstClass;
+  }
+  if (today == '$y-12-23' || today == '$y-12-24') {
+    return ChristmasPost.lastMinute;
+  }
+  return ChristmasPost.after;
+}
+
+String _ymd(DateTime d) =>
+    '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+/// The ordered story for [recap]. [today] (London, "YYYY-MM-DD") picks the
+/// guide's Christmas-post line; it defaults to the real date.
+List<UnpackedCardData> buildUnpackedCards(UnpackedRecap recap,
+    {String? today}) {
   final s = recap.stats;
   final sum = recap.summary;
   final cards = <UnpackedCardData>[
@@ -63,8 +123,21 @@ List<UnpackedCardData> buildUnpackedCards(UnpackedRecap recap) {
       headline: 'Your ${s.year}\nPostboxes\nUnpacked',
       detail: s.throughDate == null
           ? null
-          : 'Your year so far, up to ${_prettyDate(s.throughDate!)}.',
-      james: JamesMessages.unpackedIntro(s.year),
+          : s.complete
+              ? 'Your year up to ${_longDate(s.throughDate!)}, the last day '
+                  'for second-class Christmas post.'
+              : 'Your year so far, up to ${_prettyDate(s.throughDate!)}.',
+      james: JamesMessages.unpackedIntro(
+        s.year,
+        christmas: unpackedChristmasPost(today ?? todayLondon(), sum),
+        lastSecondClass: () {
+          final opens = DateTime.tryParse(sum.availableFrom);
+          return opens == null
+              ? 'Friday 18 December'
+              : _longDate(_ymd(opens.subtract(const Duration(days: 1))));
+        }(),
+      ),
+      decoration: const _Watermark.svg('assets/postbox.svg'),
     ),
     UnpackedCardData(
       id: 'totals',
@@ -77,6 +150,10 @@ List<UnpackedCardData> buildUnpackedCards(UnpackedRecap recap) {
         if (s.percentileBoxes >= 50) _pct(s.percentileBoxes, 'postboxes'),
       ].join(' '),
       james: JamesMessages.unpackedTotals(s.uniquePostboxes),
+      // Where they were found, county by county.
+      decoration: s.countyBoxes.isEmpty
+          ? const _Watermark.svg('assets/postbox.svg')
+          : _countyMap(_strengths(s.countyBoxes)),
     ),
   ];
 
@@ -88,10 +165,13 @@ List<UnpackedCardData> buildUnpackedCards(UnpackedRecap recap) {
       eyebrow: 'YOUR RAREST FIND',
       headline: MonarchInfo.labels[rarest] ?? rarest,
       detail: [
-        'Worth ${s.rarestPoints} points',
+        'Worth ${_plural(s.rarestPoints, 'point', 'points')}',
         if (s.rarestReference != null) '(box ${s.rarestReference})',
       ].join(' '),
-      james: JamesMessages.unpackedRarest.resolve(),
+      james: JamesMessages.unpackedRarest(rarest),
+      decoration: s.rarestCounty != null
+          ? _countyMap({s.rarestCounty!: 1}, focus: {s.rarestCounty!})
+          : const _Watermark.icon(Icons.workspace_premium_outlined),
     ));
   }
 
@@ -102,7 +182,9 @@ List<UnpackedCardData> buildUnpackedCards(UnpackedRecap recap) {
       eyebrow: 'YOUR ROYAL ROLL-CALL',
       headline: '${s.monarchCounts.length} '
           '${s.monarchCounts.length == 1 ? 'cypher' : 'cyphers'}',
-      body: _MonarchBars(counts: s.monarchCounts.take(5).toList()),
+      // Every cypher the player collected, so the rare ones (always the
+      // smallest counts) aren't cut off the bottom.
+      body: _MonarchBars(counts: s.monarchCounts),
       james: JamesMessages.unpackedMonarchs.resolve(),
     ));
   }
@@ -115,25 +197,137 @@ List<UnpackedCardData> buildUnpackedCards(UnpackedRecap recap) {
       eyebrow: 'YOUR BUSIEST MONTH',
       headline: month,
       detail: [
-        '${s.busiestMonthClaims} '
-            '${s.busiestMonthClaims == 1 ? 'claim' : 'claims'}.',
-        if (s.favouriteWeekday > 0)
-          'Favourite day for a wander: ${weekdayNames[s.favouriteWeekday - 1]}.',
+        '${_plural(s.busiestMonthClaims, 'claim', 'claims')} that month.',
       ].join(' '),
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (s.monthCounts.isNotEmpty) ...[
+            _BarChart(
+              values: s.monthCounts,
+              labels: const [
+                'J',
+                'F',
+                'M',
+                'A',
+                'M',
+                'J',
+                'J',
+                'A',
+                'S',
+                'O',
+                'N',
+                'D'
+              ],
+              showValues: false,
+              semanticsLabel: 'Claims by month: ${[
+                for (final (i, v) in s.monthCounts.indexed)
+                  '${monthNames[i]} ${_fmt(v)}'
+              ].join(', ')}',
+            ),
+            const SizedBox(height: AppSpacing.lg),
+          ],
+          if (s.busiestDays.length >= 2)
+            _InfoRows(title: 'Busiest days', rows: [
+              for (final d in s.busiestDays)
+                (
+                  _longDate(d.date),
+                  '${_plural(d.claims, 'box', 'boxes')} · '
+                      '${_n(d.points)} pts'
+                ),
+            ]),
+        ],
+      ),
       james: JamesMessages.unpackedBusiestMonth(month),
     ));
   }
 
+  final weekPoints = s.weekdayPoints.fold<int>(0, (a, b) => a + b);
+  if (weekPoints > 0) {
+    var best = 0;
+    for (var i = 1; i < s.weekdayPoints.length; i++) {
+      if (s.weekdayPoints[i] > s.weekdayPoints[best]) best = i;
+    }
+    final day = weekdayNames[best];
+    cards.add(UnpackedCardData(
+      id: 'weekday',
+      background: const Color(0xFF0E4D64),
+      eyebrow: 'DAYS OF THE WEEK',
+      headline: '${day}s',
+      detail: '${_plural(s.weekdayPoints[best], 'point', 'points')} on '
+          '${day}s, more than any other day of the week.',
+      body: _BarChart(
+        values: s.weekdayPoints,
+        labels: [for (final d in weekdayNames) d.substring(0, 3)],
+        semanticsLabel: 'Points by day of the week: ${[
+          for (final (i, v) in s.weekdayPoints.indexed)
+            '${weekdayNames[i]} ${_fmt(v)}'
+        ].join(', ')}',
+      ),
+      james: JamesMessages.unpackedWeekday(day),
+    ));
+  }
+
   if (s.longestStreakDays > 1) {
+    // Friends whose names loaded, plus the player, longest first (the
+    // player goes above a friend on the same number).
+    final friends = [
+      for (final f in s.friendStreaks)
+        if (recap.friendNames[f.uid] != null)
+          (recap.friendNames[f.uid]!, f.days),
+    ];
+    // (name, days, isYou), longest first; the player goes above a friend
+    // on the same number.
+    final ranked = [
+      for (final (name, days) in friends) (name, days, false),
+      (_you, s.longestStreakDays, true),
+    ]..sort((a, b) {
+        final c = b.$2.compareTo(a.$2);
+        if (c != 0) return c;
+        return a.$3 ? -1 : (b.$3 ? 1 : 0);
+      });
     cards.add(UnpackedCardData(
       id: 'streak',
       background: const Color(0xFF7A3300),
       eyebrow: 'YOUR LONGEST STREAK',
-      headline: '${s.longestStreakDays} days',
+      headline: _plural(s.longestStreakDays, 'day', 'days'),
       detail: s.percentileStreak >= 50
           ? _pct(s.percentileStreak, 'days in a row')
           : null,
+      body: friends.isEmpty
+          ? null
+          : _InfoRows(
+              title: 'You and your friends',
+              highlightIndex: ranked.indexWhere((r) => r.$3),
+              rows: [
+                for (final (name, days, _) in ranked)
+                  (name, _plural(days, 'day', 'days')),
+              ],
+            ),
       james: JamesMessages.unpackedStreak(s.longestStreakDays),
+      decoration: const _Watermark.icon(Icons.local_fire_department),
+    ));
+  }
+
+  if (s.topFriendsDays > 0 || s.topEveryoneDays > 0) {
+    final best = s.topFriendsDays > s.topEveryoneDays
+        ? s.topFriendsDays
+        : s.topEveryoneDays;
+    cards.add(UnpackedCardData(
+      id: 'top',
+      background: const Color(0xFF3D1F6B),
+      eyebrow: 'DAYS AT THE TOP',
+      headline: _plural(best, 'day', 'days'),
+      detail: 'Days you scored the most points (or tied for the most) of '
+          'everyone who played that day.',
+      body: _InfoRows(rows: [
+        if (s.topFriendsDays > 0)
+          ('Top among your friends', _plural(s.topFriendsDays, 'day', 'days')),
+        if (s.topEveryoneDays > 0)
+          ('Top among all players', _plural(s.topEveryoneDays, 'day', 'days')),
+      ]),
+      james: JamesMessages.unpackedTopScorer(everyone: s.topEveryoneDays > 0),
+      decoration: const _Watermark.icon(Icons.leaderboard_outlined),
     ));
   }
 
@@ -142,25 +336,150 @@ List<UnpackedCardData> buildUnpackedCards(UnpackedRecap recap) {
       id: 'county',
       background: const Color(0xFF1B5E20),
       eyebrow: 'YOUR HOME TURF',
-      headline: s.topCountyName!,
-      detail: '${s.topCountyBoxes} '
-          '${s.topCountyBoxes == 1 ? 'postbox' : 'postboxes'} there'
-          '${s.countiesVisited > 1 ? ', out of ${s.countiesVisited} counties visited.' : '.'}',
-      james: JamesMessages.unpackedCounty(s.topCountyName!),
+      headline: countyDisplayName(s.topCountyName!),
+      detail: '${_plural(s.topCountyBoxes, 'postbox', 'postboxes')} there'
+          '${s.countiesVisited > 1 ? ', out of ${_n(s.countiesVisited)} counties visited.' : '.'}',
+      body: s.otherCounties.isEmpty
+          ? null
+          : _InfoRows(title: 'Also on your round', rows: [
+              for (final c in s.otherCounties)
+                (
+                  countyDisplayName(c.name),
+                  '${_plural(c.uniquePostboxes, 'box', 'boxes')}, '
+                      'with ${_plural(c.otherPlayers, 'other', 'others')}'
+                ),
+            ]),
+      james: JamesMessages.unpackedCounty(countyDisplayName(s.topCountyName!)),
+      decoration: _countyMap(
+        {
+          for (final c in s.otherCounties) c.name: 0.4,
+          s.topCountyName!: 1,
+        },
+        focus: {s.topCountyName!, for (final c in s.otherCounties) c.name},
+      ),
+    ));
+  }
+
+  if (s.favouritePostboxes.isNotEmpty) {
+    final top = s.favouritePostboxes.first;
+    final cypher = top.monarch == MonarchInfo.plainKey
+        ? 'A plain box'
+        : (MonarchInfo.labels[top.monarch] ?? top.monarch);
+    cards.add(UnpackedCardData(
+      id: 'favourite',
+      background: const Color(0xFF8A1538),
+      eyebrow: 'YOUR FAVOURITE POSTBOX',
+      headline: _favouriteName(top),
+      detail: 'Claimed on ${_plural(top.claims, 'day', 'days')}. '
+          '$cypher${top.reference != null && top.county != null ? ', in ${countyDisplayName(top.county!)}' : ''}.',
+      body: s.favouritePostboxes.length < 2
+          ? null
+          : _InfoRows(title: 'Also a favourite', rows: [
+              for (final b in s.favouritePostboxes.skip(1))
+                (_favouriteName(b), _plural(b.claims, 'day', 'days')),
+            ]),
+      james: JamesMessages.unpackedFavourite(top.claims),
+      decoration: top.county != null
+          ? _countyMap(
+              {
+                for (final b in s.favouritePostboxes.skip(1))
+                  if (b.county != null) b.county!: 0.4,
+                top.county!: 1,
+              },
+              focus: {top.county!},
+            )
+          : const _Watermark.svg('assets/postbox.svg'),
     ));
   }
 
   if (sum.players > 1) {
     final others = sum.players - 1;
+    final h = sum.highlights;
     cards.add(UnpackedCardData(
       id: 'community',
       background: royalNavy,
       eyebrow: 'TOGETHER',
-      headline: '${sum.uniquePostboxes} postboxes',
-      detail: 'Found by you and $others other '
-          '${others == 1 ? 'player' : 'players'} this year'
-          '${sum.topMonarch != null ? ', with ${MonarchInfo.labels[sum.topMonarch] ?? sum.topMonarch} the most-claimed cypher.' : '.'}',
+      headline: _plural(sum.uniquePostboxes, 'postbox', 'postboxes'),
+      detail:
+          'Found by you and ${_plural(others, 'other player', 'other players')} '
+          'this year'
+          '${(h?.countiesCovered ?? 0) > 0 ? ', across ${_plural(h!.countiesCovered, 'county', 'counties')}.' : '.'}',
+      body: _InfoRows(stacked: true, rows: [
+        ('Claims made', _n(sum.totalClaims)),
+        if (h?.rarestCypher != null)
+          (
+            'Rarest cypher found',
+            '${MonarchInfo.labels[h!.rarestCypher] ?? h.rarestCypher} · '
+                '${_plural(h.rarestCypherBoxes, 'box', 'boxes')}'
+          ),
+        if ((h?.longestStreak ?? 0) > 1)
+          (
+            'Longest streak anyone managed',
+            _plural(h!.longestStreak, 'day', 'days')
+          ),
+        if (h?.busiestDayDate != null)
+          (
+            'Busiest day for everyone',
+            '${_longDate(h!.busiestDayDate!)} · '
+                '${_plural(h.busiestDayClaims, 'claim', 'claims')}'
+          ),
+        if ((h?.daysSoFar ?? 0) > 0)
+          (
+            'Days with a claim',
+            '${_n(h!.daysWithClaims)} of ${_n(h.daysSoFar)}'
+          ),
+      ]),
       james: JamesMessages.unpackedCommunity.resolve(),
+      decoration: (h?.sharedCounties.isNotEmpty ?? false)
+          ? _countyMap({for (final c in h!.sharedCounties) c: 0.6})
+          : null,
+    ));
+  }
+
+  // The jokey award: a podium of the player and their friends by days out
+  // hunting (then boxes found). Needs at least one friend whose name loaded.
+  final awardFriends = [
+    for (final f in s.friendAwards)
+      if (recap.friendNames[f.uid] != null)
+        (recap.friendNames[f.uid]!, f.daysActive, f.uniquePostboxes, false),
+  ];
+  if (awardFriends.isNotEmpty) {
+    // The player goes above a friend with identical numbers.
+    final field = [
+      ...awardFriends,
+      (_you, s.daysActive, s.uniquePostboxes, true),
+    ]..sort((a, b) {
+        final c = b.$2.compareTo(a.$2);
+        if (c != 0) return c;
+        final d = b.$3.compareTo(a.$3);
+        if (d != 0) return d;
+        return a.$4 ? -1 : (b.$4 ? 1 : 0);
+      });
+    final place = field.indexWhere((r) => r.$4);
+    cards.add(UnpackedCardData(
+      id: 'award',
+      background: const Color(0xFF1C1407),
+      eyebrow: 'AND NOW, THE AWARDS',
+      headline: s.year == 2026
+          ? 'The Inaugural\nMike H Award'
+          : 'The ${s.year}\nMike H Award',
+      detail: 'For dedication in the hunt for postboxes, among you and your '
+          'friends. Judged on days out hunting.',
+      body: _Podium(
+        rows: [
+          for (final (i, (name, days, _, you)) in field.take(3).indexed)
+            (_medals[i], name, _plural(days, 'day', 'days'), you),
+          if (place >= 3)
+            (
+              '${place + 1}th',
+              _you,
+              _plural(s.daysActive, 'day', 'days'),
+              true
+            ),
+        ],
+      ),
+      james: JamesMessages.unpackedAward(place),
+      decoration: const _Watermark.icon(Icons.emoji_events_outlined),
     ));
   }
 
@@ -172,6 +491,39 @@ List<UnpackedCardData> buildUnpackedCards(UnpackedRecap recap) {
     james: JamesMessages.unpackedOutro.resolve(),
   ));
   return cards;
+}
+
+const String _you = 'You';
+
+/// Box counts per county → map strengths (0.2–1), square-rooted so a
+/// county with a handful of boxes still shows next to a home county.
+Map<String, double> _strengths(Map<String, int> counts) {
+  final max = counts.values.fold<int>(1, (m, v) => v > m ? v : m);
+  return {
+    for (final e in counts.entries)
+      e.key: (0.2 + 0.8 * (e.value / max)).clamp(0.2, 1.0).toDouble(),
+  };
+}
+
+const List<String> _medals = ['Gold', 'Silver', 'Bronze'];
+
+const Map<String, Color> _medalColours = {
+  'Gold': Color(0xFFFFC83D),
+  'Silver': Color(0xFFC9CED6),
+  'Bronze': Color(0xFFD08A4C),
+};
+
+/// A favourite box's name: its reference, else where it is.
+String _favouriteName(UnpackedFavourite b) => b.reference != null
+    ? 'Box ${b.reference}'
+    : b.county != null
+        ? 'A box in ${countyDisplayName(b.county!)}'
+        : 'One special box';
+
+/// "Saturday 20 June" for a "YYYY-MM-DD" date.
+String _longDate(String ymd) {
+  final d = DateTime.tryParse(ymd);
+  return d == null ? ymd : '${weekdayNames[d.weekday - 1]} ${_prettyDate(ymd)}';
 }
 
 String _prettyDate(String ymd) {
@@ -188,11 +540,21 @@ String _prettyDate(String ymd) {
 /// Pass [recap] when the caller already loaded it (the Home menu does);
 /// otherwise the screen loads it for the signed-in user (deep link).
 class UnpackedScreen extends StatefulWidget {
-  const UnpackedScreen({super.key, this.recap, this.repository, this.uid});
+  const UnpackedScreen({
+    super.key,
+    this.recap,
+    this.repository,
+    this.uid,
+    this.today,
+  });
 
   final UnpackedRecap? recap;
   final UnpackedRepository? repository;
   final String? uid;
+
+  /// London date ("YYYY-MM-DD") for the date-dependent lines; the real date
+  /// when null. For tests and previews.
+  final String? today;
 
   static const Duration cardDuration = Duration(seconds: 7);
 
@@ -201,12 +563,16 @@ class UnpackedScreen extends StatefulWidget {
 }
 
 class _UnpackedScreenState extends State<UnpackedScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late final AnimationController _progress =
       AnimationController(vsync: this, duration: UnpackedScreen.cardDuration)
         ..addStatusListener((status) {
           if (status == AnimationStatus.completed) _next();
         });
+  // Runs each time a card comes in: counts run up, bars grow, lists fade in.
+  late final AnimationController _entrance =
+      AnimationController(vsync: this, duration: _entranceDuration);
+  static const Duration _entranceDuration = Duration(milliseconds: 1400);
   final PageController _pages = PageController();
   final GlobalKey _shareKey = GlobalKey();
 
@@ -244,16 +610,37 @@ class _UnpackedScreenState extends State<UnpackedScreen>
 
   void _setRecap(UnpackedRecap recap) {
     _recap = recap;
-    _cards = buildUnpackedCards(recap);
+    _cards = buildUnpackedCards(recap, today: widget.today);
     unawaited(Analytics.unpackedOpened(year: recap.year));
     WidgetsBinding.instance.addPostFrameCallback((_) => _restartTimer());
   }
 
-  bool get _autoAdvance =>
-      mounted && !(MediaQuery.maybeDisableAnimationsOf(context) ?? false);
+  bool get _reduceMotion =>
+      MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+
+  bool get _autoAdvance => mounted && !_reduceMotion;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Reduced motion: every card shows its final numbers straight away.
+    if (_reduceMotion) {
+      _entrance.value = 1;
+    }
+  }
+
+  void _startEntrance() {
+    if (!mounted) return;
+    if (_reduceMotion) {
+      _entrance.value = 1;
+    } else {
+      _entrance.forward(from: 0);
+    }
+  }
 
   void _restartTimer() {
     if (!mounted) return;
+    _startEntrance();
     _progress.reset();
     // The final (share) card waits for the player.
     if (_autoAdvance && _index < _cards.length - 1) _progress.forward();
@@ -317,6 +704,7 @@ class _UnpackedScreenState extends State<UnpackedScreen>
   @override
   void dispose() {
     _progress.dispose();
+    _entrance.dispose();
     _pages.dispose();
     super.dispose();
   }
@@ -335,7 +723,7 @@ class _UnpackedScreenState extends State<UnpackedScreen>
                   padding: EdgeInsets.all(AppSpacing.lg),
                   child: Text(
                     "Your Postboxes Unpacked isn't ready yet. "
-                    'Check back in December!',
+                    'Check back just before Christmas!',
                     textAlign: TextAlign.center,
                     style: TextStyle(color: Colors.white, fontSize: 18),
                   ),
@@ -352,21 +740,24 @@ class _UnpackedScreenState extends State<UnpackedScreen>
           children: [
             // Pages are driven by taps, not swipes, so the gesture layer
             // below owns every touch.
-            PageView(
-              controller: _pages,
-              physics: const NeverScrollableScrollPhysics(),
-              children: [
-                for (final c in _cards)
-                  c.id == 'share'
-                      ? _ShareCardPage(
-                          data: c,
-                          stats: recap.stats,
-                          shareKey: _shareKey,
-                          sharing: _sharing,
-                          onShare: _share,
-                        )
-                      : _StoryCard(data: c),
-              ],
+            _Entrance(
+              animation: _entrance,
+              child: PageView(
+                controller: _pages,
+                physics: const NeverScrollableScrollPhysics(),
+                children: [
+                  for (final c in _cards)
+                    c.id == 'share'
+                        ? _ShareCardPage(
+                            data: c,
+                            stats: recap.stats,
+                            shareKey: _shareKey,
+                            sharing: _sharing,
+                            onShare: _share,
+                          )
+                        : _StoryCard(data: c),
+                ],
+              ),
             ),
             if (card.id != 'share')
               Positioned.fill(
@@ -516,47 +907,69 @@ class _StoryCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // The tap zones sit over the whole card, so it can't scroll:
+          // content taller than the space (a long cypher roll-call on a
+          // small phone, or any card in landscape) shrinks to fit instead
+          // of being cut off. The decoration gets whatever room is left.
           Expanded(
-            child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    data.eyebrow,
-                    style: GoogleFonts.plusJakartaSans(
-                      color: postalGold,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 2,
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                  Text(
-                    data.headline,
-                    style: GoogleFonts.playfairDisplay(
-                      color: Colors.white,
-                      fontSize: 44,
-                      height: 1.1,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  if (data.detail != null) ...[
-                    const SizedBox(height: AppSpacing.md),
-                    Text(
-                      data.detail!,
-                      style: GoogleFonts.plusJakartaSans(
-                        color: Colors.white.withValues(alpha: 0.9),
-                        fontSize: 18,
-                        height: 1.4,
+            child: CustomMultiChildLayout(
+              delegate: _CardLayout(),
+              children: [
+                LayoutId(
+                  id: _CardSlot.content,
+                  child: LayoutBuilder(
+                    builder: (context, constraints) => FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.topLeft,
+                      child: SizedBox(
+                        width: constraints.maxWidth,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              data.eyebrow,
+                              style: GoogleFonts.plusJakartaSans(
+                                color: postalGold,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 2,
+                              ),
+                            ),
+                            const SizedBox(height: AppSpacing.md),
+                            _CountUpText(
+                              data.headline,
+                              style: GoogleFonts.playfairDisplay(
+                                color: Colors.white,
+                                fontSize: 44,
+                                height: 1.1,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            if (data.detail != null) ...[
+                              const SizedBox(height: AppSpacing.md),
+                              _CountUpText(
+                                data.detail!,
+                                style: GoogleFonts.plusJakartaSans(
+                                  color: Colors.white.withValues(alpha: 0.9),
+                                  fontSize: 18,
+                                  height: 1.4,
+                                ),
+                              ),
+                            ],
+                            if (data.body != null) ...[
+                              const SizedBox(height: AppSpacing.lg),
+                              data.body!,
+                            ],
+                          ],
+                        ),
                       ),
                     ),
-                  ],
-                  if (data.body != null) ...[
-                    const SizedBox(height: AppSpacing.lg),
-                    data.body!,
-                  ],
-                ],
-              ),
+                  ),
+                ),
+                if (data.decoration != null)
+                  LayoutId(id: _CardSlot.decoration, child: data.decoration!),
+              ],
             ),
           ),
           if (data.james != null) _JamesSays(text: data.james!),
@@ -565,6 +978,224 @@ class _StoryCard extends StatelessWidget {
     );
   }
 }
+
+/// The current card's entrance (0 → 1), for everything that animates in.
+class _Entrance extends InheritedWidget {
+  const _Entrance({required this.animation, required super.child});
+
+  final Animation<double> animation;
+
+  /// The entrance, or a finished one outside a recap (e.g. a lone widget).
+  static Animation<double> of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<_Entrance>()?.animation ??
+      kAlwaysCompleteAnimation;
+
+  @override
+  bool updateShouldNotify(_Entrance old) => old.animation != animation;
+}
+
+/// The part of the entrance from [start] to [end], eased.
+Animation<double> _phase(BuildContext context, double start, double end) =>
+    CurvedAnimation(
+      parent: _Entrance.of(context),
+      curve: Interval(start.clamp(0.0, 1.0), end.clamp(0.0, 1.0),
+          curve: Curves.easeOutCubic),
+    );
+
+/// Card text whose counts run up from 0 as the card comes in. Text without
+/// counts is drawn as plain [Text]. Screen readers get the final text.
+class _CountUpText extends StatelessWidget {
+  const _CountUpText(this.text, {this.style, this.textAlign});
+
+  final String text;
+  final TextStyle? style;
+  final TextAlign? textAlign;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_numMark.hasMatch(text)) {
+      return Text(text, style: style, textAlign: textAlign);
+    }
+    final t = _phase(context, 0, 0.75);
+    return Semantics(
+      label: unpackedPlainText(text),
+      child: ExcludeSemantics(
+        child: AnimatedBuilder(
+          animation: t,
+          builder: (context, _) =>
+              Text(_countUp(text, t.value), style: style, textAlign: textAlign),
+        ),
+      ),
+    );
+  }
+}
+
+/// A list row that fades and slides in, a beat after the one above it.
+class _Reveal extends StatelessWidget {
+  const _Reveal({required this.index, required this.child});
+
+  final int index;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final start = 0.15 + index * 0.08;
+    final t = _phase(context, start, start + 0.4);
+    return FadeTransition(
+      opacity: t,
+      child: SlideTransition(
+        position:
+            Tween(begin: const Offset(0, 0.35), end: Offset.zero).animate(t),
+        child: child,
+      ),
+    );
+  }
+}
+
+enum _CardSlot { content, decoration }
+
+/// Lays the card's text out first, then gives the decoration the space
+/// under it, or none when less than [minDecoration] is left.
+class _CardLayout extends MultiChildLayoutDelegate {
+  static const double minDecoration = 110;
+
+  @override
+  void performLayout(Size size) {
+    final content = layoutChild(_CardSlot.content, BoxConstraints.loose(size));
+    positionChild(_CardSlot.content, Offset.zero);
+    if (hasChild(_CardSlot.decoration)) {
+      final top = content.height + AppSpacing.md;
+      final room = size.height - top - AppSpacing.sm;
+      final fits = room >= minDecoration;
+      layoutChild(_CardSlot.decoration,
+          BoxConstraints.tight(fits ? Size(size.width, room) : Size.zero));
+      positionChild(_CardSlot.decoration, Offset(0, fits ? top : size.height));
+    }
+  }
+
+  @override
+  bool shouldRelayout(_CardLayout oldDelegate) => false;
+}
+
+/// A large, faint illustration for a card's empty space.
+class _Watermark extends StatelessWidget {
+  const _Watermark.icon(this.icon) : svgAsset = null;
+  const _Watermark.svg(this.svgAsset) : icon = null;
+
+  final IconData? icon;
+  final String? svgAsset;
+
+  @override
+  Widget build(BuildContext context) {
+    return ExcludeSemantics(
+      child: Align(
+        alignment: Alignment.bottomRight,
+        child: LayoutBuilder(builder: (context, c) {
+          final side = c.biggest.shortestSide.clamp(0.0, 260.0);
+          return Opacity(
+            opacity: 0.12,
+            child: svgAsset != null
+                ? SvgPicture.asset(
+                    svgAsset!,
+                    height: side,
+                    colorFilter:
+                        const ColorFilter.mode(Colors.white, BlendMode.srcIn),
+                  )
+                : Icon(icon, size: side, color: Colors.white),
+          );
+        }),
+      ),
+    );
+  }
+}
+
+/// A bar chart for a card: one bar per value, the biggest in gold. Values
+/// show above the bars when [showValues], otherwise only the biggest one.
+class _BarChart extends StatelessWidget {
+  const _BarChart({
+    required this.values,
+    required this.labels,
+    required this.semanticsLabel,
+    this.showValues = true,
+  });
+
+  final List<int> values;
+  final List<String> labels;
+  final String semanticsLabel;
+  final bool showValues;
+
+  static const double _barMax = 110;
+
+  @override
+  Widget build(BuildContext context) {
+    final max = values.fold<int>(0, (m, v) => v > m ? v : m);
+    final small = GoogleFonts.plusJakartaSans(
+        color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w700);
+    return Semantics(
+      label: semanticsLabel,
+      child: ExcludeSemantics(
+        child: SizedBox(
+          height: _barMax + 44,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              for (final (i, v) in values.indexed)
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 3),
+                    // Bars grow left to right, a little after each other.
+                    child: AnimatedBuilder(
+                      animation:
+                          _phase(context, 0.05 + i * 0.03, 0.6 + i * 0.03),
+                      builder: (context, _) {
+                        final t =
+                            _phase(context, 0.05 + i * 0.03, 0.6 + i * 0.03)
+                                .value;
+                        final top = v == max && v > 0;
+                        return Column(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            if (showValues || top)
+                              Text(
+                                _fmt((v * t).round()),
+                                maxLines: 1,
+                                style: small.copyWith(
+                                    color: top ? postalGold : Colors.white),
+                              ),
+                            const SizedBox(height: 4),
+                            Container(
+                              height: max == 0
+                                  ? 0
+                                  : (v / max * _barMax * t)
+                                      .clamp(v > 0 && t > 0 ? 3 : 0, _barMax),
+                              decoration: BoxDecoration(
+                                color: top
+                                    ? postalGold
+                                    : Colors.white.withValues(alpha: 0.32),
+                                borderRadius: const BorderRadius.vertical(
+                                    top: Radius.circular(3)),
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(labels[i], maxLines: 1, style: small),
+                          ],
+                        );
+                      },
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The UK county map as a card decoration.
+Widget _countyMap(Map<String, double> highlights,
+        {Set<String> focus = const {}}) =>
+    UkCountyMap(highlights: highlights, focus: focus);
 
 class _JamesSays extends StatelessWidget {
   const _JamesSays({required this.text});
@@ -609,44 +1240,225 @@ class _MonarchBars extends StatelessWidget {
     final max = counts.fold<int>(1, (m, e) => e.value > m ? e.value : m);
     return Column(
       children: [
-        for (final e in counts)
-          Padding(
-            padding: const EdgeInsets.only(bottom: AppSpacing.sm + 2),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        MonarchInfo.labels[e.key] ?? e.key,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style:
-                            const TextStyle(color: Colors.white, fontSize: 15),
+        for (final (i, e) in counts.indexed)
+          _Reveal(
+            index: i,
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.sm + 2),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          MonarchInfo.labels[e.key] ?? e.key,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              color: Colors.white, fontSize: 15),
+                        ),
+                      ),
+                      _CountUpText(
+                        _n(e.value),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: AnimatedBuilder(
+                      animation:
+                          _phase(context, 0.1 + i * 0.06, 0.7 + i * 0.06),
+                      builder: (context, _) => LinearProgressIndicator(
+                        value: e.value /
+                            max *
+                            _phase(context, 0.1 + i * 0.06, 0.7 + i * 0.06)
+                                .value,
+                        minHeight: 8,
+                        color: MonarchInfo.colors[e.key] ?? postalGold,
+                        backgroundColor: Colors.white12,
                       ),
                     ),
-                    Text(
-                      '${e.value}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 15,
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// A short titled list on a story card: label on the left and value on the
+/// right, or label above value when [stacked] (long labels and values).
+/// The row at [highlightIndex] is picked out in gold.
+class _InfoRows extends StatelessWidget {
+  const _InfoRows({
+    required this.rows,
+    this.title,
+    this.highlightIndex,
+    this.stacked = false,
+  });
+
+  final List<(String, String)> rows;
+  final String? title;
+
+  /// The row to pick out in gold (the player's own, on "Longest streak").
+  final int? highlightIndex;
+  final bool stacked;
+
+  @override
+  Widget build(BuildContext context) {
+    final labelStyle = GoogleFonts.plusJakartaSans(
+        color: Colors.white.withValues(alpha: 0.85), fontSize: 15);
+    final valueStyle = GoogleFonts.plusJakartaSans(
+        color: Colors.white, fontSize: 15, fontWeight: FontWeight.w700);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (title != null) ...[
+          Text(
+            title!.toUpperCase(),
+            style: GoogleFonts.plusJakartaSans(
+              color: postalGold,
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 1.5,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+        ],
+        for (final (i, (label, value)) in rows.indexed)
+          _Reveal(
+            index: i,
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.sm + 2),
+              child: stacked
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          label.toUpperCase(),
+                          style: GoogleFonts.plusJakartaSans(
+                            color: Colors.white70,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 1.2,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        _CountUpText(value,
+                            style: valueStyle.copyWith(fontSize: 18)),
+                      ],
+                    )
+                  : Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          flex: 3,
+                          child: Text(
+                            label,
+                            style: i == highlightIndex
+                                ? valueStyle.copyWith(color: postalGold)
+                                : labelStyle,
+                          ),
+                        ),
+                        const SizedBox(width: AppSpacing.md),
+                        // Wraps rather than overflows at large text sizes.
+                        Flexible(
+                          flex: 4,
+                          child: _CountUpText(
+                            value,
+                            textAlign: TextAlign.end,
+                            style: i == highlightIndex
+                                ? valueStyle.copyWith(color: postalGold)
+                                : valueStyle,
+                          ),
+                        ),
+                      ],
+                    ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// The award podium: medal, name, days out. The player's row is gold text.
+class _Podium extends StatelessWidget {
+  const _Podium({required this.rows});
+
+  /// (medal or place, name, value, isYou).
+  final List<(String, String, String, bool)> rows;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        for (final (i, (medal, name, value, you)) in rows.indexed)
+          _Reveal(
+            index: i,
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.sm + 4),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 104,
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.emoji_events,
+                          size: 22,
+                          color: _medalColours[medal] ?? Colors.white38,
+                        ),
+                        const SizedBox(width: AppSpacing.xs + 2),
+                        // Shrinks rather than overflows with large text.
+                        Flexible(
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              medal.toUpperCase(),
+                              style: GoogleFonts.plusJakartaSans(
+                                color: _medalColours[medal] ?? Colors.white70,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 1.2,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: Text(
+                      name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.plusJakartaSans(
+                        color: you ? postalGold : Colors.white,
+                        fontSize: 17,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
-                  ],
-                ),
-                const SizedBox(height: AppSpacing.xs),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: LinearProgressIndicator(
-                    value: e.value / max,
-                    minHeight: 8,
-                    color: MonarchInfo.colors[e.key] ?? postalGold,
-                    backgroundColor: Colors.white12,
                   ),
-                ),
-              ],
+                  const SizedBox(width: AppSpacing.sm),
+                  _CountUpText(
+                    value,
+                    style: GoogleFonts.plusJakartaSans(
+                      color: Colors.white.withValues(alpha: 0.85),
+                      fontSize: 15,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
       ],

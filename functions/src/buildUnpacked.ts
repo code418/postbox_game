@@ -16,13 +16,22 @@ import {
   UNPACKED_SNAPSHOT_VERSION,
   FIRST_UNPACKED_YEAR,
   applyPercentiles,
+  communityHighlights,
+  countyCounts,
+  dayLeaders,
   decideLaunchNotify,
   finalizeUnpacked,
+  friendAwardsFor,
+  friendStreaksFor,
   hasRecapCapableApp,
   launchNotifyBody,
+  otherCountiesFor,
   postboxIdFromPath,
   recapYearToBuild,
+  topOfEveryoneDays,
+  topOfFriendsDays,
   summarise,
+  unpackedCutoff,
   unpackedWindow,
   unpackedYearFor,
 } from "./_unpacked";
@@ -73,8 +82,9 @@ export interface BuildResult {
  * the automatic single-field index) into per-player accumulators; join the
  * distinct claimed postboxes for county/reference; finalise, rank and write.
  * Idempotent: a re-run overwrites with fresher numbers. Claims up to
- * [throughDate] (inclusive) are counted, so the 1 December build is "the year
- * so far".
+ * [throughDate] (inclusive) are counted, but never past [unpackedCutoff]
+ * (the last second-class posting day), so the 19 December build is the
+ * final one and an earlier admin build is "the year so far".
  */
 export async function buildUnpackedSnapshots(
   year: number,
@@ -82,11 +92,15 @@ export async function buildUnpackedSnapshots(
   throughDate: string = getTodayLondon(),
 ): Promise<BuildResult> {
   const start = `${year}-01-01`;
-  const yearEnd = `${year}-12-31`;
-  const end = throughDate < yearEnd ? throughDate : yearEnd;
+  const cutoff = unpackedCutoff(year);
+  const end = throughDate < cutoff ? throughDate : cutoff;
+  const complete = end === cutoff;
 
   // ── Pass 1: aggregate ────────────────────────────────────────────────
   const players = new Map<string, UnpackedAccumulator>();
+  // Community-wide, for the "Together" highlights.
+  const dayClaims = new Map<string, number>();
+  const boxMonarch = new Map<string, string | null>();
   let claimsRead = 0;
   let cursor: admin.firestore.QueryDocumentSnapshot | undefined;
   for (;;) {
@@ -114,13 +128,18 @@ export async function buildUnpackedSnapshots(
         acc = new UnpackedAccumulator(uid, year);
         players.set(uid, acc);
       }
+      const monarch = typeof d.monarch === "string" && d.monarch.length > 0 ? d.monarch : null;
       acc.add({
         userid: uid,
         dailyDate: d.dailyDate,
         points: typeof d.points === "number" ? d.points : 0,
-        monarch: typeof d.monarch === "string" ? d.monarch : null,
+        monarch,
         postboxId,
       });
+      if (d.dailyDate.startsWith(`${year}-`)) {
+        dayClaims.set(d.dailyDate, (dayClaims.get(d.dailyDate) ?? 0) + 1);
+        if (!boxMonarch.get(postboxId)) boxMonarch.set(postboxId, monarch);
+      }
     }
     if (page.docs.length < CLAIMS_PAGE_SIZE) break;
     cursor = page.docs[page.docs.length - 1];
@@ -154,6 +173,61 @@ export async function buildUnpackedSnapshots(
   }
   applyPercentiles(finished.map((f) => f.stats));
 
+  // "Home turf": each player's other counties, counting how many players
+  // claimed in each county.
+  const countsByUid = new Map<string, Map<string, number>>();
+  const playersByCounty = new Map<string, number>();
+  for (const { uid } of finished) {
+    const counts = countyCounts(players.get(uid)!.postboxes, meta);
+    countsByUid.set(uid, counts);
+    for (const county of counts.keys()) playersByCounty.set(county, (playersByCounty.get(county) ?? 0) + 1);
+  }
+  for (const { uid, stats } of finished) {
+    stats.otherCounties = otherCountiesFor(countsByUid.get(uid)!, stats.topCounty?.name ?? null, playersByCounty);
+  }
+
+  // "Longest streak" and the award podium: each player's friends, from the
+  // friends arrays on their user docs.
+  const streakByUid = new Map(finished.map(({ uid, stats }) => [uid, stats.longestStreak.days]));
+  const statsByUid = new Map(finished.map(({ uid, stats }) => [uid, stats]));
+  const leaders = dayLeaders(finished.map(({ uid }) => players.get(uid)!.dayTotals));
+  for (let i = 0; i < finished.length; i += GET_ALL_CHUNK) {
+    const chunk = finished.slice(i, i + GET_ALL_CHUNK);
+    // Sequential chunks bound the in-flight read size.
+    // eslint-disable-next-line no-await-in-loop
+    const users = await database.getAll(...chunk.map(({ uid }) => database.collection("users").doc(uid)));
+    const friendsByUid = new Map(users.map((u) => [u.id, u.exists ? u.data()?.friends : undefined]));
+    for (const { uid, stats } of chunk) {
+      stats.friendStreaks = friendStreaksFor(uid, friendsByUid.get(uid), streakByUid);
+      stats.friendAwards = friendAwardsFor(uid, friendsByUid.get(uid), statsByUid);
+      const mine = players.get(uid)!.dayTotals;
+      const friends = friendsByUid.get(uid);
+      const friendDays = Array.isArray(friends)
+        ? [...new Set(friends)]
+          .filter((f): f is string => typeof f === "string" && f !== uid && statsByUid.has(f))
+          .map((f) => players.get(f)!.dayTotals)
+        : [];
+      stats.topScorerDays = {
+        friends: topOfFriendsDays(mine, friendDays),
+        everyone: topOfEveryoneDays(mine, leaders),
+      };
+    }
+  }
+
+  const highlights = communityHighlights({
+    year,
+    throughDate: end,
+    stats: finished.map((f) => f.stats),
+    boxMonarch,
+    boxCounties: [...allPostboxes].map((id) => meta.get(id)?.county).filter(
+      (c): c is string => typeof c === "string" && c.length > 0),
+    dayClaims,
+  });
+  highlights.sharedCounties = [...playersByCounty.entries()]
+    .filter(([, n]) => n >= 2)
+    .map(([name]) => name)
+    .sort((a, b) => a.localeCompare(b));
+
   const window = unpackedWindow(year);
   const generatedAt = admin.firestore.FieldValue.serverTimestamp();
   for (let i = 0; i < finished.length; i += WRITE_BATCH_SIZE) {
@@ -163,6 +237,7 @@ export async function buildUnpackedSnapshots(
         ...stats,
         version: UNPACKED_SNAPSHOT_VERSION,
         throughDate: end,
+        complete,
         generatedAt,
       });
     }
@@ -175,6 +250,7 @@ export async function buildUnpackedSnapshots(
   // as "the recap is ready", so it must never precede the player docs.
   await summaryRef(database, year).set({
     ...summarise(year, finished.map((f) => f.stats), allPostboxes.size),
+    highlights,
     ...window,
     version: UNPACKED_SNAPSHOT_VERSION,
     throughDate: end,
@@ -184,13 +260,14 @@ export async function buildUnpackedSnapshots(
   return { year, players: finished.length, claimsRead, throughDate: end };
 }
 
-// 03:00 London on 1 December: build the recap of the year so far, ahead of
-// the launch push (and the operator flipping `unpacked_enabled`) later that
-// morning. Re-run on demand by force-running this job in Cloud Scheduler (a
-// January run rebuilds the previous year: see recapYearToBuild) or with
-// rebuildUnpacked for a specific year.
+// 03:00 London on 19 December: build the recap, counting up to the 18th (the
+// last second-class posting day), ahead of the launch push (and the operator
+// flipping `unpacked_enabled`) later that morning. Re-run on demand by
+// force-running this job in Cloud Scheduler (an early run counts the year so
+// far; a January run rebuilds the previous year: see recapYearToBuild) or
+// with rebuildUnpacked for a specific year.
 export const buildUnpacked = onSchedule(
-  { schedule: "0 3 1 12 *", timeZone: "Europe/London", timeoutSeconds: 540, memory: "1GiB" },
+  { schedule: "0 3 19 12 *", timeZone: "Europe/London", timeoutSeconds: 540, memory: "1GiB" },
   async () => {
     const year = recapYearToBuild(getTodayLondon());
     const r = await buildUnpackedSnapshots(year);
@@ -304,12 +381,13 @@ export async function sendLaunchNotifications(
   return sent;
 }
 
-// 10:00 London every day in December: once the snapshot exists AND an operator
+// 10:00 London each day from 19 December, when the recap opens, to the end of
+// the month: once the snapshot exists AND an operator
 // has turned both `unpacked_enabled` and `unpacked_notify_enabled` on in the
 // client Remote Config template, send the "ready" push exactly once for the
 // year (transactional marker, as streakReminder does).
 export const unpackedLaunchNotify = onSchedule(
-  { schedule: "0 10 * 12 *", timeZone: "Europe/London", timeoutSeconds: 540 },
+  { schedule: "0 10 19-31 12 *", timeZone: "Europe/London", timeoutSeconds: 540 },
   async () => {
     const today = getTodayLondon();
     const year = unpackedYearFor(today);
