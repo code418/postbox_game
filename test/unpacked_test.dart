@@ -714,6 +714,16 @@ void main() {
       expect(JamesMessages.unpackedRarest('EVIIIR'), contains('Edward VIII'));
     });
 
+    test('the totals line pays a penny a postbox', () {
+      expect(JamesMessages.unpackedTotals(142),
+          'Cor! If I had a penny for every postbox you claimed, I would have £1.42');
+      expect(JamesMessages.pennies(1), 'a penny');
+      expect(JamesMessages.pennies(42), '42p');
+      expect(JamesMessages.pennies(100), '£1');
+      expect(JamesMessages.pennies(105), '£1.05');
+      expect(JamesMessages.pennies(123456), '£1,234.56');
+    });
+
     test('the new lines follow the house rules', () {
       final lines = [
         for (final m in ['EIIR', 'GR', 'VR', 'EVIIR', 'CIIIR', 'EVIIIR'])
@@ -724,6 +734,7 @@ void main() {
         JamesMessages.unpackedWeekday('Tuesday'),
         JamesMessages.unpackedTopScorer(everyone: true),
         JamesMessages.unpackedTopScorer(everyone: false),
+        for (final n in [1, 42, 142, 123456]) JamesMessages.unpackedTotals(n),
       ];
       for (final l in lines) {
         expect(l, isNot(contains('\u2014')), reason: l);

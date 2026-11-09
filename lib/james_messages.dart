@@ -497,11 +497,24 @@ abstract final class JamesMessages {
           "Right then. Kettle's on. Let's unpack your $year, shall we?",
       };
 
-  static String unpackedTotals(int boxes) => boxes >= 100
-      ? "$boxes postboxes! Royal Mail ought to put you on the payroll."
-      : boxes >= 25
-          ? "$boxes postboxes. That's a proper round, that is."
-          : "$boxes postboxes. Every one a little red friend.";
+  /// The totals card: a penny per postbox, so 142 boxes is £1.42.
+  static String unpackedTotals(int boxes) =>
+      "Cor! If I had a penny for every postbox you claimed, I would have "
+      "${pennies(boxes)}";
+
+  /// [n] pence as it's said: "a penny", "42p", "£1", "£1.42", "£1,234.56".
+  @visibleForTesting
+  static String pennies(int n) {
+    if (n == 1) return 'a penny';
+    if (n < 100) return '${n}p';
+    final pounds = (n ~/ 100)
+        .toString()
+        .replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (_) => ',');
+    final pence = n % 100;
+    return pence == 0
+        ? '£$pounds'
+        : '£$pounds.${pence.toString().padLeft(2, '0')}';
+  }
 
   /// The "Rarest find" line, matched to how rare the cypher really is: the
   /// player's best find of the year can still be a common Elizabeth II, and
