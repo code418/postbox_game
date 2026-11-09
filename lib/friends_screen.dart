@@ -7,6 +7,8 @@ import 'package:flutter/foundation.dart'
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:postbox_game/analytics_service.dart';
+import 'package:postbox_game/avatar/avatar_config.dart';
+import 'package:postbox_game/avatar/postie_avatar.dart';
 import 'package:postbox_game/deep_links.dart';
 import 'package:postbox_game/display_name_utils.dart';
 import 'package:postbox_game/maintenance_guard.dart';
@@ -112,6 +114,9 @@ class _FriendsScreenState extends State<FriendsScreen>
   // per row, so a 200-friend list paid 200 round-trips on first render — this
   // brings it down to ⌈N/30⌉ batches running in parallel.
   final Map<String, String> _namesByUid = {};
+  // Each friend's raw `avatar` map from the same batched lookup, for
+  // PostieAvatar. Absent or malformed maps fall back to initials.
+  final Map<String, Object?> _avatarsByUid = {};
   Set<String> _knownUids = const {};
 
   String? get _currentUid => FirebaseAuth.instance.currentUser?.uid;
@@ -220,6 +225,7 @@ class _FriendsScreenState extends State<FriendsScreen>
       if (result == AddFriendResult.added) {
         // Bust the name cache so a re-add shows fresh data.
         _namesByUid.remove(friendUid);
+        _avatarsByUid.remove(friendUid);
         _knownUids = _knownUids.where((u) => u != friendUid).toSet();
         _uidController.clear();
       }
@@ -278,6 +284,7 @@ class _FriendsScreenState extends State<FriendsScreen>
       unawaited(publishUserPropertiesFromFirestore(uid));
       // Bust the cache so re-adding this friend fetches fresh data.
       _namesByUid.remove(friendUid);
+      _avatarsByUid.remove(friendUid);
       _knownUids = _knownUids.where((u) => u != friendUid).toSet();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -346,6 +353,9 @@ class _FriendsScreenState extends State<FriendsScreen>
           },
           fromCache: snap.metadata.isFromCache,
         ));
+        for (final doc in snap.docs) {
+          _avatarsByUid[doc.id] = doc.data()['avatar'];
+        }
       }
     });
   }
@@ -679,28 +689,28 @@ class _FriendsScreenState extends State<FriendsScreen>
                   // user doc for this uid (deleted account, etc.).
                   final displayName =
                       (resolved != null && resolved.isNotEmpty) ? resolved : null;
-                  final initials = initialsFor(displayName ?? '');
+                  final avatarCfg = AvatarConfig.tryFromMap(_avatarsByUid[friendUid]);
                   return Card(
                     child: ListTile(
                       onTap: () => Navigator.of(context).push(UserProfilePage.route(friendUid)),
-                      leading: CircleAvatar(
-                        backgroundColor: postalRed,
+                      leading: SizedBox(
+                        width: 40,
+                        height: 40,
                         child: isLoading
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  color: Colors.white,
-                                  strokeWidth: 2,
+                            ? const Center(
+                                child: SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    color: postalRed,
+                                    strokeWidth: 2,
+                                  ),
                                 ),
                               )
-                            : Text(
-                                initials,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 13,
-                                ),
+                            : PostieAvatar(
+                                config: avatarCfg,
+                                size: 40,
+                                fallbackName: displayName ?? '',
                               ),
                       ),
                       title: isLoading

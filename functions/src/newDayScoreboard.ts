@@ -75,10 +75,12 @@ export async function rebuildPeriodLeaderboard(
     const uid = uids[i];
     const pts = userPoints.get(uid)!;
     if (pts <= 0) continue;
+    const data = userDocs[i].data();
     const displayName =
-      (userDocs[i].data()?.displayName as string | undefined) ??
+      (data?.displayName as string | undefined) ??
       `Player_${uid.slice(0, 6)}`;
-    entries.push({ uid, displayName, points: pts });
+    const avatar = data?.avatar as Record<string, number> | undefined;
+    entries.push({ uid, displayName, points: pts, ...(avatar ? { avatar } : {}) });
   }
 
   // Sort matches mergePeriodEntries: descending by points, ties broken by uid

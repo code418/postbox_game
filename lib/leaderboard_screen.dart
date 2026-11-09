@@ -2,6 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/material.dart';
+import 'package:postbox_game/avatar/avatar_config.dart';
+import 'package:postbox_game/avatar/postie_avatar.dart';
 import 'package:postbox_game/county_heatmap.dart';
 import 'package:postbox_game/james_controller.dart';
 import 'package:postbox_game/james_messages.dart';
@@ -386,6 +388,7 @@ class _LeaderboardListState extends State<_LeaderboardList>
               return _LeaderboardEntryTile(
                 rank: rank,
                 displayName: displayName,
+                avatar: AvatarConfig.tryFromMap(e['avatar']),
                 entryUid: entryUid,
                 isCurrentUser: isCurrentUser,
                 isLifetime: _isLifetime,
@@ -574,6 +577,7 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList>
         .map((d) => <String, dynamic>{
               'uid': d.id,
               'displayName': d.data()['displayName'] as String? ?? 'Unknown',
+              'avatar': d.data()['avatar'],
               'score': scoreFor(d.data()),
               'uniquePostboxesClaimed':
                   (d.data()['uniquePostboxesClaimed'] as num?)?.toInt() ?? 0,
@@ -790,6 +794,7 @@ class _FriendsPeriodListState extends State<_FriendsPeriodList>
                   return _LeaderboardEntryTile(
                     rank: rank,
                     displayName: displayName,
+                    avatar: AvatarConfig.tryFromMap(e['avatar']),
                     entryUid: entryUid,
                     isCurrentUser: isCurrentUser,
                     isLifetime: isLifetime,
@@ -865,10 +870,14 @@ class _LeaderboardEntryTile extends StatelessWidget {
     required this.isLifetime,
     required this.valueText,
     this.scored = true,
+    this.avatar,
   });
 
   final int rank;
   final String displayName;
+
+  /// The player's Postie avatar; null falls back to their initials.
+  final AvatarConfig? avatar;
   final String? entryUid;
   final bool isCurrentUser;
   final bool isLifetime;
@@ -903,7 +912,17 @@ class _LeaderboardEntryTile extends StatelessWidget {
         onTap: entryUid != null
             ? () => Navigator.of(context).push(UserProfilePage.route(entryUid!))
             : null,
-        leading: _rankBadge(context, rank, scored: scored),
+        leading: SizedBox(
+          width: 68,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _rankBadge(context, rank, scored: scored),
+              const SizedBox(width: 4),
+              PostieAvatar(config: avatar, size: 32, fallbackName: displayName),
+            ],
+          ),
+        ),
         title: Text(
           displayName,
           maxLines: 1,
