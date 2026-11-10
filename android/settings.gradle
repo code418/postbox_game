@@ -19,11 +19,12 @@ pluginManagement {
 plugins {
     id "dev.flutter.flutter-plugin-loader" version "1.0.0"
     id "com.android.application" version "9.4.1" apply false
-    // NOT migrated to Flutter Built-in Kotlin: Flutter 3.44's built-in Kotlin pins
-    // KGP 2.0.0, which cannot read the Kotlin 2.2.0 metadata in our play-services /
-    // firebase deps (firebase_analytics fails compileReleaseKotlin). Keep an explicit
-    // KGP >= 2.2.20 until the bundled built-in Kotlin version catches up. This leaves
-    // the "app applies the Kotlin Gradle Plugin" deprecation warning in place by design.
+    // Chooses the Kotlin version for the whole build, and stays after the move to
+    // AGP built-in Kotlin: AGP 9 compiles Kotlin with whichever KGP the classpath
+    // declares (its own floor is 2.2.10), so this pin is what keeps us above the
+    // 2.2.x metadata in the play-services / firebase deps. Built-in Kotlin itself is
+    // still off (android.builtInKotlin=false) only because in_app_review applies
+    // KGP unconditionally: see app/build.gradle for the switch-on checklist.
     id "org.jetbrains.kotlin.android" version "2.4.21" apply false
     id "com.google.gms.google-services" version "4.4.4" apply false
 }
