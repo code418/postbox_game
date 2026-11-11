@@ -25,6 +25,9 @@ import 'package:postbox_game/services/crashlytics_helper.dart';
 /// - [killSwitchOfflineClaims]  — disable offline claim capture/flush (v1.5).
 /// - [offlineClaimGraceHours]   — how long a banked capture stays flushable.
 /// - [maxOfflineClaimsPerDay]   — per-user daily cap on flushed claims.
+/// - [unpackedEnabled]          — show the December "Your Postboxes Unpacked"
+///                                annual recap to everyone (admins always see
+///                                it inside its window, for the soft launch).
 ///
 /// Defaults match today's shipped behaviour so the app degrades to the current
 /// experience if Remote Config never resolves.
@@ -66,6 +69,7 @@ class RemoteConfigService {
   static const String keyKillSwitchOfflineClaims = 'kill_switch_offline_claims';
   static const String keyOfflineClaimGraceHours = 'offline_claim_grace_hours';
   static const String keyMaxOfflineClaimsPerDay = 'max_offline_claims_per_day';
+  static const String keyUnpackedEnabled = 'unpacked_enabled';
 
   static const String welcomeVariantClassic = 'classic';
   static const String welcomeVariantCheeky = 'cheeky';
@@ -115,6 +119,7 @@ class RemoteConfigService {
     keyKillSwitchOfflineClaims: false,
     keyOfflineClaimGraceHours: defaultOfflineClaimGraceHours,
     keyMaxOfflineClaimsPerDay: defaultMaxOfflineClaimsPerDay,
+    keyUnpackedEnabled: false,
   };
 
   static const Duration _fetchTimeout = Duration(seconds: 10);
@@ -215,7 +220,13 @@ class RemoteConfigService {
     }
     return raw;
   }
+
   bool get killSwitchReporting => _rc.getBool(keyKillSwitchReporting);
+
+  /// Opens the annual "Your Postboxes Unpacked" recap to all players. Off by
+  /// default: the recap also needs its server-built snapshot and its
+  /// December–mid-January window (see UnpackedRepository.isAvailable).
+  bool get unpackedEnabled => _rc.getBool(keyUnpackedEnabled);
   String get jamesWelcomeVariant => _rc.getString(keyJamesWelcomeVariant);
   bool get maintenanceMode => _rc.getBool(keyMaintenanceMode);
   String get maintenanceMessage {

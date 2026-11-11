@@ -4,6 +4,7 @@ import 'package:postbox_game/firebase_functions_eu.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:postbox_game/maintenance_guard.dart';
 
 /// Handles FCM initialisation, permission requests, device token registration,
@@ -191,6 +192,19 @@ class NotificationService {
     }
   }
 
+  /// The `registerFcmToken` payload. [appVersion] (`PackageInfo.version`,
+  /// e.g. "1.6.0") tells the server this build can open the annual recap,
+  /// so the recap's launch push skips installs too old to show it (see
+  /// `hasRecapCapableApp` in functions/src/_unpacked.ts).
+  @visibleForTesting
+  static Map<String, Object> registerTokenPayload(
+          String token, String? appVersion) =>
+      {
+        'token': token,
+        if (appVersion != null && appVersion.isNotEmpty)
+          'appVersion': appVersion,
+      };
+
   static Future<void> _registerToken(String token) async {
     // Skip silently when the app is in read-only (maintenance) mode. Recovery
     // then happens on the next FCM onTokenRefresh or the next sign-in cycle
@@ -200,10 +214,16 @@ class NotificationService {
     // undeliverable until one of those fires; acceptable because social
     // notifications are non-critical and the maintenance window is rare.
     if (MaintenanceGuard.isOn) return;
+    String? appVersion;
+    try {
+      appVersion = (await PackageInfo.fromPlatform()).version;
+    } catch (_) {
+      // Unknown version: register the token alone, as older builds do.
+    }
     try {
       await appFunctions
           .httpsCallable('registerFcmToken')
-          .call<void>({'token': token});
+          .call<void>(registerTokenPayload(token, appVersion));
     } catch (_) {
       // Token registration is non-critical — silently discard failures.
     }

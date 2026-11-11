@@ -21,6 +21,35 @@ export function updateFcmTokens(existing: string[], token: string, max = 5): str
 }
 
 /**
+ * The app version a client sent with its token (`PackageInfo.version`, e.g.
+ * "1.6.0"), or null when absent or not a short dotted-numeric string. Never
+ * throws: builds before the annual recap send no version, and a malformed
+ * value is ignored rather than failing the token registration.
+ */
+export function sanitiseAppVersion(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const v = raw.trim();
+  return v.length <= 32 && /^\d+(\.\d+){0,3}$/.test(v) ? v : null;
+}
+
+/**
+ * The fields registerFcmToken merges into `fcmTokens/{uid}`, or null when
+ * neither the token list nor the reported app version changed (skip the
+ * write). A null [appVersion] (an older build) never clears a stored one.
+ */
+export function fcmTokenDocUpdate(
+  existing: { tokens?: unknown; appVersion?: unknown } | undefined,
+  token: string,
+  appVersion: string | null,
+): { tokens: string[]; appVersion?: string } | null {
+  const current = Array.isArray(existing?.tokens) ? (existing.tokens as string[]) : [];
+  const tokens = updateFcmTokens(current, token);
+  const versionChanged = appVersion !== null && appVersion !== existing?.appVersion;
+  if (tokens === current && !versionChanged) return null;
+  return appVersion !== null ? { tokens, appVersion } : { tokens };
+}
+
+/**
  * Returns UIDs present in `after` but not in `before`.
  */
 export function diffFriends(before: string[], after: string[]): string[] {
@@ -301,18 +330,22 @@ export const registerFcmToken = functions.https.onCall(async (request) => {
     );
   }
 
+  // Optional, from builds that ship the annual recap on: the recap's launch
+  // push only goes to players whose app reported a version (see
+  // hasRecapCapableApp in _unpacked.ts).
+  const appVersion = sanitiseAppVersion((request.data as { appVersion?: unknown })?.appVersion);
+
   const tokenRef = database.collection("fcmTokens").doc(uid);
   // Transaction prevents a race when the same user signs in on two devices
   // concurrently — a plain read-modify-write would drop whichever write
-  // committed first. updateFcmTokens returns the same reference when the token
-  // already exists, so we skip the write in that case to avoid a needless
-  // transaction commit.
+  // committed first. fcmTokenDocUpdate returns null when neither the token
+  // list nor the app version changed, so we skip the write in that case to
+  // avoid a needless transaction commit.
   await database.runTransaction(async (tx) => {
     const tokenDoc = await tx.get(tokenRef);
-    const existing: string[] = (tokenDoc.data()?.tokens as string[] | undefined) ?? [];
-    const updated = updateFcmTokens(existing, token);
-    if (updated === existing) return;
-    tx.set(tokenRef, { tokens: updated }, { merge: true });
+    const update = fcmTokenDocUpdate(tokenDoc.data(), token, appVersion);
+    if (update === null) return;
+    tx.set(tokenRef, update, { merge: true });
   });
 });
 

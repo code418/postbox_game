@@ -466,6 +466,181 @@ abstract final class JamesMessages {
     ],
   );
 
+  // ── Your Postboxes Unpacked (annual recap) ───────────────────────────────
+
+  /// One-time Home nudge when the recap becomes available.
+  static String unpackedNudge(int year) =>
+      "Psst... your $year Postboxes Unpacked is ready. Tap the banner at the top, or find it in the menu!";
+
+  /// The recap's opening line. Around Christmas it nudges the player to get
+  /// their friends' Christmas cards posted while there's still time:
+  /// [christmas] says where the posting dates are (see
+  /// `unpackedChristmasPost`), and [lastSecondClass] names the last
+  /// second-class day, e.g. "Friday 18 December".
+  static String unpackedIntro(
+    int year, {
+    ChristmasPost christmas = ChristmasPost.after,
+    String lastSecondClass = 'Friday 18 December',
+    String lastFirstClass = 'Monday 21 December',
+  }) =>
+      switch (christmas) {
+        ChristmasPost.before =>
+          "Last second-class post for Christmas is $lastSecondClass, so "
+              "get those cards to your friends written! Now, let's unpack your $year.",
+        ChristmasPost.firstClass =>
+          "Second-class post has been and gone, so any Christmas cards for "
+              "your friends still on the mantelpiece need a first-class stamp "
+              "by $lastFirstClass. Chop chop! Now, let's unpack your $year.",
+        ChristmasPost.lastMinute =>
+          "Cutting it fine for Christmas cards now... I'd hand-deliver them, "
+              "if I were you. Right, let's unpack your $year.",
+        ChristmasPost.after =>
+          "Right then. Kettle's on. Let's unpack your $year, shall we?",
+      };
+
+  /// The totals card: a penny per postbox, so 142 boxes is £1.42.
+  static String unpackedTotals(int boxes) =>
+      "Cor! If I had a penny for every postbox you claimed, I would have "
+      "${pennies(boxes)}";
+
+  /// [n] pence as it's said: "a penny", "42p", "£1", "£1.42", "£1,234.56".
+  @visibleForTesting
+  static String pennies(int n) {
+    if (n == 1) return 'a penny';
+    if (n < 100) return '${n}p';
+    final pounds = (n ~/ 100)
+        .toString()
+        .replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (_) => ',');
+    final pence = n % 100;
+    return pence == 0
+        ? '£$pounds'
+        : '£$pounds.${pence.toString().padLeft(2, '0')}';
+  }
+
+  /// The "Rarest find" line, matched to how rare the cypher really is: the
+  /// player's best find of the year can still be a common Elizabeth II, and
+  /// the line plays that down rather than calling it rare.
+  static String unpackedRarest(String monarch) => switch (monarch) {
+        'EIIR' => _unpackedRarestCommon.resolve(),
+        'VR' => _unpackedRarestVictorian.resolve(),
+        'EVIIR' => _unpackedRarestEdwardian.resolve(),
+        'CIIIR' => _unpackedRarestCharles.resolve(),
+        'EVIIIR' => _unpackedRarestEdwardVIII.resolve(),
+        // The Georges and the Scottish Crown.
+        _ => _unpackedRarestUncommon.resolve(),
+      };
+
+  static const _unpackedRarestCommon = JamesMessage(
+    'jamesUnpackedRarestCommon',
+    [
+      "Elizabeth II, eh? Not exactly rare... there's one on every other "
+          "corner. Find me something older next year!",
+      "Not the rarest of the rare, I'll grant you. Her late Majesty is on "
+          "half the postboxes in the land.",
+      "A fine box, but hardly a rarity. Next year, hunt down a Victorian!",
+    ],
+  );
+
+  static const _unpackedRarestUncommon = JamesMessage(
+    'jamesUnpackedRarestUncommon',
+    [
+      "A cut above the usual, that. Not every street has one.",
+      "Getting warmer! A proper bit of history, that one.",
+    ],
+  );
+
+  static const _unpackedRarestVictorian = JamesMessage(
+    'jamesUnpackedRarestVictorian',
+    [
+      "A Victorian! Now THAT one I'd have framed.",
+      "Ooh, a proper antique. Mind the paintwork.",
+    ],
+  );
+
+  static const _unpackedRarestEdwardian = JamesMessage(
+    'jamesUnpackedRarestEdwardian',
+    [
+      "Edward VII? Rare as a second-class stamp arriving on time.",
+      "Edwardian! They don't make them like that any more. Literally.",
+    ],
+  );
+
+  static const _unpackedRarestCharles = JamesMessage(
+    'jamesUnpackedRarestCharles',
+    [
+      "A Charles III! Fresh paint and everything. There aren't many of "
+          "those about yet.",
+    ],
+  );
+
+  static const _unpackedRarestEdwardVIII = JamesMessage(
+    'jamesUnpackedRarestEdwardVIII',
+    [
+      "Edward VIII! He was king for less than a year, so his boxes are as "
+          "rare as they come. Frame it!",
+    ],
+  );
+
+  static const unpackedMonarchs = JamesMessage(
+    'jamesUnpackedMonarchs',
+    [
+      "Quite the royal procession you've had.",
+      "A monarch for every mood, eh?",
+    ],
+  );
+
+  static String unpackedBusiestMonth(String month) =>
+      "$month, eh? Something in the air. Or the post.";
+
+  static String unpackedStreak(int days) => days >= 7
+      ? "$days days on the trot. I've had holidays shorter than that."
+      : "$days days running. Not bad... next year, a fortnight?";
+
+  static String unpackedWeekday(String day) =>
+      day == 'Saturday' || day == 'Sunday'
+          ? "${day}s! The postboxes don't get a day off, and neither do you."
+          : "${day}s, eh? Taking the long way round to work, I'll bet.";
+
+  static String unpackedTopScorer({required bool everyone}) => everyone
+      ? "Top of the whole lot! Somebody fetch the bunting."
+      : "Top of the pile among your friends. Don't let it go to your head.";
+
+  /// The award card, by the player's place (0 = gold).
+  static String unpackedAward(int place) => switch (place) {
+        0 => "Gold! I'd shake your hand, but mine are full of letters.",
+        1 =>
+          "Silver. Very respectable. Someone out there walks even more than you, mind.",
+        2 => "Bronze! On the podium, and that's what counts.",
+        _ =>
+          "Not on the podium this year. Plenty of postboxes out there, though... chop chop!",
+      };
+
+  /// The favourite-postbox card, by how many days the box was claimed.
+  static String unpackedFavourite(int days) =>
+      "$days ${days == 1 ? 'claim' : 'claims'}! There are many slots out "
+      "there, but this one is yours.";
+
+  static String unpackedCounty(String county) =>
+      "$county! You practically own the place now.";
+
+  static const unpackedCommunity = JamesMessage(
+    'jamesUnpackedCommunity',
+    [
+      "Brings a tear to my eye to see so many claimed. I couldn't do any of "
+          "this without you, and when I say 'this' I mean 'not much in the "
+          "scheme of things'"
+    ],
+  );
+
+  static const unpackedOutro = JamesMessage(
+    'jamesUnpackedOutro',
+    [
+      "Same time next year? I'll bring biscuits.",
+      "How can you unpack a postbox? Listen, don't lecture me about mixed "
+          "metaphors alright?",
+    ],
+  );
+
   // ── Intro dialogue ───────────────────────────────────────────────────────
 
   static const _introStep2Classic = JamesMessage(
@@ -492,4 +667,20 @@ abstract final class JamesMessages {
     'jamesIntroStep3',
     ['Do you know what I see?'],
   );
+}
+
+/// Where today sits against the Christmas posting dates, for
+/// [JamesMessages.unpackedIntro].
+enum ChristmasPost {
+  /// On or before the last second-class day.
+  before,
+
+  /// After it, up to the last first-class day (21 December in 2026).
+  firstClass,
+
+  /// After that, up to Christmas Eve: hand-deliver them.
+  lastMinute,
+
+  /// Christmas Day onwards (and the rest of the year).
+  after,
 }

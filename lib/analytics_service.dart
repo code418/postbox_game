@@ -354,6 +354,11 @@ class Analytics {
     }
   }
 
+  /// The annual "Your Postboxes Unpacked" recap was opened. (Sharing it logs
+  /// the standard [share] event, `content_type: unpacked`.)
+  static Future<void> unpackedOpened({required int year}) =>
+      _log('unpacked_opened', {'year': year});
+
   // ---------------------------------------------------------------------------
   // Internal
   // ---------------------------------------------------------------------------

@@ -1,0 +1,427 @@
+import "./adminInit";
+import * as admin from "firebase-admin";
+import * as functions from "firebase-functions";
+import { onSchedule } from "firebase-functions/v2/scheduler";
+import { logger } from "firebase-functions";
+import { monitorAppCheck } from "./_appCheck";
+import { getTodayLondon } from "./_dateUtils";
+import { DELETED_UID } from "./_accountDeletion";
+import { sendToUser } from "./_notifications";
+import { clientTemplateFlag } from "./_config";
+import {
+  UnpackedAccumulator,
+  UnpackedStats,
+  PostboxMeta,
+  LaunchNotifyState,
+  UNPACKED_SNAPSHOT_VERSION,
+  FIRST_UNPACKED_YEAR,
+  applyBoxFans,
+  applyPercentiles,
+  boxFans,
+  communityHighlights,
+  countyCounts,
+  dayLeaders,
+  decideLaunchNotify,
+  finalizeUnpacked,
+  friendAwardsFor,
+  friendStreaksFor,
+  hasRecapCapableApp,
+  launchNotifyBody,
+  otherCountiesFor,
+  postboxIdFromPath,
+  recapYearToBuild,
+  topOfEveryoneDays,
+  topOfFriendsDays,
+  summarise,
+  unpackedCutoff,
+  unpackedLastFirstClass,
+  unpackedWindow,
+  unpackedYearFor,
+} from "./_unpacked";
+
+type Firestore = admin.firestore.Firestore;
+
+const db = admin.firestore();
+
+const CLAIMS_PAGE_SIZE = 5000;
+const GET_ALL_CHUNK = 100;
+const WRITE_BATCH_SIZE = 400;
+
+/** Remote Config key that shows the recap in-app (the app's
+ *  `RemoteConfigService.keyUnpackedEnabled`). The push needs it on as well,
+ *  so nobody is pinged about a recap they can't open. */
+export const KEY_UNPACKED_ENABLED = "unpacked_enabled";
+
+/** Remote Config key gating the launch push. Separate from
+ *  [KEY_UNPACKED_ENABLED] so the recap can be soft-launched (visible in-app)
+ *  before anyone is pinged about it. */
+export const KEY_UNPACKED_NOTIFY_ENABLED = "unpacked_notify_enabled";
+
+const NOTIFY_STATE_DOC = "notificationState/unpacked";
+
+/** `unpacked/{year}` — the community summary doc. */
+export function summaryRef(database: Firestore, year: number): admin.firestore.DocumentReference {
+  return database.collection("unpacked").doc(String(year));
+}
+
+/** `unpacked/{year}/players/{uid}` — one player's snapshot. (Not `users`: a
+ *  collection-group query on "users" would also hit the top-level users.) */
+export function playerRef(database: Firestore, year: number, uid: string): admin.firestore.DocumentReference {
+  return summaryRef(database, year).collection("players").doc(uid);
+}
+
+export interface BuildResult {
+  year: number;
+  players: number;
+  claimsRead: number;
+  throughDate: string;
+}
+
+/**
+ * Builds every player's recap for [year] from the `claims` collection and
+ * writes `unpacked/{year}` + `unpacked/{year}/players/{uid}`.
+ *
+ * Three passes: stream the year's claims (paged, dailyDate-ordered — served by
+ * the automatic single-field index) into per-player accumulators; join the
+ * distinct claimed postboxes for county/reference; finalise, rank and write.
+ * Idempotent: a re-run overwrites with fresher numbers. Claims up to
+ * [throughDate] (inclusive) are counted, but never past [unpackedCutoff]
+ * (the last second-class posting day), so the 19 December build is the
+ * final one and an earlier admin build is "the year so far".
+ */
+export async function buildUnpackedSnapshots(
+  year: number,
+  database: Firestore = db,
+  throughDate: string = getTodayLondon(),
+): Promise<BuildResult> {
+  const start = `${year}-01-01`;
+  const cutoff = unpackedCutoff(year);
+  const end = throughDate < cutoff ? throughDate : cutoff;
+  const complete = end === cutoff;
+
+  // ── Pass 1: aggregate ────────────────────────────────────────────────
+  const players = new Map<string, UnpackedAccumulator>();
+  // Community-wide, for the "Together" highlights.
+  const dayClaims = new Map<string, number>();
+  const boxMonarch = new Map<string, string | null>();
+  let claimsRead = 0;
+  let cursor: admin.firestore.QueryDocumentSnapshot | undefined;
+  for (;;) {
+    let q = database
+      .collection("claims")
+      .where("dailyDate", ">=", start)
+      .where("dailyDate", "<=", end)
+      .orderBy("dailyDate")
+      .orderBy(admin.firestore.FieldPath.documentId())
+      .limit(CLAIMS_PAGE_SIZE);
+    if (cursor) q = q.startAfter(cursor);
+    // Paging is inherently sequential: each page starts after the last.
+    // eslint-disable-next-line no-await-in-loop
+    const page = await q.get();
+    for (const doc of page.docs) {
+      claimsRead++;
+      const d = doc.data();
+      const uid = d.userid;
+      // Claims anonymised by account deletion belong to nobody.
+      if (typeof uid !== "string" || uid.length === 0 || uid === DELETED_UID) continue;
+      const postboxId = postboxIdFromPath(d.postboxes);
+      if (postboxId === null || typeof d.dailyDate !== "string") continue;
+      let acc = players.get(uid);
+      if (!acc) {
+        acc = new UnpackedAccumulator(uid, year);
+        players.set(uid, acc);
+      }
+      const monarch = typeof d.monarch === "string" && d.monarch.length > 0 ? d.monarch : null;
+      acc.add({
+        userid: uid,
+        dailyDate: d.dailyDate,
+        points: typeof d.points === "number" ? d.points : 0,
+        monarch,
+        postboxId,
+      });
+      if (d.dailyDate.startsWith(`${year}-`)) {
+        dayClaims.set(d.dailyDate, (dayClaims.get(d.dailyDate) ?? 0) + 1);
+        if (!boxMonarch.get(postboxId)) boxMonarch.set(postboxId, monarch);
+      }
+    }
+    if (page.docs.length < CLAIMS_PAGE_SIZE) break;
+    cursor = page.docs[page.docs.length - 1];
+  }
+
+  // ── Pass 2: postbox join (county + reference) ────────────────────────
+  const allPostboxes = new Set<string>();
+  for (const acc of players.values()) for (const id of acc.postboxes) allPostboxes.add(id);
+  const meta = new Map<string, PostboxMeta>();
+  const ids = [...allPostboxes];
+  for (let i = 0; i < ids.length; i += GET_ALL_CHUNK) {
+    const refs = ids.slice(i, i + GET_ALL_CHUNK).map((id) => database.collection("postbox").doc(id));
+    // Sequential chunks bound the in-flight read size.
+    // eslint-disable-next-line no-await-in-loop
+    const snaps = await database.getAll(...refs);
+    for (const s of snaps) {
+      if (!s.exists) continue;
+      const p = s.data() ?? {};
+      meta.set(s.id, {
+        county: typeof p.county === "string" ? p.county : undefined,
+        reference: typeof p.reference === "string" ? p.reference : undefined,
+      });
+    }
+  }
+
+  // ── Pass 3: finalise, rank, write ────────────────────────────────────
+  const finished: Array<{ uid: string; stats: UnpackedStats }> = [];
+  for (const [uid, acc] of players) {
+    const stats = finalizeUnpacked(acc, meta);
+    if (stats) finished.push({ uid, stats });
+  }
+  applyPercentiles(finished.map((f) => f.stats));
+
+  // "Home turf": each player's other counties, counting how many players
+  // claimed in each county.
+  const countsByUid = new Map<string, Map<string, number>>();
+  const playersByCounty = new Map<string, number>();
+  for (const { uid } of finished) {
+    const counts = countyCounts(players.get(uid)!.postboxes, meta);
+    countsByUid.set(uid, counts);
+    for (const county of counts.keys()) playersByCounty.set(county, (playersByCounty.get(county) ?? 0) + 1);
+  }
+  for (const { uid, stats } of finished) {
+    stats.otherCounties = otherCountiesFor(countsByUid.get(uid)!, stats.topCounty?.name ?? null, playersByCounty);
+  }
+
+  // "Your favourite postbox": was the player its number one fan?
+  const fans = boxFans(finished.map(({ uid }) => players.get(uid)!.boxClaims));
+  for (const { stats } of finished) applyBoxFans(stats.favouritePostboxes, fans);
+
+  // "Longest streak" and the award podium: each player's friends, from the
+  // friends arrays on their user docs.
+  const streakByUid = new Map(finished.map(({ uid, stats }) => [uid, stats.longestStreak.days]));
+  const statsByUid = new Map(finished.map(({ uid, stats }) => [uid, stats]));
+  const leaders = dayLeaders(finished.map(({ uid }) => players.get(uid)!.dayTotals));
+  for (let i = 0; i < finished.length; i += GET_ALL_CHUNK) {
+    const chunk = finished.slice(i, i + GET_ALL_CHUNK);
+    // Sequential chunks bound the in-flight read size.
+    // eslint-disable-next-line no-await-in-loop
+    const users = await database.getAll(...chunk.map(({ uid }) => database.collection("users").doc(uid)));
+    const friendsByUid = new Map(users.map((u) => [u.id, u.exists ? u.data()?.friends : undefined]));
+    for (const { uid, stats } of chunk) {
+      stats.friendStreaks = friendStreaksFor(uid, friendsByUid.get(uid), streakByUid);
+      stats.friendAwards = friendAwardsFor(uid, friendsByUid.get(uid), statsByUid);
+      const mine = players.get(uid)!.dayTotals;
+      const friends = friendsByUid.get(uid);
+      const friendDays = Array.isArray(friends)
+        ? [...new Set(friends)]
+          .filter((f): f is string => typeof f === "string" && f !== uid && statsByUid.has(f))
+          .map((f) => players.get(f)!.dayTotals)
+        : [];
+      stats.topScorerDays = {
+        friends: topOfFriendsDays(mine, friendDays),
+        everyone: topOfEveryoneDays(mine, leaders),
+      };
+    }
+  }
+
+  const highlights = communityHighlights({
+    year,
+    throughDate: end,
+    stats: finished.map((f) => f.stats),
+    boxMonarch,
+    boxCounties: [...allPostboxes].map((id) => meta.get(id)?.county).filter(
+      (c): c is string => typeof c === "string" && c.length > 0),
+    dayClaims,
+  });
+  highlights.sharedCounties = [...playersByCounty.entries()]
+    .filter(([, n]) => n >= 2)
+    .map(([name]) => name)
+    .sort((a, b) => a.localeCompare(b));
+
+  const window = unpackedWindow(year);
+  const generatedAt = admin.firestore.FieldValue.serverTimestamp();
+  for (let i = 0; i < finished.length; i += WRITE_BATCH_SIZE) {
+    const batch = database.batch();
+    for (const { uid, stats } of finished.slice(i, i + WRITE_BATCH_SIZE)) {
+      batch.set(playerRef(database, year, uid), {
+        ...stats,
+        version: UNPACKED_SNAPSHOT_VERSION,
+        throughDate: end,
+        complete,
+        generatedAt,
+      });
+    }
+    // One batch at a time keeps write pressure (and memory) flat.
+    // eslint-disable-next-line no-await-in-loop
+    await batch.commit();
+  }
+
+  // Summary last: its existence is what the client and the launch push treat
+  // as "the recap is ready", so it must never precede the player docs.
+  await summaryRef(database, year).set({
+    ...summarise(year, finished.map((f) => f.stats), allPostboxes.size),
+    highlights,
+    ...window,
+    lastFirstClass: unpackedLastFirstClass(year),
+    version: UNPACKED_SNAPSHOT_VERSION,
+    throughDate: end,
+    generatedAt,
+  });
+
+  return { year, players: finished.length, claimsRead, throughDate: end };
+}
+
+// 03:00 London on 19 December: build the recap, counting up to the 18th (the
+// last second-class posting day), ahead of the launch push (and the operator
+// flipping `unpacked_enabled`) later that morning. Re-run on demand by
+// force-running this job in Cloud Scheduler (an early run counts the year so
+// far; a January run rebuilds the previous year: see recapYearToBuild) or
+// with rebuildUnpacked for a specific year.
+export const buildUnpacked = onSchedule(
+  { schedule: "0 3 19 12 *", timeZone: "Europe/London", timeoutSeconds: 540, memory: "1GiB" },
+  async () => {
+    const year = recapYearToBuild(getTodayLondon());
+    const r = await buildUnpackedSnapshots(year);
+    logger.info(`buildUnpacked: ${r.players} players from ${r.claimsRead} claims (year=${year}, through=${r.throughDate})`);
+  },
+);
+
+/** Validates the admin callable's `year` argument. Omitted, it is the recap
+ *  year being prepared ([recapYearToBuild]). */
+export function parseRebuildYear(raw: unknown, todayLondon: string): number {
+  const current = parseInt(todayLondon.slice(0, 4), 10);
+  if (raw === undefined || raw === null) return recapYearToBuild(todayLondon);
+  if (typeof raw !== "number" || !Number.isInteger(raw) || raw < FIRST_UNPACKED_YEAR || raw > current) {
+    throw new functions.https.HttpsError(
+      "invalid-argument",
+      `year must be an integer between ${FIRST_UNPACKED_YEAR} and ${current}`,
+    );
+  }
+  return raw;
+}
+
+/** Admin-only: (re)build a year's recap now — for the pre-launch soft test and
+ *  for refreshing the numbers later in December. */
+export const rebuildUnpacked = functions.https.onCall(
+  { timeoutSeconds: 540, memory: "1GiB" },
+  async (request) => {
+    monitorAppCheck(request, "rebuildUnpacked");
+    if (request.auth?.token?.admin !== true) {
+      throw new functions.https.HttpsError("permission-denied", "Admin access required");
+    }
+    const year = parseRebuildYear((request.data as { year?: unknown } | undefined)?.year, getTodayLondon());
+    const r = await buildUnpackedSnapshots(year);
+    logger.info(`rebuildUnpacked by ${request.auth.uid}: ${r.players} players (year=${year})`);
+    return r;
+  },
+);
+
+/** The launch push's switch, read from a CLIENT Remote Config template (the
+ *  one the app reads and this project publishes; there is no server
+ *  template). Both the in-app flag and the push flag must be on. Only each
+ *  parameter's default value counts, not conditional values. */
+export function launchFlagOn(
+  template: Parameters<typeof clientTemplateFlag>[0],
+): boolean {
+  return clientTemplateFlag(template, KEY_UNPACKED_ENABLED) &&
+    clientTemplateFlag(template, KEY_UNPACKED_NOTIFY_ENABLED);
+}
+
+/** Reads the launch-push switch. Fails closed: if Remote Config can't be
+ *  read, nobody is notified (retried by tomorrow's run). `readOk` tells a
+ *  failed read apart from flags that are simply off, for the log. */
+async function fetchLaunchFlag(): Promise<{ flagOn: boolean; readOk: boolean }> {
+  try {
+    const template = await admin.remoteConfig().getTemplate();
+    return { flagOn: launchFlagOn(template), readOk: true };
+  } catch (e) {
+    logger.warn("unpackedLaunchNotify: Remote Config read failed; not sending", e);
+    return { flagOn: false, readOk: false };
+  }
+}
+
+/** True unless the user turned the "recap ready" push off. */
+export function shouldNotifyUnpackedReady(fdata: Record<string, unknown> | undefined): boolean {
+  const prefs = fdata?.notificationPrefs as Record<string, boolean> | undefined;
+  return prefs?.unpackedReady !== false;
+}
+
+/**
+ * Sends the launch push to every player with a snapshot who hasn't opted out
+ * and whose app can open the recap ([hasRecapCapableApp]). Exported (with
+ * injectable send) for testing.
+ */
+export async function sendLaunchNotifications(
+  year: number,
+  database: Firestore = db,
+  send: (uid: string, title: string, body: string) => Promise<void> = sendToUser,
+): Promise<number> {
+  const players = await summaryRef(database, year).collection("players").get();
+  const docs = players.docs;
+  let sent = 0;
+  for (let i = 0; i < docs.length; i += GET_ALL_CHUNK) {
+    const chunk = docs.slice(i, i + GET_ALL_CHUNK);
+    // Chunked sequentially so a big player base never fans out unbounded.
+    // eslint-disable-next-line no-await-in-loop
+    const [users, tokens] = await Promise.all([
+      database.getAll(...chunk.map((d) => database.collection("users").doc(d.id))),
+      database.getAll(...chunk.map((d) => database.collection("fcmTokens").doc(d.id))),
+    ]);
+    const prefsByUid = new Map(
+      users.filter((u) => u.exists).map((u) => [u.id, u.data() as Record<string, unknown> | undefined]),
+    );
+    const tokensByUid = new Map(
+      tokens.filter((t) => t.exists).map((t) => [t.id, t.data() as Record<string, unknown> | undefined]),
+    );
+    const eligible = chunk.filter((d) =>
+      prefsByUid.has(d.id) &&
+      shouldNotifyUnpackedReady(prefsByUid.get(d.id)) &&
+      hasRecapCapableApp(tokensByUid.get(d.id)));
+    // eslint-disable-next-line no-await-in-loop
+    await Promise.allSettled(
+      eligible.map((d) =>
+        send(
+          d.id,
+          `Your ${year} Postboxes Unpacked 📮`,
+          launchNotifyBody(d.data() as Pick<UnpackedStats, "year" | "uniquePostboxes">),
+        ),
+      ),
+    );
+    sent += eligible.length;
+  }
+  return sent;
+}
+
+// 10:00 London each day from 19 December, when the recap opens, to the end of
+// the month: once the snapshot exists AND an operator
+// has turned both `unpacked_enabled` and `unpacked_notify_enabled` on in the
+// client Remote Config template, send the "ready" push exactly once for the
+// year (transactional marker, as streakReminder does).
+export const unpackedLaunchNotify = onSchedule(
+  { schedule: "0 10 19-31 12 *", timeZone: "Europe/London", timeoutSeconds: 540 },
+  async () => {
+    const today = getTodayLondon();
+    const year = unpackedYearFor(today);
+    const [summary, { flagOn, readOk }] = await Promise.all([summaryRef(db, year).get(), fetchLaunchFlag()]);
+
+    const stateRef = db.doc(NOTIFY_STATE_DOC);
+    const fire = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(stateRef);
+      const { fire, newState } = decideLaunchNotify(
+        snap.data() as LaunchNotifyState | undefined,
+        year,
+        today,
+        summary.exists,
+        flagOn,
+      );
+      if (fire) tx.set(stateRef, newState, { merge: false });
+      return fire;
+    });
+    if (!fire) {
+      logger.info(
+        `unpackedLaunchNotify: not sending (year=${year}, summary=${summary.exists}, ` +
+          `flag=${readOk ? flagOn : "unreadable"})`,
+      );
+      return;
+    }
+    const sent = await sendLaunchNotifications(year);
+    logger.info(`unpackedLaunchNotify: notified ${sent} players (year=${year})`);
+  },
+);

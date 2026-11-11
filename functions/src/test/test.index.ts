@@ -3134,6 +3134,8 @@ describe("rebuildPeriodLeaderboard (unit, mock Firestore)", () => {
 
 import {
   updateFcmTokens,
+  sanitiseAppVersion,
+  fcmTokenDocUpdate,
   diffFriends,
   shouldNotifyFirstClaim,
   shouldNotifyOvertake,
@@ -3165,6 +3167,39 @@ describe("isStaleTokenError", () => {
     assert.strictEqual(isStaleTokenError("messaging/message-rate-exceeded"), false);
     assert.strictEqual(isStaleTokenError("messaging/internal-error"), false);
     assert.strictEqual(isStaleTokenError(undefined), false);
+  });
+});
+
+describe("sanitiseAppVersion", () => {
+  it("keeps a short dotted-numeric version, trimmed", () => {
+    assert.strictEqual(sanitiseAppVersion("1.6.0"), "1.6.0");
+    assert.strictEqual(sanitiseAppVersion(" 2.0 "), "2.0");
+    assert.strictEqual(sanitiseAppVersion("10"), "10");
+  });
+  it("ignores anything else rather than failing the registration", () => {
+    for (const bad of [undefined, null, 1.6, "", "1.6.0+27", "v1.6", "1..6", "1.2.3.4.5", "9".repeat(40), { v: "1" }]) {
+      assert.strictEqual(sanitiseAppVersion(bad), null, `expected null for ${JSON.stringify(bad)}`);
+    }
+  });
+});
+
+describe("fcmTokenDocUpdate", () => {
+  it("skips the write when neither the token nor the version changed", () => {
+    assert.strictEqual(fcmTokenDocUpdate({ tokens: ["t1"], appVersion: "1.6.0" }, "t1", "1.6.0"), null);
+    assert.strictEqual(fcmTokenDocUpdate({ tokens: ["t1"] }, "t1", null), null);
+  });
+  it("writes a new version for a known token (an app update)", () => {
+    assert.deepStrictEqual(fcmTokenDocUpdate({ tokens: ["t1"], appVersion: "1.6.0" }, "t1", "1.6.1"),
+      { tokens: ["t1"], appVersion: "1.6.1" });
+    assert.deepStrictEqual(fcmTokenDocUpdate({ tokens: ["t1"] }, "t1", "1.6.0"), { tokens: ["t1"], appVersion: "1.6.0" });
+  });
+  it("an older build (no version) adds its token but never clears a stored version", () => {
+    const u = fcmTokenDocUpdate({ tokens: ["t1"], appVersion: "1.6.0" }, "t2", null);
+    assert.deepStrictEqual(u, { tokens: ["t1", "t2"] }, "merge write leaves appVersion in place");
+  });
+  it("handles a missing or malformed doc", () => {
+    assert.deepStrictEqual(fcmTokenDocUpdate(undefined, "t1", null), { tokens: ["t1"] });
+    assert.deepStrictEqual(fcmTokenDocUpdate({ tokens: "junk" }, "t1", "1.6.0"), { tokens: ["t1"], appVersion: "1.6.0" });
   });
 });
 
@@ -5095,6 +5130,13 @@ describe("account deletion: deleteUserDocs (mock Firestore)", () => {
             },
           };
         }
+        if (name === "unpacked") {
+          return {
+            doc: (year: string) => ({
+              collection: (sub: string) => ({ doc: (id: string) => makeCollDoc(`unpacked/${year}/${sub}/${id}`) }),
+            }),
+          };
+        }
         if (name === "invites") {
           return {
             where(field: string, op: string, val: unknown) {
@@ -5123,7 +5165,7 @@ describe("account deletion: deleteUserDocs (mock Firestore)", () => {
       },
     };
 
-    await deleteUserDocs(db as unknown as import("firebase-admin").firestore.Firestore, "u1");
+    await deleteUserDocs(db as unknown as import("firebase-admin").firestore.Firestore, "u1", [2026, 2027]);
 
     assert.ok(deleted.includes("users/u1"), "profile doc deleted");
     assert.ok(deleted.includes("users/u1/countyStats/avon"), "countyStats deleted");
@@ -5134,6 +5176,8 @@ describe("account deletion: deleteUserDocs (mock Firestore)", () => {
     assert.ok(deleted.includes("offlineFlushQuotas/u1"),
       "offline-flush quota deleted (GDPR: analogue of reportQuotas)");
     assert.ok(deleted.includes("trustScores/u1"), "trust score deleted");
+    assert.ok(deleted.includes("unpacked/2026/players/u1") && deleted.includes("unpacked/2027/players/u1"),
+      "annual recap snapshots deleted for every year");
     assert.ok(deleted.includes("invites/ABCD2345"), "user's invite code deleted");
     assert.ok(deleted.includes("referrals/u1"), "user's own referral record deleted");
     assert.ok(deleted.includes("referrals/invitee1"),
@@ -5930,6 +5974,7 @@ describe("exportMyData: buildExportBundle", () => {
     leaderboards: [{ board: "lifetime", entry: { uid: "u1", totalPoints: 12 } }],
     invites: [{ id: "ABCD2345", uid: "u1", referralCount: 2 }],
     referral: { id: "u1", inviterUid: "u9", code: "WXYZ6789" },
+    unpacked: [{ year: 2026, totalClaims: 3, generatedAt: adminRet.firestore.Timestamp.fromMillis(1_800_000_000_000) }],
   };
 
   it("assembles the versioned bundle with Firestore types serialised", () => {
@@ -5952,6 +5997,9 @@ describe("exportMyData: buildExportBundle", () => {
     // deletion, so they are exported too.
     assert.deepStrictEqual(bundle.invites, [{ id: "ABCD2345", uid: "u1", referralCount: 2 }]);
     assert.deepStrictEqual(bundle.referral, { id: "u1", inviterUid: "u9", code: "WXYZ6789" });
+    // GDPR access must mirror erasure: recap snapshots are erased on deletion.
+    assert.deepStrictEqual(bundle.unpacked,
+      [{ year: 2026, totalClaims: 3, generatedAt: new Date(1_800_000_000_000).toISOString() }]);
   });
 
   it("keeps a sane claims cap constant", () => {
@@ -6488,6 +6536,650 @@ describe("route alternatives (_routePlanner)", () => {
       assert.strictEqual(withCb.score, without.score);
       assert.deepStrictEqual([...withCb.visited].sort(), [...without.visited].sort());
     });
+  });
+});
+
+// ── "Your Postboxes Unpacked" annual recap ────────────────────────────────
+import * as unpacked from "../_unpacked";
+import {
+  buildUnpackedSnapshots,
+  launchFlagOn,
+  parseRebuildYear,
+  sendLaunchNotifications,
+  shouldNotifyUnpackedReady,
+} from "../buildUnpacked";
+
+describe("Unpacked: pure helpers", () => {
+  const claim = (dailyDate: string, postboxId: string, points: number, monarch?: string): unpacked.UnpackedClaim =>
+    ({ userid: "u1", dailyDate, postboxId, points, monarch });
+
+  describe("postboxIdFromPath", () => {
+    it("extracts the id from a /postbox/{id} path and tolerates a bare id", () => {
+      assert.strictEqual(unpacked.postboxIdFromPath("/postbox/osm_1"), "osm_1");
+      assert.strictEqual(unpacked.postboxIdFromPath("postbox/osm_2"), "osm_2");
+      assert.strictEqual(unpacked.postboxIdFromPath("osm_3"), "osm_3");
+    });
+    it("rejects empty or non-string values", () => {
+      assert.strictEqual(unpacked.postboxIdFromPath(""), null);
+      assert.strictEqual(unpacked.postboxIdFromPath("/"), null);
+      assert.strictEqual(unpacked.postboxIdFromPath(undefined), null);
+      assert.strictEqual(unpacked.postboxIdFromPath(42), null);
+    });
+  });
+
+  describe("isoWeekday", () => {
+    it("numbers Monday 1 through Sunday 7", () => {
+      assert.strictEqual(unpacked.isoWeekday("2026-11-30"), 1); // Monday
+      assert.strictEqual(unpacked.isoWeekday("2026-12-05"), 6); // Saturday
+      assert.strictEqual(unpacked.isoWeekday("2026-12-06"), 7); // Sunday
+    });
+  });
+
+  describe("longestStreak", () => {
+    it("finds the best run anywhere, not just the latest", () => {
+      const r = unpacked.longestStreak(["2026-03-01", "2026-03-02", "2026-03-03", "2026-06-10", "2026-06-11"]);
+      assert.deepStrictEqual(r, { days: 3, start: "2026-03-01", end: "2026-03-03" });
+    });
+    it("crosses month boundaries and ignores duplicates/order", () => {
+      const r = unpacked.longestStreak(["2026-02-01", "2026-01-31", "2026-01-31", "2026-01-30"]);
+      assert.deepStrictEqual(r, { days: 3, start: "2026-01-30", end: "2026-02-01" });
+    });
+    it("prefers the earliest of equal runs and handles empty input", () => {
+      assert.deepStrictEqual(unpacked.longestStreak(["2026-05-02", "2026-05-01", "2026-08-01", "2026-08-02"]),
+        { days: 2, start: "2026-05-01", end: "2026-05-02" });
+      assert.deepStrictEqual(unpacked.longestStreak([]), { days: 0, start: "", end: "" });
+    });
+  });
+
+  describe("otherCountiesFor", () => {
+    const counts = new Map([["Bristol", 9], ["Somerset", 4], ["Devon", 4], ["Cornwall", 2], ["Dorset", 1]]);
+    const players = new Map([["Bristol", 40], ["Somerset", 6], ["Devon", 2], ["Cornwall", 1], ["Dorset", 3]]);
+    it("lists the next counties after home, only where someone else claimed too", () => {
+      assert.deepStrictEqual(unpacked.otherCountiesFor(counts, "Bristol", players), [
+        // Devon and Somerset tie on boxes: alphabetical.
+        { name: "Devon", uniquePostboxes: 4, otherPlayers: 1 },
+        { name: "Somerset", uniquePostboxes: 4, otherPlayers: 5 },
+        // Cornwall is the player's alone, so it is skipped.
+        { name: "Dorset", uniquePostboxes: 1, otherPlayers: 2 },
+      ]);
+    });
+    it("respects the limit and copes with no home county", () => {
+      assert.strictEqual(unpacked.otherCountiesFor(counts, null, players, 1)[0].name, "Bristol");
+      assert.deepStrictEqual(unpacked.otherCountiesFor(new Map(), null, players), []);
+    });
+  });
+
+  describe("friendStreaksFor", () => {
+    const streaks = new Map([["me", 12], ["sam", 21], ["alex", 9], ["kim", 9], ["idle", 0]]);
+    it("lists friends with a recap, longest first, skipping self, duplicates and non-players", () => {
+      assert.deepStrictEqual(
+        unpacked.friendStreaksFor("me", ["alex", "sam", "me", "sam", "kim", "stranger", "idle", 42], streaks),
+        [{ uid: "sam", days: 21 }, { uid: "alex", days: 9 }, { uid: "kim", days: 9 }],
+      );
+    });
+    it("caps the list and treats a malformed friends field as none", () => {
+      assert.strictEqual(unpacked.friendStreaksFor("me", ["alex", "sam", "kim"], streaks, 2).length, 2);
+      assert.deepStrictEqual(unpacked.friendStreaksFor("me", undefined, streaks), []);
+      assert.deepStrictEqual(unpacked.friendStreaksFor("me", "sam", streaks), []);
+    });
+  });
+
+  describe("box fans", () => {
+    const boxes = (o: Record<string, number>) => new Map(Object.entries(o).map(([id, claims]) => [id, { claims }]));
+    it("counts each box's claimers and its best claimer's days", () => {
+      const fans = unpacked.boxFans([boxes({ a: 41, b: 2 }), boxes({ a: 50 }), boxes({ a: 41, c: 3 })]);
+      assert.deepStrictEqual(fans.get("a"), { fans: 3, most: 50 });
+      assert.deepStrictEqual(fans.get("b"), { fans: 1, most: 2 });
+    });
+    it("marks the player the top fan when nobody claimed it on more days (ties count)", () => {
+      const fav = (postboxId: string, claims: number) =>
+        ({ postboxId, claims, monarch: null, reference: null, county: null, fans: 1, topFan: true });
+      const favourites = [fav("a", 41), fav("b", 2), fav("z", 9)];
+      unpacked.applyBoxFans(favourites, new Map([["a", { fans: 3, most: 50 }], ["b", { fans: 2, most: 2 }]]));
+      assert.deepStrictEqual(favourites.map((f) => [f.fans, f.topFan]), [[3, false], [2, true], [1, true]]);
+    });
+  });
+
+  describe("friendAwardsFor", () => {
+    const st = (daysActive: number, uniquePostboxes: number) => ({ daysActive, uniquePostboxes });
+    const stats = new Map([
+      ["me", st(61, 142)], ["sam", st(143, 300)], ["alex", st(40, 90)], ["kim", st(40, 95)],
+      ["lee", st(12, 20)], ["idle", st(0, 0)],
+    ]);
+    it("ranks friends by days out hunting, then boxes found, keeping three", () => {
+      assert.deepStrictEqual(
+        unpacked.friendAwardsFor("me", ["alex", "sam", "me", "kim", "lee", "idle", "stranger", "sam"], stats),
+        [
+          { uid: "sam", daysActive: 143, uniquePostboxes: 300 },
+          { uid: "kim", daysActive: 40, uniquePostboxes: 95 },
+          { uid: "alex", daysActive: 40, uniquePostboxes: 90 },
+        ],
+      );
+    });
+    it("treats a malformed friends field as none", () => {
+      assert.deepStrictEqual(unpacked.friendAwardsFor("me", null, stats), []);
+    });
+  });
+
+  describe("top scorer days", () => {
+    const days = (o: Record<string, number>) => new Map(Object.entries(o).map(([d, points]) => [d, { points }]));
+    const me = days({ "2026-01-01": 9, "2026-01-02": 4, "2026-01-03": 2, "2026-01-04": 7 });
+    const sam = days({ "2026-01-01": 4, "2026-01-02": 4, "2026-01-03": 7 });
+    const kim = days({ "2026-01-02": 2, "2026-01-05": 12 });
+    it("counts days on top of everyone, ties included, only when someone else scored", () => {
+      const leaders = unpacked.dayLeaders([me, sam, kim]);
+      // 1st: 9 beats 4. 2nd: joint top on 4. 3rd: 2 loses to 7. 4th: alone, so no.
+      assert.strictEqual(unpacked.topOfEveryoneDays(me, leaders), 2);
+      assert.strictEqual(unpacked.topOfEveryoneDays(kim, leaders), 0, "kim's 12 was a solo day");
+      assert.strictEqual(unpacked.topOfEveryoneDays(sam, leaders), 2, "joint top on the 2nd, top on the 3rd");
+    });
+    it("tracks the runner-up so a lone leader is compared with the next best", () => {
+      const a = days({ d: 9 });
+      const b = days({ d: 9 });
+      const c = days({ d: 5 });
+      const leaders = unpacked.dayLeaders([a, b, c]);
+      assert.deepStrictEqual(leaders.get("d"), { best: 9, bestCount: 2, second: 5, scorers: 3 });
+      assert.strictEqual(unpacked.topOfEveryoneDays(c, leaders), 0);
+      assert.strictEqual(unpacked.topOfEveryoneDays(a, leaders), 1);
+    });
+    it("counts days on top of friends only when a friend also scored", () => {
+      assert.strictEqual(unpacked.topOfFriendsDays(me, [sam]), 2); // 1st and 2nd
+      assert.strictEqual(unpacked.topOfFriendsDays(me, [kim]), 1); // only the 2nd overlaps
+      assert.strictEqual(unpacked.topOfFriendsDays(me, []), 0);
+    });
+  });
+
+  describe("communityHighlights", () => {
+    const stat = (days: number) => ({ longestStreak: { days } }) as unknown as unpacked.UnpackedStats;
+    it("picks the rarest cypher by points, the busiest day, and counts days and counties", () => {
+      const h = unpacked.communityHighlights({
+        year: 2026,
+        throughDate: "2026-01-10",
+        stats: [stat(3), stat(7), stat(1)],
+        boxMonarch: new Map<string, string | null>([
+          ["a", "EIIR"], ["b", "VR"], ["c", "EVIIR"], ["d", "CIIIR"], ["e", "CIIIR"], ["f", null],
+        ]),
+        boxCounties: ["Kent", "Kent", "Avon"],
+        dayClaims: new Map([["2026-01-02", 5], ["2026-01-01", 5], ["2026-01-05", 2]]),
+      });
+      // EVIIR and CIIIR tie on points; EVIIR has fewer boxes, so it's rarer.
+      assert.deepStrictEqual(h.rarestCypher, { monarch: "EVIIR", boxes: 1 });
+      assert.deepStrictEqual(h.busiestDay, { date: "2026-01-01", claims: 5 }, "earliest of a tie");
+      assert.strictEqual(h.longestStreak, 7);
+      assert.strictEqual(h.countiesCovered, 2);
+      assert.strictEqual(h.daysWithClaims, 3);
+      assert.strictEqual(h.daysSoFar, 10);
+    });
+    it("is empty-safe", () => {
+      const h = unpacked.communityHighlights({
+        year: 2026, throughDate: "2026-12-01", stats: [], boxMonarch: new Map([["p", null]]),
+        boxCounties: [], dayClaims: new Map(),
+      });
+      assert.strictEqual(h.rarestCypher, null, "plain boxes only");
+      assert.strictEqual(h.busiestDay, null);
+      assert.strictEqual(h.longestStreak, 0);
+      assert.strictEqual(h.daysSoFar, 335);
+    });
+    it("the cut-off is 18 December, the day before the recap opens", () => {
+      assert.strictEqual(unpacked.unpackedCutoff(2026), "2026-12-18");
+    });
+    it("daysFromNewYear counts inclusively", () => {
+      assert.strictEqual(unpacked.daysFromNewYear(2026, "2026-01-01"), 1);
+      assert.strictEqual(unpacked.daysFromNewYear(2026, "2026-12-31"), 365);
+      assert.strictEqual(unpacked.daysFromNewYear(2024, "2024-12-31"), 366);
+      assert.strictEqual(unpacked.daysFromNewYear(2026, "2025-12-31"), 0);
+    });
+  });
+
+  describe("UnpackedAccumulator + finalizeUnpacked", () => {
+    it("aggregates totals, rarest find, busiest month/day/weekday, and top county", () => {
+      const acc = new unpacked.UnpackedAccumulator("u1", 2026);
+      acc.add(claim("2026-03-02", "a", 2, "EIIR"));
+      acc.add(claim("2026-03-03", "b", 7, "VR"));
+      acc.add(claim("2026-03-03", "c", 4, "GR"));
+      acc.add(claim("2026-07-04", "a", 2, "EIIR"));
+      acc.add(claim("2026-08-01", "d", 7, "VR")); // ties VR on points, later → not rarest
+      acc.add(claim("2026-09-09", "e", 2)); // plain box
+      const meta = new Map<string, unpacked.PostboxMeta>([
+        ["a", { county: "Kent" }],
+        ["b", { county: "Avon", reference: "BS1 1" }],
+        ["c", { county: "Avon" }],
+        ["d", { county: "Kent" }],
+      ]);
+      const s = unpacked.finalizeUnpacked(acc, meta)!;
+      assert.strictEqual(s.totalClaims, 6);
+      assert.strictEqual(s.uniquePostboxes, 5);
+      assert.strictEqual(s.totalPoints, 24);
+      assert.strictEqual(s.daysActive, 5);
+      assert.strictEqual(s.firstClaimDate, "2026-03-02");
+      assert.strictEqual(s.lastClaimDate, "2026-09-09");
+      assert.deepStrictEqual(s.longestStreak, { days: 2, start: "2026-03-02", end: "2026-03-03" });
+      assert.deepStrictEqual(s.busiestMonth, { month: 3, claims: 3 });
+      assert.deepStrictEqual(s.busiestDay, { date: "2026-03-03", points: 11, claims: 2 });
+      assert.deepStrictEqual(s.rarestFind,
+        { postboxId: "b", monarch: "VR", points: 7, dailyDate: "2026-03-03", reference: "BS1 1", county: "Avon" });
+      assert.deepStrictEqual(s.monthCounts, [0, 0, 3, 0, 0, 0, 1, 1, 1, 0, 0, 0]);
+      // 2 Mar Mon (2) · 3 Mar Tue (7 + 4) · 4 Jul Sat (2) · 1 Aug Sat (7) · 9 Sep Wed (2).
+      assert.deepStrictEqual(s.weekdayPoints, [2, 11, 2, 0, 0, 9, 0]);
+      assert.deepStrictEqual(s.countyBoxes, { Kent: 2, Avon: 2 });
+      assert.deepStrictEqual(s.monarchCounts, { EIIR: 2, VR: 2, GR: 1, NONE: 1 });
+      // Avon 2 (b, c) ties Kent 2 (a, d) → alphabetical first wins.
+      assert.deepStrictEqual(s.topCounty, { name: "Avon", uniquePostboxes: 2 });
+      assert.strictEqual(s.countiesVisited, 2);
+      // By claims, then points, then the earlier date.
+      assert.deepStrictEqual(s.busiestDays, [
+        { date: "2026-03-03", points: 11, claims: 2 },
+        { date: "2026-08-01", points: 7, claims: 1 },
+        { date: "2026-03-02", points: 2, claims: 1 },
+      ]);
+      // Only box "a" was claimed twice.
+      assert.deepStrictEqual(s.favouritePostboxes,
+        [{ postboxId: "a", claims: 2, monarch: "EIIR", reference: null, county: "Kent", fans: 1, topFan: true }]);
+      // Filled in by the builder, not here.
+      assert.deepStrictEqual(s.otherCounties, []);
+      assert.deepStrictEqual(s.friendStreaks, []);
+      assert.deepStrictEqual(s.friendAwards, []);
+      assert.deepStrictEqual(s.topScorerDays, { friends: 0, everyone: 0 });
+    });
+
+    it("ranks favourite postboxes by days claimed, then rarity, keeping at most three", () => {
+      const acc = new unpacked.UnpackedAccumulator("u1", 2026);
+      const days = (box: string, n: number, monarch?: string) => {
+        for (let i = 1; i <= n; i++) acc.add(claim(`2026-05-${String(i).padStart(2, "0")}`, box, 2, monarch));
+      };
+      days("common", 4, "EIIR");
+      days("victorian", 4, "VR"); // ties on days, rarer cypher first
+      days("george", 3, "GR");
+      days("plain", 2);
+      days("once", 1, "EVIIIR"); // claimed once: never a favourite
+      const s = unpacked.finalizeUnpacked(acc, new Map([["victorian", { reference: "BS8 102", county: "Bristol" }]]))!;
+      assert.deepStrictEqual(s.favouritePostboxes.map((f) => [f.postboxId, f.claims, f.monarch, f.reference]), [
+        ["victorian", 4, "VR", "BS8 102"],
+        ["common", 4, "EIIR", null],
+        ["george", 3, "GR", null],
+      ]);
+    });
+
+    it("ignores claims from another year and returns null when nothing is left", () => {
+      const acc = new unpacked.UnpackedAccumulator("u1", 2026);
+      acc.add(claim("2025-12-31", "a", 9, "CIIIR"));
+      acc.add(claim("2027-01-01", "b", 9, "CIIIR"));
+      assert.strictEqual(acc.claims, 0);
+      assert.strictEqual(unpacked.finalizeUnpacked(acc, new Map()), null);
+    });
+
+    it("reports no top county when no claimed box carries one, and a null monarch for plain finds", () => {
+      const acc = new unpacked.UnpackedAccumulator("u1", 2026);
+      acc.add(claim("2026-01-05", "x", 2));
+      const s = unpacked.finalizeUnpacked(acc, new Map())!;
+      assert.strictEqual(s.topCounty, null);
+      assert.strictEqual(s.countiesVisited, 0);
+      assert.strictEqual(s.rarestFind.monarch, null);
+      assert.strictEqual(s.rarestFind.reference, null);
+    });
+  });
+
+  describe("percentileRank / applyPercentiles", () => {
+    it("counts players strictly below, capped at 99", () => {
+      const field = [1, 2, 3, 4];
+      assert.strictEqual(unpacked.percentileRank(field, 1), 0);
+      assert.strictEqual(unpacked.percentileRank(field, 3), 50);
+      assert.strictEqual(unpacked.percentileRank(field, 4), 75);
+      assert.strictEqual(unpacked.percentileRank([...Array(1000).keys()], 999), 99);
+    });
+    it("gives a lone player, or an all-tied field, 0% rather than a hollow 100%", () => {
+      assert.strictEqual(unpacked.percentileRank([5], 5), 0);
+      assert.strictEqual(unpacked.percentileRank([3, 3, 3], 3), 0);
+      assert.strictEqual(unpacked.percentileRank([], 3), 0);
+    });
+    it("fills each snapshot's percentiles against the whole field", () => {
+      const mk = (boxes: number, streak: number) => {
+        const acc = new unpacked.UnpackedAccumulator("u", 2026);
+        for (let i = 0; i < boxes; i++) acc.add(claim(`2026-01-${String(i + 1).padStart(2, "0")}`, `p${i}`, 2));
+        const s = unpacked.finalizeUnpacked(acc, new Map())!;
+        s.longestStreak = { days: streak, start: "", end: "" };
+        return s;
+      };
+      const all = [mk(1, 1), mk(2, 1), mk(4, 3)];
+      unpacked.applyPercentiles(all);
+      assert.deepStrictEqual(all[2].percentiles, { uniquePostboxes: 66, totalPoints: 66, longestStreak: 66 });
+      assert.deepStrictEqual(all[0].percentiles, { uniquePostboxes: 0, totalPoints: 0, longestStreak: 0 });
+    });
+  });
+
+  describe("summarise", () => {
+    it("totals the field and picks the most-claimed cypher, excluding plain boxes", () => {
+      const a = new unpacked.UnpackedAccumulator("a", 2026);
+      a.add(claim("2026-02-01", "p1", 7, "VR"));
+      a.add(claim("2026-02-02", "p2", 2));
+      a.add(claim("2026-02-03", "p3", 2));
+      const b = new unpacked.UnpackedAccumulator("b", 2026);
+      b.add(claim("2026-02-01", "p1", 7, "VR"));
+      b.add(claim("2026-02-04", "p4", 4, "GR"));
+      const all = [a, b].map((x) => unpacked.finalizeUnpacked(x, new Map())!);
+      assert.deepStrictEqual(unpacked.summarise(2026, all, 4), {
+        year: 2026, players: 2, totalClaims: 5, uniquePostboxes: 4, totalPoints: 22, topMonarch: "VR",
+      });
+    });
+  });
+
+  describe("window + year helpers", () => {
+    const w = unpacked.unpackedWindow(2026);
+    it("opens 1 December and closes 15 January (inclusive)", () => {
+      assert.deepStrictEqual(w, { availableFrom: "2026-12-19", availableUntil: "2027-01-15" });
+      assert.strictEqual(unpacked.isWithinWindow("2026-12-18", w), false, "the cut-off day itself is still being counted");
+      assert.strictEqual(unpacked.isWithinWindow("2026-12-19", w), true);
+      assert.strictEqual(unpacked.isWithinWindow("2027-01-15", w), true);
+      assert.strictEqual(unpacked.isWithinWindow("2027-01-16", w), false);
+    });
+    it("attributes the January tail to the previous year's recap", () => {
+      assert.strictEqual(unpacked.unpackedYearFor("2026-12-24"), 2026);
+      assert.strictEqual(unpacked.unpackedYearFor("2027-01-10"), 2026);
+    });
+    it("lists every year to erase from the first recap year on", () => {
+      assert.deepStrictEqual(unpacked.unpackedYearsToErase("2026-10-04"), [2026]);
+      assert.deepStrictEqual(unpacked.unpackedYearsToErase("2028-01-02"), [2026, 2027, 2028]);
+    });
+  });
+
+  describe("decideLaunchNotify", () => {
+    it("fires once per year when the flag is on, the summary exists and the window is open", () => {
+      const first = unpacked.decideLaunchNotify(undefined, 2026, "2026-12-19", true, true);
+      assert.strictEqual(first.fire, true);
+      assert.deepStrictEqual(first.newState, { sentYears: [2026] });
+      const again = unpacked.decideLaunchNotify(first.newState, 2026, "2026-12-02", true, true);
+      assert.strictEqual(again.fire, false);
+    });
+    it("holds off while the flag is off, the summary is missing, or outside the window", () => {
+      assert.strictEqual(unpacked.decideLaunchNotify(undefined, 2026, "2026-12-19", true, false).fire, false);
+      assert.strictEqual(unpacked.decideLaunchNotify(undefined, 2026, "2026-12-19", false, true).fire, false);
+      assert.strictEqual(unpacked.decideLaunchNotify(undefined, 2026, "2026-12-18", true, true).fire, false);
+    });
+    it("keeps earlier years in the sent list", () => {
+      const r = unpacked.decideLaunchNotify({ sentYears: [2026] }, 2027, "2027-12-19", true, true);
+      assert.deepStrictEqual(r, { fire: true, newState: { sentYears: [2026, 2027] } });
+    });
+  });
+
+  describe("launchNotifyBody / shouldNotifyUnpackedReady", () => {
+    it("pluralises the box count", () => {
+      assert.match(unpacked.launchNotifyBody({ year: 2026, uniquePostboxes: 1 }), /1 postbox in 2026/);
+      assert.match(unpacked.launchNotifyBody({ year: 2026, uniquePostboxes: 12 }), /12 postboxes in 2026/);
+    });
+    it("never names the guide, uses no em-dash, and avoids \"Wrapped\"", () => {
+      const body = unpacked.launchNotifyBody({ year: 2026, uniquePostboxes: 12 });
+      assert.doesNotMatch(body, /James/);
+      assert.doesNotMatch(body, /\u2014/);
+      assert.doesNotMatch(body, /wrap/i);
+    });
+    it("is opt-out: only an explicit false suppresses the push", () => {
+      assert.strictEqual(shouldNotifyUnpackedReady(undefined), true);
+      assert.strictEqual(shouldNotifyUnpackedReady({ notificationPrefs: {} }), true);
+      assert.strictEqual(shouldNotifyUnpackedReady({ notificationPrefs: { unpackedReady: false } }), false);
+    });
+  });
+
+  describe("recapYearToBuild", () => {
+    it("prepares the current year from February to December", () => {
+      assert.strictEqual(unpacked.recapYearToBuild("2026-11-20"), 2026);
+      assert.strictEqual(unpacked.recapYearToBuild("2026-12-01"), 2026);
+      assert.strictEqual(unpacked.recapYearToBuild("2027-02-01"), 2027);
+    });
+    it("rebuilds the previous year in January, the tail of its window", () => {
+      assert.strictEqual(unpacked.recapYearToBuild("2027-01-01"), 2026);
+      assert.strictEqual(unpacked.recapYearToBuild("2027-01-31"), 2026);
+    });
+  });
+
+  describe("hasRecapCapableApp", () => {
+    it("is true only when the app reported a version", () => {
+      assert.strictEqual(unpacked.hasRecapCapableApp({ tokens: ["t"], appVersion: "1.6.0" }), true);
+      assert.strictEqual(unpacked.hasRecapCapableApp({ tokens: ["t"] }), false);
+      assert.strictEqual(unpacked.hasRecapCapableApp({ tokens: ["t"], appVersion: "" }), false);
+      assert.strictEqual(unpacked.hasRecapCapableApp(undefined), false);
+    });
+  });
+
+  describe("launchFlagOn (client Remote Config template)", () => {
+    const t = (params: Record<string, string>) => ({
+      parameters: Object.fromEntries(Object.entries(params).map(([k, v]) => [k, { defaultValue: { value: v } }])),
+    });
+    it("needs both the in-app flag and the push flag", () => {
+      assert.strictEqual(launchFlagOn(t({ unpacked_enabled: "true", unpacked_notify_enabled: "true" })), true);
+      assert.strictEqual(launchFlagOn(t({ unpacked_enabled: "false", unpacked_notify_enabled: "true" })), false);
+      assert.strictEqual(launchFlagOn(t({ unpacked_enabled: "true", unpacked_notify_enabled: "false" })), false);
+      assert.strictEqual(launchFlagOn(t({ unpacked_notify_enabled: "true" })), false);
+      assert.strictEqual(launchFlagOn({ parameters: {} }), false);
+    });
+    it("reads defaults only: a conditional value does not count", () => {
+      const conditional = {
+        parameters: {
+          unpacked_enabled: { defaultValue: { value: "true" } },
+          unpacked_notify_enabled: { defaultValue: { value: "false" }, conditionalValues: { admins: { value: "true" } } },
+        },
+      };
+      assert.strictEqual(launchFlagOn(conditional), false);
+    });
+  });
+
+  describe("parseRebuildYear", () => {
+    it("defaults to the recap year being prepared and accepts past years back to the first", () => {
+      assert.strictEqual(parseRebuildYear(undefined, "2027-03-01"), 2027);
+      assert.strictEqual(parseRebuildYear(undefined, "2027-01-10"), 2026);
+      assert.strictEqual(parseRebuildYear(2026, "2027-03-01"), 2026);
+    });
+    it("rejects future, pre-launch, and non-integer years", () => {
+      for (const bad of [2028, 2025, 2026.5, "2026"]) {
+        assert.throws(() => parseRebuildYear(bad, "2027-03-01"), (e: { code?: string }) => e.code === "invalid-argument");
+      }
+    });
+  });
+});
+
+describe("Unpacked: buildUnpackedSnapshots (mock Firestore)", () => {
+  type Claim = { id: string; userid: string; dailyDate: string; points: number; monarch?: string; postboxes: string };
+  function makeDb(
+    claims: Claim[],
+    postboxes: Record<string, Record<string, unknown>>,
+    users: Record<string, Record<string, unknown>> = {},
+  ) {
+    const writes = new Map<string, Record<string, unknown>>();
+    const docRef = (path: string): Record<string, unknown> => ({
+      id: path.split("/").pop(),
+      _path: path,
+      collection: (name: string) => ({ doc: (id: string) => docRef(`${path}/${name}/${id}`) }),
+      async set(data: Record<string, unknown>) { writes.set(path, data); },
+    });
+    const db = {
+      collection(name: string) {
+        if (name === "claims") {
+          let lo = "";
+          let hi = "￿";
+          const q = {
+            where(field: string, op: string, val: string) {
+              assert.strictEqual(field, "dailyDate");
+              if (op === ">=") lo = val; else if (op === "<=") hi = val;
+              return q;
+            },
+            orderBy() { return q; },
+            limit() { return q; },
+            startAfter() { throw new Error("only one page expected"); },
+            async get() {
+              return {
+                docs: claims
+                  .filter((c) => c.dailyDate >= lo && c.dailyDate <= hi)
+                  .map((c) => ({ id: c.id, data: () => c })),
+              };
+            },
+          };
+          return q;
+        }
+        return { doc: (id: string) => docRef(`${name}/${id}`) };
+      },
+      async getAll(...refs: Array<{ id: string; _path: string }>) {
+        return refs.map((r) => {
+          const p = r._path.startsWith("users/") ? users[r.id] : postboxes[r.id];
+          return { id: r.id, exists: p !== undefined, data: () => p };
+        });
+      },
+      batch() {
+        const pending: Array<[string, Record<string, unknown>]> = [];
+        return {
+          set(ref: { _path: string }, data: Record<string, unknown>) { pending.push([ref._path, data]); },
+          async commit() { for (const [p, d] of pending) writes.set(p, d); },
+        };
+      },
+    };
+    return { db: db as unknown as admin.firestore.Firestore, writes };
+  }
+
+  it("writes a snapshot per player plus the community summary, with percentiles", async () => {
+    const { db, writes } = makeDb(
+      [
+        { id: "c1", userid: "alice", dailyDate: "2026-04-01", points: 7, monarch: "VR", postboxes: "/postbox/p1" },
+        { id: "c2", userid: "alice", dailyDate: "2026-04-02", points: 2, postboxes: "/postbox/p2" },
+        { id: "c3", userid: "bob", dailyDate: "2026-04-01", points: 7, monarch: "VR", postboxes: "/postbox/p1" },
+        { id: "c4", userid: "deleted", dailyDate: "2026-05-01", points: 12, monarch: "EVIIIR", postboxes: "/postbox/p9" },
+        { id: "c5", userid: "alice", dailyDate: "2025-12-31", points: 9, postboxes: "/postbox/p3" },
+        { id: "c6", userid: "bob", dailyDate: "2026-12-02", points: 9, postboxes: "/postbox/p4" }, // after throughDate
+      ],
+      { p1: { county: "Bristol", reference: "BS1 1" }, p2: { county: "Bristol" } },
+      { alice: { friends: ["bob", "stranger"] }, bob: { friends: [] } },
+    );
+
+    const r = await buildUnpackedSnapshots(2026, db, "2026-12-01");
+    assert.deepStrictEqual(r, { year: 2026, players: 2, claimsRead: 4, throughDate: "2026-12-01" });
+
+    const alice = writes.get("unpacked/2026/players/alice")!;
+    assert.strictEqual(alice.uniquePostboxes, 2);
+    assert.strictEqual(alice.totalPoints, 9);
+    assert.deepStrictEqual(alice.topCounty, { name: "Bristol", uniquePostboxes: 2 });
+    assert.deepStrictEqual(alice.percentiles, { uniquePostboxes: 50, totalPoints: 50, longestStreak: 50 });
+    assert.strictEqual(alice.throughDate, "2026-12-01");
+    assert.strictEqual(alice.complete, false, "an early build is the year so far");
+    assert.strictEqual(alice.version, unpacked.UNPACKED_SNAPSHOT_VERSION);
+    assert.ok(writes.has("unpacked/2026/players/bob"));
+    assert.ok(!writes.has("unpacked/2026/players/deleted"), "anonymised claims are skipped");
+    // Bob (1-day best streak) is alice's friend with a recap; "stranger" has none.
+    assert.deepStrictEqual(alice.friendStreaks, [{ uid: "bob", days: 1 }]);
+    assert.deepStrictEqual(alice.friendAwards, [{ uid: "bob", daysActive: 1, uniquePostboxes: 1 }]);
+    // 1 April: alice and bob both scored 7, so it's a joint top for both.
+    assert.deepStrictEqual(alice.topScorerDays, { friends: 1, everyone: 1 });
+    assert.deepStrictEqual(writes.get("unpacked/2026/players/bob")!.topScorerDays, { friends: 0, everyone: 1 });
+    assert.deepStrictEqual(writes.get("unpacked/2026/players/bob")!.friendStreaks, []);
+    // Bristol is alice's home turf, so there is nothing after it.
+    assert.deepStrictEqual(alice.otherCounties, []);
+
+    const summary = writes.get("unpacked/2026")!;
+    assert.strictEqual(summary.players, 2);
+    assert.strictEqual(summary.totalClaims, 3);
+    assert.strictEqual(summary.uniquePostboxes, 2);
+    assert.strictEqual(summary.topMonarch, "VR");
+    assert.strictEqual(summary.availableFrom, "2026-12-19");
+    assert.strictEqual(summary.lastFirstClass, "2026-12-21");
+    assert.strictEqual(summary.availableUntil, "2027-01-15");
+    const h = summary.highlights as unpacked.CommunityHighlights;
+    assert.deepStrictEqual(h.rarestCypher, { monarch: "VR", boxes: 1 });
+    assert.deepStrictEqual(h.busiestDay, { date: "2026-04-01", claims: 2 });
+    assert.strictEqual(h.longestStreak, 2);
+    assert.strictEqual(h.countiesCovered, 1);
+    assert.strictEqual(h.daysWithClaims, 2, "the deleted user's claim isn't counted");
+    assert.strictEqual(h.daysSoFar, 335);
+  });
+
+  it("lists other counties only where another player claimed too", async () => {
+    const c = (id: string, userid: string, box: string) =>
+      ({ id, userid, dailyDate: "2026-06-01", points: 2, postboxes: `/postbox/${box}` });
+    const { db, writes } = makeDb(
+      [c("1", "amy", "k1"), c("2", "amy", "k2"), c("3", "amy", "s1"), c("4", "amy", "d1"), c("5", "ben", "s2")],
+      { k1: { county: "Kent" }, k2: { county: "Kent" }, s1: { county: "Surrey" }, s2: { county: "Surrey" },
+        d1: { county: "Devon" } },
+    );
+    await buildUnpackedSnapshots(2026, db, "2026-12-01");
+    const amy = writes.get("unpacked/2026/players/amy")!;
+    assert.deepStrictEqual(amy.topCounty, { name: "Kent", uniquePostboxes: 2 });
+    // Devon is amy's alone, so only Surrey (shared with ben) is listed.
+    assert.deepStrictEqual(amy.otherCounties, [{ name: "Surrey", uniquePostboxes: 1, otherPlayers: 1 }]);
+    // Surrey is the only county with two players.
+    assert.deepStrictEqual((writes.get("unpacked/2026")!.highlights as unpacked.CommunityHighlights).sharedCounties,
+      ["Surrey"]);
+  });
+
+  it("stops counting at the last second-class posting day, however late it runs", async () => {
+    const { db, writes } = makeDb(
+      [
+        { id: "a", userid: "amy", dailyDate: "2026-12-18", points: 2, postboxes: "/postbox/p1" },
+        { id: "b", userid: "amy", dailyDate: "2026-12-19", points: 9, postboxes: "/postbox/p2" },
+      ],
+      {},
+    );
+    const r = await buildUnpackedSnapshots(2026, db, "2027-01-05");
+    assert.strictEqual(r.throughDate, "2026-12-18");
+    const amy = writes.get("unpacked/2026/players/amy")!;
+    assert.strictEqual(amy.totalPoints, 2, "the 19 December claim is after the cut-off");
+    assert.strictEqual(amy.complete, true);
+  });
+});
+
+describe("Unpacked: sendLaunchNotifications (mock Firestore)", () => {
+  it("pushes to every player with a snapshot except those who opted out, no longer exist, or run an old app",
+    async () => {
+    const players = [
+      { id: "a", data: () => ({ year: 2026, uniquePostboxes: 3 }) },
+      { id: "b", data: () => ({ year: 2026, uniquePostboxes: 1 }) },
+      { id: "gone", data: () => ({ year: 2026, uniquePostboxes: 5 }) },
+      { id: "old", data: () => ({ year: 2026, uniquePostboxes: 2 }) },
+    ];
+    const docs: Record<string, Record<string, Record<string, unknown>>> = {
+      users: {
+        a: { notificationPrefs: {} },
+        b: { notificationPrefs: { unpackedReady: false } },
+        old: { notificationPrefs: {} },
+      },
+      fcmTokens: {
+        a: { tokens: ["ta"], appVersion: "1.6.0" },
+        b: { tokens: ["tb"], appVersion: "1.6.0" },
+        // "gone" deleted their account; its token doc went with it (but
+        // getAll still returns a snapshot, with exists=false).
+        old: { tokens: ["to"] }, // registered by a build before the recap
+      },
+    };
+    const db = {
+      collection: (name: string) => ({
+        doc: (id: string) => ({
+          id,
+          path: `${name}/${id}`,
+          collection: () => ({ async get() { assert.strictEqual(name, "unpacked"); return { docs: players }; } }),
+        }),
+      }),
+      // Like Firestore: one snapshot per ref, missing docs with exists=false.
+      async getAll(...refs: Array<{ id: string; path: string }>) {
+        return refs.map((r) => {
+          const data = docs[r.path.split("/")[0]]?.[r.id];
+          return { id: r.id, exists: data !== undefined, data: () => data };
+        });
+      },
+    };
+    const sent: Array<[string, string]> = [];
+    const n = await sendLaunchNotifications(2026, db as unknown as admin.firestore.Firestore, async (uid, _t, body) => {
+      sent.push([uid, body]);
+    });
+    assert.strictEqual(n, 1);
+    assert.deepStrictEqual(sent.map(([u]) => u), ["a"]);
+    assert.match(sent[0][1], /3 postboxes in 2026/);
+  });
+});
+
+describe("rebuildUnpacked (onCall) — auth", function (this: Mocha.Suite) {
+  this.timeout(10000);
+  const wrapped = testEnv.wrap(myFunctions.rebuildUnpacked) as (data: unknown) => Promise<unknown>;
+  it("throws permission-denied for a non-admin caller", async () => {
+    try {
+      await wrapped({ data: { year: 2026 }, auth: { uid: "u1", token: { admin: false } } });
+      assert.fail("expected permission-denied");
+    } catch (e) {
+      assert.strictEqual((e as { code?: string }).code, "permission-denied");
+    }
   });
 });
 
