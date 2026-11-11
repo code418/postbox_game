@@ -42,9 +42,13 @@ subprojects { subproject ->
                 android.compileOptions.targetCompatibility = JavaVersion.VERSION_17
             }
         }
+        // Keep Kotlin's JVM target in step with the Java 17 forced above: plugins
+        // declare their own (home_widget 1.8, in_app_review 11), and a mismatch fails
+        // the compile. compilerOptions (not the deprecated kotlinOptions) works both
+        // with KGP applied and under AGP built-in Kotlin, which keeps these task types.
         subproject.tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
-            kotlinOptions {
-                jvmTarget = "17"
+            compilerOptions {
+                jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
             }
         }
     }

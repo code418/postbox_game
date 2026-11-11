@@ -1,8 +1,19 @@
 plugins {
     id "com.android.application"
     id "dev.flutter.flutter-gradle-plugin"
-    // Explicit KGP retained (NOT Flutter Built-in Kotlin): Flutter 3.44's built-in
-    // Kotlin is 2.0.0, too old to read our deps' 2.2.0 metadata. See settings.gradle.
+    // KGP is still applied (AGP built-in Kotlin is off) only because in_app_review
+    // 2.0.12 applies `kotlin-android` unconditionally, which fails once
+    // android.builtInKotlin=true (upstream britannio/in_app_review #179/#184/#190,
+    // fix PRs #186/#191 unreleased). Everything else is already migrated: the
+    // kotlin.compilerOptions block below and no Kotlin dirs in java.srcDirs.
+    // (No curly braces in comments inside this plugins block: Flutter's KGP
+    // detection regex stops at the first one and then misses the line below.)
+    // Switch on once in_app_review ships a fix:
+    //   1. bump in_app_review (check its android/build.gradle applies KGP only when
+    //      built-in Kotlin is off);
+    //   2. delete the next line;
+    //   3. set android.builtInKotlin=true in gradle.properties (don't delete it);
+    //   4. keep the KGP pin in settings.gradle; flutter clean, build every flavour.
     id "org.jetbrains.kotlin.android"
     id "com.google.gms.google-services"
     id "com.google.firebase.crashlytics"
@@ -39,9 +50,9 @@ android {
     compileSdk 36
     ndkVersion "28.2.13676358"
 
-    sourceSets {
-        main.java.srcDirs += 'src/main/kotlin'
-    }
+    // No sourceSets block: KGP and built-in Kotlin both compile src/<set>/kotlin
+    // by default (the auto/wear/testAuto/testWear sets rely on it), and built-in
+    // Kotlin doesn't support registering Kotlin dirs as java.srcDirs.
 
     lint {
         disable 'InvalidPackage'
@@ -202,9 +213,10 @@ dependencies {
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.7.0'
 }
 
-tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
-    kotlinOptions {
-        jvmTarget = "17"
+// The final built-in Kotlin form; also valid while KGP is applied.
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
     }
 }
 
