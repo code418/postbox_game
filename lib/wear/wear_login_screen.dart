@@ -13,7 +13,7 @@ import 'package:postbox_game/wear/wear_theme.dart';
 /// Google Sign-In only login screen for Wear OS.
 ///
 /// Email/password input is impractical on a watch, so only the Google
-/// sign-in flow is offered. Reuses [UserRepository.signInWithGoogle].
+/// sign-in flow is offered, via [UserRepository.signInWithGoogleOnWatch].
 ///
 /// Not a login wall: this renders as the LAST page of the signed-out
 /// [WearHome] shell (where the Status page sits when signed in), so scanning
@@ -40,7 +40,8 @@ class _WearLoginScreenState extends State<WearLoginScreen> {
       _error = null;
     });
     try {
-      final user = await widget._userRepository.signInWithGoogle();
+      // Not signInWithGoogle(): its button flow never works on Wear OS.
+      final user = await widget._userRepository.signInWithGoogleOnWatch();
       if (!mounted) return;
       if (user != null) {
         context.read<AuthenticationBloc>().add(LoggedIn());
