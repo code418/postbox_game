@@ -9,7 +9,7 @@ buildscript {
         // The firebase-perf plugin stays OUT: perf-plugin:1.4.2 is incompatible with
         // AGP 8.x and our custom code traces don't need it (firebase_performance
         // Flutter plugin handles them).
-        classpath 'com.google.firebase:firebase-crashlytics-gradle:3.0.2'
+        classpath 'com.google.firebase:firebase-crashlytics-gradle:3.0.8'
     }
 }
 
