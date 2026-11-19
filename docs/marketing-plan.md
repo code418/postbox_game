@@ -170,7 +170,7 @@ About 2 hours once, then 15 minutes a month.
 |---|---|---|---|
 | 1 | r/Postboxes | Home community, launch post | `reddit_postboxes` |
 | 2 | ~~r/CasualUK~~ | **Banned 3 Nov 2026** under Rule 5 (no advertising). Closed for good | ~~`reddit_casualuk`~~ |
-| 3 | LBSG, by email | Their members' knowledge puts them top of the leaderboards; ask for a newsletter mention (draft in §4.6c). **Scheduled for 9 Nov 2026** to enquiries0501@lbsg.org | `lbsg` |
+| 3 | LBSG, by email | Their members' knowledge puts them top of the leaderboards; ask for a newsletter mention (draft in §4.6c). **Sent 9 Nov 2026** to enquiries0501@lbsg.org. **Reply 11 Nov:** the Information Officer expects most members won't be interested, but has passed it to the Newsletter Editor for a possible slot. A ready-to-use blurb was offered back. Expect at most a small, slow trickle | `lbsg` (email), `lbsg_news` (newsletter) |
 | 4 | OSM UK community forum plus a weeklyOSM news tip | A game that turns walkers into OSM data fixers (reports produce `.osc` changesets) | `osm_forum`, `weeklyosm` |
 | 5 | r/WearOS | A real standalone Wear game with a tile and complications | `reddit_wearos` |
 | 6 | r/geocaching | "Geocaching for postboxes": rarity, collection, a daily claim | `reddit_geocaching` |
@@ -254,7 +254,7 @@ _(Removed by the r/Postboxes mods on 3 November 2026. Don't repost it. Send the 
 
 #### c) LBSG outreach email
 
-**Scheduled for 9 November 2026** to the Group's general address, enquiries0501@lbsg.org (lbsg.org names no Secretary; the Chair is Andrew R Young). The version sent is a personal one, signed by the owner by name. It opens with the game's origin (a friend's long-running informal cypher-spotting game) and keeps this draft's OpenStreetMap and newsletter asks. Members get a quarterly Newsletter; 2026 is the Group's Golden Jubilee (founded 1976, 200th issue in March). The draft below is kept for reference.
+**Sent 9 November 2026** to the Group's general address, enquiries0501@lbsg.org (lbsg.org names no Secretary; the Chair is Andrew R Young). **Reply, 11 November:** the Information Officer thinks most members wouldn't be interested in a game, but has passed it to the Newsletter Editor, who may find a slot. The game reads to the Group as a pastime, not study, so the OpenStreetMap data angle is the one to lead with in anything further sent to them. The version sent is a personal one, signed by the owner by name. It opens with the game's origin (a friend's long-running informal cypher-spotting game) and keeps this draft's OpenStreetMap and newsletter asks. Members get a quarterly Newsletter; 2026 is the Group's Golden Jubilee (founded 1976, 200th issue in March). The draft below is kept for reference.
 
 > **Subject:** A free postbox game that sends cypher fixes back to OpenStreetMap
 >
@@ -477,7 +477,7 @@ Owner time is in brackets. "Eng" is engineering work done in the repo, not owner
 | **19 Oct** | Owner deploys hosting, functions and rules (§14); Play signing SHA-256 into `assetlinks.json`; Android release with Phase 1. Start a Play listing experiment (short description). Join r/Postboxes and read the rules | Ref, Acq | 1.5 h |
 | **26 Oct** | **iOS approval (expected; it came on 3 Nov):** featuring nomination; launch promotional text; **r/Postboxes launch post**. If review drags past 2 Nov, post anyway with "iPhone coming very soon" | Acq | 1.5 h |
 | **2 Nov** | **iOS live 3 Nov:** featuring nomination (done); Apple campaign provider token (done, §14); launch promotional text; r/Postboxes launch post and r/CasualUK post. **Outcome:** the mods removed both posts and r/CasualUK banned the account (§4.2), so Reddit is paused. (Associated Domains and the Phase 1 iOS build were already done: the approved build 454 carries both.) | Acq, Ref | 2 h |
-| **9 Nov** | LBSG email and Postal Museum email (both scheduled for the morning of 9 Nov; §4.6c, §4.6g). Schedule the 23 November post, which needs the Instagram and Facebook accounts (§14 item 5). Reply to either email within a day | Acq | 1 h |
+| **9 Nov** | LBSG email and Postal Museum email (both scheduled for the morning of 9 Nov; §4.6c, §4.6g). Schedule the 23 November post, which needs the Instagram and Facebook accounts (§14 item 5). Reply to either email within a day. **Outcome:** the LBSG replied on 11 Nov, lukewarm, and forwarded it to the Newsletter Editor (§4.2 row 3) | Acq | 1 h |
 | **16 Nov** | OSM UK forum post plus weeklyOSM tip (check the forum's rules on announcements first). Keyword review (30 days of data). Modmails (§4.6a): r/Postboxes, plus r/WearOS and r/geocaching asking about their slots | Acq | 2 h |
 | **23 Nov** | **Pillar box anniversary** (St Helier, 1852) post: warm-up for the 175th. r/WearOS post, only with the mods' written yes. If the annual recap (PR #197) is shipping, its app release should be live by now (§14 item 9) | Acq, Ret | 1 h |
 | **30 Nov** | Prepare "Victorian Christmas": submit the In-App Event, schedule posts, Christmas promotional text. r/geocaching post, only with the mods' written yes | Ret, Acq | 1.5 h |
