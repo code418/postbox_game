@@ -29,7 +29,9 @@ const String kNoGoogleCredentialPrefix = 'No credential available';
 /// Worth its own message: the generic "Sign in failed. Please try again."
 /// tells the user to do the one thing that cannot work, and Crashlytics showed
 /// exactly that — 86 non-fatals from 5 users over 13 sessions, i.e. ~17
-/// hopeless retries each.
+/// hopeless retries each. Those turned out to be WATCHES whose accounts the
+/// button flow could not see, not devices without an account: see
+/// [UserRepository.signInWithGoogleOnWatch].
 bool isNoGoogleAccountOnDevice(GoogleSignInException e) =>
     e.code == GoogleSignInExceptionCode.unknownError &&
     (e.description ?? '').startsWith(kNoGoogleCredentialPrefix);
@@ -129,6 +131,62 @@ class UserRepository {
           dedupeKey: 'google_sign_in:${e.code}');
       rethrow;
     }
+    return _firebaseSignInWithGoogle(googleUser);
+  }
+
+  /// Google sign-in on the Wear OS watch.
+  ///
+  /// The watch cannot use [signInWithGoogle]: google_sign_in 7's
+  /// `authenticate()` always runs Credential Manager's "button flow"
+  /// (`GetSignInWithGoogleOption`), and on Wear OS that flow never finds a
+  /// credential. It fails with "No credential available" even when the watch
+  /// has a Google account. Crashlytics issue 5bca9fbc had every event on a
+  /// watch and none on a phone, so watch sign-in was broken from the May 2026
+  /// move off google_sign_in 6 (the legacy API, which works on Wear) until
+  /// this method.
+  ///
+  /// `attemptLightweightAuthentication()` sends `GetGoogleIdOption`, the type
+  /// Google's own Wear OS Credential Manager samples use: authorised accounts
+  /// with auto-select first, then the full account sheet. It resolves to null
+  /// when the watch has nothing to offer, which here means no usable Google
+  /// account, and that is thrown as the same "No credential available"
+  /// failure [isNoGoogleAccountOnDevice] recognises. `reportAllExceptions`
+  /// makes a dismissed sheet throw `canceled` instead of resolving to null, so
+  /// backing out is never mistaken for a missing account.
+  Future<User?> signInWithGoogleOnWatch() async {
+    final GoogleSignInAccount? googleUser;
+    try {
+      googleUser = await (_googleSignIn.attemptLightweightAuthentication(
+              reportAllExceptions: true) ??
+          Future<GoogleSignInAccount?>.value());
+    } on GoogleSignInException catch (e) {
+      if (e.code == GoogleSignInExceptionCode.canceled ||
+          e.code == GoogleSignInExceptionCode.interrupted) {
+        return null;
+      }
+      CrashlyticsHelper.recordHandled(e, StackTrace.current,
+          reason: 'google_sign_in_wear:${e.code}',
+          dedupeKey: 'google_sign_in_wear:${e.code}');
+      rethrow;
+    }
+    if (googleUser == null) {
+      const noAccount = GoogleSignInException(
+        code: GoogleSignInExceptionCode.unknownError,
+        description:
+            '$kNoGoogleCredentialPrefix: no Google account offered on this watch',
+      );
+      // Recorded (once per session) so production shows whether real watches
+      // still land here now that the button flow is gone.
+      CrashlyticsHelper.recordHandled(noAccount, StackTrace.current,
+          reason: 'google_sign_in_wear:no_credential',
+          dedupeKey: 'google_sign_in_wear:no_credential');
+      throw noAccount;
+    }
+    return _firebaseSignInWithGoogle(googleUser);
+  }
+
+  /// Exchanges a Google account's ID token for a Firebase sign-in.
+  Future<User?> _firebaseSignInWithGoogle(GoogleSignInAccount googleUser) async {
     final GoogleSignInAuthentication googleAuth = googleUser.authentication;
     final AuthCredential credential = GoogleAuthProvider.credential(
       idToken: googleAuth.idToken,

@@ -54,19 +54,17 @@ class _StubRemoteConfig extends Fake implements FirebaseRemoteConfig {
   int getInt(String key) => 0;
 }
 
-/// Reproduces the reviewer's watch: no Google account, so the plugin fails
-/// with the "No credential available" description the app maps to its
-/// longest login error.
+/// Reproduces the reviewer's watch: no Google account, so the watch's
+/// GetGoogleIdOption flow offers nothing (resolves to null), which the app
+/// maps to its longest login error. Deliberately no `authenticate()`
+/// override: the button flow never works on Wear, and a regression back to it
+/// hits the Fake's default throw and shows "Sign-in failed" instead.
 class _NoAccountGoogleSignIn extends Fake implements GoogleSignIn {
   @override
-  Future<GoogleSignInAccount> authenticate({
-    List<String> scopeHint = const [],
-  }) async {
-    throw const GoogleSignInException(
-      code: GoogleSignInExceptionCode.unknownError,
-      description: '$kNoGoogleCredentialPrefix: no accounts',
-    );
-  }
+  Future<GoogleSignInAccount?>? attemptLightweightAuthentication({
+    bool reportAllExceptions = false,
+  }) async =>
+      null;
 }
 
 Future<void> _loadRoboto() async {
