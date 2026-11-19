@@ -1,6 +1,6 @@
 import 'dart:math';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:postbox_game/fuzzy_compass.dart';
 
 /// A composite widget that layers a precise destination arrow on top of the

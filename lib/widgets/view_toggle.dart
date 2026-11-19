@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:postbox_game/app_preferences.dart';
 import 'package:postbox_game/theme.dart';
 

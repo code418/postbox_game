@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:postbox_game/consent_preferences.dart';
 import 'package:postbox_game/services/telemetry_consent.dart';
 import 'package:postbox_game/wear/wear_round_inset.dart';

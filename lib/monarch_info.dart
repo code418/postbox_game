@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:postbox_game/theme.dart';
 
 /// Shared monarch cipher metadata used across Nearby, Claim, and other screens.

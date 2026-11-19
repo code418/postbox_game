@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/notification_service.dart';
 import 'package:postbox_game/theme.dart';
