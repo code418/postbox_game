@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 // Brand colour tokens (recognisable identity — not always AAA as foreground).
@@ -9,11 +9,12 @@ const Color parchment = Color(0xFFFFF8F0);
 
 /// [base] with every style set in Plus Jakarta Sans.
 ///
-/// Not `GoogleFonts.plusJakartaSansTextTheme`: from google_fonts 9 that helper
-/// returns `package:material_ui`'s `TextTheme`, a different class from the
-/// `package:flutter/material.dart` one `ThemeData` takes, so it no longer
-/// type-checks. `GoogleFonts.plusJakartaSans` returns a plain `TextStyle`, and
-/// this maps it over the styles exactly as the package helper does, so each
+/// A local copy of `GoogleFonts.plusJakartaSansTextTheme`. It was added when
+/// google_fonts 9 started returning `package:material_ui`'s `TextTheme`, which
+/// didn't type-check against `package:flutter/material.dart`'s `ThemeData`.
+/// The app now uses `material_ui` too, so the package helper fits again, but
+/// this one is kept: it maps `GoogleFonts.plusJakartaSans` (a plain
+/// `TextStyle`) over the styles exactly as the package helper does, so each
 /// style still loads the font variant matching its own weight.
 TextTheme plusJakartaSansTextTheme(TextTheme base) {
   TextStyle font(TextStyle? style) =>

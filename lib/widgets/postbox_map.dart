@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:postbox_game/services/perf_service.dart';
@@ -167,10 +167,18 @@ class _PostboxMapState extends State<PostboxMap> {
         // Attribution kept above the JamesStrip clearance area.
         Padding(
           padding: EdgeInsets.only(bottom: widget.bottomPadding),
-          child: RichAttributionWidget(
-            attributions: [
-              TextSourceAttribution('OpenStreetMap contributors'),
-            ],
+          // flutter_map 8.3 still builds this with package:flutter/material
+          // (its Theme.of, IconButton and Tooltip), which can't see the
+          // material_ui theme, so the popup would fall back to the default
+          // light theme. The bridge hands it our theme. Remove it once
+          // flutter_map moves to package:material_ui.
+          // ignore: deprecated_member_use
+          child: MaterialUiCompatibilityBridge(
+            child: RichAttributionWidget(
+              attributions: [
+                TextSourceAttribution('OpenStreetMap contributors'),
+              ],
+            ),
           ),
         ),
       ],

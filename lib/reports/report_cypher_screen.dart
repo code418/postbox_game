@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:cloud_functions/cloud_functions.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/maintenance_guard.dart';
 import 'package:postbox_game/monarch_info.dart';

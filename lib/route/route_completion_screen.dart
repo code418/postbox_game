@@ -1,5 +1,5 @@
 import 'package:confetti/confetti.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:postbox_game/james_controller.dart';
 import 'package:postbox_game/james_messages.dart';
 import 'package:postbox_game/james_strip.dart';

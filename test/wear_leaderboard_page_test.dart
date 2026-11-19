@@ -8,7 +8,7 @@
 // the same reason in leaderboard_screen.dart.
 
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:postbox_game/london_date.dart';
 import 'package:postbox_game/wear/wear_leaderboard_page.dart';

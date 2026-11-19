@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:postbox_game/james_messages.dart';
 
 class JamesController extends ChangeNotifier {

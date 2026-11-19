@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/maintenance_guard.dart';
 import 'package:postbox_game/services/invite_service.dart';

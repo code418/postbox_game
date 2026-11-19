@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:postbox_game/services/crashlytics_helper.dart';
 
 /// The `source` values the app's own glanceable surfaces stamp on their claim

@@ -10,7 +10,7 @@
 import 'dart:async';
 
 import 'package:cloud_functions/cloud_functions.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:postbox_game/services/claim_events.dart';
 import 'package:postbox_game/wear/wear_theme.dart';

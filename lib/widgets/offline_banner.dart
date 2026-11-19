@@ -9,7 +9,7 @@
 
 import 'dart:async';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../remote_config_service.dart';
 import '../services/claim_outbox.dart';
