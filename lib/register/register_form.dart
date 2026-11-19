@@ -44,10 +44,9 @@ class _RegisterFormState extends State<RegisterForm> {
         if (state.isSuccess) {
           // Analytics.signUp() is fired inside RegisterBloc (where the method is known).
           BlocProvider.of<AuthenticationBloc>(context).add(LoggedIn());
-          // Do NOT pop here: LoggedIn() → Authenticated emitted by AuthenticationBloc
-          // causes main.dart's BlocBuilder to replace the entire tree with Home.
-          // Any Navigator.pop/popUntil call before that rebuild fires would briefly
-          // surface the LoginScreen for one frame (same issue as fixed in session 13).
+          // Navigation is RegisterScreen's job: it closes itself once
+          // AuthenticationBloc emits Authenticated, the moment the root route
+          // becomes Home (test/register_flow_test.dart).
         }
         if (state.isFailure) {
           // Analytics.signUpFailed() is fired inside RegisterBloc (where the error code is known).
