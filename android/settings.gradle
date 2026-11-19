@@ -18,7 +18,7 @@ pluginManagement {
 
 plugins {
     id "dev.flutter.flutter-plugin-loader" version "1.0.0"
-    id "com.android.application" version "9.4.1" apply false
+    id "com.android.application" version "9.5.1" apply false
     // Chooses the Kotlin version for the whole build, and stays after the move to
     // AGP built-in Kotlin: AGP 9 compiles Kotlin with whichever KGP the classpath
     // declares (its own floor is 2.2.10), so this pin is what keeps us above the
