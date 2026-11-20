@@ -189,7 +189,7 @@ export async function scoreClaimAt(
   const results = await lookupPostboxes(lat, lng, gameConfig.claimRadiusMeters, claimDate);
 
   if (results.counts.total === 0) {
-    return { found: false, claimed: 0, points: 0, allClaimedToday: false, dailyDate: claimDate };
+    return { found: false, claimed: 0, points: 0, allClaimedToday: false, dailyDate: claimDate, claimedIds: [] };
   }
 
   // Pre-fetch this user's claims for the claim day so we can check per-user
@@ -213,7 +213,7 @@ export async function scoreClaimAt(
   const userClaimedInRange = Object.keys(results.postboxes)
     .filter(k => userClaimedKeys.has(k)).length;
   if (userClaimedInRange === results.counts.total) {
-    return { found: true, claimed: 0, points: 0, allClaimedToday: true, dailyDate: claimDate };
+    return { found: true, claimed: 0, points: 0, allClaimedToday: true, dailyDate: claimDate, claimedIds: [] };
   }
 
   // Use allSettled so a single transient transaction failure does not discard
@@ -545,13 +545,7 @@ export async function scoreClaimAt(
     // daily-points overtake comparison would both be computed against the
     // wrong day.
     if (isBackdated) {
-      return {
-        found: true,
-        claimed: earnedPoints.length,
-        points: earnedPoints.reduce((s, p) => s + p, 0),
-        allClaimedToday: earnedPoints.length === 0,
-        dailyDate: claimDate,
-      };
+      return claimResponse(successfulClaims, claimDate);
     }
     void (async () => {
       try {
@@ -582,12 +576,28 @@ export async function scoreClaimAt(
     })();
   }
 
+  return claimResponse(successfulClaims, claimDate);
+}
+
+/**
+ * The callable response for a scoring pass that reached the claim
+ * transactions. `claimedIds` (added for share-card QR codes) lists the
+ * postbox doc ids actually claimed, so the client can name the box it shares
+ * rather than guessing from its scan. It is additive: a response replayed from
+ * an attempts envelope written before it existed lacks the field, and clients
+ * must treat absence as "unknown".
+ */
+export function claimResponse(
+  successful: ReadonlyArray<{ key: string; pts: number }>,
+  claimDate: string,
+): Record<string, unknown> {
   return {
     found: true,
-    claimed: earnedPoints.length,
-    points: earnedPoints.reduce((s, p) => s + p, 0),
-    allClaimedToday: earnedPoints.length === 0,
+    claimed: successful.length,
+    points: successful.reduce((s, c) => s + c.pts, 0),
+    allClaimedToday: successful.length === 0,
     dailyDate: claimDate,
+    claimedIds: successful.map((c) => c.key),
   };
 }
 

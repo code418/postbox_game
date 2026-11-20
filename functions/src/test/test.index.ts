@@ -2079,6 +2079,8 @@ describe("Cloud Functions", function (this: Mocha.Suite) {
         assert.ok("allClaimedToday" in result);
         assert.strictEqual(typeof result.claimed, "number");
         assert.strictEqual(typeof result.points, "number");
+        // Additive field the share-card QR reads (see claimResponse).
+        assert.ok(Array.isArray(result.claimedIds));
       } catch (e: unknown) {
         const err = e as { code?: string; message?: string };
         // PERMISSION_DENIED is acceptable when Firebase emulator is not running.
@@ -8096,5 +8098,530 @@ describe("review dashboard CLI (main.ts)", () => {
     assert.strictEqual(mapsKeyFromEnv(""), null);
     assert.strictEqual(mapsKeyFromEnv("   "), null);
     assert.strictEqual(mapsKeyFromEnv(undefined), null);
+  });
+});
+
+// ── Postbox links (postboxLinks.ts, _postboxPublic.ts, _countyMap.ts) ──────
+// Per-postbox share links: opaque codes, the public page's JSON and the
+// in-app proximity band. The central property is that nothing returned ever
+// pinpoints the box: no doc id, no coordinates, no exact distance.
+
+import {
+  POSTBOX_LINK_CODE_ALPHABET,
+  POSTBOX_LINK_CODE_LENGTH,
+  POSTBOX_LINK_CODE_RE,
+  PUBLIC_AREA_RADIUS_M,
+  buildPostboxPublicInfo,
+  cacheControlFor,
+  countyDisplayName,
+  cypherPhrase,
+  generatePostboxLinkCode,
+  monarchLabel,
+  normalisePostboxLinkCode,
+  parsePostboxApiPath,
+  postboxLinkUrl,
+  proximityBand,
+  snappedArea,
+} from "../_postboxPublic";
+import { buildCountyMap, countyMapFor, setCountyLoaderForTest, simplifyLine } from "../_countyMap";
+import {
+  claimsBeforeToday,
+  linkStatus,
+  mintPostboxLinkCode,
+  postboxLinkFor,
+  resolvePostboxInfo,
+} from "../postboxLinks";
+import { claimResponse } from "../_claimCore";
+import { normaliseInviteCode as normaliseInviteCodeForLinks } from "../invites";
+
+type LinkColls = Record<string, Record<string, Record<string, unknown>>>;
+
+/** Minimal Firestore fake for postboxLinks.ts: doc get, `==` and `<` filters,
+ *  limit, count() and a transaction with get/create. Writes land in
+ *  [collections] so a test can read them back. */
+function makeLinkDb(collections: LinkColls, opts: { onTxGet?: (path: string) => void } = {}) {
+  const snapOf = (coll: string, id: string) => {
+    const data = collections[coll]?.[id];
+    return { id, exists: data !== undefined, data: () => data };
+  };
+  type Filter = { field: string; op: string; value: unknown };
+  const matches = (doc: Record<string, unknown>, f: Filter) => {
+    const v = doc[f.field];
+    if (f.op === "==") return v === f.value;
+    if (f.op === "<") return typeof v === "string" && typeof f.value === "string" && v < f.value;
+    throw new Error(`fake db: unsupported op ${f.op}`);
+  };
+  const query = (coll: string, filters: Filter[], limit?: number) => {
+    const run = () => {
+      let ids = Object.keys(collections[coll] ?? {})
+        .filter((id) => filters.every((f) => matches(collections[coll][id], f)));
+      if (limit !== undefined) ids = ids.slice(0, limit);
+      return ids.map((id) => snapOf(coll, id));
+    };
+    return {
+      where: (field: string, op: string, value: unknown) =>
+        query(coll, [...filters, { field, op, value }], limit),
+      limit: (n: number) => query(coll, filters, n),
+      get: async () => {
+        const docs = run();
+        return { docs, empty: docs.length === 0, size: docs.length };
+      },
+      count: () => ({ get: async () => ({ data: () => ({ count: run().length }) }) }),
+    };
+  };
+  const docRef = (coll: string, id: string) => ({
+    coll, id, path: `${coll}/${id}`, get: async () => snapOf(coll, id),
+  });
+  const db = {
+    collection: (coll: string) => ({ ...query(coll, []), doc: (id: string) => docRef(coll, id) }),
+    runTransaction: async <T>(fn: (tx: unknown) => Promise<T>): Promise<T> => {
+      const pending: Array<{ coll: string; id: string; data: Record<string, unknown> }> = [];
+      const tx = {
+        get: async (ref: { coll: string; id: string; path: string }) => {
+          opts.onTxGet?.(ref.path);
+          return snapOf(ref.coll, ref.id);
+        },
+        create: (ref: { coll: string; id: string }, data: Record<string, unknown>) => {
+          if (collections[ref.coll]?.[ref.id] !== undefined) throw new Error("ALREADY_EXISTS");
+          pending.push({ coll: ref.coll, id: ref.id, data });
+        },
+      };
+      const result = await fn(tx);
+      for (const w of pending) {
+        collections[w.coll] = collections[w.coll] ?? {};
+        collections[w.coll][w.id] = w.data;
+      }
+      return result;
+    },
+  };
+  return db as unknown as import("firebase-admin").firestore.Firestore;
+}
+
+/** Deterministic bytes: every symbol of the code is ALPHABET[fill & 31]. */
+const fixedBytes = (fill: number) => (n: number) => new Uint8Array(n).fill(fill);
+
+describe("postbox link codes", () => {
+  it("are 10 Crockford symbols and never collide with 8-char invite codes", () => {
+    const code = generatePostboxLinkCode();
+    assert.strictEqual(code.length, POSTBOX_LINK_CODE_LENGTH);
+    assert.ok(POSTBOX_LINK_CODE_RE.test(code), code);
+    for (const ch of code) assert.ok(POSTBOX_LINK_CODE_ALPHABET.includes(ch));
+    assert.strictEqual(normaliseInviteCodeForLinks(code), null);
+    assert.strictEqual(normalisePostboxLinkCode("ABCD2345"), null);
+  });
+
+  it("map every byte uniformly onto the 32-symbol alphabet", () => {
+    assert.strictEqual(generatePostboxLinkCode(fixedBytes(0)), "0000000000");
+    assert.strictEqual(generatePostboxLinkCode(fixedBytes(31)), "ZZZZZZZZZZ");
+    assert.strictEqual(generatePostboxLinkCode(fixedBytes(32 + 10)), "AAAAAAAAAA");
+  });
+
+  it("normalise case, spaces, hyphens and Crockford aliases", () => {
+    assert.strictEqual(normalisePostboxLinkCode(" abcd-efgh-jk "), "ABCDEFGHJK");
+    assert.strictEqual(normalisePostboxLinkCode("ILO0123456"), "1100123456");
+    assert.strictEqual(normalisePostboxLinkCode("ABCDEFGHJU"), null); // U is not Crockford
+    assert.strictEqual(normalisePostboxLinkCode("ABCDEFGHJKM"), null); // 11 symbols
+    assert.strictEqual(normalisePostboxLinkCode(42), null);
+  });
+
+  it("parse only /api/postbox/{CODE}", () => {
+    assert.strictEqual(parsePostboxApiPath("/api/postbox/abcdefghjk"), "ABCDEFGHJK");
+    assert.strictEqual(parsePostboxApiPath("/api/postbox/ABCDEFGHJK/"), "ABCDEFGHJK");
+    assert.strictEqual(parsePostboxApiPath("/api/postbox/ABCDEFGHJK/x"), null);
+    assert.strictEqual(parsePostboxApiPath("/api/postbox/"), null);
+    assert.strictEqual(parsePostboxApiPath("/api/postbox/%E0%A4%A"), null);
+    assert.strictEqual(parsePostboxApiPath("/api/postbox/osm_123"), null);
+    assert.strictEqual(parsePostboxApiPath("/postbox/ABCDEFGHJK"), null);
+  });
+
+  it("build the public URL", () => {
+    assert.strictEqual(postboxLinkUrl("ABCDEFGHJK"),
+      "https://the-postbox-game.web.app/postbox/ABCDEFGHJK");
+  });
+});
+
+describe("postbox public helpers", () => {
+  it("monarchLabel and cypherPhrase handle plain and unknown cyphers", () => {
+    assert.strictEqual(monarchLabel("VR"), "Victoria (1837–1901)");
+    assert.strictEqual(monarchLabel(null), "Plain / no cypher");
+    assert.strictEqual(monarchLabel("XYZ"), "XYZ");
+    assert.strictEqual(cypherPhrase("VR"), "a Victorian");
+    assert.strictEqual(cypherPhrase("EIIR"), "an Elizabeth II");
+    assert.strictEqual(cypherPhrase(null), "a");
+    assert.strictEqual(cypherPhrase("XYZ"), "a");
+  });
+
+  it("countyDisplayName drops the ONS City/County tails", () => {
+    assert.strictEqual(countyDisplayName("Bristol, City of"), "Bristol");
+    assert.strictEqual(countyDisplayName("Herefordshire, County of"), "Herefordshire");
+    assert.strictEqual(countyDisplayName("City of Edinburgh"), "City of Edinburgh");
+  });
+
+  it("snappedArea always contains the box, even at geohash-6 cell corners", () => {
+    // Cell corners are the worst case; check points just inside each corner
+    // of cells at the UK's southern (Channel Islands) and northern extremes.
+    for (const [lat, lng] of [[49.2, -2.1], [50.1, -5.5], [54.0, -1.5], [60.8, -0.9]]) {
+      const cell = ngeohash.encode(lat, lng, 6);
+      const [minLat, minLng, maxLat, maxLng] = ngeohash.decode_bbox(cell);
+      const eps = 1e-7;
+      for (const [cLat, cLng] of [
+        [minLat + eps, minLng + eps], [minLat + eps, maxLng - eps],
+        [maxLat - eps, minLng + eps], [maxLat - eps, maxLng - eps],
+      ]) {
+        const area = snappedArea(cLat, cLng);
+        const d = metresBetween({ lat: cLat, lng: cLng }, { lat: area.lat, lng: area.lng });
+        assert.ok(d < PUBLIC_AREA_RADIUS_M, `${cLat},${cLng} is ${d} m from the centre`);
+      }
+    }
+  });
+
+  it("snappedArea gives every box in a cell the same centre, never the box", () => {
+    const a = snappedArea(51.50101, -0.14201);
+    const b = snappedArea(51.50149, -0.14239);
+    assert.deepStrictEqual(a, b);
+    assert.notStrictEqual(a.lat, 51.50101);
+    assert.strictEqual(a.radiusM, PUBLIC_AREA_RADIUS_M);
+  });
+
+  it("proximityBand boundaries", () => {
+    assert.strictEqual(proximityBand(30, 30), "claimable");
+    assert.strictEqual(proximityBand(31, 30), "veryClose");
+    assert.strictEqual(proximityBand(99, 30), "veryClose");
+    assert.strictEqual(proximityBand(100, 30), "shortWalk");
+    assert.strictEqual(proximityBand(299, 30), "shortWalk");
+    assert.strictEqual(proximityBand(300, 30), "underKm");
+    assert.strictEqual(proximityBand(999, 30), "underKm");
+    assert.strictEqual(proximityBand(1000, 30), "far");
+    assert.strictEqual(proximityBand(80, 100), "claimable"); // Remote Config radius
+  });
+
+  it("buildPostboxPublicInfo returns only allowlisted fields", () => {
+    const doc = {
+      monarch: "VR", county: "Bristol, City of", geohash: "gcnhs", overpass_id: 123,
+      reference: "BS1 1", geopoint: { latitude: 51.45, longitude: -2.58 },
+      dailyClaim: { date: "2026-11-20" }, correctedBy: "admin",
+    };
+    const info = buildPostboxPublicInfo(doc, 3, 7, null);
+    assert.deepStrictEqual(Object.keys(info).sort(),
+      ["claims", "county", "label", "map", "monarch", "phrase", "points"]);
+    assert.deepStrictEqual(info, {
+      monarch: "VR", label: "Victoria (1837–1901)", phrase: "a Victorian", points: 7,
+      county: "Bristol", claims: { total: 3 }, map: null,
+    });
+    const plain = buildPostboxPublicInfo({}, 0, 2, null);
+    assert.strictEqual(plain.monarch, null);
+    assert.strictEqual(plain.label, "Plain / no cypher");
+    assert.strictEqual(plain.county, null);
+  });
+
+  it("cacheControlFor caches successes and bad codes, never errors", () => {
+    assert.match(cacheControlFor(200), /s-maxage=3600/);
+    assert.match(cacheControlFor(404), /s-maxage=300/);
+    assert.match(cacheControlFor(400), /s-maxage=86400/);
+    assert.strictEqual(cacheControlFor(405), "no-store");
+    assert.strictEqual(cacheControlFor(500), "no-store");
+  });
+});
+
+describe("county map", () => {
+  const square = {
+    name: "Squareshire",
+    bbox: [-1, 51, 0, 52],
+    polys: [[[[-1, 51], [0, 51], [0, 52], [-1, 52], [-1, 51]]]],
+  };
+
+  it("simplifyLine keeps endpoints and drops collinear points", () => {
+    const line: Array<[number, number]> = [[0, 0], [1, 0.01], [2, 0], [3, 0], [4, 5]];
+    assert.deepStrictEqual(simplifyLine(line, 0.5), [[0, 0], [3, 0], [4, 5]]);
+  });
+
+  it("projects the outline and the circle into the viewBox", () => {
+    const map = buildCountyMap(square, { lat: 51.5, lng: -0.5, radiusM: 600 });
+    assert.strictEqual(map.height, 1000); // taller than wide once cos(lat) applies
+    assert.ok(map.width < map.height);
+    assert.match(map.outline, /^M[0-9. ]+Z$/);
+    assert.ok(Math.abs(map.circle.cy - 500) < 1);
+    assert.ok(Math.abs(map.circle.cx - map.width / 2) < 1);
+    // 600 m is ~0.0054 degrees of latitude out of 1 degree of map height.
+    assert.ok(map.circle.r > 4 && map.circle.r < 7, String(map.circle.r));
+  });
+
+  it("drops islets too small to see", () => {
+    const withIslet = {
+      ...square,
+      polys: [...square.polys, [[[-0.5, 51.5], [-0.4999, 51.5], [-0.4999, 51.5001], [-0.5, 51.5]]]],
+    };
+    const map = buildCountyMap(withIslet, { lat: 51.5, lng: -0.5, radiusM: 600 });
+    assert.strictEqual(map.outline.split("M").length - 1, 1);
+  });
+
+  it("countyMapFor finds the county by its stored ONS name, else null", () => {
+    setCountyLoaderForTest(() => [square]);
+    try {
+      assert.ok(countyMapFor("Squareshire", { lat: 51.5, lng: -0.5, radiusM: 600 }));
+      assert.strictEqual(countyMapFor("Nowhere", { lat: 51.5, lng: -0.5, radiusM: 600 }), null);
+      assert.strictEqual(countyMapFor(null, { lat: 51.5, lng: -0.5, radiusM: 600 }), null);
+      assert.strictEqual(countyMapFor("Squareshire", null), null);
+    } finally {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      setCountyLoaderForTest(() => require("../../util/county_lookup").load());
+    }
+  });
+
+  it("the real ONS outlines stay small enough to send with every page", () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const feats = require("../../util/county_lookup").load() as Array<{
+      name: string; bbox: number[]; polys: number[][][][];
+    }>;
+    assert.ok(feats.length > 200);
+    for (const f of feats) {
+      const area = snappedArea((f.bbox[1] + f.bbox[3]) / 2, (f.bbox[0] + f.bbox[2]) / 2);
+      const map = buildCountyMap(f, area);
+      assert.ok(map.outline.length > 0, f.name);
+      assert.ok(map.outline.length < 24_000, `${f.name}: ${map.outline.length}`);
+      assert.match(map.outline, /^[MZ0-9 .-]+$/, f.name);
+    }
+  });
+});
+
+describe("postbox link minting", () => {
+  it("mints once and returns the same code afterwards", async () => {
+    const colls: LinkColls = {};
+    const db = makeLinkDb(colls);
+    const first = await mintPostboxLinkCode(db, "osm_1", fixedBytes(10));
+    assert.strictEqual(first, "AAAAAAAAAA");
+    assert.deepStrictEqual(colls.postboxLinks.AAAAAAAAAA.postboxId, "osm_1");
+    assert.strictEqual(colls.postboxLinkCodes.osm_1.code, "AAAAAAAAAA");
+    assert.ok(!("uid" in colls.postboxLinks.AAAAAAAAAA), "no uid is stored");
+    const again = await mintPostboxLinkCode(db, "osm_1", fixedBytes(11));
+    assert.strictEqual(again, "AAAAAAAAAA");
+  });
+
+  it("retries on a collision", async () => {
+    const colls: LinkColls = { postboxLinks: { AAAAAAAAAA: { postboxId: "osm_9" } } };
+    let call = 0;
+    const bytes = (n: number) => new Uint8Array(n).fill(call++ === 0 ? 10 : 11);
+    const code = await mintPostboxLinkCode(makeLinkDb(colls), "osm_1", bytes);
+    assert.strictEqual(code, "BBBBBBBBBB");
+    assert.strictEqual(colls.postboxLinks.AAAAAAAAAA.postboxId, "osm_9");
+  });
+
+  it("gives up after five collisions", async () => {
+    const colls: LinkColls = { postboxLinks: { AAAAAAAAAA: { postboxId: "osm_9" } } };
+    await assert.rejects(
+      mintPostboxLinkCode(makeLinkDb(colls), "osm_1", fixedBytes(10)),
+      (e: { code?: string }) => e.code === "internal",
+    );
+  });
+
+  describe("postboxLinkFor", () => {
+    const base = (): LinkColls => ({
+      postbox: { osm_1: { monarch: "VR" }, osm_2: { removedFromOsm: true } },
+      claims: {
+        u1_osm_1_2026_11_01: { userid: "u1", postboxes: "/postbox/osm_1", dailyDate: "2026-11-01" },
+        u1_osm_2_2026_11_01: { userid: "u1", postboxes: "/postbox/osm_2", dailyDate: "2026-11-01" },
+      },
+    });
+
+    it("returns the code and URL for a box the caller has claimed", async () => {
+      const r = await postboxLinkFor(makeLinkDb(base()), "u1", "osm_1", fixedBytes(12));
+      assert.deepStrictEqual(r, {
+        code: "CCCCCCCCCC", url: "https://the-postbox-game.web.app/postbox/CCCCCCCCCC",
+      });
+    });
+    it("rejects a malformed id", async () => {
+      await Promise.all([undefined, "", "osm_", "osm_0", "osm_1/x", "users/u1", 7].map((id) =>
+        assert.rejects(postboxLinkFor(makeLinkDb(base()), "u1", id),
+          (e: { code?: string }) => e.code === "invalid-argument", String(id))));
+    });
+    it("refuses a box the caller never claimed", async () => {
+      await assert.rejects(postboxLinkFor(makeLinkDb(base()), "u2", "osm_1"),
+        (e: { code?: string }) => e.code === "permission-denied");
+    });
+    it("refuses a box pruned from OpenStreetMap", async () => {
+      await assert.rejects(postboxLinkFor(makeLinkDb(base()), "u1", "osm_2"),
+        (e: { code?: string }) => e.code === "not-found");
+    });
+  });
+});
+
+describe("postbox link lookups", () => {
+  const TODAY = "2026-11-20";
+  const infoDeps = {
+    pointsFor: async (m: string | null) => (m === "VR" ? 7 : 2),
+    today: () => TODAY,
+  };
+  const statusDeps = { ...infoDeps, claimRadius: async () => 30 };
+  const BOX = { lat: 51.4545, lng: -2.5879 }; // central Bristol
+  const fixture = (): LinkColls => ({
+    postboxLinks: {
+      AAAAAAAAAA: { postboxId: "osm_1" },
+      BBBBBBBBBB: { postboxId: "osm_2" },
+      CCCCCCCCCC: { postboxId: "osm_gone" },
+      DDDDDDDDDD: { postboxId: "manual_abc" },
+    },
+    postbox: {
+      osm_1: {
+        monarch: "VR", county: "Bristol, City of", reference: "BS1 1", overpass_id: 1,
+        geohash: ngeohash.encode(BOX.lat, BOX.lng, 9),
+        geopoint: { latitude: BOX.lat, longitude: BOX.lng },
+      },
+      osm_2: { removedFromOsm: true, geopoint: { latitude: 51, longitude: 0 } },
+      manual_abc: { source: "user_report" },
+    },
+    claims: {
+      a: { userid: "u1", postboxes: "/postbox/osm_1", dailyDate: "2026-11-01" },
+      b: { userid: "deleted", postboxes: "/postbox/osm_1", dailyDate: "2026-11-02" },
+      c: { userid: "u2", postboxes: "/postbox/osm_1", dailyDate: TODAY },
+      d: { userid: "u1", postboxes: "/postbox/osm_9", dailyDate: "2026-11-01" },
+      [`u2_osm_1_${TODAY}`]: { userid: "u2", postboxes: "/postbox/osm_1", dailyDate: TODAY },
+    },
+  });
+
+  it("claimsBeforeToday excludes today and counts deleted accounts", async () => {
+    assert.strictEqual(await claimsBeforeToday(makeLinkDb(fixture()), "osm_1", TODAY), 2);
+  });
+
+  describe("resolvePostboxInfo", () => {
+    const leak = /osm_|manual_|geopoint|geohash|reference|overpass|51\.45|-2\.58/;
+
+    it("200s with public info only, cache headers and noindex", async () => {
+      const r = await resolvePostboxInfo(makeLinkDb(fixture()), "GET", "/api/postbox/aaaaaaaaaa", infoDeps);
+      assert.strictEqual(r.status, 200);
+      assert.match(r.headers["Cache-Control"], /s-maxage=3600/);
+      assert.strictEqual(r.headers["X-Robots-Tag"], "noindex");
+      assert.match(r.headers["Content-Type"], /application\/json/);
+      const body = JSON.parse(r.body);
+      assert.strictEqual(body.label, "Victoria (1837–1901)");
+      assert.strictEqual(body.points, 7);
+      assert.strictEqual(body.county, "Bristol");
+      assert.deepStrictEqual(body.claims, { total: 2 });
+      const withoutMap = { ...body, map: null };
+      assert.doesNotMatch(JSON.stringify(withoutMap), leak);
+    });
+    it("draws the county map when the county outline is known", async () => {
+      const r = await resolvePostboxInfo(makeLinkDb(fixture()), "GET", "/api/postbox/AAAAAAAAAA", infoDeps);
+      const map = JSON.parse(r.body).map;
+      assert.ok(map, "Bristol is in the ONS outlines");
+      assert.ok(map.circle.cx > 0 && map.circle.cx < map.width);
+      assert.ok(map.circle.cy > 0 && map.circle.cy < map.height);
+    });
+    it("works for a manual box with no county or geopoint", async () => {
+      const r = await resolvePostboxInfo(makeLinkDb(fixture()), "GET", "/api/postbox/DDDDDDDDDD", infoDeps);
+      assert.strictEqual(r.status, 200);
+      const body = JSON.parse(r.body);
+      assert.strictEqual(body.map, null);
+      assert.strictEqual(body.county, null);
+      assert.strictEqual(body.label, "Plain / no cypher");
+    });
+    it("404s an unknown code, a pruned box and a missing box", async () => {
+      const results = await Promise.all(["ZZZZZZZZZZ", "BBBBBBBBBB", "CCCCCCCCCC"].map((code) =>
+        resolvePostboxInfo(makeLinkDb(fixture()), "GET", `/api/postbox/${code}`, infoDeps)));
+      for (const r of results) {
+        assert.strictEqual(r.status, 404);
+        assert.match(r.headers["Cache-Control"], /s-maxage=300/);
+      }
+    });
+    it("400s a malformed code and 405s other methods", async () => {
+      const bad = await resolvePostboxInfo(makeLinkDb(fixture()), "GET", "/api/postbox/osm_1", infoDeps);
+      assert.strictEqual(bad.status, 400);
+      const post = await resolvePostboxInfo(makeLinkDb(fixture()), "POST", "/api/postbox/AAAAAAAAAA", infoDeps);
+      assert.strictEqual(post.status, 405);
+      assert.strictEqual(post.headers.Allow, "GET, HEAD");
+      assert.strictEqual(post.headers["Cache-Control"], "no-store");
+    });
+  });
+
+  describe("linkStatus", () => {
+    const at = (metresNorth: number) => ({ lat: BOX.lat + metresNorth / 111_320, lng: BOX.lng });
+
+    it("bands the distance without returning the id, coordinates or distance", async () => {
+      const cases: Array<[number, string]> = [
+        [0, "claimable"], [25, "claimable"], [60, "veryClose"], [200, "shortWalk"],
+        [600, "underKm"], [5000, "far"],
+      ];
+      const results = await Promise.all(cases.map(([metres]) =>
+        linkStatus(makeLinkDb(fixture()), "u1", "AAAAAAAAAA", at(metres), statusDeps)));
+      for (const [i, r] of results.entries()) {
+        const [metres, expected] = cases[i];
+        assert.strictEqual(r.found, true);
+        if (!r.found) continue;
+        assert.strictEqual(r.proximity, expected, `${metres} m`);
+        assert.deepStrictEqual(Object.keys(r).sort(), ["found", "info", "proximity"]);
+        assert.doesNotMatch(JSON.stringify({ ...r.info, map: null }), /osm_|51\.45|-2\.58/);
+      }
+    });
+    it("reports claimedToday from the deterministic claim doc id", async () => {
+      const r = await linkStatus(makeLinkDb(fixture()), "u2", "AAAAAAAAAA", at(5000), statusDeps);
+      assert.ok(r.found && r.proximity === "claimedToday");
+    });
+    it("is unknown without a position", async () => {
+      const r = await linkStatus(makeLinkDb(fixture()), "u1", "AAAAAAAAAA", null, statusDeps);
+      assert.ok(r.found && r.proximity === "unknown");
+      assert.ok(r.found && r.info.points === 7);
+    });
+    it("is unknown for a box with no geopoint", async () => {
+      const r = await linkStatus(makeLinkDb(fixture()), "u1", "DDDDDDDDDD", at(0), statusDeps);
+      assert.ok(r.found && r.proximity === "unknown");
+    });
+    it("is not found for an unknown code or a pruned box", async () => {
+      assert.deepStrictEqual(
+        await linkStatus(makeLinkDb(fixture()), "u1", "ZZZZZZZZZZ", at(0), statusDeps), { found: false });
+      assert.deepStrictEqual(
+        await linkStatus(makeLinkDb(fixture()), "u1", "BBBBBBBBBB", at(0), statusDeps), { found: false });
+    });
+  });
+});
+
+describe("claimResponse", () => {
+  it("lists the claimed postbox ids alongside the totals", () => {
+    assert.deepStrictEqual(
+      claimResponse([{ key: "osm_1", pts: 7 }, { key: "osm_2", pts: 2 }], "2026-11-20"),
+      { found: true, claimed: 2, points: 9, allClaimedToday: false, dailyDate: "2026-11-20",
+        claimedIds: ["osm_1", "osm_2"] },
+    );
+    assert.deepStrictEqual(claimResponse([], "2026-11-20").claimedIds, []);
+    assert.strictEqual(claimResponse([], "2026-11-20").allClaimedToday, true);
+  });
+});
+
+describe("postbox link callables — auth & validation", function (this: Mocha.Suite) {
+  this.timeout(10000);
+  const wrappedLink = testEnv.wrap(myFunctions.getPostboxLink) as (req: unknown) => Promise<unknown>;
+  const wrappedStatus = testEnv.wrap(myFunctions.postboxLinkStatus) as (req: unknown) => Promise<unknown>;
+  const app = { appId: "test-app" };
+  const expectCode = async (p: Promise<unknown>, code: string) => {
+    try {
+      await p;
+      assert.fail(`expected ${code}`);
+    } catch (e) {
+      assert.strictEqual((e as { code?: string }).code, code);
+    }
+  };
+
+  it("both require App Check", async () => {
+    await expectCode(wrappedLink({ data: { postboxId: "osm_1" }, auth: { uid: "u" } }), "failed-precondition");
+    await expectCode(wrappedStatus({ data: { code: "AAAAAAAAAA" }, auth: { uid: "u" } }), "failed-precondition");
+  });
+  it("both require sign-in", async () => {
+    await expectCode(wrappedLink({ data: { postboxId: "osm_1" }, app }), "unauthenticated");
+    await expectCode(wrappedStatus({ data: { code: "AAAAAAAAAA" }, app }), "unauthenticated");
+  });
+  it("getPostboxLink rejects a malformed id before touching Firestore", async () => {
+    await expectCode(wrappedLink({ data: { postboxId: "../users/x" }, auth: { uid: "u" }, app }), "invalid-argument");
+  });
+  it("postboxLinkStatus validates the code and the position", async () => {
+    const auth = { uid: "u" };
+    await expectCode(wrappedStatus({ data: { code: "osm_1" }, auth, app }), "invalid-argument");
+    await expectCode(wrappedStatus({ data: { code: "AAAAAAAAAA", lat: 51 }, auth, app }), "invalid-argument");
+    await expectCode(wrappedStatus({ data: { code: "AAAAAAAAAA", lat: 91, lng: 0 }, auth, app }), "invalid-argument");
+    await expectCode(wrappedStatus({ data: { code: "AAAAAAAAAA", lat: "51", lng: 0 }, auth, app }), "invalid-argument");
+  });
+  it("postboxInfo is an HTTPS function capped at 3 instances", () => {
+    const endpoint = (myFunctions as unknown as Record<string, {
+      __endpoint?: { httpsTrigger?: unknown; maxInstances?: number };
+    }>).postboxInfo.__endpoint;
+    assert.ok(endpoint?.httpsTrigger, "postboxInfo is not an HTTPS trigger");
+    assert.strictEqual(endpoint?.maxInstances, 3);
   });
 });

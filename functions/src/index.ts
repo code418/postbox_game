@@ -17,6 +17,7 @@ import { exportMyData } from "./exportMyData";
 import { flushOfflineClaims } from "./flushOfflineClaims";
 import { buildUnpacked, rebuildUnpacked, unpackedLaunchNotify } from "./buildUnpacked";
 import { getInviteCode, acceptInvite } from "./invites";
+import { getPostboxLink, postboxLinkStatus, postboxInfo } from "./postboxLinks";
 
 export {
   nearbyPostboxes,
@@ -42,4 +43,7 @@ export {
   unpackedLaunchNotify,
   getInviteCode,
   acceptInvite,
+  getPostboxLink,
+  postboxLinkStatus,
+  postboxInfo,
 };

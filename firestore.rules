@@ -218,5 +218,19 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // ── postboxLinks / postboxLinkCodes collections ──────────────────────────
+    // Per-postbox share links (functions/src/postboxLinks.ts):
+    // postboxLinks/{code} = {postboxId, createdAt} and its reverse index
+    // postboxLinkCodes/{postboxId} = {code, createdAt}. Server-only: the code
+    // is deliberately opaque so a shared link never reveals which postbox it
+    // names (an osm_ doc id would pinpoint it on openstreetmap.org). No uid is
+    // stored, so neither needs account-deletion or export handling.
+    match /postboxLinks/{code} {
+      allow read, write: if false;
+    }
+    match /postboxLinkCodes/{postboxId} {
+      allow read, write: if false;
+    }
+
   }
 }
