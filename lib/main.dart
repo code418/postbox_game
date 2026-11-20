@@ -40,6 +40,7 @@ import 'package:postbox_game/remote_config_service.dart';
 import 'package:postbox_game/deep_links.dart';
 import 'package:postbox_game/services/crashlytics_helper.dart';
 import 'package:postbox_game/services/pending_invite_store.dart';
+import 'package:postbox_game/services/pending_postbox_link_store.dart';
 import 'package:postbox_game/services/telemetry_consent.dart';
 import 'package:postbox_game/route/destination_picker_screen.dart';
 import 'package:postbox_game/route/route_notifications.dart';
@@ -216,11 +217,21 @@ class _PostboxGameState extends State<PostboxGame> with WidgetsBindingObserver {
   }
 
   void _onAppLink(Uri uri) {
+    final source = uri.scheme == kInviteScheme ? 'scheme' : 'link';
     final code = parseInviteLink(uri);
-    if (code == null) return;
-    unawaited(Analytics.inviteLinkOpened(
-        source: uri.scheme == kInviteScheme ? 'scheme' : 'link'));
-    unawaited(PendingInviteStore.save(code));
+    if (code != null) {
+      unawaited(Analytics.inviteLinkOpened(source: source));
+      unawaited(PendingInviteStore.save(code));
+      return;
+    }
+    // A postbox link (/postbox/CODE): parked the same way, and Home opens
+    // the postbox screen once signed in.
+    final postboxLink = parsePostboxLink(uri);
+    if (postboxLink != null) {
+      unawaited(Analytics.postboxLinkOpened(
+          source: source, src: postboxLink.src ?? 'none'));
+      unawaited(PendingPostboxLinkStore.save(postboxLink));
+    }
   }
 
   @override

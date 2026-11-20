@@ -74,6 +74,7 @@ dependencies:
   connectivity_plus: ^7.3.0
   app_links: ^7.2.2
   in_app_review: ^2.0.12
+  qr: ^4.0.1
 
 dev_dependencies:
   flutter_test:

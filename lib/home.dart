@@ -20,6 +20,8 @@ import 'package:postbox_game/leaderboard_screen.dart';
 import 'package:postbox_game/nearby.dart';
 import 'package:postbox_game/services/crashlytics_helper.dart';
 import 'package:postbox_game/services/pending_invite_store.dart';
+import 'package:postbox_game/services/pending_postbox_link_store.dart';
+import 'package:postbox_game/postbox_link/postbox_link_screen.dart';
 import 'package:postbox_game/widgets/invite_accept_flow.dart';
 import 'package:postbox_game/reports/my_reports_screen.dart';
 import 'package:postbox_game/theme.dart';
@@ -62,6 +64,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   UnpackedRecap? _unpacked;
   bool _showUnpackedBanner = false;
   bool _inviteFlowRunning = false;
+  bool _postboxLinkRunning = false;
 
   static const _destinations = [
     NavigationDestination(
@@ -127,6 +130,10 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     // signal.
     PendingInviteStore.signal.addListener(_takePendingInvite);
     WidgetsBinding.instance.addPostFrameCallback((_) => _takePendingInvite());
+    // Postbox links (/postbox/CODE), parked by main.dart the same way.
+    PendingPostboxLinkStore.signal.addListener(_takePendingPostboxLink);
+    WidgetsBinding.instance
+        .addPostFrameCallback((_) => _takePendingPostboxLink());
     CrashlyticsHelper.setContext(
         CrashlyticsHelper.keyActiveTab, _tabName(_selectedIndex));
     // The "Admin · Reports" menu item only appears for users holding the
@@ -195,6 +202,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   void dispose() {
     OutboxSync.instance.lastSummary.removeListener(_onFlushSummary);
     PendingInviteStore.signal.removeListener(_takePendingInvite);
+    PendingPostboxLinkStore.signal.removeListener(_takePendingPostboxLink);
     WidgetsBinding.instance.removeObserver(this);
     _jamesController.dispose();
     super.dispose();
@@ -223,6 +231,26 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       if (added && mounted) setState(() => _selectedIndex = 3);
     } finally {
       _inviteFlowRunning = false;
+      // A postbox link parked while the invite dialog was up waited for it.
+      if (mounted) unawaited(_takePendingPostboxLink());
+    }
+  }
+
+  /// Acts on a parked postbox link by opening its screen, which works out
+  /// how near the player is and opens the claim sheet when they're there.
+  /// Waits for an invite dialog rather than stacking a screen behind it.
+  Future<void> _takePendingPostboxLink() async {
+    if (_postboxLinkRunning || _inviteFlowRunning || !mounted) return;
+    _postboxLinkRunning = true;
+    try {
+      final link = await PendingPostboxLinkStore.take();
+      if (link == null || !mounted) return;
+      unawaited(Navigator.of(context).push(MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'postbox_link'),
+        builder: (_) => PostboxLinkScreen(code: link.code, src: link.src),
+      )));
+    } finally {
+      _postboxLinkRunning = false;
     }
   }
 

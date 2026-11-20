@@ -12,7 +12,9 @@ import 'package:image_picker/image_picker.dart';
 import 'package:postbox_game/analytics_service.dart';
 import 'package:postbox_game/deep_links.dart';
 import 'package:postbox_game/monarch_info.dart';
+import 'package:postbox_game/services/postbox_link_service.dart';
 import 'package:postbox_game/theme.dart';
+import 'package:postbox_game/widgets/share_qr.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -59,11 +61,38 @@ class SharePhoto {
   }
 }
 
-/// What a share card shows. Deliberately no map, location, county or name:
-/// a card is posted publicly, and the box a player claims most is often the
-/// one on their own street. A [photo] is the player's own choice, made after
-/// the privacy notice ([kSharePhotoPrivacyBody]); the card is re-rendered
-/// from its pixels, so none of the original file's metadata goes with it.
+/// A postbox's link, drawn on a claim card as a QR code when the player
+/// turns it on. Built from the box's opaque link code, never its doc id.
+@immutable
+class SharePostboxQr {
+  const SharePostboxQr(this.code);
+
+  final String code;
+
+  /// What the QR encodes.
+  String get qrUrl => postboxUrlFor(code, src: kPostboxSrcShareQr);
+
+  /// The link in the share text.
+  String get textUrl => postboxUrlFor(code, src: kPostboxSrcShareText);
+
+  /// The link printed under the QR, for typing: no scheme, no tag.
+  String get printedUrl => '$kInviteHost/postbox/$code';
+
+  @override
+  bool operator ==(Object other) =>
+      other is SharePostboxQr && other.code == code;
+
+  @override
+  int get hashCode => code.hashCode;
+}
+
+/// What a share card shows. By default no map, location, county or name: a
+/// card is posted publicly, and the box a player claims most is often the
+/// one on their own street. Two things are the player's own choice, each
+/// made after a privacy notice: a [photo] ([kSharePhotoPrivacyBody]; the card
+/// is re-rendered from its pixels, so none of the file's metadata goes with
+/// it), and a [qr] code linking to the postbox's page, which shows its county
+/// and a circle about a kilometre across ([kPostboxLinkPrivacyBody]).
 class ShareCardData {
   const ShareCardData({
     required this.headline,
@@ -73,6 +102,7 @@ class ShareCardData {
     this.pointsText,
     this.photo,
     this.clean = false,
+    this.qr,
   });
 
   /// "I found a Victorian postbox!", "7-day streak!", ...
@@ -93,10 +123,18 @@ class ShareCardData {
   /// small cypher caption. Ignored without a photo.
   final bool clean;
 
+  /// The claimed postbox's link, shown as a QR code (claim cards only).
+  final SharePostboxQr? qr;
+
+  /// Whether the card draws [qr]: not on a clean photo, which has no strip.
+  bool get showsQr => qr != null && !(photo != null && clean);
+
   ShareCardData copyWith({
     SharePhoto? photo,
     bool clearPhoto = false,
     bool? clean,
+    SharePostboxQr? qr,
+    bool clearQr = false,
   }) =>
       ShareCardData(
         headline: headline,
@@ -106,6 +144,7 @@ class ShareCardData {
         pointsText: pointsText,
         photo: clearPhoto ? null : (photo ?? this.photo),
         clean: clean ?? this.clean,
+        qr: clearQr ? null : (qr ?? this.qr),
       );
 
   /// The analytics `style` of a share made from this card.
@@ -163,11 +202,14 @@ ShareCardData claimShareCard({
   );
 }
 
-/// The text that travels with the image. Always carries the link, including
-/// for a [ShareCardData.clean] photo.
-String buildShareText(ShareCardData data, String link) =>
-    '${data.headline} Hunting royal postboxes on The Postbox Game. '
-    'Claim your postboxes: $link';
+/// The text that travels with the image. Always carries a link, including
+/// for a [ShareCardData.clean] photo: the postbox's own page when the card
+/// shows its QR, otherwise [link].
+String buildShareText(ShareCardData data, String link) => data.showsQr
+    ? '${data.headline} Hunting royal postboxes on The Postbox Game. '
+        'Can you find it? ${data.qr!.textUrl}'
+    : '${data.headline} Hunting royal postboxes on The Postbox Game. '
+        'Claim your postboxes: $link';
 
 /// Logical size of the card. Captured at 3x: 1080 x 1350, Instagram's 4:5
 /// portrait, which every other network also displays uncropped.
@@ -188,6 +230,71 @@ const String kSharePhotoReminder =
 
 /// SharedPreferences key: the photo privacy notice has been acknowledged.
 const String kSharePhotoPrivacyAckKey = 'share_photo_privacy_ack';
+
+// Privacy copy for sharing a postbox's link (the claim card's QR code and the
+// History "Share link" button), shown once per install before the first one.
+const String kPostboxLinkPrivacyTitle = 'This shows roughly where the box is';
+const String kPostboxLinkPrivacyBody =
+    "Anyone with the link sees the postbox's county and a map circle about a "
+    "kilometre across. If it's your home postbox, that's roughly where you "
+    'live.';
+
+/// SharedPreferences key: the postbox-link privacy notice has been
+/// acknowledged.
+const String kPostboxLinkPrivacyAckKey = 'postbox_link_privacy_ack';
+
+/// Shows a privacy notice once per install (remembered under [prefsKey]).
+/// True to carry on; false if the player backed out.
+Future<bool> confirmOncePerInstall(
+  BuildContext context, {
+  required String prefsKey,
+  required String title,
+  required String body,
+}) async {
+  SharedPreferences? prefs;
+  try {
+    prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool(prefsKey) ?? false) return true;
+  } catch (_) {
+    // Unreadable prefs: show the notice anyway.
+  }
+  if (!context.mounted) return false;
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      icon: const Icon(Icons.privacy_tip_outlined),
+      title: Text(title),
+      content: Text(body),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          style: dialogActionStyle(),
+          onPressed: () => Navigator.of(context).pop(true),
+          child: const Text('Got it'),
+        ),
+      ],
+    ),
+  );
+  if (ok != true) return false;
+  try {
+    await prefs?.setBool(prefsKey, true);
+  } catch (_) {
+    // Not remembered: the notice shows again next time. Harmless.
+  }
+  return true;
+}
+
+/// The postbox-link notice ([kPostboxLinkPrivacyBody]).
+Future<bool> confirmPostboxLinkPrivacy(BuildContext context) =>
+    confirmOncePerInstall(
+      context,
+      prefsKey: kPostboxLinkPrivacyAckKey,
+      title: kPostboxLinkPrivacyTitle,
+      body: kPostboxLinkPrivacyBody,
+    );
 
 /// The size a photo of [aspectRatio] is drawn at so that it covers [frame]
 /// (BoxFit.cover, without cropping it to the frame, so it can be panned).
@@ -317,6 +424,62 @@ class ShareCard extends StatelessWidget {
   String? get _streakLine =>
       data.streak > 1 ? '🔥 ${data.streak}-day streak' : null;
 
+  /// Logical size of the QR on the plain card: 100 px = 300 at the 3x
+  /// capture, so about 7 px per module for a version-4 symbol.
+  static const double _qrSize = 100;
+
+  /// The plain card's bottom strip when it shows a QR code.
+  static const double _qrStripHeight = _qrSize + 20;
+
+  Widget _qrTile(SharePostboxQr qr, double size) => ClipRRect(
+        borderRadius: BorderRadius.circular(6),
+        child: ShareQr(data: qr.qrUrl, size: size),
+      );
+
+  Widget _qrStrip(SharePostboxQr qr) => Container(
+        height: _qrStripHeight,
+        width: double.infinity,
+        color: royalNavy,
+        padding: const EdgeInsets.all(10),
+        child: Row(
+          children: [
+            _qrTile(qr, _qrSize),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text('Scan to find this postbox',
+                      maxLines: 2,
+                      style: _body.copyWith(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
+                          height: 1.15)),
+                  const SizedBox(height: 6),
+                  // Scaled to fit, never truncated: the link has to stay
+                  // typeable.
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      qr.printedUrl,
+                      maxLines: 1,
+                      style: _body.copyWith(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white.withValues(alpha: 0.85)),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  _brand(size: 11),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+
   Widget _linkStrip() => Container(
         width: double.infinity,
         color: royalNavy,
@@ -340,6 +503,7 @@ class ShareCard extends StatelessWidget {
     final era = cypher != null ? MonarchInfo.labels[cypher] : null;
     final points = _pointsLine;
     final streak = _streakLine;
+    final qr = data.showsQr ? data.qr : null;
     return DecoratedBox(
       decoration: const BoxDecoration(
         gradient: LinearGradient(
@@ -350,25 +514,28 @@ class ShareCard extends StatelessWidget {
       ),
       child: Stack(
         children: [
-          Positioned(
-            right: 6,
-            bottom: 46,
-            child: Image.asset(
-              'assets/postman_james.png',
-              height: 72,
-              excludeFromSemantics: true,
+          // The guide's art sits above the link strip; the taller QR strip
+          // leaves no room for him.
+          if (qr == null)
+            Positioned(
+              right: 6,
+              bottom: 46,
+              child: Image.asset(
+                'assets/postman_james.png',
+                height: 72,
+                excludeFromSemantics: true,
+              ),
             ),
-          ),
           Positioned.fill(
-            bottom: 42,
+            bottom: qr == null ? 42 : _qrStripHeight,
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+              padding: EdgeInsets.fromLTRB(24, qr == null ? 20 : 16, 24, 0),
               child: Column(
                 children: [
                   Align(alignment: Alignment.centerLeft, child: _brand()),
-                  const SizedBox(height: 16),
+                  SizedBox(height: qr == null ? 16 : 10),
                   _Postmark(
-                    size: 128,
+                    size: qr == null ? 128 : 96,
                     child: cypher != null
                         ? Text(
                             cypher == 'SCOTTISH_CROWN'
@@ -377,9 +544,10 @@ class ShareCard extends StatelessWidget {
                             textAlign: TextAlign.center,
                             style: GoogleFonts.playfairDisplay(
                               color: Colors.white,
-                              fontSize: cypher == 'SCOTTISH_CROWN'
-                                  ? 20
-                                  : (cypher.length > 4 ? 26 : 32),
+                              fontSize: (cypher == 'SCOTTISH_CROWN'
+                                      ? 20
+                                      : (cypher.length > 4 ? 26 : 32)) *
+                                  (qr == null ? 1 : 0.8),
                               fontWeight: FontWeight.w800,
                               height: 1.05,
                             ),
@@ -431,7 +599,12 @@ class ShareCard extends StatelessWidget {
               ),
             ),
           ),
-          Positioned(left: 0, right: 0, bottom: 0, child: _linkStrip()),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: qr == null ? _linkStrip() : _qrStrip(qr),
+          ),
         ],
       ),
     );
@@ -517,77 +690,95 @@ class ShareCard extends StatelessWidget {
     );
   }
 
+  /// Logical size of the QR in the photo card's strip.
+  static const double _photoQrSize = 84;
+
   Widget _photoStrip() {
-    final cypher = data.cypher;
-    final title = (cypher != null ? MonarchInfo.labels[cypher] : null) ??
-        data.headline;
-    final detail = [_pointsLine, _streakLine].whereType<String>().join('  ·  ');
+    final qr = data.showsQr ? data.qr : null;
+    final strip = _photoStripText();
     return Container(
       color: royalNavy.withValues(alpha: 0.9),
       padding: const EdgeInsets.fromLTRB(14, 10, 14, 9),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            children: [
-              if (cypher != null) ...[
-                // "Scottish Crown" is long: scale down rather than overflow.
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 120),
-                  child: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      child: _cypherPill(cypher, fontSize: 15)),
-                ),
+      child: qr == null
+          ? strip
+          : Row(
+              children: [
+                Expanded(child: strip),
                 const SizedBox(width: 10),
+                _qrTile(qr, _photoQrSize),
               ],
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(title,
+            ),
+    );
+  }
+
+  Widget _photoStripText() {
+    final cypher = data.cypher;
+    final qr = data.showsQr ? data.qr : null;
+    final title =
+        (cypher != null ? MonarchInfo.labels[cypher] : null) ?? data.headline;
+    final detail = [_pointsLine, _streakLine].whereType<String>().join('  ·  ');
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          children: [
+            if (cypher != null) ...[
+              // "Scottish Crown" is long: scale down rather than overflow.
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 120),
+                child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: _cypherPill(cypher, fontSize: 15)),
+              ),
+              const SizedBox(width: 10),
+            ],
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: _body.copyWith(
+                          fontSize: 14, fontWeight: FontWeight.w700)),
+                  if (detail.isNotEmpty)
+                    Text(detail,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: _body.copyWith(
-                            fontSize: 14, fontWeight: FontWeight.w700)),
-                    if (detail.isNotEmpty)
-                      Text(detail,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: _body.copyWith(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w800,
-                              color: postalGold)),
-                  ],
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                            color: postalGold)),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 7),
+        Row(
+          children: [
+            _brand(size: 11),
+            const SizedBox(width: 10),
+            Expanded(
+              // Scaled to fit, never truncated: the link has to stay
+              // typeable.
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerRight,
+                child: Text(
+                  qr?.printedUrl ?? _shortLink,
+                  maxLines: 1,
+                  style: _body.copyWith(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white.withValues(alpha: 0.85)),
                 ),
               ),
-            ],
-          ),
-          const SizedBox(height: 7),
-          Row(
-            children: [
-              _brand(size: 11),
-              const SizedBox(width: 10),
-              Expanded(
-                // Scaled to fit, never truncated: the link has to stay
-                // typeable.
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerRight,
-                  child: Text(
-                    _shortLink,
-                    maxLines: 1,
-                    style: _body.copyWith(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.white.withValues(alpha: 0.85)),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }
@@ -643,11 +834,16 @@ Future<Uint8List?> pickSharePhoto(ImageSource source) async {
 /// Shows a preview of the card with a Share button. [contentType] and
 /// [itemId] label the analytics `share` event (`claim` / the cypher,
 /// `streak` / the day count, `route`, `profile`).
+///
+/// [qrPostboxId] (claim shares only) offers an "Add postbox QR" switch for
+/// that box. Without it, and with the switch off, the sheet makes no
+/// Firebase calls; switching it on fetches the box's link code once.
 Future<void> showShareCardSheet(
   BuildContext context, {
   required ShareCardData data,
   required String contentType,
   required String itemId,
+  String? qrPostboxId,
 }) =>
     showModalBottomSheet<void>(
       context: context,
@@ -658,11 +854,13 @@ Future<void> showShareCardSheet(
         link: kShareLinkUrl,
         contentType: contentType,
         itemId: itemId,
+        qrPostboxId: qrPostboxId,
       ),
     );
 
-/// The share sheet's body: the card preview, the photo controls and the
-/// Share button. Public for tests, which inject [pickPhoto].
+/// The share sheet's body: the card preview, the photo controls, the
+/// optional postbox QR switch and the Share button. Public for tests, which
+/// inject [pickPhoto] and [fetchLinkCode].
 class ShareCardSheet extends StatefulWidget {
   const ShareCardSheet({
     super.key,
@@ -671,6 +869,8 @@ class ShareCardSheet extends StatefulWidget {
     required this.contentType,
     required this.itemId,
     this.pickPhoto = pickSharePhoto,
+    this.qrPostboxId,
+    this.fetchLinkCode = PostboxLinkService.fetchCode,
   });
 
   final ShareCardData data;
@@ -678,6 +878,11 @@ class ShareCardSheet extends StatefulWidget {
   final String contentType;
   final String itemId;
   final SharePhotoPicker pickPhoto;
+
+  /// The claimed postbox the "Add postbox QR" switch would link to; null
+  /// hides the switch.
+  final String? qrPostboxId;
+  final PostboxLinkFetcher fetchLinkCode;
 
   @override
   State<ShareCardSheet> createState() => _ShareCardSheetState();
@@ -687,6 +892,8 @@ class _ShareCardSheetState extends State<ShareCardSheet> {
   final GlobalKey _boundaryKey = GlobalKey();
   bool _sharing = false;
   bool _picking = false;
+  bool _linking = false;
+  bool _qrBusy = false;
   late ShareCardData _data = widget.data;
 
   double _scale = 1;
@@ -727,41 +934,41 @@ class _ShareCardSheetState extends State<ShareCardSheet> {
   }
 
   /// The once-per-install privacy notice. True to carry on to the picker.
-  Future<bool> _confirmPhotoPrivacy() async {
-    SharedPreferences? prefs;
-    try {
-      prefs = await SharedPreferences.getInstance();
-      if (prefs.getBool(kSharePhotoPrivacyAckKey) ?? false) return true;
-    } catch (_) {
-      // Unreadable prefs: show the notice anyway.
+  Future<bool> _confirmPhotoPrivacy() => confirmOncePerInstall(
+        context,
+        prefsKey: kSharePhotoPrivacyAckKey,
+        title: kSharePhotoPrivacyTitle,
+        body: kSharePhotoPrivacyBody,
+      );
+
+  /// The "Add postbox QR" switch. Turning it on shows the location notice
+  /// (once per install) and fetches the box's link code.
+  Future<void> _setQr(bool on) async {
+    final postboxId = widget.qrPostboxId;
+    if (postboxId == null || _qrBusy) return;
+    if (!on) {
+      setState(() => _data = _data.copyWith(clearQr: true));
+      return;
     }
-    if (!mounted) return false;
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        icon: const Icon(Icons.privacy_tip_outlined),
-        title: const Text(kSharePhotoPrivacyTitle),
-        content: const Text(kSharePhotoPrivacyBody),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            style: dialogActionStyle(),
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Got it'),
-          ),
-        ],
-      ),
-    );
-    if (ok != true) return false;
+    _qrBusy = true;
     try {
-      await prefs?.setBool(kSharePhotoPrivacyAckKey, true);
-    } catch (_) {
-      // Not remembered: the notice shows again next time. Harmless.
+      if (!await confirmPostboxLinkPrivacy(context) || !mounted) return;
+      // The spinner shows only while fetching, not behind the notice.
+      setState(() => _linking = true);
+      final String code;
+      try {
+        code = await widget.fetchLinkCode(postboxId);
+      } catch (_) {
+        _snack("Couldn't make a link just now. Check your connection and "
+            'try again.');
+        return;
+      }
+      if (!mounted) return;
+      setState(() => _data = _data.copyWith(qr: SharePostboxQr(code)));
+    } finally {
+      _qrBusy = false;
+      if (mounted && _linking) setState(() => _linking = false);
     }
-    return true;
   }
 
   Future<ImageSource?> _chooseSource() => showModalBottomSheet<ImageSource>(
@@ -860,7 +1067,7 @@ class _ShareCardSheetState extends State<ShareCardSheet> {
   }
 
   Future<void> _share() async {
-    if (_sharing || _picking) return;
+    if (_sharing || _picking || _linking) return;
     setState(() => _sharing = true);
     try {
       // google_fonts loads at runtime: a capture taken before the font
@@ -886,6 +1093,7 @@ class _ShareCardSheetState extends State<ShareCardSheet> {
           itemId: widget.itemId,
           method: result.raw.isNotEmpty ? result.raw : 'unknown',
           style: _data.shareStyle,
+          qr: widget.qrPostboxId == null ? null : _data.showsQr,
         ));
       }
       if (mounted && result.status == ShareResultStatus.success) {
@@ -955,6 +1163,28 @@ class _ShareCardSheetState extends State<ShareCardSheet> {
               ),
             ] else
               const SizedBox(height: AppSpacing.sm),
+            if (widget.qrPostboxId != null)
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                secondary: _linking
+                    ? const SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.qr_code_2),
+                title: const Text('Add postbox QR'),
+                subtitle: Text(hasPhoto && _data.clean
+                    ? 'Not shown while branding is hidden'
+                    : 'Links to this postbox, so others can hunt it down'),
+                value: _data.qr != null,
+                onChanged: _sharing ||
+                        _picking ||
+                        _linking ||
+                        (hasPhoto && _data.clean)
+                    ? null
+                    : _setQr,
+              ),
             // Expanded, not bare: the app theme gives filled and outlined
             // buttons an infinite minimum width, which a Row can't bound, so
             // unwrapped they fail layout and the whole row vanishes.
@@ -962,7 +1192,8 @@ class _ShareCardSheetState extends State<ShareCardSheet> {
               children: [
                 Expanded(
                   child: OutlinedButton.icon(
-                    onPressed: _picking || _sharing ? null : _addPhoto,
+                    onPressed:
+                        _picking || _sharing || _linking ? null : _addPhoto,
                     icon: const Icon(Icons.add_a_photo_outlined),
                     label: Text(hasPhoto ? 'Change photo' : 'Add photo'),
                   ),
@@ -976,7 +1207,7 @@ class _ShareCardSheetState extends State<ShareCardSheet> {
                 const SizedBox(width: AppSpacing.sm),
                 Expanded(
                   child: FilledButton.icon(
-                    onPressed: _sharing || _picking ? null : _share,
+                    onPressed: _sharing || _picking || _linking ? null : _share,
                     icon: _sharing
                         ? const SizedBox(
                             width: 16,

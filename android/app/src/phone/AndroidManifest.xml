@@ -9,11 +9,14 @@
          flavour (src/auto/). -->
 
     <application>
-        <!-- Invite links (docs/marketing-plan.md, Referral). Phone-side
-             flavours only: the watch never receives a shared link. Merged
-             into MainActivity from src/main. The https filter is an App Link,
-             verified against web/.well-known/assetlinks.json; the custom
-             scheme is the invite page's "Open in the app" fallback. -->
+        <!-- Invite links (docs/marketing-plan.md, Referral) and postbox
+             links (/postbox/CODE). Phone-side flavours only: the watch never
+             receives a shared link. Merged into MainActivity from src/main.
+             The https filter is an App Link, verified against
+             web/.well-known/assetlinks.json (which covers the whole host);
+             the custom scheme is the pages' "Open in the app" fallback.
+             <data> elements in one filter combine, so the scheme filter
+             accepts postboxgame://invite/... and postboxgame://postbox/... -->
         <activity
             android:name="com.code418.postbox_game.MainActivity"
             android:exported="true">
@@ -24,12 +27,14 @@
                 <data android:scheme="https" />
                 <data android:host="the-postbox-game.web.app" />
                 <data android:pathPrefix="/invite/" />
+                <data android:pathPrefix="/postbox/" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="postboxgame" android:host="invite" />
+                <data android:host="postbox" />
             </intent-filter>
         </activity>
     </application>

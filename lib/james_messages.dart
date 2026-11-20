@@ -298,6 +298,77 @@ abstract final class JamesMessages {
   static String shareNudgeStreak(int days) =>
       "$days days on the trot! That's worth a brag... hit Share.";
 
+  // ── Postbox links (/postbox/CODE opened in the app) ──────────────────────
+
+  /// The player is within claim range of the linked box.
+  static const postboxLinkClaimable = JamesMessage(
+    'jamesPostboxLinkClaimable',
+    [
+      "You're right there! Let's see if you know your cyphers.",
+      "Found it. Or near enough. Over to you...",
+      "Spot on. Have a good look at that cypher.",
+    ],
+  );
+
+  /// Within 100 m but outside the claim radius (or GPS is being shy).
+  static const postboxLinkVeryClose = JamesMessage(
+    'jamesPostboxLinkVeryClose',
+    [
+      "Warm... very warm. Have a look around.",
+      "It's close. Really close. Keep your eyes peeled for something red.",
+      "You're nearly on top of it... unless my map's having a moment.",
+    ],
+  );
+
+  /// 100 to 300 m away.
+  static const postboxLinkShortWalk = JamesMessage(
+    'jamesPostboxLinkShortWalk',
+    [
+      "Getting warmer. A short walk should do it.",
+      "Not far now. A couple of minutes on foot, I reckon.",
+    ],
+  );
+
+  /// 300 m to 1 km away.
+  static const postboxLinkUnderKm = JamesMessage(
+    'jamesPostboxLinkUnderKm',
+    [
+      "Lukewarm. It's under a kilometre away... which way is for you to find out.",
+      "Within a kilometre. A proper little expedition.",
+    ],
+  );
+
+  /// More than a kilometre away.
+  static String postboxLinkFar(String? county) => county == null
+      ? "Cold, I'm afraid. It's more than a kilometre from here."
+      : "Cold, I'm afraid. It's more than a kilometre away, somewhere in $county.";
+
+  /// The player already claimed it today.
+  static const postboxLinkClaimedToday = JamesMessage(
+    'jamesPostboxLinkClaimedToday',
+    [
+      "You've already had this one today. It'll still be there tomorrow... they're very loyal.",
+      "Claimed it already! Come back tomorrow for another go.",
+    ],
+  );
+
+  /// The link names no postbox we know.
+  static const postboxLinkNotFound = JamesMessage(
+    'jamesPostboxLinkNotFound',
+    [
+      "That link's gone astray. Return to sender, I'm afraid.",
+      "I can't find that postbox. It may have been taken off the map.",
+    ],
+  );
+
+  /// No location: we can describe the box but not say how near it is.
+  static const postboxLinkNoLocation = JamesMessage(
+    'jamesPostboxLinkNoLocation',
+    [
+      "I can tell you about it, but not how far away it is without your location.",
+    ],
+  );
+
   static String claimSuccessMulti(int count, int pts) =>
       "Blimey... $count at once! That's $pts points in one go. Impressive.";
 

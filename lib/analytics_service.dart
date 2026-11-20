@@ -188,12 +188,18 @@ class Analytics {
     required String itemId,
     String method = 'unknown',
     String? style,
+    bool? qr,
   }) =>
       _fa.logShare(
         contentType: contentType,
         itemId: itemId,
         method: method,
-        parameters: style == null ? null : {'style': style},
+        parameters: (style == null && qr == null)
+            ? null
+            : {
+                if (style != null) 'style': style,
+                if (qr != null) 'qr': qr ? 1 : 0,
+              },
       );
 
   /// An invite link or code reached the app. [source] is how: `link`
@@ -201,6 +207,22 @@ class Analytics {
   /// button) or `typed` (pasted into the Friends field).
   static Future<void> inviteLinkOpened({required String source}) =>
       _log('invite_link_opened', {'source': source});
+
+  /// A postbox link reached the app. [source] is `link` (App Link /
+  /// Universal Link) or `scheme` (the postbox page's open-in-app button);
+  /// [src] is the link's `?src=` tag (`share_qr`, `share_text`,
+  /// `history_link`, ...) or `none`.
+  static Future<void> postboxLinkOpened({
+    required String source,
+    required String src,
+  }) =>
+      _log('postbox_link_opened', {'source': source, 'src': src});
+
+  /// What the postbox-link screen found: a proximity band (`claimable`,
+  /// `very_close`, `short_walk`, `under_km`, `far`, `claimed_today`,
+  /// `unknown`) or `not_found` / `error`; `claimed` once a claim lands.
+  static Future<void> postboxLinkResult({required String result}) =>
+      _log('postbox_link_result', {'result': result});
 
   /// Outcome of acting on an invite: `accepted`, `declined`,
   /// `already_friends`, `self_invite`, `not_found`, `friend_limit`, `error`.
