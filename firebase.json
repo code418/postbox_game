@@ -11,11 +11,15 @@
       {
         "source": "/.well-known/assetlinks.json",
         "headers": [{ "key": "Content-Type", "value": "application/json" }]
+      },
+      {
+        "regex": "^/[^.]*$",
+        "headers": [{ "key": "Link", "value": "</privacy-policy>; rel=\"privacy-policy\", </support>; rel=\"help\"" }]
       }
     ],
     "rewrites": [
       { "source": "/invite/**", "destination": "/invite.html" },
-      { "source": "**", "destination": "/index.html" }
+      { "regex": "^/[^.]*$", "destination": "/index.html" }
     ]
   },
   "functions": {

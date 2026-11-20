@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Page not found · The Postbox Game</title>
+  <!-- Firebase Hosting serves this, with a 404 status, for any path that is
+       neither a file nor matched by a rewrite, at any depth: keep every
+       asset path root-absolute. -->
+  <meta name="robots" content="noindex">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#C8102E">
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="preload" href="/fonts/plus-jakarta-sans-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/playfair-display-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/site.css">
+</head>
+<body>
+<a href="#main" class="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:rounded-lg focus:bg-surface focus:px-4 focus:py-3 focus:font-semibold focus:text-ink">Skip to content</a>
+
+<header class="site-header border-b border-line bg-page">
+  <div class="mx-auto flex max-w-page items-center justify-between gap-4 px-6 py-3.5">
+    <a href="/get" class="flex min-h-11 items-center gap-3 text-heading">
+      <img src="/images/postbox.svg" alt="" width="19" height="40" class="h-10 w-auto">
+      <span class="font-display text-lg leading-none font-bold whitespace-nowrap sm:text-[1.375rem]">The Postbox Game</span>
+    </a>
+    <a href="/get" class="inline-flex min-h-11 items-center rounded-xl bg-postal-red px-4 text-[0.9375rem] font-semibold whitespace-nowrap text-white hover:bg-postal-red-deep sm:px-5">Get the app</a>
+  </div>
+</header>
+
+<main id="main" class="on-dark bg-postal-red text-white">
+  <div class="mx-auto flex min-h-[60vh] max-w-page flex-col justify-center gap-5 px-6 py-[clamp(4rem,10vw,7rem)]">
+    <p class="self-start rounded-full bg-white/16 px-3 py-1.5 text-[0.8125rem] leading-[1.125rem] font-bold">Error 404</p>
+    <h1 class="font-display text-[clamp(2.375rem,5vw,4rem)] leading-[1.06] font-extrabold">This page has gone astray.</h1>
+    <div class="h-1 w-14 rounded-full bg-postal-gold" aria-hidden="true"></div>
+    <p class="max-w-150 text-[clamp(1.0625rem,1.6vw,1.25rem)] leading-normal text-on-red">Like a letter with the wrong address, it never arrived. The link may be mistyped, or the page may have moved.</p>
+    <div class="mt-2 flex flex-wrap gap-3">
+      <a href="/get" class="inline-flex min-h-12 items-center rounded-xl bg-white px-5 font-semibold text-postal-red hover:bg-on-red">Go to The Postbox Game</a>
+      <a href="/support" class="inline-flex min-h-12 items-center rounded-xl border border-white px-5 font-semibold text-white hover:bg-white/10">Get help</a>
+    </div>
+  </div>
+</main>
+
+<footer class="border-t border-line">
+  <div class="mx-auto flex max-w-page flex-wrap items-center justify-between gap-x-6 gap-y-1 px-6 py-3 text-sm leading-5 text-muted">
+    <p>&copy; The Postbox Game</p>
+    <nav aria-label="Footer">
+      <ul class="flex flex-wrap items-center gap-x-5">
+        <li><a href="/support" class="link inline-block py-3">Support</a></li>
+        <li><a href="/privacy-policy" class="link inline-block py-3">Privacy policy</a></li>
+        <li><a href="/data-safety" class="link inline-block py-3">Data safety</a></li>
+        <li class="py-3">Postbox data &copy; <a href="https://www.openstreetmap.org/copyright" class="link">OpenStreetMap contributors</a>, ODbL</li>
+      </ul>
+    </nav>
+  </div>
+</footer>
+</body>
+</html>

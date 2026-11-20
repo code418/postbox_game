@@ -12,7 +12,9 @@ Tailwind CSS 4 build for the hosted pages in `web/`:
 
 `web/index.html` is the Flutter app shell and is not styled from here.
 
-**Adding a page:** create `web/<name>.html` with the same `<head>` lines as the others (`/site.css`, the font preloads) and run `npm run build`. Tailwind scans every `web/*.html` except `index.html`, and `test/web_pages_test.dart` checks the same set, so there is no list to update. Add a rewrite in `firebase.json` only if it needs one; `cleanUrls` already serves it at `/<name>`.
+**Adding a page:** create `web/<name>.html` with the same `<head>` lines as the others (`/site.css`, the font preloads) and run `npm run build`. Tailwind scans every `web/*.html` except `index.html`, and `test/web_pages_test.dart` checks the same set, so there is no list to update. Add a rewrite in `firebase.json` only if it needs one; `cleanUrls` already serves it at `/<name>`. An indexable page needs a `<link rel="canonical" href="https://the-postbox-game.web.app/<name>">` and the same URL in `web/sitemap.xml` (and a line in `web/llms.txt`'s Pages list). A page that shouldn't be indexed gets `<meta name="robots" content="noindex">` instead. The test enforces this.
+
+`web/404.html` is served for any path that matches neither a file nor a rewrite, at any depth. Only extensionless paths fall back to the Flutter app.
 
 ## Commands
 

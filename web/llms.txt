@@ -1,0 +1,41 @@
+# The Postbox Game
+
+> A free mobile game for iPhone and Android that turns walks into a treasure hunt: players find real postboxes across the United Kingdom, name the royal cypher on each one to claim it once a day, and score more points for rarer cyphers on daily, weekly, monthly and all-time leaderboards.
+
+The Postbox Game is free, with no ads. It covers postboxes in the United Kingdom only. Postbox data comes from OpenStreetMap (© OpenStreetMap contributors, ODbL), and more than 90,000 UK postboxes are mapped.
+
+## How it works
+
+- Open the app on a walk. It counts the postboxes nearby, and a fuzzy compass shows roughly which way they lie, never their exact location.
+- Stand within about 30 metres of a postbox and name the royal cypher on its front to claim it.
+- Each postbox can be claimed once a day. A claim every day keeps a streak going.
+- Players add friends with an invite link and compare scores on a friends-only leaderboard.
+- Route mode shows how many postboxes, and how many points, lie on the way to a chosen destination.
+- On Android, a standalone Wear OS app scans, shows the compass and claims from the watch.
+- Players can report a missing postbox or a wrong cypher from the app. Accepted reports update everyone's scores and are passed back to OpenStreetMap.
+
+## Points per royal cypher
+
+The cypher shows which monarch reigned when the postbox was installed. Rarer cyphers score more.
+
+- EVIIIR (Edward VIII, 1936): 12 points
+- CIIIR (Charles III, 2022 onwards): 9 points
+- EVIIR (Edward VII, 1901–1910): 9 points
+- VR (Victoria, 1837–1901): 7 points
+- GVR (George V, 1910–1936): 4 points
+- GVIR (George VI, 1936–1952): 4 points
+- GR (George, generic): 4 points
+- SCOTTISH_CROWN (Scottish Crown, Scotland only): 4 points
+- EIIR (Elizabeth II, 1952–2022): 2 points
+
+## Pages
+
+- [The Postbox Game](https://the-postbox-game.web.app/get): what the game is, how it works, points and download links
+- [Support](https://the-postbox-game.web.app/support): how to play, common questions, reporting postbox problems, and account help
+- [Privacy policy](https://the-postbox-game.web.app/privacy-policy): what personal data the app collects and why, and your rights under UK GDPR
+- [Data safety](https://the-postbox-game.web.app/data-safety): a summary of the data collected, sharing, security and retention
+
+## Get the app
+
+- [App Store (iPhone)](https://apps.apple.com/gb/app/the-postbox-game/id6819213888)
+- [Google Play (Android and Wear OS)](https://play.google.com/store/apps/details?id=com.code418.postbox_game)
