@@ -1,287 +1,281 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en-GB">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Data Safety – The Postbox Game</title>
-  <style>
-    :root {
-      --red: #C8102E;
-      --navy: #0A1931;
-      --gold: #FFB400;
-      --bg: #f9f7f4;
-      --text: #1a1a1a;
-      --muted: #555;
-      --green: #1a7a3c;
-      --green-bg: #e8f5ee;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      line-height: 1.7;
-    }
-    header {
-      background: var(--navy);
-      color: white;
-      padding: 2rem 1.5rem 1.5rem;
-      border-bottom: 4px solid var(--red);
-    }
-    header h1 { font-size: 1.6rem; font-weight: 700; }
-    header p  { font-size: 0.9rem; color: #aab; margin-top: 0.3rem; }
-    main {
-      max-width: 760px;
-      margin: 0 auto;
-      padding: 2rem 1.5rem 4rem;
-    }
-    h2 {
-      font-size: 1.15rem;
-      color: var(--red);
-      margin: 2rem 0 0.8rem;
-      padding-bottom: 0.3rem;
-      border-bottom: 1px solid #e0d8d0;
-    }
-    p { margin-bottom: 0.9rem; }
-    .summary-box {
-      background: var(--green-bg);
-      border-left: 4px solid var(--green);
-      padding: 1rem 1.2rem;
-      border-radius: 4px;
-      margin-bottom: 1.5rem;
-      font-size: 0.95rem;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-bottom: 1.5rem;
-      font-size: 0.95rem;
-    }
-    th {
-      background: var(--navy);
-      color: white;
-      text-align: left;
-      padding: 0.6rem 0.9rem;
-      font-weight: 600;
-    }
-    td {
-      padding: 0.55rem 0.9rem;
-      border-bottom: 1px solid #ddd;
-      vertical-align: top;
-    }
-    tr:nth-child(even) td { background: #f1ece6; }
-    .yes { color: var(--green); font-weight: 600; }
-    .no  { color: var(--muted); }
-    .badge {
-      display: inline-block;
-      font-size: 0.75rem;
-      font-weight: 700;
-      padding: 0.1rem 0.5rem;
-      border-radius: 3px;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-    }
-    .badge-required  { background: #fde8ec; color: var(--red); }
-    .badge-optional  { background: #e8f0fe; color: #1a4dbb; }
-    a { color: var(--red); }
-    footer {
-      text-align: center;
-      padding: 1.5rem;
-      font-size: 0.8rem;
-      color: var(--muted);
-      border-top: 1px solid #ddd;
-    }
-  </style>
+  <title>Data safety · The Postbox Game</title>
+  <meta name="description" content="What data The Postbox Game collects, why, how long it is kept, and how to delete or download it.">
+  <link rel="canonical" href="https://the-postbox-game.web.app/data-safety">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#C8102E">
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="preload" href="/fonts/plus-jakarta-sans-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/playfair-display-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/site.css">
+  <script type="speculationrules">
+    {"prerender": [{"where": {"href_matches": ["/get", "/support", "/privacy-policy"]}, "eagerness": "moderate"}]}
+  </script>
 </head>
 <body>
-<header>
-  <h1>The Postbox Game – Data Safety</h1>
-  <p>What data the App collects and how it is used.</p>
-</header>
-<main>
+<a href="#main" class="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:rounded-lg focus:bg-surface focus:px-4 focus:py-3 focus:font-semibold focus:text-ink">Skip to content</a>
 
-  <div class="summary-box">
-    <strong>Summary:</strong> The App collects your location (while in use only), your account display name and email, and gameplay activity. The position you claim from is kept for 90 days for anti-cheat checks, then removed automatically. Data is encrypted in transit. You can delete your account, or download a copy of your data, from within the App at any time. We do not sell your data.
+<header class="site-header border-b border-line bg-page">
+  <div class="mx-auto flex max-w-page items-center justify-between gap-4 px-6 py-3.5">
+    <a href="/get" class="flex min-h-11 items-center gap-3 text-heading">
+      <img src="/images/postbox.svg" alt="" width="19" height="40" class="h-10 w-auto">
+      <span class="font-display text-lg leading-none font-bold whitespace-nowrap sm:text-[1.375rem]">The Postbox Game</span>
+    </a>
+    <a href="/get" class="inline-flex min-h-11 items-center rounded-xl bg-postal-red px-4 text-[0.9375rem] font-semibold whitespace-nowrap text-white hover:bg-postal-red-deep sm:px-5">Get the app</a>
+  </div>
+</header>
+
+<main id="main">
+  <div class="on-dark bg-postal-red text-white">
+    <div class="mx-auto flex max-w-page flex-col gap-4 px-6 py-[clamp(3rem,6vw,4.5rem)]">
+      <p class="inline-flex items-center gap-1.5 self-start rounded-full bg-white/16 px-3 py-1.5 text-[0.8125rem] leading-[1.125rem] font-bold">
+        <svg class="icon size-4" aria-hidden="true"><use href="/icons.svg#verified-user"/></svg>Your data
+      </p>
+      <h1 class="font-display text-[clamp(2.375rem,5vw,4rem)] leading-[1.06] font-extrabold">Data safety</h1>
+      <div class="h-1 w-14 rounded-full bg-postal-gold" aria-hidden="true"></div>
+      <p class="max-w-150 text-[clamp(1.0625rem,1.6vw,1.25rem)] leading-normal text-on-red">What data the app collects and how it is used.</p>
+    </div>
   </div>
 
-  <h2>Data Collected</h2>
-  <table>
-    <thead>
-      <tr>
-        <th>Data type</th>
-        <th>What specifically</th>
-        <th>Why</th>
-        <th>Required?</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr>
-        <td><strong>Precise location</strong></td>
-        <td>GPS coordinates while using the App. The position you claimed from is stored with that claim, then removed after 90 days</td>
-        <td>Find nearby postboxes; validate claims; anti-cheat</td>
-        <td><span class="badge badge-required">Required</span></td>
-      </tr>
-      <tr>
-        <td><strong>Name</strong></td>
-        <td>Display name (chosen by you or from Google)</td>
-        <td>Shown on leaderboards and to friends</td>
-        <td><span class="badge badge-required">Required</span></td>
-      </tr>
-      <tr>
-        <td><strong>Email address</strong></td>
-        <td>Email used to sign in</td>
-        <td>Account authentication</td>
-        <td><span class="badge badge-required">Required</span></td>
-      </tr>
-      <tr>
-        <td><strong>App interactions</strong></td>
-        <td>Postbox claims, scores, streaks, leaderboard entries</td>
-        <td>Core gameplay features</td>
-        <td><span class="badge badge-required">Required</span></td>
-      </tr>
-      <tr>
-        <td><strong>Photos</strong></td>
-        <td>Photos you choose to attach to a postbox problem report. These may include the time and place the photo was taken (EXIF). Removed 30 days after the report is reviewed</td>
-        <td>Evidence for reviewing reported postbox data problems</td>
-        <td><span class="badge badge-optional">Optional</span></td>
-      </tr>
-      <tr>
-        <td><strong>Problem reports</strong></td>
-        <td>Report location, any note you write, and the cypher you suggest. Notes are removed 30 days after review</td>
-        <td>Correcting the postbox database and OpenStreetMap</td>
-        <td><span class="badge badge-optional">Optional</span></td>
-      </tr>
-      <tr>
-        <td><strong>Friends list</strong></td>
-        <td>User IDs of friends you choose to add in the App</td>
-        <td>Friend leaderboards and profiles</td>
-        <td><span class="badge badge-optional">Optional</span></td>
-      </tr>
-      <tr>
-        <td><strong>Crash logs</strong></td>
-        <td>Anonymous crash reports and stack traces</td>
-        <td>Bug fixing and App stability</td>
-        <td><span class="badge badge-optional">Optional</span></td>
-      </tr>
-      <tr>
-        <td><strong>App performance</strong></td>
-        <td>Anonymous performance traces (load times, etc.)</td>
-        <td>Performance improvements</td>
-        <td><span class="badge badge-optional">Optional</span></td>
-      </tr>
-      <tr>
-        <td><strong>Usage analytics</strong></td>
-        <td>Usage events such as scans, claims and screens viewed (Firebase Analytics), linked to your account's user ID and never used for advertising — on by default; can be turned off in Settings → Privacy</td>
-        <td>Understand how the App is used</td>
-        <td><span class="badge badge-optional">Optional</span></td>
-      </tr>
-      <tr>
-        <td><strong>Device token</strong></td>
-        <td>Random per-install identifier sent with claims (not derived from hardware); removed after 90 days</td>
-        <td>Multi-account abuse detection</td>
-        <td><span class="badge badge-required">Required</span></td>
-      </tr>
-    </tbody>
-  </table>
+  <div class="mx-auto flex max-w-page flex-wrap items-start gap-x-16 gap-y-8 px-6 pt-12 pb-[clamp(4rem,8vw,6rem)]">
+    <nav aria-label="On this page" class="disclosure min-w-0 max-w-75 flex-[1_1_15rem]">
+      <details open class="rounded-card border border-line bg-surface px-5 pt-1 pb-4">
+        <summary class="min-h-12 gap-2 text-sm leading-5 font-bold text-heading"><svg class="icon size-5 text-accent" aria-hidden="true"><use href="/icons.svg#chevron"/></svg>On this page</summary>
+        <ul class="flex flex-col text-[0.9375rem] leading-5">
+          <li><a href="#collected" class="flex min-h-10 items-center hover:text-accent">Data collected</a></li>
+          <li><a href="#sharing" class="flex min-h-10 items-center hover:text-accent">Data sharing</a></li>
+          <li><a href="#security" class="flex min-h-10 items-center hover:text-accent">Security practices</a></li>
+          <li><a href="#location" class="flex min-h-10 items-center hover:text-accent">Location access</a></li>
+          <li><a href="#retention" class="flex min-h-10 items-center hover:text-accent">Data retention</a></li>
+          <li><a href="#deletion" class="flex min-h-10 items-center hover:text-accent">Account deletion</a></li>
+        </ul>
+      </details>
+      <a href="/privacy-policy" class="mt-4 flex min-h-12 items-center gap-2.5 rounded-xl bg-tint-strong px-4 text-[0.9375rem] font-semibold text-accent hover:underline"><svg class="icon size-5" aria-hidden="true"><use href="/icons.svg#policy"/></svg>Read the full privacy policy</a>
+    </nav>
 
-  <h2>Data Sharing</h2>
-  <table>
-    <thead>
-      <tr>
-        <th>Question</th>
-        <th>Answer</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr>
-        <td>Is data shared with third parties?</td>
-        <td><span class="no">No</span> – data is processed by Google Firebase (our infrastructure provider) on our behalf. The one exception: in Route Mode, the destination text you type is sent to OpenStreetMap's Nominatim search service. Your GPS position is never sent to it</td>
-      </tr>
-      <tr>
-        <td>Is data sold?</td>
-        <td><span class="no">No</span></td>
-      </tr>
-      <tr>
-        <td>Is data used for advertising?</td>
-        <td><span class="no">No</span></td>
-      </tr>
-      <tr>
-        <td>Is data used to track users across other apps?</td>
-        <td><span class="no">No</span></td>
-      </tr>
-    </tbody>
-  </table>
+    <div class="flex min-w-0 max-w-205 flex-[999_1_35rem] flex-col gap-14">
+      <section aria-labelledby="summary-title" class="on-dark flex flex-col gap-3 rounded-card bg-royal-navy dark:bg-band p-[clamp(1.375rem,3vw,2rem)] text-white">
+        <h2 id="summary-title" class="font-display text-2xl leading-[1.2] font-bold text-postal-gold">Summary</h2>
+        <p class="leading-[1.625rem]">The App collects your location (while in use only), your account display name and email, and gameplay activity. The position you claim from is kept for 90 days for anti-cheat checks, then removed automatically. Data is encrypted in transit. You can delete your account, or download a copy of your data, from within the App at any time. We do not sell your data.</p>
+      </section>
 
-  <h2>Security Practices</h2>
-  <table>
-    <thead>
-      <tr>
-        <th>Practice</th>
-        <th>Status</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr>
-        <td>Data encrypted in transit</td>
-        <td><span class="yes">Yes</span> – HTTPS / TLS for all network requests</td>
-      </tr>
-      <tr>
-        <td>Data encrypted at rest</td>
-        <td><span class="yes">Yes</span> – Google Firebase encrypts data at rest by default</td>
-      </tr>
-      <tr>
-        <td>You can request data deletion</td>
-        <td><span class="yes">Yes</span> – delete your account and all associated personal data from within the App (Settings → Delete account)</td>
-      </tr>
-      <tr>
-        <td>You can download your data</td>
-        <td><span class="yes">Yes</span> – Settings → Privacy → "Download my data" returns a machine-readable copy of everything we store about you</td>
-      </tr>
-    </tbody>
-  </table>
+      <section id="collected" aria-labelledby="collected-title" class="flex scroll-mt-4 flex-col gap-5">
+        <div class="flex flex-col gap-3">
+          <h2 id="collected-title" class="font-display text-[clamp(1.625rem,3vw,2.25rem)] leading-[1.15] font-bold text-heading">Data collected</h2>
+          <div class="h-1 w-14 rounded-full bg-postal-gold" aria-hidden="true"></div>
+        </div>
+        <ul class="grid grid-cols-[repeat(auto-fit,minmax(18.75rem,1fr))] gap-3.5">
+          <li class="flex flex-col gap-2.5 rounded-card border border-line bg-surface p-5">
+            <div class="flex items-center justify-between gap-3">
+              <h3 class="flex items-center gap-2.5 text-[1.0625rem] leading-6 font-bold"><span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-tint-strong text-accent"><svg class="icon size-5" aria-hidden="true"><use href="/icons.svg#location"/></svg></span>Precise location</h3>
+              <span class="shrink-0 rounded-full bg-tint px-2.5 py-0.75 text-xs leading-[1.125rem] font-bold text-accent">Required</span>
+            </div>
+            <p class="text-[0.9375rem] leading-[1.4375rem] text-body">GPS coordinates while using the App. The position you claimed from is stored with that claim, then removed after 90 days</p>
+            <p class="text-sm leading-[1.3125rem] text-muted"><strong class="font-bold text-heading">Why:</strong> Find nearby postboxes; validate claims; anti-cheat</p>
+          </li>
+          <li class="flex flex-col gap-2.5 rounded-card border border-line bg-surface p-5">
+            <div class="flex items-center justify-between gap-3">
+              <h3 class="flex items-center gap-2.5 text-[1.0625rem] leading-6 font-bold"><span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-tint-strong text-accent"><svg class="icon size-5" aria-hidden="true"><use href="/icons.svg#badge"/></svg></span>Name</h3>
+              <span class="shrink-0 rounded-full bg-tint px-2.5 py-0.75 text-xs leading-[1.125rem] font-bold text-accent">Required</span>
+            </div>
+            <p class="text-[0.9375rem] leading-[1.4375rem] text-body">Display name (chosen by you or from Google)</p>
+            <p class="text-sm leading-[1.3125rem] text-muted"><strong class="font-bold text-heading">Why:</strong> Shown on leaderboards and to friends</p>
+          </li>
+          <li class="flex flex-col gap-2.5 rounded-card border border-line bg-surface p-5">
+            <div class="flex items-center justify-between gap-3">
+              <h3 class="flex items-center gap-2.5 text-[1.0625rem] leading-6 font-bold"><span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-tint-strong text-accent"><svg class="icon size-5" aria-hidden="true"><use href="/icons.svg#at"/></svg></span>Email address</h3>
+              <span class="shrink-0 rounded-full bg-tint px-2.5 py-0.75 text-xs leading-[1.125rem] font-bold text-accent">Required</span>
+            </div>
+            <p class="text-[0.9375rem] leading-[1.4375rem] text-body">Email used to sign in</p>
+            <p class="text-sm leading-[1.3125rem] text-muted"><strong class="font-bold text-heading">Why:</strong> Account authentication</p>
+          </li>
+          <li class="flex flex-col gap-2.5 rounded-card border border-line bg-surface p-5">
+            <div class="flex items-center justify-between gap-3">
+              <h3 class="flex items-center gap-2.5 text-[1.0625rem] leading-6 font-bold"><span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-tint-strong text-accent"><svg class="icon size-5" aria-hidden="true"><use href="/icons.svg#touch"/></svg></span>App interactions</h3>
+              <span class="shrink-0 rounded-full bg-tint px-2.5 py-0.75 text-xs leading-[1.125rem] font-bold text-accent">Required</span>
+            </div>
+            <p class="text-[0.9375rem] leading-[1.4375rem] text-body">Postbox claims, scores, streaks, leaderboard entries</p>
+            <p class="text-sm leading-[1.3125rem] text-muted"><strong class="font-bold text-heading">Why:</strong> Core gameplay features</p>
+          </li>
+          <li class="flex flex-col gap-2.5 rounded-card border border-line bg-surface p-5">
+            <div class="flex items-center justify-between gap-3">
+              <h3 class="flex items-center gap-2.5 text-[1.0625rem] leading-6 font-bold"><span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-tint-strong text-accent"><svg class="icon size-5" aria-hidden="true"><use href="/icons.svg#phone"/></svg></span>Device token</h3>
+              <span class="shrink-0 rounded-full bg-tint px-2.5 py-0.75 text-xs leading-[1.125rem] font-bold text-accent">Required</span>
+            </div>
+            <p class="text-[0.9375rem] leading-[1.4375rem] text-body">Random per-install identifier sent with claims (not derived from hardware); removed after 90 days</p>
+            <p class="text-sm leading-[1.3125rem] text-muted"><strong class="font-bold text-heading">Why:</strong> Multi-account abuse detection</p>
+          </li>
+          <li class="flex flex-col gap-2.5 rounded-card border border-line bg-surface p-5">
+            <div class="flex items-center justify-between gap-3">
+              <h3 class="flex items-center gap-2.5 text-[1.0625rem] leading-6 font-bold"><span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-chip text-chip-ink"><svg class="icon size-5" aria-hidden="true"><use href="/icons.svg#camera"/></svg></span>Photos</h3>
+              <span class="shrink-0 rounded-full bg-chip px-2.5 py-0.75 text-xs leading-[1.125rem] font-bold text-chip-ink">Optional</span>
+            </div>
+            <p class="text-[0.9375rem] leading-[1.4375rem] text-body">Photos you choose to attach to a postbox problem report. These may include the time and place the photo was taken (EXIF). Removed 30 days after the report is reviewed</p>
+            <p class="text-sm leading-[1.3125rem] text-muted"><strong class="font-bold text-heading">Why:</strong> Evidence for reviewing reported postbox data problems</p>
+          </li>
+          <li class="flex flex-col gap-2.5 rounded-card border border-line bg-surface p-5">
+            <div class="flex items-center justify-between gap-3">
+              <h3 class="flex items-center gap-2.5 text-[1.0625rem] leading-6 font-bold"><span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-chip text-chip-ink"><svg class="icon size-5" aria-hidden="true"><use href="/icons.svg#flag"/></svg></span>Problem reports</h3>
+              <span class="shrink-0 rounded-full bg-chip px-2.5 py-0.75 text-xs leading-[1.125rem] font-bold text-chip-ink">Optional</span>
+            </div>
+            <p class="text-[0.9375rem] leading-[1.4375rem] text-body">Report location, any note you write, and the cypher you suggest. Notes are removed 30 days after review</p>
+            <p class="text-sm leading-[1.3125rem] text-muted"><strong class="font-bold text-heading">Why:</strong> Correcting the postbox database and OpenStreetMap</p>
+          </li>
+          <li class="flex flex-col gap-2.5 rounded-card border border-line bg-surface p-5">
+            <div class="flex items-center justify-between gap-3">
+              <h3 class="flex items-center gap-2.5 text-[1.0625rem] leading-6 font-bold"><span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-chip text-chip-ink"><svg class="icon size-5" aria-hidden="true"><use href="/icons.svg#group"/></svg></span>Friends list</h3>
+              <span class="shrink-0 rounded-full bg-chip px-2.5 py-0.75 text-xs leading-[1.125rem] font-bold text-chip-ink">Optional</span>
+            </div>
+            <p class="text-[0.9375rem] leading-[1.4375rem] text-body">User IDs of friends you choose to add in the App</p>
+            <p class="text-sm leading-[1.3125rem] text-muted"><strong class="font-bold text-heading">Why:</strong> Friend leaderboards and profiles</p>
+          </li>
+          <li class="flex flex-col gap-2.5 rounded-card border border-line bg-surface p-5">
+            <div class="flex items-center justify-between gap-3">
+              <h3 class="flex items-center gap-2.5 text-[1.0625rem] leading-6 font-bold"><span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-chip text-chip-ink"><svg class="icon size-5" aria-hidden="true"><use href="/icons.svg#bug"/></svg></span>Crash logs</h3>
+              <span class="shrink-0 rounded-full bg-chip px-2.5 py-0.75 text-xs leading-[1.125rem] font-bold text-chip-ink">Optional</span>
+            </div>
+            <p class="text-[0.9375rem] leading-[1.4375rem] text-body">Anonymous crash reports and stack traces</p>
+            <p class="text-sm leading-[1.3125rem] text-muted"><strong class="font-bold text-heading">Why:</strong> Bug fixing and App stability</p>
+          </li>
+          <li class="flex flex-col gap-2.5 rounded-card border border-line bg-surface p-5">
+            <div class="flex items-center justify-between gap-3">
+              <h3 class="flex items-center gap-2.5 text-[1.0625rem] leading-6 font-bold"><span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-chip text-chip-ink"><svg class="icon size-5" aria-hidden="true"><use href="/icons.svg#speed"/></svg></span>App performance</h3>
+              <span class="shrink-0 rounded-full bg-chip px-2.5 py-0.75 text-xs leading-[1.125rem] font-bold text-chip-ink">Optional</span>
+            </div>
+            <p class="text-[0.9375rem] leading-[1.4375rem] text-body">Anonymous performance traces (load times, etc.)</p>
+            <p class="text-sm leading-[1.3125rem] text-muted"><strong class="font-bold text-heading">Why:</strong> Performance improvements</p>
+          </li>
+          <li class="flex flex-col gap-2.5 rounded-card border border-line bg-surface p-5">
+            <div class="flex items-center justify-between gap-3">
+              <h3 class="flex items-center gap-2.5 text-[1.0625rem] leading-6 font-bold"><span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-chip text-chip-ink"><svg class="icon size-5" aria-hidden="true"><use href="/icons.svg#stats"/></svg></span>Usage analytics</h3>
+              <span class="shrink-0 rounded-full bg-chip px-2.5 py-0.75 text-xs leading-[1.125rem] font-bold text-chip-ink">Optional</span>
+            </div>
+            <p class="text-[0.9375rem] leading-[1.4375rem] text-body">Usage events such as scans, claims and screens viewed (Firebase Analytics), linked to your account's user ID and never used for advertising — on by default; can be turned off in Settings → Privacy</p>
+            <p class="text-sm leading-[1.3125rem] text-muted"><strong class="font-bold text-heading">Why:</strong> Understand how the App is used</p>
+          </li>
+        </ul>
+      </section>
 
-  <h2>Location Access</h2>
-  <p>The App requests <strong>precise location</strong> permission. Location is accessed <strong>only while the App is in the foreground</strong> (i.e. not in the background). It is used to find postboxes near you and to validate that you are close enough to claim one.</p>
-  <p>The position you claimed from is <strong>stored with that claim</strong> so we can detect location spoofing, and is <strong>automatically removed after 90 days</strong>. Other players never see your location: nearby postboxes are shown only as fuzzy directions, never exact positions.</p>
+      <section id="sharing" aria-labelledby="sharing-title" class="flex scroll-mt-4 flex-col gap-5">
+        <div class="flex flex-col gap-3">
+          <h2 id="sharing-title" class="font-display text-[clamp(1.625rem,3vw,2.25rem)] leading-[1.15] font-bold text-heading">Data sharing</h2>
+          <div class="h-1 w-14 rounded-full bg-postal-gold" aria-hidden="true"></div>
+        </div>
+        <dl class="divide-y divide-line overflow-hidden rounded-card border border-line bg-surface">
+          <div class="flex flex-wrap items-start gap-x-5 gap-y-2 px-5 py-4.5">
+            <dt class="flex-[1_1_13.75rem] leading-6 font-semibold">Is data shared with third parties?</dt>
+            <dd class="flex min-w-0 flex-[2_1_18.75rem] items-start gap-3"><span class="shrink-0 rounded-full bg-ok px-3 py-0.5 text-[0.8125rem] leading-5 font-extrabold text-ok-ink">No</span><span class="text-[0.9375rem] leading-[1.4375rem] text-muted">Data is processed by Google Firebase (our infrastructure provider) on our behalf. The one exception: in Route Mode, the destination text you type is sent to OpenStreetMap's Nominatim search service. Your GPS position is never sent to it</span></dd>
+          </div>
+          <div class="flex flex-wrap items-center gap-x-5 gap-y-2 px-5 py-4.5">
+            <dt class="flex-[1_1_13.75rem] leading-6 font-semibold">Is data sold?</dt>
+            <dd class="flex min-w-0 flex-[2_1_18.75rem]"><span class="rounded-full bg-ok px-3 py-0.5 text-[0.8125rem] leading-5 font-extrabold text-ok-ink">No</span></dd>
+          </div>
+          <div class="flex flex-wrap items-center gap-x-5 gap-y-2 px-5 py-4.5">
+            <dt class="flex-[1_1_13.75rem] leading-6 font-semibold">Is data used for advertising?</dt>
+            <dd class="flex min-w-0 flex-[2_1_18.75rem]"><span class="rounded-full bg-ok px-3 py-0.5 text-[0.8125rem] leading-5 font-extrabold text-ok-ink">No</span></dd>
+          </div>
+          <div class="flex flex-wrap items-center gap-x-5 gap-y-2 px-5 py-4.5">
+            <dt class="flex-[1_1_13.75rem] leading-6 font-semibold">Is data used to track users across other apps?</dt>
+            <dd class="flex min-w-0 flex-[2_1_18.75rem]"><span class="rounded-full bg-ok px-3 py-0.5 text-[0.8125rem] leading-5 font-extrabold text-ok-ink">No</span></dd>
+          </div>
+        </dl>
+      </section>
 
-  <h2>Data Retention</h2>
-  <table>
-    <thead>
-      <tr>
-        <th>Data</th>
-        <th>Retention</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr>
-        <td>Claim location, timing and device token</td>
-        <td>Removed automatically 90 days after the claim</td>
-      </tr>
-      <tr>
-        <td>Report photos and notes</td>
-        <td>Removed 30 days after the report is reviewed</td>
-      </tr>
-      <tr>
-        <td>Anti-abuse anomaly records</td>
-        <td>Deleted after 180 days</td>
-      </tr>
-      <tr>
-        <td>Account and gameplay history</td>
-        <td>Kept while your account exists; removed or anonymised when you delete it</td>
-      </tr>
-    </tbody>
-  </table>
+      <section id="security" aria-labelledby="security-title" class="flex scroll-mt-4 flex-col gap-5">
+        <div class="flex flex-col gap-3">
+          <h2 id="security-title" class="font-display text-[clamp(1.625rem,3vw,2.25rem)] leading-[1.15] font-bold text-heading">Security practices</h2>
+          <div class="h-1 w-14 rounded-full bg-postal-gold" aria-hidden="true"></div>
+        </div>
+        <dl class="divide-y divide-line overflow-hidden rounded-card border border-line bg-surface">
+          <div class="flex flex-wrap items-start gap-x-5 gap-y-2 px-5 py-4.5">
+            <dt class="flex-[1_1_13.75rem] leading-6 font-semibold">Data encrypted in transit</dt>
+            <dd class="flex min-w-0 flex-[2_1_18.75rem] items-start gap-3"><span class="shrink-0 rounded-full bg-ok px-3 py-0.5 text-[0.8125rem] leading-5 font-extrabold text-ok-ink">Yes</span><span class="text-[0.9375rem] leading-[1.4375rem] text-muted">HTTPS / TLS for all network requests</span></dd>
+          </div>
+          <div class="flex flex-wrap items-start gap-x-5 gap-y-2 px-5 py-4.5">
+            <dt class="flex-[1_1_13.75rem] leading-6 font-semibold">Data encrypted at rest</dt>
+            <dd class="flex min-w-0 flex-[2_1_18.75rem] items-start gap-3"><span class="shrink-0 rounded-full bg-ok px-3 py-0.5 text-[0.8125rem] leading-5 font-extrabold text-ok-ink">Yes</span><span class="text-[0.9375rem] leading-[1.4375rem] text-muted">Google Firebase encrypts data at rest by default</span></dd>
+          </div>
+          <div class="flex flex-wrap items-start gap-x-5 gap-y-2 px-5 py-4.5">
+            <dt class="flex-[1_1_13.75rem] leading-6 font-semibold">You can request data deletion</dt>
+            <dd class="flex min-w-0 flex-[2_1_18.75rem] items-start gap-3"><span class="shrink-0 rounded-full bg-ok px-3 py-0.5 text-[0.8125rem] leading-5 font-extrabold text-ok-ink">Yes</span><span class="text-[0.9375rem] leading-[1.4375rem] text-muted">Delete your account and all associated personal data from within the App (Settings → Delete account)</span></dd>
+          </div>
+          <div class="flex flex-wrap items-start gap-x-5 gap-y-2 px-5 py-4.5">
+            <dt class="flex-[1_1_13.75rem] leading-6 font-semibold">You can download your data</dt>
+            <dd class="flex min-w-0 flex-[2_1_18.75rem] items-start gap-3"><span class="shrink-0 rounded-full bg-ok px-3 py-0.5 text-[0.8125rem] leading-5 font-extrabold text-ok-ink">Yes</span><span class="text-[0.9375rem] leading-[1.4375rem] text-muted">Settings → Privacy → "Download my data" returns a machine-readable copy of everything we store about you</span></dd>
+          </div>
+        </dl>
+      </section>
 
-  <h2>Account Deletion</h2>
-  <p>You can delete your account and all associated personal data <strong>from within the App</strong>: Settings → Delete account. Deletion happens immediately. Your personal data is removed, your attached photos are deleted, and your past claims are anonymised so leaderboard history stays consistent without being linked to you.</p>
-  <p>If you can no longer sign in, contact us at <a href="mailto:richard@agilepixel.io">richard@agilepixel.io</a> and we will process the deletion within 30 days.</p>
+      <section id="location" aria-labelledby="location-title" class="flex scroll-mt-4 flex-col gap-4">
+        <div class="flex flex-col gap-3">
+          <h2 id="location-title" class="font-display text-[clamp(1.625rem,3vw,2.25rem)] leading-[1.15] font-bold text-heading">Location access</h2>
+          <div class="h-1 w-14 rounded-full bg-postal-gold" aria-hidden="true"></div>
+        </div>
+        <p class="leading-[1.7] text-body">The App requests <strong class="font-bold text-ink">precise location</strong> permission. Location is accessed <strong class="font-bold text-ink">only while the App is in the foreground</strong> (i.e. not in the background). It is used to find postboxes near you and to validate that you are close enough to claim one.</p>
+        <p class="leading-[1.7] text-body">The position you claimed from is <strong class="font-bold text-ink">stored with that claim</strong> so we can detect location spoofing, and is <strong class="font-bold text-ink">automatically removed after 90 days</strong>. Other players never see your location: nearby postboxes are shown only as fuzzy directions, never exact positions.</p>
+      </section>
 
-  <h2>More Information</h2>
-  <p>For full details, see our <a href="/privacy-policy">Privacy Policy</a>.</p>
+      <section id="retention" aria-labelledby="retention-title" class="flex scroll-mt-4 flex-col gap-5">
+        <div class="flex flex-col gap-3">
+          <h2 id="retention-title" class="font-display text-[clamp(1.625rem,3vw,2.25rem)] leading-[1.15] font-bold text-heading">Data retention</h2>
+          <div class="h-1 w-14 rounded-full bg-postal-gold" aria-hidden="true"></div>
+        </div>
+        <ul class="grid gap-3.5 sm:grid-cols-2">
+          <li class="flex flex-col gap-2 rounded-card border border-line bg-surface p-5">
+            <p class="font-display text-[2.125rem] leading-none font-extrabold text-accent">90 days</p>
+            <p class="text-[0.9375rem] leading-[1.375rem] font-bold">Claim location, timing and device token</p>
+            <p class="text-sm leading-[1.3125rem] text-muted">Removed automatically 90 days after the claim</p>
+          </li>
+          <li class="flex flex-col gap-2 rounded-card border border-line bg-surface p-5">
+            <p class="font-display text-[2.125rem] leading-none font-extrabold text-accent">30 days</p>
+            <p class="text-[0.9375rem] leading-[1.375rem] font-bold">Report photos and notes</p>
+            <p class="text-sm leading-[1.3125rem] text-muted">Removed 30 days after the report is reviewed</p>
+          </li>
+          <li class="flex flex-col gap-2 rounded-card border border-line bg-surface p-5">
+            <p class="font-display text-[2.125rem] leading-none font-extrabold text-accent">180 days</p>
+            <p class="text-[0.9375rem] leading-[1.375rem] font-bold">Anti-abuse anomaly records</p>
+            <p class="text-sm leading-[1.3125rem] text-muted">Deleted after 180 days</p>
+          </li>
+          <li class="flex flex-col gap-2 rounded-card border border-line bg-surface p-5">
+            <p class="font-display text-[2.125rem] leading-none font-extrabold text-heading">Account life</p>
+            <p class="text-[0.9375rem] leading-[1.375rem] font-bold">Account and gameplay history</p>
+            <p class="text-sm leading-[1.3125rem] text-muted">Kept while your account exists; removed or anonymised when you delete it</p>
+          </li>
+        </ul>
+      </section>
 
+      <section id="deletion" aria-labelledby="deletion-title" class="flex scroll-mt-4 flex-col gap-4">
+        <div class="flex flex-col gap-3">
+          <h2 id="deletion-title" class="font-display text-[clamp(1.625rem,3vw,2.25rem)] leading-[1.15] font-bold text-heading">Account deletion</h2>
+          <div class="h-1 w-14 rounded-full bg-postal-gold" aria-hidden="true"></div>
+        </div>
+        <p class="leading-[1.7] text-body">You can delete your account and all associated personal data <strong class="font-bold text-ink">from within the App</strong>: Settings → Delete account. Deletion happens immediately. Your personal data is removed, your attached photos are deleted, and your past claims are anonymised so leaderboard history stays consistent without being linked to you.</p>
+        <div class="flex flex-wrap items-center gap-4 rounded-card border border-line bg-surface p-5">
+          <span class="flex size-11 shrink-0 items-center justify-center rounded-lg bg-tint-strong text-accent"><svg class="icon size-6" aria-hidden="true"><use href="/icons.svg#mail"/></svg></span>
+          <p class="min-w-0 flex-[1_1_16.25rem] leading-[1.7] text-body">If you can no longer sign in, contact us at <a href="mailto:richard@agilepixel.io" class="link font-semibold">richard@agilepixel.io</a> and we will process the deletion within 30 days.</p>
+        </div>
+        <p class="leading-[1.7] text-body">For full details, see our <a href="/privacy-policy" class="link font-semibold">Privacy Policy</a>.</p>
+      </section>
+    </div>
+  </div>
 </main>
-<footer>
-  &copy; 2026 The Postbox Game &nbsp;|&nbsp; <a href="/privacy-policy">Privacy Policy</a>
+
+<footer class="border-t border-line">
+  <div class="mx-auto flex max-w-page flex-wrap items-center justify-between gap-x-6 gap-y-1 px-6 py-3 text-sm leading-5 text-muted">
+    <p>&copy; The Postbox Game</p>
+    <nav aria-label="Footer">
+      <ul class="flex flex-wrap items-center gap-x-5">
+        <li><a href="/support" class="link inline-block py-3">Support</a></li>
+        <li><a href="/privacy-policy" class="link inline-block py-3">Privacy policy</a></li>
+        <li><a href="/data-safety" aria-current="page" class="inline-block py-3 font-bold text-ink">Data safety</a></li>
+        <li class="py-3">Postbox data &copy; <a href="https://www.openstreetmap.org/copyright" class="link">OpenStreetMap contributors</a>, ODbL</li>
+      </ul>
+    </nav>
+  </div>
 </footer>
 </body>
 </html>

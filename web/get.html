@@ -19,177 +19,328 @@
   <meta name="twitter:description" content="Turn every walk into a treasure hunt. Spot Britain's royal postboxes, claim one a day for points and climb the leaderboards with friends.">
   <meta name="twitter:image" content="https://the-postbox-game.web.app/og-image.png">
   <link rel="canonical" href="https://the-postbox-game.web.app/get">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#C8102E">
   <link rel="icon" type="image/png" href="/favicon.png">
-  <style>
-    :root {
-      --red: #C8102E;
-      --navy: #0A1931;
-      --gold: #FFB400;
-      --bg: #f9f7f4;
-      --surface: #ffffff;
-      --text: #1a1a1a;
-      --muted: #555;
-      --rule: #e0d8d0;
-      --accent-text: #C8102E;
-    }
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --bg: #0A1931;
-        --surface: #13264a;
-        --text: #f1ede6;
-        --muted: #aab4c8;
-        --rule: #24375c;
-        --accent-text: #FFB400;
-      }
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      line-height: 1.6;
-    }
-    header {
-      background: var(--navy);
-      color: #fff;
-      padding: 2.5rem 1.25rem 2rem;
-      border-bottom: 4px solid var(--red);
-      text-align: center;
-    }
-    header h1 { font-size: 2rem; font-weight: 800; line-height: 1.2; }
-    header .tagline { color: var(--gold); font-weight: 700; margin-top: 0.35rem; }
-    header .pitch { color: #c4cad8; max-width: 560px; margin: 0.9rem auto 0; }
-    .badges {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.5rem 1rem;
-      justify-content: center;
-      align-items: center;
-      margin-top: 1.25rem;
-    }
-    .badges a { display: inline-flex; align-items: center; }
-    .badge-apple img { height: 52px; width: auto; }
-    /* Google's badge PNG carries its own padding; scale it to match. */
-    .badge-google img { height: 76px; width: auto; margin: -12px; }
-    .hero-image {
-      display: block;
-      width: 100%;
-      max-width: 720px;
-      height: auto;
-      margin: 1.75rem auto 0;
-      border-radius: 12px;
-    }
-    main {
-      max-width: 760px;
-      margin: 0 auto;
-      padding: 2rem 1rem 3rem;
-    }
-    .features {
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 1rem;
-    }
-    @media (min-width: 640px) {
-      .features { grid-template-columns: 1fr 1fr; }
-    }
-    .card {
-      background: var(--surface);
-      border: 1px solid var(--rule);
-      border-radius: 12px;
-      padding: 1.25rem;
-    }
-    h2 { font-size: 1.1rem; color: var(--accent-text); margin-bottom: 0.4rem; }
-    table { width: 100%; border-collapse: collapse; margin-top: 0.4rem; font-size: 0.95rem; }
-    td { padding: 0.25rem 0; border-bottom: 1px solid var(--rule); }
-    td:last-child { text-align: right; font-weight: 700; white-space: nowrap; }
-    tr:last-child td { border-bottom: none; }
-    .fact {
-      margin-top: 1.25rem;
-      background: var(--gold);
-      color: var(--navy);
-      border-radius: 12px;
-      padding: 1.1rem 1.25rem;
-      font-weight: 600;
-      text-align: center;
-    }
-    .closing { text-align: center; margin-top: 2rem; }
-    .closing p { color: var(--muted); }
-    footer {
-      text-align: center;
-      padding: 1.5rem;
-      font-size: 0.8rem;
-      color: var(--muted);
-      border-top: 1px solid var(--rule);
-    }
-    footer a { color: inherit; }
-  </style>
+  <link rel="preload" href="/fonts/plus-jakarta-sans-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/playfair-display-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/site.css">
+  <script type="speculationrules">
+    {"prerender": [{"where": {"href_matches": ["/support", "/privacy-policy", "/data-safety"]}, "eagerness": "moderate"}]}
+  </script>
 </head>
 <body>
-<header>
-  <h1>The Postbox Game</h1>
-  <p class="tagline">Hunt Britain's royal postboxes</p>
-  <p class="pitch">Turn every walk into a treasure hunt. Every red postbox carries the royal cypher of the monarch who reigned when it was installed. Spot them, claim one a day for points, and chase the rare ones up the leaderboards.</p>
-  <div class="badges" data-badges>
-    <a class="badge-apple" data-store="apple" href="https://apps.apple.com/gb/app/the-postbox-game/id6819213888">
-      <img src="/app-store-badge.svg" alt="Download on the App Store">
+<a href="#main" class="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:rounded-lg focus:bg-surface focus:px-4 focus:py-3 focus:font-semibold focus:text-ink">Skip to content</a>
+
+<header class="site-header border-b border-line bg-page">
+  <div class="mx-auto flex max-w-page items-center justify-between gap-4 px-6 py-3.5">
+    <a href="/get" class="flex min-h-11 items-center gap-3 text-heading">
+      <img src="/images/postbox.svg" alt="" width="19" height="40" class="h-10 w-auto">
+      <span class="font-display text-lg leading-none font-bold whitespace-nowrap sm:text-[1.375rem]">The Postbox Game</span>
     </a>
-    <a class="badge-google" data-store="google" href="https://play.google.com/store/apps/details?id=com.code418.postbox_game">
-      <img src="https://play.google.com/intl/en_gb/badges/static/images/badges/en_badge_web_generic.png" alt="Get it on Google Play">
-    </a>
+    <a href="#get" class="inline-flex min-h-11 items-center rounded-xl bg-postal-red px-4 text-[0.9375rem] font-semibold whitespace-nowrap text-white hover:bg-postal-red-deep sm:px-5">Get the app</a>
   </div>
-  <img class="hero-image" src="/og-image.png" alt="Find Britain's postboxes, collect the royal cyphers: Victoria 7 points, Edward VII 9 points, Edward VIII 12 points" width="1024" height="500">
 </header>
-<main>
-  <div class="features">
-    <section class="card">
-      <h2>Find and claim</h2>
-      <p>Walk up to any postbox in the UK, scan, and name its royal cypher to claim it. Each box can be claimed once a day, so there's always a reason to explore somewhere new.</p>
-    </section>
-    <section class="card">
-      <h2>Rarer boxes, more points</h2>
-      <table>
-        <tr><td>Edward VIII (EVIIIR)</td><td>12 pts</td></tr>
-        <tr><td>Edward VII (EVIIR) and Charles III (CIIIR)</td><td>9 pts</td></tr>
-        <tr><td>Victoria (VR)</td><td>7 pts</td></tr>
-        <tr><td>George V and VI (GR, GVR, GVIR), Scottish Crown</td><td>4 pts</td></tr>
-        <tr><td>Elizabeth II (EIIR)</td><td>2 pts</td></tr>
-      </table>
-    </section>
-    <section class="card">
-      <h2>Hints, not directions</h2>
-      <p>A fuzzy compass shows roughly which way unclaimed postboxes lie, never their exact spot. You still have to go and look, which is half the fun.</p>
-    </section>
-    <section class="card">
-      <h2>Play with friends</h2>
-      <p>Daily, weekly, monthly and all-time leaderboards. Add friends, filter the leaderboard to just them, and keep a daily streak going.</p>
-    </section>
-    <section class="card">
-      <h2>On your wrist</h2>
-      <p>On Android, a standalone Wear OS app scans, follows the compass and claims from your watch, with a tile and watch-face complications for your streak and today's points.</p>
-    </section>
-    <section class="card">
-      <h2>Help keep the map right</h2>
-      <p>Postbox data comes from OpenStreetMap. Report a missing postbox or a wrong cypher from the app, and accepted fixes update everyone's scores.</p>
-    </section>
-  </div>
 
-  <p class="fact">Only 143 Edward VIII postboxes are mapped in the UK. He reigned for less than a year. Can you find one?</p>
-
-  <div class="closing">
-    <div class="badges" data-badges>
-      <a class="badge-apple" data-store="apple" href="https://apps.apple.com/gb/app/the-postbox-game/id6819213888">
-        <img src="/app-store-badge.svg" alt="Download on the App Store">
-      </a>
-      <a class="badge-google" data-store="google" href="https://play.google.com/store/apps/details?id=com.code418.postbox_game">
-        <img src="https://play.google.com/intl/en_gb/badges/static/images/badges/en_badge_web_generic.png" alt="Get it on Google Play">
-      </a>
+<main id="main">
+  <section class="on-dark overflow-hidden bg-postal-red text-white">
+    <div class="mx-auto flex max-w-page flex-wrap items-end gap-x-16 gap-y-12 px-6 pt-18">
+      <div class="flex min-w-0 flex-[1_1_27.5rem] flex-col gap-6 pb-18">
+        <p class="inline-flex items-center gap-2 self-start rounded-full bg-white/16 px-3.5 py-2 text-sm leading-5 font-semibold">
+          <svg class="icon size-4.5" aria-hidden="true"><use href="/icons.svg#phone"/></svg>Free on iPhone, Android and Wear OS
+        </p>
+        <h1 class="font-display text-[clamp(2.75rem,6vw,5rem)] leading-[1.04] font-extrabold tracking-[-0.01em]">Turn every walk into a treasure hunt.</h1>
+        <p class="max-w-130 text-[clamp(1.0625rem,1.6vw,1.25rem)] leading-normal text-on-red">Spot Britain's royal postboxes, claim one a day, and chase the rare ones up the leaderboard with your friends.</p>
+        <div class="flex flex-wrap items-center gap-3" data-badges>
+          <a class="badge-apple" data-store="apple" href="https://apps.apple.com/gb/app/the-postbox-game/id6819213888"><img src="/app-store-badge.svg" alt="Download on the App Store" width="156" height="52"></a>
+          <a class="badge-google" data-store="google" href="https://play.google.com/store/apps/details?id=com.code418.postbox_game"><img src="/images/google-play-badge.png" alt="Get it on Google Play" width="175" height="52"></a>
+        </div>
+        <p class="text-sm leading-5 text-on-red">Free, with no ads. Covers postboxes across the United Kingdom.</p>
+        <div class="flex max-w-115 items-end gap-1.5">
+          <img src="/images/guide.webp" alt="" width="314" height="470" class="h-28 w-auto shrink-0">
+          <p class="mb-11 rounded-2xl rounded-bl-sm bg-surface px-4.5 py-3.5 text-[0.9375rem] leading-[1.375rem] text-ink shadow-[0_8px_24px_rgb(10_25_49/0.22)]">Right... 18 postboxes in your area. Crack on!</p>
+        </div>
+      </div>
+      <div class="mx-auto -mb-37.5 flex min-w-0 flex-[0_1_20rem] justify-center">
+        <div class="w-[min(18.75rem,80vw)] rounded-[3.375rem] bg-[#14161a] p-2.5 shadow-phone">
+          <picture>
+            <source srcset="/images/nearby-dark.webp" media="(prefers-color-scheme: dark)">
+            <img src="/images/nearby.webp" alt="The Nearby screen: a map of central London and 18 postboxes nearby, worth 2 to 9 points" width="666" height="1480" fetchpriority="high" class="h-auto w-full rounded-[2.75rem]">
+          </picture>
+        </div>
+      </div>
     </div>
-    <p>Free, with no ads. Covers postboxes across the United Kingdom.</p>
-  </div>
+  </section>
+
+  <section aria-label="The game in numbers" class="border-b border-line">
+    <div class="mx-auto grid max-w-page grid-cols-[repeat(auto-fit,minmax(15rem,1fr))] gap-x-12 gap-y-6 px-6 pt-12 pb-10">
+      <p class="flex items-center gap-4"><span class="font-display text-5xl leading-none font-extrabold text-accent">90,000+</span><span class="text-[0.9375rem] leading-[1.375rem] text-muted">postboxes mapped across the UK</span></p>
+      <p class="flex items-center gap-4"><span class="font-display text-5xl leading-none font-extrabold text-accent">9</span><span class="text-[0.9375rem] leading-[1.375rem] text-muted">royal cyphers to collect, from Victoria to Charles III</span></p>
+      <p class="flex items-center gap-4"><span class="font-display text-5xl leading-none font-extrabold text-accent">4</span><span class="text-[0.9375rem] leading-[1.375rem] text-muted">leaderboards: daily, weekly, monthly and all-time</span></p>
+    </div>
+  </section>
+
+  <section id="how" aria-labelledby="how-title" class="mx-auto flex max-w-page flex-col gap-12 px-6 py-[clamp(4rem,8vw,6rem)]">
+    <div class="flex max-w-160 flex-col gap-3">
+      <p class="text-sm leading-5 font-bold text-accent">How it works</p>
+      <h2 id="how-title" class="font-display text-[clamp(2rem,4vw,3rem)] leading-[1.1] font-bold text-heading">Three steps. Some walking involved.</h2>
+      <div class="h-1 w-14 rounded-full bg-postal-gold" aria-hidden="true"></div>
+      <p class="text-[1.0625rem] leading-[1.625rem] text-muted">You have to be standing at a postbox to claim it, so the app gives you hints, never a pin on a map.</p>
+    </div>
+    <ol class="grid gap-6 md:grid-cols-3">
+      <li class="flex overflow-hidden rounded-card bg-surface shadow-card md:flex-col">
+        <div class="flex w-34 shrink-0 items-start justify-center bg-tint p-4 md:w-auto md:px-6 md:py-7">
+          <picture>
+            <source srcset="/images/compass-dark.webp" media="(prefers-color-scheme: dark)">
+            <img src="/images/compass.webp" alt="The fuzzy compass: rough counts of postboxes in each direction, with no exact locations" width="666" height="1480" loading="lazy" decoding="async" class="h-auto w-full max-w-50 rounded-[0.875rem] shadow-[0_12px_28px_rgb(10_25_49/0.18)]">
+          </picture>
+        </div>
+        <div class="flex flex-col gap-2.5 p-5 md:p-6">
+          <div class="flex items-center gap-3">
+            <span aria-hidden="true" class="flex size-8 shrink-0 items-center justify-center rounded-full bg-postal-red text-[0.9375rem] font-bold text-white">1</span>
+            <h3 class="text-lg leading-7 font-bold md:text-xl">Scan for nearby boxes</h3>
+          </div>
+          <p class="leading-6 text-muted">Open the app on a walk. It counts the postboxes around you and points you roughly the right way. Never to the exact spot, so you still have to look.</p>
+        </div>
+      </li>
+      <li class="flex overflow-hidden rounded-card bg-surface shadow-card md:flex-col">
+        <div class="flex w-34 shrink-0 items-start justify-center bg-tint p-4 md:w-auto md:px-6 md:py-7">
+          <picture>
+            <source srcset="/images/claim-quiz-dark.webp" media="(prefers-color-scheme: dark)">
+            <img src="/images/claim-quiz.webp" alt="The claim quiz asking which royal cypher is on the postbox" width="666" height="1480" loading="lazy" decoding="async" class="h-auto w-full max-w-50 rounded-[0.875rem] shadow-[0_12px_28px_rgb(10_25_49/0.18)]">
+          </picture>
+        </div>
+        <div class="flex flex-col gap-2.5 p-5 md:p-6">
+          <div class="flex items-center gap-3">
+            <span aria-hidden="true" class="flex size-8 shrink-0 items-center justify-center rounded-full bg-postal-red text-[0.9375rem] font-bold text-white">2</span>
+            <h3 class="text-lg leading-7 font-bold md:text-xl">Name the royal cypher</h3>
+          </div>
+          <p class="leading-6 text-muted">Stand within 30 metres of the box and pick the cypher on its front. EIIR, GR, VR... the letters tell you who was on the throne when it went in.</p>
+        </div>
+      </li>
+      <li class="flex overflow-hidden rounded-card bg-surface shadow-card md:flex-col">
+        <div class="flex w-34 shrink-0 items-start justify-center bg-tint p-4 md:w-auto md:px-6 md:py-7">
+          <picture>
+            <source srcset="/images/claimed-dark.webp" media="(prefers-color-scheme: dark)">
+            <img src="/images/claimed.webp" alt="Postbox claimed: plus 2 points and a 2-day streak" width="666" height="1480" loading="lazy" decoding="async" class="h-auto w-full max-w-50 rounded-[0.875rem] shadow-[0_12px_28px_rgb(10_25_49/0.18)]">
+          </picture>
+        </div>
+        <div class="flex flex-col gap-2.5 p-5 md:p-6">
+          <div class="flex items-center gap-3">
+            <span aria-hidden="true" class="flex size-8 shrink-0 items-center justify-center rounded-full bg-postal-red text-[0.9375rem] font-bold text-white">3</span>
+            <h3 class="text-lg leading-7 font-bold md:text-xl">Claim your points</h3>
+          </div>
+          <p class="leading-6 text-muted">Each box can be claimed once a day. Rarer cyphers score more, and a claim every day keeps your streak alive.</p>
+        </div>
+      </li>
+    </ol>
+  </section>
+
+  <section id="points" aria-labelledby="points-title" class="bg-surface">
+    <div class="mx-auto flex max-w-page flex-col gap-10 px-6 py-[clamp(4rem,8vw,6rem)]">
+      <div class="flex max-w-160 flex-col gap-3">
+        <p class="text-sm leading-5 font-bold text-accent">Points</p>
+        <h2 id="points-title" class="font-display text-[clamp(2rem,4vw,3rem)] leading-[1.1] font-bold text-heading">Rarer boxes, bigger scores.</h2>
+        <div class="h-1 w-14 rounded-full bg-postal-gold" aria-hidden="true"></div>
+        <p class="text-[1.0625rem] leading-[1.625rem] text-muted">Every postbox carries the cypher of the monarch on the throne when it went in. The rarer the cypher, the more it's worth.</p>
+      </div>
+
+      <ul class="grid grid-cols-[repeat(auto-fit,minmax(18.75rem,1fr))] gap-4">
+        <li class="flex items-center gap-5 rounded-card border border-line bg-page p-5">
+          <div class="size-26 shrink-0 rounded-full bg-postal-gold p-1.5 text-royal-navy">
+            <div class="flex size-full flex-col items-center justify-center gap-1 rounded-full border-2 border-dashed border-royal-navy/45">
+              <span class="text-[1.1875rem] leading-none font-extrabold tracking-[0.02em]">EVIIIR</span>
+              <span class="text-[0.8125rem] leading-none font-bold">12 pts</span>
+            </div>
+          </div>
+          <div class="flex min-w-0 flex-col gap-1">
+            <p class="text-lg leading-6 font-bold">Edward VIII</p>
+            <p class="text-sm leading-5 font-semibold text-accent">1936 · 143 mapped</p>
+            <p class="text-sm leading-5 text-muted">The rarest box in the game.</p>
+          </div>
+        </li>
+        <li class="flex items-center gap-5 rounded-card border border-line bg-page p-5">
+          <div class="size-26 shrink-0 rounded-full bg-postal-red p-1.5 text-white">
+            <div class="flex size-full flex-col items-center justify-center gap-1 rounded-full border-2 border-dashed border-white/60">
+              <span class="text-[1.3125rem] leading-none font-extrabold tracking-[0.02em]">CIIIR</span>
+              <span class="text-[0.8125rem] leading-none font-bold">9 pts</span>
+            </div>
+          </div>
+          <div class="flex min-w-0 flex-col gap-1">
+            <p class="text-lg leading-6 font-bold">Charles III</p>
+            <p class="text-sm leading-5 font-semibold text-accent">2022 on · fewer than 100 mapped</p>
+            <p class="text-sm leading-5 text-muted">The newest boxes, and still scarce.</p>
+          </div>
+        </li>
+        <li class="flex items-center gap-5 rounded-card border border-line bg-page p-5">
+          <div class="size-26 shrink-0 rounded-full bg-cypher-eviir p-1.5 text-white">
+            <div class="flex size-full flex-col items-center justify-center gap-1 rounded-full border-2 border-dashed border-white/60">
+              <span class="text-[1.3125rem] leading-none font-extrabold tracking-[0.02em]">EVIIR</span>
+              <span class="text-[0.8125rem] leading-none font-bold">9 pts</span>
+            </div>
+          </div>
+          <div class="flex min-w-0 flex-col gap-1">
+            <p class="text-lg leading-6 font-bold">Edward VII</p>
+            <p class="text-sm leading-5 font-semibold text-accent">1901–1910 · about 2,700 mapped</p>
+            <p class="text-sm leading-5 text-muted">Edwardian, and easy to walk straight past.</p>
+          </div>
+        </li>
+        <li class="flex items-center gap-5 rounded-card border border-line bg-page p-5">
+          <div class="size-26 shrink-0 rounded-full bg-cypher-vr p-1.5 text-royal-navy">
+            <div class="flex size-full flex-col items-center justify-center gap-1 rounded-full border-2 border-dashed border-royal-navy/45">
+              <span class="text-2xl leading-none font-extrabold tracking-[0.02em]">VR</span>
+              <span class="text-[0.8125rem] leading-none font-bold">7 pts</span>
+            </div>
+          </div>
+          <div class="flex min-w-0 flex-col gap-1">
+            <p class="text-lg leading-6 font-bold">Victoria</p>
+            <p class="text-sm leading-5 font-semibold text-accent">1837–1901 · about 3,600 mapped</p>
+            <p class="text-sm leading-5 text-muted">The oldest boxes you can claim.</p>
+          </div>
+        </li>
+        <li class="flex items-center gap-5 rounded-card border border-line bg-page p-5">
+          <div class="size-26 shrink-0 rounded-full bg-cypher-george p-1.5 text-white">
+            <div class="flex size-full flex-col items-center justify-center gap-1 rounded-full border-2 border-dashed border-white/60">
+              <span class="text-2xl leading-none font-extrabold tracking-[0.02em]">GR</span>
+              <span class="text-[0.8125rem] leading-none font-bold">4 pts</span>
+            </div>
+          </div>
+          <div class="flex min-w-0 flex-col gap-1">
+            <p class="text-lg leading-6 font-bold">George V, George VI and the Scottish Crown</p>
+            <p class="text-sm leading-5 font-semibold text-accent">GR, GVR, GVIR, crown · about 18,500 mapped</p>
+          </div>
+        </li>
+        <li class="flex items-center gap-5 rounded-card border border-line bg-page p-5">
+          <div class="size-26 shrink-0 rounded-full border-3 border-postal-red bg-white p-1.5 text-postal-red">
+            <div class="flex size-full flex-col items-center justify-center gap-1 rounded-full border-2 border-dashed border-postal-red/45">
+              <span class="text-[1.375rem] leading-none font-extrabold tracking-[0.02em]">EIIR</span>
+              <span class="text-[0.8125rem] leading-none font-bold">2 pts</span>
+            </div>
+          </div>
+          <div class="flex min-w-0 flex-col gap-1">
+            <p class="text-lg leading-6 font-bold">Elizabeth II</p>
+            <p class="text-sm leading-5 font-semibold text-accent">1952–2022 · about 36,500 mapped</p>
+            <p class="text-sm leading-5 text-muted">Probably the one at the end of your road.</p>
+          </div>
+        </li>
+      </ul>
+
+      <div class="flex flex-wrap items-stretch gap-4">
+        <div class="on-dark flex min-w-0 flex-[1_1_23.75rem] flex-col gap-2.5 rounded-card bg-royal-navy p-7 text-white">
+          <p class="font-display text-[1.625rem] leading-[1.2] font-bold text-postal-gold">The new King's boxes are rarer than the abdication king's.</p>
+          <p class="leading-6 text-[#d6dce8]">Fewer than 100 Charles III postboxes are mapped so far, against 143 for Edward VIII. Find one and it's 9 points.</p>
+        </div>
+        <div class="flex min-w-0 flex-[1_1_23.75rem] items-end gap-1.5">
+          <img src="/images/guide.webp" alt="" width="314" height="470" loading="lazy" decoding="async" class="h-32 w-auto shrink-0">
+          <p class="mb-13 rounded-2xl rounded-bl-sm border border-line bg-page px-5 py-4 leading-6 text-ink">Edward VIII was only king for 325 days. His cyphers are rarer for it.</p>
+        </div>
+      </div>
+      <p class="text-[0.8125rem] leading-[1.125rem] text-muted">Counts from OpenStreetMap, October 2026. Postbox data © OpenStreetMap contributors, ODbL.</p>
+    </div>
+  </section>
+
+  <section id="friends" aria-labelledby="friends-title" class="on-dark overflow-hidden bg-band text-white">
+    <div class="mx-auto flex max-w-page flex-wrap items-center gap-x-18 gap-y-12 px-6 py-[clamp(4rem,8vw,6rem)]">
+      <div class="flex min-w-0 flex-[1_1_27.5rem] flex-col gap-5">
+        <p class="text-sm leading-5 font-bold text-postal-gold">Friends and leaderboards</p>
+        <h2 id="friends-title" class="font-display text-[clamp(2rem,4vw,3rem)] leading-[1.1] font-bold">Bragging rights, settled daily.</h2>
+        <div class="h-1 w-14 rounded-full bg-postal-gold" aria-hidden="true"></div>
+        <p class="text-[1.0625rem] leading-[1.625rem] text-band-ink">Send a friend your invite link and you're on each other's boards straight away. Then it's daily, weekly, monthly and all-time rankings, with a friends-only view for the scores that really matter.</p>
+        <ul class="mt-2 flex flex-col gap-3.5">
+          <li class="flex items-center gap-3.5 leading-6"><span class="flex size-10 shrink-0 items-center justify-center rounded-lg bg-postal-gold/14 text-postal-gold"><svg class="icon size-5.5" aria-hidden="true"><use href="/icons.svg#leaderboard"/></svg></span>Daily, weekly, monthly and all-time rankings</li>
+          <li class="flex items-center gap-3.5 leading-6"><span class="flex size-10 shrink-0 items-center justify-center rounded-lg bg-postal-gold/14 text-postal-gold"><svg class="icon size-5.5" aria-hidden="true"><use href="/icons.svg#group-add"/></svg></span>Invite links add you as friends both ways</li>
+          <li class="flex items-center gap-3.5 leading-6"><span class="flex size-10 shrink-0 items-center justify-center rounded-lg bg-postal-gold/14 text-postal-gold"><svg class="icon size-5.5" aria-hidden="true"><use href="/icons.svg#fire"/></svg></span>Daily streaks, with a nudge before you lose one</li>
+          <li class="flex items-center gap-3.5 leading-6"><span class="flex size-10 shrink-0 items-center justify-center rounded-lg bg-postal-gold/14 text-postal-gold"><svg class="icon size-5.5" aria-hidden="true"><use href="/icons.svg#share"/></svg></span>Share cards for your best finds</li>
+        </ul>
+      </div>
+      <div class="mx-auto flex min-w-0 flex-[0_1_20rem] justify-center">
+        <div class="w-[min(18.75rem,80vw)] rounded-[3.375rem] bg-[#14161a] p-2.5 shadow-[0_30px_60px_rgb(0_0_0/0.45)]">
+          <picture>
+            <source srcset="/images/leaderboard-dark.webp" media="(prefers-color-scheme: dark)">
+            <img src="/images/leaderboard.webp" alt="The daily leaderboard with the friends-only filter switched on" width="666" height="1480" loading="lazy" decoding="async" class="h-auto w-full rounded-[2.75rem]">
+          </picture>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="more" aria-labelledby="more-title" class="mx-auto flex max-w-page flex-col gap-12 px-6 py-[clamp(4rem,8vw,6rem)]">
+    <div class="flex max-w-160 flex-col gap-3">
+      <p class="text-sm leading-5 font-bold text-accent">More ways to play</p>
+      <h2 id="more-title" class="font-display text-[clamp(2rem,4vw,3rem)] leading-[1.1] font-bold text-heading">There's more in the postbag.</h2>
+      <div class="h-1 w-14 rounded-full bg-postal-gold" aria-hidden="true"></div>
+    </div>
+    <div class="grid grid-cols-[repeat(auto-fit,minmax(18.75rem,1fr))] gap-6">
+      <article class="flex flex-col overflow-hidden rounded-card bg-surface shadow-card">
+        <div class="flex h-50 items-start justify-center overflow-hidden bg-tint pt-6">
+          <picture>
+            <source srcset="/images/route-dark.webp" media="(prefers-color-scheme: dark)">
+            <img src="/images/route.webp" alt="Route mode: 180 metres to go, about 2 minutes walking" width="666" height="1480" loading="lazy" decoding="async" class="h-auto w-55 rounded-[0.875rem] shadow-[0_12px_28px_rgb(10_25_49/0.18)]">
+          </picture>
+        </div>
+        <div class="flex flex-col gap-2.5 p-6">
+          <div class="flex items-center gap-3">
+            <span class="flex size-10 shrink-0 items-center justify-center rounded-lg bg-tint-strong text-accent"><svg class="icon size-5.5" aria-hidden="true"><use href="/icons.svg#walk"/></svg></span>
+            <h3 class="text-xl leading-7 font-bold">Walk to a destination</h3>
+          </div>
+          <p class="leading-6 text-muted">Pick where you're heading and see how many postboxes, and how many points, lie along the way. Got time to spare? Allow a detour.</p>
+        </div>
+      </article>
+      <article class="flex flex-col overflow-hidden rounded-card bg-surface shadow-card">
+        <div class="flex h-50 items-center justify-center bg-royal-navy">
+          <img src="/images/watch-compass.webp" alt="The watch compass showing 18 postboxes to find" width="384" height="384" loading="lazy" decoding="async" class="size-40 rounded-full ring-6 ring-[#2a2d33]">
+        </div>
+        <div class="flex flex-col gap-2.5 p-6">
+          <div class="flex items-center gap-3">
+            <span class="flex size-10 shrink-0 items-center justify-center rounded-lg bg-tint-strong text-accent"><svg class="icon size-5.5" aria-hidden="true"><use href="/icons.svg#watch"/></svg></span>
+            <h3 class="text-xl leading-7 font-bold">On your wrist</h3>
+          </div>
+          <p class="leading-6 text-muted">A standalone Wear OS app scans, follows the compass and claims from your watch. A tile and complications keep your streak in view.</p>
+        </div>
+      </article>
+      <article class="flex flex-col overflow-hidden rounded-card bg-surface shadow-card">
+        <div class="flex h-50 flex-col items-center justify-center gap-2 bg-tint p-6 text-center">
+          <p class="font-display text-[3.5rem] leading-none font-extrabold text-accent">25,000</p>
+          <p class="text-[0.9375rem] leading-[1.375rem] font-semibold">UK postboxes, roughly, still not on the map</p>
+        </div>
+        <div class="flex flex-col gap-2.5 p-6">
+          <div class="flex items-center gap-3">
+            <span class="flex size-10 shrink-0 items-center justify-center rounded-lg bg-tint-strong text-accent"><svg class="icon size-5.5" aria-hidden="true"><use href="/icons.svg#edit-location"/></svg></span>
+            <h3 class="text-xl leading-7 font-bold">Help fix the map</h3>
+          </div>
+          <p class="leading-6 text-muted">Postbox data comes from OpenStreetMap. Report a missing box or a wrong cypher from the app, and accepted fixes update everyone's scores.</p>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <section id="get" aria-labelledby="get-title" class="on-dark bg-postal-red text-white">
+    <div class="mx-auto flex max-w-190 flex-col items-center gap-6 px-6 py-[clamp(4rem,8vw,6rem)] text-center">
+      <img src="/images/postbox.svg" alt="" width="46" height="96" loading="lazy" class="h-24 w-auto brightness-0 invert">
+      <h2 id="get-title" class="font-display text-[clamp(2.125rem,4.6vw,3.5rem)] leading-[1.1] font-extrabold">What else were you going to do today?</h2>
+      <p class="max-w-130 text-[1.0625rem] leading-[1.625rem] text-on-red">The Postbox Game is free, with no ads, on iPhone and Android.</p>
+      <div class="flex flex-wrap items-center justify-center gap-3" data-badges>
+        <a class="badge-apple" data-store="apple" href="https://apps.apple.com/gb/app/the-postbox-game/id6819213888"><img src="/app-store-badge.svg" alt="Download on the App Store" width="156" height="52"></a>
+        <a class="badge-google" data-store="google" href="https://play.google.com/store/apps/details?id=com.code418.postbox_game"><img src="/images/google-play-badge.png" alt="Get it on Google Play" width="175" height="52"></a>
+      </div>
+    </div>
+  </section>
 </main>
-<footer>
-  &copy; The Postbox Game · <a href="/support">Support</a> · <a href="/privacy-policy">Privacy Policy</a>
+
+<footer class="border-t border-line">
+  <div class="mx-auto flex max-w-page flex-wrap items-center justify-between gap-x-6 gap-y-1 px-6 py-3 text-sm leading-5 text-muted">
+    <p>&copy; The Postbox Game</p>
+    <nav aria-label="Footer">
+      <ul class="flex flex-wrap items-center gap-x-5">
+        <li><a href="/support" class="link inline-block py-3">Support</a></li>
+        <li><a href="/privacy-policy" class="link inline-block py-3">Privacy policy</a></li>
+        <li><a href="/data-safety" class="link inline-block py-3">Data safety</a></li>
+        <li class="py-3">Postbox data &copy; <a href="https://www.openstreetmap.org/copyright" class="link">OpenStreetMap contributors</a>, ODbL</li>
+      </ul>
+    </nav>
+  </div>
 </footer>
+
 <script>
   // App Store campaign provider token (App Store Connect > Analytics > Campaigns).
   // It identifies the developer account, is the same for every campaign and is

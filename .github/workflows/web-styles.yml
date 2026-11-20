@@ -1,0 +1,36 @@
+name: Web styles
+
+# web/site.css is compiled by Tailwind from web_styles/src/site.css and the
+# classes used in the hosted pages, then committed so `flutter build web`
+# picks it up with no extra step. This fails when a page or the source CSS
+# changed without a rebuild, which would ship missing styles.
+on:
+  pull_request:
+    paths:
+      - 'web/**'
+      - 'web_styles/**'
+      - '.github/workflows/web-styles.yml'
+  push:
+    branches:
+      - master
+    paths:
+      - 'web/**'
+      - 'web_styles/**'
+      - '.github/workflows/web-styles.yml'
+
+jobs:
+  css-is-fresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: web_styles/package-lock.json
+      - name: Install dependencies
+        working-directory: web_styles
+        run: npm ci
+      - name: Check web/site.css matches its sources
+        working-directory: web_styles
+        run: npm run check

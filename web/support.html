@@ -1,120 +1,151 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en-GB">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Support – The Postbox Game</title>
-  <style>
-    :root {
-      --red: #C8102E;
-      --navy: #0A1931;
-      --gold: #FFB400;
-      --bg: #f9f7f4;
-      --text: #1a1a1a;
-      --muted: #555;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      line-height: 1.7;
-    }
-    header {
-      background: var(--navy);
-      color: white;
-      padding: 2rem 1.5rem 1.5rem;
-      border-bottom: 4px solid var(--red);
-    }
-    header h1 { font-size: 1.6rem; font-weight: 700; }
-    header p  { font-size: 0.9rem; color: #aab; margin-top: 0.3rem; }
-    main {
-      max-width: 760px;
-      margin: 0 auto;
-      padding: 2rem 1.5rem 4rem;
-    }
-    h2 {
-      font-size: 1.15rem;
-      color: var(--red);
-      margin: 2rem 0 0.6rem;
-      padding-bottom: 0.3rem;
-      border-bottom: 1px solid #e0d8d0;
-    }
-    p { margin-bottom: 0.9rem; color: var(--text); }
-    ul { margin: 0.4rem 0 0.9rem 1.4rem; }
-    ul li { margin-bottom: 0.4rem; }
-    a { color: var(--red); }
-    .last-updated {
-      display: inline-block;
-      background: var(--gold);
-      color: var(--navy);
-      font-size: 0.8rem;
-      font-weight: 600;
-      padding: 0.2rem 0.7rem;
-      border-radius: 4px;
-      margin-bottom: 1.5rem;
-    }
-    .badges {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.5rem 1rem;
-      align-items: center;
-      margin: 0.4rem 0 0.9rem;
-    }
-    .badges a { display: inline-flex; align-items: center; }
-    .badge-apple img { height: 44px; width: auto; }
-    /* Google's badge PNG carries its own padding; scale it to match. */
-    .badge-google img { height: 64px; width: auto; margin: -10px; }
-    footer {
-      text-align: center;
-      padding: 1.5rem;
-      font-size: 0.8rem;
-      color: var(--muted);
-      border-top: 1px solid #ddd;
-    }
-  </style>
+  <title>Support · The Postbox Game</title>
+  <meta name="description" content="Help with The Postbox Game: how to play, common questions, reporting postbox problems, and your account and data.">
+  <link rel="canonical" href="https://the-postbox-game.web.app/support">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#C8102E">
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="preload" href="/fonts/plus-jakarta-sans-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/playfair-display-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/site.css">
+  <script type="speculationrules">
+    {"prerender": [{"where": {"href_matches": ["/get", "/privacy-policy", "/data-safety"]}, "eagerness": "moderate"}]}
+  </script>
 </head>
 <body>
-<header>
-  <h1>The Postbox Game – Support</h1>
-  <p>Help with playing, your account and postbox data.</p>
-</header>
-<main>
-  <h2>Get the app</h2>
-  <div class="badges">
-    <a class="badge-apple" href="https://apps.apple.com/gb/app/the-postbox-game/id6819213888">
-      <img src="/app-store-badge.svg" alt="Download on the App Store">
+<a href="#main" class="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:rounded-lg focus:bg-surface focus:px-4 focus:py-3 focus:font-semibold focus:text-ink">Skip to content</a>
+
+<header class="site-header border-b border-line bg-page">
+  <div class="mx-auto flex max-w-page items-center justify-between gap-4 px-6 py-3.5">
+    <a href="/get" class="flex min-h-11 items-center gap-3 text-heading">
+      <img src="/images/postbox.svg" alt="" width="19" height="40" class="h-10 w-auto">
+      <span class="font-display text-lg leading-none font-bold whitespace-nowrap sm:text-[1.375rem]">The Postbox Game</span>
     </a>
-    <a class="badge-google" href="https://play.google.com/store/apps/details?id=com.code418.postbox_game&amp;referrer=utm_source%3Dsupport%26utm_medium%3Dweb">
-      <img src="https://play.google.com/intl/en_gb/badges/static/images/badges/en_badge_web_generic.png" alt="Get it on Google Play">
-    </a>
+    <a href="/get" class="inline-flex min-h-11 items-center rounded-xl bg-postal-red px-4 text-[0.9375rem] font-semibold whitespace-nowrap text-white hover:bg-postal-red-deep sm:px-5">Get the app</a>
   </div>
+</header>
 
-  <h2>Contact us</h2>
-  <p>Email <a href="mailto:richard@agilepixel.io?subject=The%20Postbox%20Game%20support">richard@agilepixel.io</a>. Please include your device model and, if it's about your account, the UID shown on the Friends screen. We aim to reply within a few working days.</p>
+<main id="main">
+  <section class="on-dark bg-postal-red text-white">
+    <div class="mx-auto flex max-w-page flex-col gap-4 px-6 py-[clamp(3rem,6vw,4.5rem)]">
+      <p class="inline-flex items-center gap-1.5 self-start rounded-full bg-white/16 px-3 py-1.5 text-[0.8125rem] leading-[1.125rem] font-bold">
+        <svg class="icon size-4" aria-hidden="true"><use href="/icons.svg#support-agent"/></svg>Support
+      </p>
+      <h1 class="font-display text-[clamp(2.375rem,5vw,4rem)] leading-[1.06] font-extrabold">How can we help?</h1>
+      <div class="h-1 w-14 rounded-full bg-postal-gold" aria-hidden="true"></div>
+      <p class="max-w-150 text-[clamp(1.0625rem,1.6vw,1.25rem)] leading-normal text-on-red">Help with playing, your account and postbox data.</p>
+    </div>
+  </section>
 
-  <h2>How to play</h2>
-  <ul>
-    <li>Walk to a real postbox in the UK and stand within about 30&nbsp;m of it.</li>
-    <li>On the Claim screen, tap <strong>Scan for postboxes nearby</strong>, then name the royal cypher on the box to claim it.</li>
-    <li>Each postbox can be claimed once per day. Rarer cyphers (Victorian, Edward VII, Edward VIII) score more points.</li>
-    <li>The Nearby screen's compass shows the rough direction of postboxes around you, never their exact location.</li>
-  </ul>
+  <section aria-label="Quick help" class="px-6 pt-12">
+    <div class="mx-auto grid max-w-page grid-cols-[repeat(auto-fit,minmax(15.625rem,1fr))] gap-5">
+      <article class="flex flex-col gap-3 rounded-card bg-surface p-6 shadow-card">
+        <span class="flex size-11 items-center justify-center rounded-lg bg-tint-strong text-accent"><svg class="icon size-6" aria-hidden="true"><use href="/icons.svg#mail"/></svg></span>
+        <h2 class="text-[1.1875rem] leading-[1.625rem] font-bold">Contact us</h2>
+        <p class="text-[0.9375rem] leading-[1.4375rem] text-muted">Email <a href="mailto:richard@agilepixel.io?subject=The%20Postbox%20Game%20support" class="link font-semibold">richard@agilepixel.io</a>. Please include your device model and, if it's about your account, the UID shown on the Friends screen. We aim to reply within a few working days.</p>
+      </article>
+      <article class="flex flex-col gap-3 rounded-card bg-surface p-6 shadow-card">
+        <span class="flex size-11 items-center justify-center rounded-lg bg-tint-strong text-accent"><svg class="icon size-6" aria-hidden="true"><use href="/icons.svg#edit-location"/></svg></span>
+        <h2 class="text-[1.1875rem] leading-[1.625rem] font-bold">Report a postbox problem</h2>
+        <p class="text-[0.9375rem] leading-[1.4375rem] text-muted">Report missing postboxes from the Claim or Nearby screen when nothing is found, and wrong cyphers from the postbox in your History. Accepted reports update scores automatically.</p>
+      </article>
+      <article class="flex flex-col gap-3 rounded-card bg-surface p-6 shadow-card">
+        <span class="flex size-11 items-center justify-center rounded-lg bg-tint-strong text-accent"><svg class="icon size-6" aria-hidden="true"><use href="/icons.svg#person-remove"/></svg></span>
+        <h2 class="text-[1.1875rem] leading-[1.625rem] font-bold">Delete your account</h2>
+        <p class="text-[0.9375rem] leading-[1.4375rem] text-muted">Settings → Delete account. Your personal data is deleted and your claims anonymised straight away.</p>
+      </article>
+      <article class="flex flex-col gap-3 rounded-card bg-surface p-6 shadow-card">
+        <span class="flex size-11 items-center justify-center rounded-lg bg-tint-strong text-accent"><svg class="icon size-6" aria-hidden="true"><use href="/icons.svg#shield-person"/></svg></span>
+        <h2 class="text-[1.1875rem] leading-[1.625rem] font-bold">Privacy and your data</h2>
+        <p class="text-[0.9375rem] leading-[1.4375rem] text-muted">See the <a href="/privacy-policy" class="link font-semibold">privacy policy</a>, including how to turn off analytics and crash reporting, or <a href="/data-safety" class="link font-semibold">data safety</a> for a summary of what the app collects.</p>
+      </article>
+    </div>
+  </section>
 
-  <h2>Common questions</h2>
-  <p><strong>Why can't I claim a postbox?</strong> You need to be close to it, with location permission turned on and a good GPS fix. Check Settings → Privacy → Location Services → The Postbox Game is set to "While Using the App" with Precise Location on.</p>
-  <p><strong>Can I play outside the UK?</strong> Not yet. Postbox data covers the United Kingdom.</p>
-  <p><strong>A postbox is missing or has the wrong cypher.</strong> Report it from the app: missing postboxes from the Claim or Nearby screen when nothing is found, and wrong cyphers from the postbox in your History. Accepted reports update scores automatically.</p>
-  <p><strong>I've no signal.</strong> Claims made offline are saved on your phone and submitted when you're back online.</p>
+  <section id="how-to-play" aria-labelledby="how-title" class="px-6 pt-[clamp(4rem,8vw,6rem)]">
+    <div class="mx-auto flex max-w-page flex-col gap-8">
+      <div class="flex flex-col gap-3">
+        <p class="text-sm leading-5 font-bold text-accent">The basics</p>
+        <h2 id="how-title" class="font-display text-[clamp(1.875rem,3.6vw,2.75rem)] leading-[1.1] font-bold text-heading">How to play</h2>
+        <div class="h-1 w-14 rounded-full bg-postal-gold" aria-hidden="true"></div>
+      </div>
+      <ol class="grid grid-cols-[repeat(auto-fit,minmax(15.625rem,1fr))] gap-4">
+        <li class="flex flex-col gap-3 rounded-card border border-line bg-surface p-5.5"><span aria-hidden="true" class="flex size-8 items-center justify-center rounded-full bg-postal-red text-[0.9375rem] font-bold text-white">1</span><span class="leading-6">Walk to a real postbox in the UK and stand within about 30&nbsp;m of it.</span></li>
+        <li class="flex flex-col gap-3 rounded-card border border-line bg-surface p-5.5"><span aria-hidden="true" class="flex size-8 items-center justify-center rounded-full bg-postal-red text-[0.9375rem] font-bold text-white">2</span><span class="leading-6">On the Claim screen, tap <strong>Scan for postboxes nearby</strong>, then name the royal cypher on the box to claim it.</span></li>
+        <li class="flex flex-col gap-3 rounded-card border border-line bg-surface p-5.5"><span aria-hidden="true" class="flex size-8 items-center justify-center rounded-full bg-postal-red text-[0.9375rem] font-bold text-white">3</span><span class="leading-6">Each postbox can be claimed once per day. Rarer cyphers (Victorian, Edward VII, Edward VIII) score more points.</span></li>
+        <li class="flex flex-col gap-3 rounded-card border border-line bg-surface p-5.5"><span aria-hidden="true" class="flex size-8 items-center justify-center rounded-full bg-postal-red text-[0.9375rem] font-bold text-white">4</span><span class="leading-6">The Nearby screen's compass shows the rough direction of postboxes around you, never their exact location.</span></li>
+      </ol>
+    </div>
+  </section>
 
-  <h2>Your account and data</h2>
-  <ul>
-    <li><strong>Delete your account:</strong> Settings → Delete account. Your personal data is deleted and your claims anonymised straight away.</li>
-    <li><strong>Privacy:</strong> see the <a href="/privacy-policy">Privacy Policy</a>, including how to turn off analytics and crash reporting.</li>
-  </ul>
+  <section id="questions" aria-labelledby="questions-title" class="px-6 py-[clamp(4rem,8vw,6rem)]">
+    <div class="mx-auto flex max-w-page flex-col gap-8">
+      <div class="flex flex-col gap-3">
+        <p class="text-sm leading-5 font-bold text-accent">Questions</p>
+        <h2 id="questions-title" class="font-display text-[clamp(1.875rem,3.6vw,2.75rem)] leading-[1.1] font-bold text-heading">Common questions</h2>
+        <div class="h-1 w-14 rounded-full bg-postal-gold" aria-hidden="true"></div>
+      </div>
+      <div class="flex flex-wrap items-start gap-x-12 gap-y-8">
+        <div class="disclosure flex min-w-0 flex-[999_1_35rem] flex-col gap-3">
+          <details open class="rounded-card bg-surface px-5 shadow-card">
+            <summary class="min-h-15 py-4 text-[1.0625rem] leading-6 font-bold"><svg class="icon size-6 text-accent" aria-hidden="true"><use href="/icons.svg#chevron"/></svg>Why can't I claim a postbox?</summary>
+            <p class="pb-5 pl-9 leading-[1.5625rem] text-muted">You need to be close to it, with location permission turned on and a good GPS fix. Check Settings → Privacy → Location Services → The Postbox Game is set to "While Using the App" with Precise Location on.</p>
+          </details>
+          <details class="rounded-card bg-surface px-5 shadow-card">
+            <summary class="min-h-15 py-4 text-[1.0625rem] leading-6 font-bold"><svg class="icon size-6 text-accent" aria-hidden="true"><use href="/icons.svg#chevron"/></svg>Can I play outside the UK?</summary>
+            <p class="pb-5 pl-9 leading-[1.5625rem] text-muted">Not yet. Postbox data covers the United Kingdom.</p>
+          </details>
+          <details class="rounded-card bg-surface px-5 shadow-card">
+            <summary class="min-h-15 py-4 text-[1.0625rem] leading-6 font-bold"><svg class="icon size-6 text-accent" aria-hidden="true"><use href="/icons.svg#chevron"/></svg>A postbox is missing or has the wrong cypher.</summary>
+            <p class="pb-5 pl-9 leading-[1.5625rem] text-muted">Report it from the app: missing postboxes from the Claim or Nearby screen when nothing is found, and wrong cyphers from the postbox in your History. Accepted reports update scores automatically.</p>
+          </details>
+          <details class="rounded-card bg-surface px-5 shadow-card">
+            <summary class="min-h-15 py-4 text-[1.0625rem] leading-6 font-bold"><svg class="icon size-6 text-accent" aria-hidden="true"><use href="/icons.svg#chevron"/></svg>I've no signal.</summary>
+            <p class="pb-5 pl-9 leading-[1.5625rem] text-muted">Claims made offline are saved on your phone and submitted when you're back online.</p>
+          </details>
+        </div>
+        <div class="flex min-w-0 flex-[1_1_16.25rem] items-end gap-1.5">
+          <img src="/images/guide.webp" alt="" width="314" height="470" loading="lazy" decoding="async" class="h-32 w-auto shrink-0">
+          <p class="mb-13 rounded-2xl rounded-bl-sm bg-surface px-5 py-4 leading-6 shadow-card">I'll need your location for this bit, I'm afraid.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="app-title" class="on-dark bg-band text-white">
+    <div class="mx-auto flex max-w-page flex-wrap items-center justify-between gap-x-12 gap-y-6 px-6 py-14">
+      <div class="flex min-w-0 flex-[1_1_22.5rem] flex-col gap-2">
+        <h2 id="app-title" class="font-display text-[clamp(1.625rem,3vw,2.25rem)] leading-[1.15] font-bold">Not got the app yet?</h2>
+        <p class="leading-6 text-band-ink">Free, with no ads, on iPhone and Android.</p>
+      </div>
+      <div class="flex flex-wrap items-center gap-3">
+        <a class="badge-apple" href="https://apps.apple.com/gb/app/the-postbox-game/id6819213888">
+          <img src="/app-store-badge.svg" alt="Download on the App Store" width="156" height="52">
+        </a>
+        <a class="badge-google" href="https://play.google.com/store/apps/details?id=com.code418.postbox_game&amp;referrer=utm_source%3Dsupport%26utm_medium%3Dweb">
+          <img src="/images/google-play-badge.png" alt="Get it on Google Play" width="175" height="52">
+        </a>
+      </div>
+    </div>
+  </section>
 </main>
-<footer>
-  &copy; The Postbox Game · <a href="/privacy-policy">Privacy Policy</a>
+
+<footer class="border-t border-line">
+  <div class="mx-auto flex max-w-page flex-wrap items-center justify-between gap-x-6 gap-y-1 px-6 py-3 text-sm leading-5 text-muted">
+    <p>&copy; The Postbox Game</p>
+    <nav aria-label="Footer">
+      <ul class="flex flex-wrap items-center gap-x-5">
+        <li><a href="/support" aria-current="page" class="inline-block py-3 font-bold text-ink">Support</a></li>
+        <li><a href="/privacy-policy" class="link inline-block py-3">Privacy policy</a></li>
+        <li><a href="/data-safety" class="link inline-block py-3">Data safety</a></li>
+        <li class="py-3">Postbox data &copy; <a href="https://www.openstreetmap.org/copyright" class="link">OpenStreetMap contributors</a>, ODbL</li>
+      </ul>
+    </nav>
+  </div>
 </footer>
 </body>
 </html>

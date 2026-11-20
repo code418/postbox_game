@@ -1,0 +1,310 @@
+/*
+ * Styles for the static pages in web/: get.html, invite.html, support.html,
+ * privacy-policy.html and data-safety.html. Build with `npm run build` in
+ * web_styles/, which writes web/site.css (committed, so a Flutter web build
+ * picks it up with no extra step). See web_styles/README.md.
+ *
+ * Colours, type, radii and spacing come from the Postbox Game design system
+ * (lib/theme.dart): postal red #C8102E, postal gold #FFB400, royal navy
+ * #0A1931, parchment #FFF8F0.
+ */
+
+/* Scan only the hosted pages, not the Flutter shell or anything else. */
+@import "tailwindcss" source(none);
+@source "../../web/get.html";
+@source "../../web/invite.html";
+@source "../../web/support.html";
+@source "../../web/privacy-policy.html";
+@source "../../web/data-safety.html";
+
+/* Self-hosted (copied by `npm run fonts`), so a page view sends nothing to
+   a font CDN. Latin subset only: anything outside it falls back per glyph. */
+@font-face {
+  font-family: "Plus Jakarta Sans Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 200 800;
+  src: url("/fonts/plus-jakarta-sans-latin-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Playfair Display Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400 900;
+  src: url("/fonts/playfair-display-latin-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@theme {
+  --font-sans: "Plus Jakarta Sans Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Playfair Display Variable", Georgia, "Times New Roman", serif;
+
+  /* Brand colours: the same in light and dark. */
+  --color-postal-red: #c8102e;
+  --color-postal-red-deep: #9e0b23;
+  --color-postal-gold: #ffb400;
+  --color-royal-navy: #0a1931;
+  /* Secondary text on postal red: 4.9:1. */
+  --color-on-red: #ffe3e7;
+
+  /* Cypher stamp fills (lib/monarch_info.dart). */
+  --color-cypher-eviir: #673ab7;
+  --color-cypher-vr: #ffc107;
+  --color-cypher-george: #3f51b5;
+
+  --container-page: 75rem;
+  --radius-card: 0.75rem;
+  --shadow-card: 0 2px 4px rgb(0 0 0 / 0.1), 0 1px 2px rgb(0 0 0 / 0.06);
+  --shadow-phone: 0 30px 60px rgb(10 25 49 / 0.4);
+}
+
+/* Colours that change with the system theme. The values live in :root
+   below; these names are what the markup uses (bg-page, text-muted...). */
+@theme inline {
+  --color-page: var(--page);
+  --color-surface: var(--surface);
+  --color-ink: var(--ink);
+  --color-body: var(--body);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-heading: var(--heading);
+  --color-band: var(--band);
+  --color-band-ink: var(--band-ink);
+  --color-tint: var(--tint);
+  --color-tint-strong: var(--tint-strong);
+  --color-chip: var(--chip);
+  --color-chip-ink: var(--chip-ink);
+  --color-ok: var(--ok);
+  --color-ok-ink: var(--ok-ink);
+  --color-highlight: var(--highlight);
+}
+
+@layer base {
+  :root {
+    color-scheme: light dark;
+
+    --page: #fff8f0;
+    --surface: #ffffff;
+    --ink: #1a1a1a;
+    --body: #2a2a2a;
+    --muted: #5c5c5c;
+    --line: #efe4d6;
+    --accent: #c8102e;
+    --heading: #0a1931;
+    --band: #0a1931;
+    --band-ink: #d6dce8;
+    --tint: #ffeeee;
+    --tint-strong: rgb(200 16 46 / 0.1);
+    --chip: #ede7df;
+    --chip-ink: #4a4a4a;
+    --ok: #e3f0e4;
+    --ok-ink: #1b5e20;
+    --highlight: rgb(255 180 0 / 0.16);
+    --ring: #0a1931;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --page: #0a1931;
+      --surface: #13264a;
+      --ink: #f1ede6;
+      --body: #e2ddd5;
+      --muted: #aab4c8;
+      --line: #24375c;
+      --accent: #ff8a9b;
+      --heading: #f1ede6;
+      --band: #13264a;
+      --band-ink: #c9d2e3;
+      --tint: #1a2f57;
+      --tint-strong: rgb(255 138 155 / 0.14);
+      --chip: #24375c;
+      --chip-ink: #d6dce8;
+      --ok: rgb(76 175 80 / 0.2);
+      --ok-ink: #a5d6a7;
+      --highlight: rgb(255 180 0 / 0.22);
+      --ring: #ffb400;
+    }
+  }
+
+  body {
+    background-color: var(--page);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  :focus-visible {
+    outline: 3px solid var(--ring);
+    outline-offset: 3px;
+  }
+
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+
+  p,
+  li {
+    text-wrap: pretty;
+  }
+
+  /* Icons from the /icons.svg sprite follow the text colour. */
+  svg.icon {
+    fill: currentColor;
+    flex-shrink: 0;
+  }
+}
+
+@layer components {
+  /* Red and navy bands: a white focus ring shows on both. */
+  .on-dark {
+    --ring: #ffffff;
+  }
+
+  /* Store badges. The class names are pinned by
+     test/app_store_metadata_test.dart, so they carry the styling. */
+  .badge-apple,
+  .badge-google {
+    display: inline-flex;
+    line-height: 0;
+    border-radius: 0.5rem;
+  }
+
+  .badge-apple img,
+  .badge-google img {
+    height: 3.25rem;
+    width: auto;
+  }
+
+  /* Policy text: its <h2>s must stay attribute-free (pinned against
+     assets/legal/privacy_policy.md by test/privacy_policy_sync_test.dart),
+     so the article styles them. */
+  .prose-policy {
+    & h2 {
+      margin-top: 2rem;
+      padding-top: 2rem;
+      border-top: 1px solid var(--line);
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: clamp(1.5rem, 1.25rem + 0.8vw, 1.875rem);
+      line-height: 1.2;
+      color: var(--heading);
+    }
+
+    & p,
+    & li {
+      font-size: 1rem;
+      line-height: 1.7;
+      color: var(--body);
+    }
+
+    & :is(h2, p, ul) + :is(p, ul) {
+      margin-top: 0.875rem;
+    }
+
+    & ul {
+      display: grid;
+      gap: 0.75rem;
+      padding-left: 1.375rem;
+      list-style: disc;
+    }
+
+    & li::marker {
+      color: var(--accent);
+    }
+
+    & a {
+      color: var(--accent);
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+
+    & strong {
+      font-weight: 700;
+      color: var(--ink);
+    }
+  }
+
+  /* Disclosures (FAQ, contents lists): a chevron sits right before the label
+     and turns to point down when open. */
+  .disclosure summary {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    list-style: none;
+    cursor: pointer;
+
+    &::-webkit-details-marker {
+      display: none;
+    }
+
+    & .icon {
+      rotate: -90deg;
+    }
+  }
+
+  .disclosure details[open] > summary .icon {
+    rotate: 0deg;
+  }
+
+  .disclosure details::details-content {
+    interpolate-size: allow-keywords;
+    overflow: clip;
+    contain: layout;
+  }
+
+  .disclosure details:not([open])::details-content {
+    block-size: 0;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .disclosure summary .icon {
+      transition: rotate 0.2s;
+    }
+
+    .disclosure details::details-content {
+      transition:
+        block-size 0.3s ease-in-out,
+        content-visibility 0.3s ease-in-out allow-discrete;
+    }
+  }
+}
+
+@utility link {
+  color: var(--accent);
+  text-decoration-line: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+
+  &:hover {
+    text-decoration-thickness: 2px;
+  }
+}
+
+/* Cross-page fades between the hosted pages, an enhancement: browsers
+   without cross-document view transitions just load the page. */
+@media (prefers-reduced-motion: no-preference) {
+  @view-transition {
+    navigation: auto;
+  }
+
+  .site-header {
+    view-transition-name: site-header;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
