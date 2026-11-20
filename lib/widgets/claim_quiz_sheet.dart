@@ -51,6 +51,33 @@ typedef NearbyPostboxesCallableFn = Future<HttpsCallableResult<dynamic>>
 typedef StartScoringCallableFn = Future<HttpsCallableResult<dynamic>> Function(
     Map<String, dynamic>);
 
+/// The postbox a claim's share card should name (and link to, if the player
+/// adds its QR code): the rarest of [claimedIds] that the scan saw, so its
+/// cypher is known; failing that, the first claimed id. Null when the server
+/// didn't say which boxes it claimed (an older server, or a response replayed
+/// from before `claimedIds` existed), so the card stays as it always was.
+@visibleForTesting
+String? sharePostboxIdFor(
+  List<String>? claimedIds,
+  Map<String, dynamic> scanned,
+  int Function(String? monarch) pointsFor,
+) {
+  if (claimedIds == null || claimedIds.isEmpty) return null;
+  String? best;
+  var bestPoints = -1;
+  for (final id in claimedIds) {
+    final box = scanned[id];
+    if (box is! Map) continue;
+    final monarch = box['monarch'];
+    final points = pointsFor(monarch is String ? monarch : null);
+    if (points > bestPoints) {
+      best = id;
+      bestPoints = points;
+    }
+  }
+  return best ?? claimedIds.first;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Result type
 // ─────────────────────────────────────────────────────────────────────────────
@@ -88,11 +115,13 @@ enum _QuizStage {
   quiz,
   quizFailed,
   claimed,
+
   /// A transport failure (offline / server unreachable) interrupted the scan
   /// or the claim. Preserves all scan/quiz state and offers a Retry — tearing
   /// the sheet down here is how players used to lose earned claims
   /// (ROADMAP v1.5, offline play Phase 1).
   networkError,
+
   /// The claim was captured to the offline outbox (Phase 3 warm path); it
   /// settles via flushOfflineClaims when the link returns.
   banked,
@@ -238,6 +267,10 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
   int _pointsEarned = 0;
   int _claimedCount = 0;
   bool _isClaiming = false;
+
+  /// The postbox ids the server says this claim took (null when it didn't
+  /// say). Lets the share card name, and link to, the box it shares.
+  List<String>? _claimedIds;
 
   // ── After a claim: share, activation and permission asks ─────────────────
   // Streak as the server left it after this claim (read back with the
@@ -729,10 +762,13 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
             _afterClaimProfile(data,
                 claimedCount: claimedCount, earnedPts: earnedPts)));
       }
+      final rawIds = claimData['claimedIds'];
       setState(() {
         _streakAfterClaim = 0;
         _pointsEarned = earnedPts;
         _claimedCount = claimedCount;
+        _claimedIds =
+            rawIds is List ? rawIds.whereType<String>().toList() : null;
         _isClaiming = false;
         _stage = _QuizStage.claimed;
       });
@@ -1089,8 +1125,26 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
   bool get _streakMilestone => kShareStreakMilestones.contains(_streakAfterClaim);
 
   void _shareClaim() {
-    // The quiz cypher is only the claimed box's own when one box was taken.
-    final cypher = _claimedCount == 1 ? _quizCipher : null;
+    final qrPostboxId = sharePostboxIdFor(
+      _claimedIds,
+      _postboxes,
+      (m) => m == null
+          ? MonarchInfo.getPoints(MonarchInfo.plainKey)
+          : RemoteConfigService.instance.pointsForCipher(m),
+    );
+    // A one-box card names that box's cypher. With the claimed id known it's
+    // the box's own (a QR on the card links to it, so they must agree);
+    // otherwise the quiz cypher, which was that box's when one was taken.
+    final String? cypher;
+    if (_claimedCount != 1) {
+      cypher = null;
+    } else if (qrPostboxId != null) {
+      final box = _postboxes[qrPostboxId];
+      final monarch = box is Map ? box['monarch'] : null;
+      cypher = monarch is String ? monarch : null;
+    } else {
+      cypher = _quizCipher;
+    }
     final milestone = _streakMilestone;
     unawaited(showShareCardSheet(
       context,
@@ -1111,6 +1165,7 @@ class _ClaimQuizSheetState extends State<ClaimQuizSheet>
       itemId: milestone
           ? '$_streakAfterClaim'
           : (shareableCypher(cypher) ?? 'multi'),
+      qrPostboxId: qrPostboxId,
     ));
   }
 

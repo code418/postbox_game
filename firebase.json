@@ -14,7 +14,9 @@
       }
     ],
     "rewrites": [
+      { "source": "/api/postbox/**", "function": { "functionId": "postboxInfo", "region": "europe-west2" } },
       { "source": "/invite/**", "destination": "/invite.html" },
+      { "source": "/postbox/**", "destination": "/postbox.html" },
       { "source": "**", "destination": "/index.html" }
     ]
   },

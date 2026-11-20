@@ -115,8 +115,10 @@ void main() {
           expect(match.group(1), '/app-store-badge.svg', reason: page.path);
         }
       }
-      expect(withBadge,
-          containsAll(['invite.html', 'get.html', 'support.html']));
+      expect(
+          withBadge,
+          containsAll(
+              ['invite.html', 'get.html', 'support.html', 'postbox.html']));
       expect(File('web/app-store-badge.svg').existsSync(), isTrue);
     });
 
@@ -133,6 +135,13 @@ void main() {
           File('web/invite.html').readAsStringSync(),
           contains('href="https://apps.apple.com/gb/app/the-postbox-game/'
               'id6819213888?pt=129562838&amp;ct=invite&amp;mt=8"'));
+    });
+
+    test('postbox page falls back to the postbox campaign link without JS', () {
+      expect(
+          File('web/postbox.html').readAsStringSync(),
+          contains('href="https://apps.apple.com/gb/app/the-postbox-game/'
+              'id6819213888?pt=129562838&amp;ct=postbox_page&amp;mt=8"'));
     });
   });
 

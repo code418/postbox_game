@@ -42,6 +42,7 @@ import 'package:postbox_game/monarch_info.dart';
 import 'package:postbox_game/remote_config_service.dart';
 import 'package:postbox_game/services/home_widget_service.dart';
 import 'package:postbox_game/unpacked/unpacked_stats.dart';
+import 'package:postbox_game/widgets/share_card.dart';
 
 /// Extracts the string literals from the first `[ ... ]` array literal that
 /// follows [anchor] in [source]. Handles both single- and double-quoted entries
@@ -870,6 +871,143 @@ void main() {
             reason: '$key is read by unpackedLaunchNotify but is missing from '
                 'remoteconfig.template.json, so the push could never be '
                 'switched on');
+      }
+    });
+  });
+
+  group('postbox links stay in sync (Dart, TypeScript, web page, config)', () {
+    late String publicTs;
+    late String pageHtml;
+
+    setUpAll(() {
+      publicTs = File('functions/src/_postboxPublic.ts').readAsStringSync();
+      pageHtml = File('web/postbox.html').readAsStringSync();
+    });
+
+    test('the link-code pattern is the same literal in all three', () {
+      final dart = kPostboxLinkCodePattern.pattern;
+      final ts = RegExp(r'export const POSTBOX_LINK_CODE_RE = /(.+)/;')
+          .firstMatch(publicTs)
+          ?.group(1);
+      final js = RegExp(r'const CODE_PATTERN = /(.+)/;')
+          .firstMatch(pageHtml)
+          ?.group(1);
+      expect(ts, dart);
+      expect(js, dart);
+      // Never the invite length, so the two codes can't be confused.
+      expect(normalisePostboxLinkCode('ABCD2345'), isNull);
+      expect(normaliseInviteCode('ABCDEFGHJK'), isNull);
+    });
+
+    test("the page's src sanitiser is get.html's, and Dart's", () {
+      String sanitiser(String html) => RegExp(
+              r"raw\.toLowerCase\(\)\.replace\(/\[\^a-z0-9_-\]/g, ''\)\.slice\(0, 40\)")
+          .stringMatch(html)!;
+      expect(sanitiser(pageHtml),
+          sanitiser(File('web/get.html').readAsStringSync()));
+      expect(sanitisePostboxSrc('Reddit_Postboxes!!'), 'reddit_postboxes');
+    });
+
+    test('monarch labels match MonarchInfo.labels', () {
+      final block = RegExp(r'MONARCH_LABELS[^=]*= \{([^}]*)\}')
+          .firstMatch(publicTs)!
+          .group(1)!;
+      final ts = {
+        for (final m in RegExp(r'(\w+): "([^"]*)"').allMatches(block))
+          m.group(1)!: m.group(2)!,
+      };
+      expect(ts, MonarchInfo.labels);
+    });
+
+    test('cypher phrases match the share card', () {
+      final block = RegExp(r'CYPHER_PHRASES[^=]*= \{([^}]*)\}')
+          .firstMatch(publicTs)!
+          .group(1)!;
+      final ts = {
+        for (final m in RegExp(r'(\w+): "([^"]*)"').allMatches(block))
+          m.group(1)!: m.group(2)!,
+      };
+      for (final cypher in MonarchInfo.all) {
+        expect(ts[cypher] ?? 'a', cypherPhrase(cypher), reason: cypher);
+      }
+    });
+
+    test('county names drop the same ONS suffixes', () {
+      final ts = RegExp(r'export const COUNTY_SUFFIX_RE = /(.+)/;')
+          .firstMatch(publicTs)
+          ?.group(1);
+      final dart = RegExp(r"RegExp\(r'([^']+)'\)").firstMatch(
+          File('lib/unpacked/unpacked_stats.dart')
+              .readAsStringSync()
+              .split('String countyDisplayName')[1])?.group(1);
+      expect(ts, dart);
+      expect(countyDisplayName('Bristol, City of'), 'Bristol');
+    });
+
+    test('Hosting sends /api/postbox to the function, /postbox to the page',
+        () {
+      final hosting =
+          jsonDecode(File('firebase.json').readAsStringSync())['hosting'];
+      final rewrites = (hosting['rewrites'] as List).cast<Map>();
+      int indexOf(String source) =>
+          rewrites.indexWhere((r) => r['source'] == source);
+      final api = rewrites[indexOf('/api/postbox/**')];
+      final region = RegExp(r'FUNCTION_REGION = "([^"]+)"')
+          .firstMatch(File('functions/src/_region.ts').readAsStringSync())!
+          .group(1);
+      expect(api['function'], {'functionId': 'postboxInfo', 'region': region});
+      expect(rewrites[indexOf('/postbox/**')]['destination'], '/postbox.html');
+      // Both before the Flutter app's catch-all.
+      expect(indexOf('/api/postbox/**'), lessThan(indexOf('**')));
+      expect(indexOf('/postbox/**'), lessThan(indexOf('**')));
+      expect(File('functions/src/index.ts').readAsStringSync(),
+          contains('postboxInfo,'));
+    });
+
+    test('both phone-side manifests accept invite and postbox links', () {
+      for (final path in [
+        'android/app/src/phone/AndroidManifest.xml',
+        'android/app/src/auto/AndroidManifest.xml',
+      ]) {
+        final xml = File(path).readAsStringSync();
+        final prefixes = RegExp(r'android:pathPrefix="([^"]+)"')
+            .allMatches(xml)
+            .map((m) => m.group(1)!)
+            .toSet();
+        expect(prefixes, {'/invite/', '/postbox/'}, reason: path);
+        final hosts = RegExp(r'android:host="([^"]+)"')
+            .allMatches(xml)
+            .map((m) => m.group(1)!)
+            .toSet();
+        expect(hosts, containsAll(['invite', 'postbox']), reason: path);
+        // Every https path the app claims is one a parser accepts.
+        for (final prefix in prefixes) {
+          final code = prefix == '/invite/' ? 'ABCD2345' : 'ABCDEFGHJK';
+          final uri = Uri.parse('https://$kInviteHost$prefix$code');
+          expect(parseInviteLink(uri) != null || parsePostboxLink(uri) != null,
+              isTrue,
+              reason: '$path claims $prefix but no parser accepts $uri');
+        }
+      }
+    });
+
+    test('every path the iOS association file claims has a parser', () {
+      final aasa = jsonDecode(
+          File('web/.well-known/apple-app-site-association')
+              .readAsStringSync());
+      final components = [
+        for (final d in aasa['applinks']['details'] as List)
+          for (final c in d['components'] as List) c['/'] as String,
+      ];
+      expect(components, isNotEmpty);
+      for (final pattern in components) {
+        final sample = pattern
+            .replaceFirst('/invite/*', '/invite/ABCD2345')
+            .replaceFirst('/postbox/*', '/postbox/ABCDEFGHJK');
+        final uri = Uri.parse('https://$kInviteHost$sample');
+        expect(parseInviteLink(uri) != null || parsePostboxLink(uri) != null,
+            isTrue,
+            reason: 'the AASA claims $pattern but no parser accepts $uri');
       }
     });
   });

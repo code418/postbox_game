@@ -353,6 +353,10 @@ Most mapped Charles III boxes: Hampshire 8, Kent 6, Devon 4, West Sussex 4, Nort
 | The Postal Museum | `postal_museum` | https://the-postbox-game.web.app/get?src=postal_museum |
 | In-app invites | `invite` | Generated per player: `https://the-postbox-game.web.app/invite/<CODE>` |
 | In-app share cards | `postbox_share` | https://the-postbox-game.web.app/get?src=postbox_share (built into the app) |
+| Share-card postbox QR codes | `qr` | Generated per postbox: `https://the-postbox-game.web.app/postbox/<CODE>?src=qr` (built into the app, opt-in) |
+| Text link sent with a QR share | `share_text` | `.../postbox/<CODE>?src=share_text` |
+| History "Share link" | `history_link` | `.../postbox/<CODE>?src=history_link` |
+| A postbox page opened with no tag | `postbox_page` | `.../postbox/<CODE>` (the page's own default) |
 
 #### g) The Postal Museum introduction email
 
@@ -437,10 +441,23 @@ The server reads `points_by_monarch` from Remote Config, so a time-limited point
 ### Share cards (built)
 
 - Share moments: claim success, streak milestones (7, 30 and 100 days), route completion and your own profile.
-- Card content: the cypher and its era colour, points, streak, the guide's artwork and the invite link.
-- **No map, location, county or name on the card**, so nobody leaks their home postbox.
+- Card content: the cypher and its era colour, points, streak, the guide's artwork and the generic store link (`/get?src=postbox_share`). Until November 2026 it was the sharer's invite link; a share is public, so the two-way friend add now stays with the Friends tab's invite.
+- **No map, location, county or name on the card by default**, so nobody leaks their home postbox. The one exception is the opt-in postbox QR code below, behind a warning.
 - The guide nudges a share on rare claims (7 points or more).
 - Each share is logged as `share` with its content type.
+
+### Postbox links and share-card QR codes (built)
+
+Every postbox can have its own page, `https://the-postbox-game.web.app/postbox/<CODE>`, and a claim's share card can carry a QR code that opens it. Each shared claim then becomes an advert for one real box: "can you find this one?"
+
+- **What a stranger sees:** the cypher and its era, the points it's worth, how many times it has been claimed before today, the county, and a county map with a circle about a kilometre across. Then the store badges and how to claim it. The page never shows the exact spot, and it loads nothing from any other site.
+- **If they have the app,** the link opens it (App Links on Android; on iPhone, once the follow-up association update ships). The app says how close they are in rough bands ("very close", "a short walk", "under a kilometre", "more than a kilometre"), never which way, and opens the claim quiz when they're within range.
+- **The code is random, not the box's OpenStreetMap number,** which would let anyone look up its exact position. Codes are made the first time someone shares a box, and only for a box they have claimed.
+- **Opt-in, with a warning:** "Add postbox QR" on the claim share sheet, and "Share link" in History, both show a one-time notice that the link reveals roughly where the box is. If it's their home postbox, that's roughly where they live.
+- **Tracking:** the QR carries `src=qr`, the share text `src=share_text`, History links `src=history_link`. The page passes the tag into the store links like `/get` does.
+- **Metric:** `postbox_link_opened` (by `src`) and installs by `qr` / `share_text` in the store consoles. `share` events carry `qr: 1` when the code was on the card.
+
+**QR codes stuck on postboxes are parked, permanently.** Fixing anything to a Royal Mail letter box without its authority is an offence under the Postal Services Act 2000, s.86, punishable by a fine, and many pillar boxes are also listed structures. The game never does it and never encourages players to. Codes live on share cards, and on anything else only with the owner's permission.
 
 ### Rating prompt (built)
 
@@ -555,6 +572,7 @@ If a week is squeezed, cut in this order: the queued move first, then social. Ke
 | Custom domain | Skip | About £10 a year; not free |
 | On-camera video or a named founder story | Skip | Owner is staying anonymous |
 | Points for referrals | Skip | Rewards fake accounts |
+| QR codes stuck on postboxes | **Parked** | An offence without Royal Mail's authority (Postal Services Act 2000, s.86); never do it or encourage it. Share-card QR codes instead (§7) |
 | Cold-messaging creators | Skip | Too time-hungry at 1–2 hours a week; revisit if press works |
 
 ---

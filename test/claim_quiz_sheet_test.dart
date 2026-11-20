@@ -380,6 +380,52 @@ void main() {
     expect(strip.controller.pendingMessage, isNotEmpty);
   });
 
+  // The server's claimedIds tell the share sheet which box it may link to;
+  // a response without them (an older server, a replayed attempt) must
+  // leave the share sheet exactly as it was, with no QR switch.
+  for (final withIds in [true, false]) {
+    testWidgets(
+        'the share sheet offers a postbox QR only when the server names '
+        'the claimed box (claimedIds ${withIds ? 'present' : 'absent'})',
+        (tester) async {
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 2.625;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: ClaimQuizSheet(
+            scanPosition: const LatLng(51.5, -0.12),
+            nearbyCallable: _nearbyUnknownCipher,
+            positionProvider: () async => _fakePos(),
+            startScoringCallable: (_) async => _FakeResult<dynamic>(
+              <String, dynamic>{
+                'found': true,
+                'claimed': 1,
+                'points': 9,
+                'allClaimedToday': false,
+                if (withIds) 'claimedIds': ['pb1'],
+              },
+            ),
+            onCompleted: (_) {},
+          ),
+        ),
+      ));
+      await _settle(tester);
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(find.text('Claim this postbox!'));
+      await _settle(tester);
+      await tester.pump(const Duration(seconds: 1));
+
+      await tester.ensureVisible(find.text('Share this find'));
+      await tester.tap(find.text('Share this find'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.text('Add postbox QR'), withIds ? findsOneWidget : findsNothing);
+      // Let the success animation and confetti finish.
+      await tester.pump(const Duration(seconds: 5));
+    });
+  }
+
   testWidgets('claim sends clientTsMs to startScoring for the anomaly detector',
       (tester) async {
     Map<String, dynamic>? claimPayload;

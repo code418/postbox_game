@@ -88,6 +88,94 @@ String? parseInviteInput(String text) {
   return normaliseInviteCode(trimmed);
 }
 
+// ── Postbox links ───────────────────────────────────────────────────────────
+
+/// A postbox's link code: 10 Crockford symbols, deliberately not 8 so it can
+/// never be read as an invite code. Opaque on purpose: a link never carries
+/// the postbox's doc id, whose OpenStreetMap node number would pinpoint the
+/// box. Pinned literal: keep identical in `functions/src/_postboxPublic.ts`
+/// and `web/postbox.html` (test/cross_language_sync_test.dart).
+final RegExp kPostboxLinkCodePattern = RegExp(r'^[0-9A-HJKMNP-TV-Z]{10}$');
+
+/// `?src=` values the app stamps on the postbox links it shares, so store
+/// installs can be split by where the link came from. The QR's tag is kept to
+/// two letters: the whole URL then fits a version-4 QR symbol (33 modules)
+/// at medium error correction, which keeps it scannable on a small card.
+const String kPostboxSrcShareQr = 'qr';
+const String kPostboxSrcShareText = 'share_text';
+const String kPostboxSrcHistory = 'history_link';
+
+/// Canonical form of a postbox link code, or null. Same forgiving rules as
+/// [normaliseInviteCode]; mirrors the server's `normalisePostboxLinkCode`.
+String? normalisePostboxLinkCode(String? raw) {
+  if (raw == null) return null;
+  final code = raw
+      .trim()
+      .toUpperCase()
+      .replaceAll(RegExp(r'[\s-]'), '')
+      .replaceAll(RegExp('[IL]'), '1')
+      .replaceAll('O', '0');
+  return kPostboxLinkCodePattern.hasMatch(code) ? code : null;
+}
+
+/// A `?src=` tag cleaned the way `web/get.html` cleans it: lower case,
+/// `[a-z0-9_-]` only, at most 40 characters. Null when nothing is left.
+String? sanitisePostboxSrc(String? raw) {
+  if (raw == null) return null;
+  final cleaned = raw.toLowerCase().replaceAll(RegExp(r'[^a-z0-9_-]'), '');
+  if (cleaned.isEmpty) return null;
+  return cleaned.length > 40 ? cleaned.substring(0, 40) : cleaned;
+}
+
+/// The public link for a postbox [code], optionally tagged with [src].
+String postboxUrlFor(String code, {String? src}) =>
+    'https://$kInviteHost/postbox/$code${src == null ? '' : '?src=$src'}';
+
+/// A postbox link the app was opened with.
+@immutable
+class PostboxLink {
+  const PostboxLink(this.code, {this.src});
+
+  final String code;
+
+  /// The sanitised `?src=` tag, if the link had one.
+  final String? src;
+
+  @override
+  bool operator ==(Object other) =>
+      other is PostboxLink && other.code == code && other.src == src;
+
+  @override
+  int get hashCode => Object.hash(code, src);
+
+  @override
+  String toString() => 'PostboxLink($code, src: $src)';
+}
+
+/// The postbox link carried by [uri], or null.
+///
+/// Accepts the https link (`https://the-postbox-game.web.app/postbox/CODE`,
+/// an App Link / Universal Link) and the page's custom scheme
+/// (`postboxgame://postbox/CODE`). Strict for the same reason as
+/// [parseInviteLink].
+PostboxLink? parsePostboxLink(Uri? uri) {
+  if (uri == null) return null;
+  final segments = uri.pathSegments.where((s) => s.isNotEmpty).toList();
+  String? code;
+  if ((uri.scheme == 'https' || uri.scheme == 'http') &&
+      uri.host == kInviteHost &&
+      segments.length == 2 &&
+      segments[0] == 'postbox') {
+    code = normalisePostboxLinkCode(segments[1]);
+  } else if (uri.scheme == kInviteScheme &&
+      uri.host == 'postbox' &&
+      segments.length == 1) {
+    code = normalisePostboxLinkCode(segments[0]);
+  }
+  if (code == null) return null;
+  return PostboxLink(code, src: sanitisePostboxSrc(uri.queryParameters['src']));
+}
+
 /// Whether [uri] is a claim deep link from any of the app's glanceable
 /// surfaces (`postbox://claim?source=...`).
 bool isClaimDeepLink(Uri? uri) =>

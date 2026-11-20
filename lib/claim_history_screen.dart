@@ -22,6 +22,7 @@ import 'package:postbox_game/london_date.dart';
 import 'package:postbox_game/theme.dart';
 import 'package:postbox_game/widgets/postbox_map.dart';
 import 'package:postbox_game/widgets/postbox_marker.dart';
+import 'package:postbox_game/widgets/postbox_link_share.dart';
 import 'package:postbox_game/widgets/view_toggle.dart';
 
 /// Signature of the `userClaimHistory` callable, injectable for tests.
@@ -719,28 +720,41 @@ class _EntryDetailSheet extends StatelessWidget {
                   ? '1 point earned'
                   : '${entry.totalPoints} points earned',
             ),
-            if (!RemoteConfigService.instance.killSwitchReporting) ...[
-              const SizedBox(height: AppSpacing.md),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton.icon(
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                    Navigator.of(context).push(MaterialPageRoute(
-                      builder: (_) => ReportCypherScreen(
-                        postboxId: entry.postboxId,
-                        currentMonarch: entry.monarch,
-                        reference: entry.reference,
-                      ),
-                    ));
-                  },
-                  icon: const Icon(Icons.flag_outlined),
-                  label: Text(entry.monarch == null
-                      ? 'Report missing cypher'
-                      : 'Report wrong cypher'),
+            const SizedBox(height: AppSpacing.md),
+            // A Wrap, not a Row: the theme's buttons can carry an infinite
+            // minimum width, which a bare Row can't lay out.
+            Wrap(
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.xs,
+              children: [
+                TextButton.icon(
+                  onPressed: () => sharePostboxLink(
+                    context,
+                    postboxId: entry.postboxId,
+                    monarch: entry.monarch,
+                  ),
+                  icon: const Icon(Icons.link),
+                  label: const Text('Share link'),
                 ),
-              ),
-            ],
+                if (!RemoteConfigService.instance.killSwitchReporting)
+                  TextButton.icon(
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                      Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) => ReportCypherScreen(
+                          postboxId: entry.postboxId,
+                          currentMonarch: entry.monarch,
+                          reference: entry.reference,
+                        ),
+                      ));
+                    },
+                    icon: const Icon(Icons.flag_outlined),
+                    label: Text(entry.monarch == null
+                        ? 'Report missing cypher'
+                        : 'Report wrong cypher'),
+                  ),
+              ],
+            ),
           ],
         ),
       ),

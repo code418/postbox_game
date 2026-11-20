@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>A postbox on The Postbox Game</title>
+  <meta name="description" content="Someone shared a postbox from The Postbox Game. Find it, name its royal cypher and claim it for points.">
+  <meta name="robots" content="noindex">
+  <meta name="apple-itunes-app" content="app-id=6819213888">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="The Postbox Game">
+  <meta property="og:title" content="A postbox on The Postbox Game">
+  <meta property="og:description" content="Find this postbox, name its royal cypher and claim it for points. The Postbox Game turns every walk into a treasure hunt.">
+  <meta property="og:image" content="https://the-postbox-game.web.app/og-image.png">
+  <meta property="og:image:width" content="1024">
+  <meta property="og:image:height" content="500">
+  <meta property="og:url" content="https://the-postbox-game.web.app/get">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="A postbox on The Postbox Game">
+  <meta name="twitter:description" content="Find this postbox, name its royal cypher and claim it for points. The Postbox Game turns every walk into a treasure hunt.">
+  <meta name="twitter:image" content="https://the-postbox-game.web.app/og-image.png">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#C8102E">
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="preload" href="/fonts/plus-jakarta-sans-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/playfair-display-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/site.css">
+</head>
+<body>
+<a href="#main" class="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:rounded-lg focus:bg-surface focus:px-4 focus:py-3 focus:font-semibold focus:text-ink">Skip to content</a>
+
+<header class="site-header border-b border-line bg-page">
+  <div class="mx-auto flex max-w-page items-center justify-center px-6 py-3.5">
+    <a href="/get" class="flex min-h-11 items-center gap-3 text-heading">
+      <img src="/images/postbox.svg" alt="" width="19" height="40" class="h-10 w-auto">
+      <span class="font-display text-lg leading-none font-bold whitespace-nowrap sm:text-[1.375rem]">The Postbox Game</span>
+    </a>
+  </div>
+</header>
+
+<main id="main">
+  <section class="on-dark bg-postal-red text-white">
+    <div class="mx-auto flex max-w-190 flex-col items-center gap-5 px-6 pt-[clamp(3rem,7vw,5rem)] pb-37.5 text-center">
+      <p id="chip" class="inline-flex items-center gap-1.5 rounded-full bg-postal-gold px-3 py-1.5 text-[0.8125rem] leading-[1.125rem] font-bold tracking-[0.04em] text-royal-navy">
+        <svg class="icon size-4" aria-hidden="true"><use href="/icons.svg#mail"/></svg>A real postbox
+      </p>
+      <h1 id="headline" class="font-display text-[clamp(2.25rem,5.2vw,3.75rem)] leading-[1.08] font-extrabold">A postbox on The Postbox Game</h1>
+      <p id="subhead" class="text-[clamp(1.0625rem,1.6vw,1.25rem)] leading-normal text-on-red">Find it, name its royal cypher and claim it for points.</p>
+    </div>
+  </section>
+
+  <div class="px-6">
+    <section id="postbox-card" aria-label="This postbox" class="mx-auto -mt-27.5 flex max-w-140 flex-col items-center gap-5 rounded-2xl bg-surface p-[clamp(1.5rem,4vw,2.5rem)] text-center shadow-[0_20px_48px_rgb(10_25_49/0.18)]">
+      <p id="status" role="status" class="sr-only"></p>
+      <noscript><p class="text-[0.9375rem] leading-6 text-muted">Turn on JavaScript to see this postbox, or get the app below.</p></noscript>
+
+      <div id="skeleton" class="flex w-full animate-pulse flex-col items-center gap-3.5" aria-hidden="true" hidden>
+        <div class="size-32 rounded-full bg-chip"></div>
+        <div class="h-5 w-52 max-w-full rounded-full bg-chip"></div>
+        <div class="h-7.5 w-44 max-w-full rounded-full bg-chip"></div>
+      </div>
+
+      <div id="details" class="flex w-full flex-col items-center gap-3.5" hidden>
+        <div id="medallion" role="img" class="size-32 rounded-full p-2">
+          <span id="medallion-ring" class="flex size-full flex-col items-center justify-center gap-1.5 rounded-full border-2 border-dashed">
+            <span id="medallion-cypher" class="leading-none font-extrabold tracking-[0.02em]"></span>
+            <span id="medallion-points" class="text-sm leading-none font-bold"></span>
+          </span>
+        </div>
+        <p id="label" class="text-lg leading-6 font-bold text-ink"></p>
+        <p id="claims" hidden></p>
+      </div>
+
+      <div id="error-panel" class="flex w-full flex-col items-center" hidden>
+        <button type="button" id="retry" class="inline-flex min-h-12 cursor-pointer items-center gap-2 rounded-xl border border-accent px-5 text-[0.9375rem] font-semibold text-accent hover:bg-tint-strong">Try again</button>
+      </div>
+
+      <div id="open-app-wrap" class="w-full" hidden>
+        <a id="open-app" href="#" class="inline-flex min-h-13 w-full items-center justify-center gap-2.5 rounded-xl bg-postal-red px-6 font-semibold text-white hover:bg-postal-red-deep">
+          <svg class="icon size-5" aria-hidden="true"><use href="/icons.svg#open-in-new"/></svg>Open in the app
+        </a>
+      </div>
+
+      <div class="flex w-full items-center gap-3 text-[0.8125rem] leading-[1.125rem] font-semibold text-muted">
+        <span class="h-px flex-1 bg-line" aria-hidden="true"></span>
+        <h2>Get the app</h2>
+        <span class="h-px flex-1 bg-line" aria-hidden="true"></span>
+      </div>
+      <div class="flex flex-wrap items-center justify-center gap-3" id="badges">
+        <a class="badge-apple" id="apple-badge" href="https://apps.apple.com/gb/app/the-postbox-game/id6819213888?pt=129562838&amp;ct=postbox_page&amp;mt=8">
+          <img src="/app-store-badge.svg" alt="Download on the App Store" width="156" height="52">
+        </a>
+        <a class="badge-google" id="google-badge" href="https://play.google.com/store/apps/details?id=com.code418.postbox_game">
+          <img src="/images/google-play-badge.png" alt="Get it on Google Play" width="175" height="52">
+        </a>
+      </div>
+      <p class="text-sm leading-5 text-muted" id="installed-hint" hidden>Already have the app? Tap the link again to open it.</p>
+    </section>
+  </div>
+
+  <section id="map-section" aria-labelledby="map-title" class="px-6 pt-18" hidden>
+    <div class="mx-auto flex max-w-240 flex-col items-center gap-7">
+      <div class="flex flex-col items-center gap-3 text-center">
+        <h2 id="map-title" class="font-display text-[clamp(1.75rem,3.4vw,2.5rem)] leading-[1.1] font-bold text-heading">Roughly where it is</h2>
+        <div class="h-1 w-14 rounded-full bg-postal-gold" aria-hidden="true"></div>
+      </div>
+      <figure class="flex w-full max-w-160 flex-col gap-4 rounded-card bg-surface p-[clamp(1rem,3vw,1.75rem)] shadow-card">
+        <div id="map" class="w-full"></div>
+        <figcaption class="text-center text-[0.9375rem] leading-6 text-muted">It's somewhere in the red circle, about a kilometre across. Close enough to go looking, not so close it spoils the hunt.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section id="steps" aria-labelledby="steps-title" class="px-6 pt-18" hidden>
+    <div class="mx-auto flex max-w-240 flex-col items-center gap-7">
+      <div class="flex flex-col items-center gap-3 text-center">
+        <h2 id="steps-title" class="font-display text-[clamp(1.75rem,3.4vw,2.5rem)] leading-[1.1] font-bold text-heading">How to claim it</h2>
+        <div class="h-1 w-14 rounded-full bg-postal-gold" aria-hidden="true"></div>
+      </div>
+      <ol class="grid w-full grid-cols-[repeat(auto-fit,minmax(15rem,1fr))] gap-4">
+        <li class="flex items-start gap-3.5 rounded-card bg-surface p-5 shadow-card"><span aria-hidden="true" class="flex size-8 shrink-0 items-center justify-center rounded-full bg-postal-red text-[0.9375rem] font-bold text-white">1</span><span class="leading-6">Install The Postbox Game and sign in.</span></li>
+        <li class="flex items-start gap-3.5 rounded-card bg-surface p-5 shadow-card"><span aria-hidden="true" class="flex size-8 shrink-0 items-center justify-center rounded-full bg-postal-red text-[0.9375rem] font-bold text-white">2</span><span class="leading-6">Walk to within 30 metres of this postbox. The circle above shows roughly where to look.</span></li>
+        <li class="flex items-start gap-3.5 rounded-card bg-surface p-5 shadow-card"><span aria-hidden="true" class="flex size-8 shrink-0 items-center justify-center rounded-full bg-postal-red text-[0.9375rem] font-bold text-white">3</span><span class="leading-6">Name its royal cypher to claim it. You can claim each postbox once a day.</span></li>
+      </ol>
+    </div>
+  </section>
+
+  <section aria-labelledby="pitch-title" class="px-6 py-[clamp(4rem,8vw,6rem)]">
+    <div class="mx-auto flex max-w-275 flex-wrap items-center gap-x-18 gap-y-12">
+      <div class="mx-auto flex min-w-0 flex-[0_1_18.75rem] justify-center">
+        <div class="w-[min(17.5rem,75vw)] rounded-[3.125rem] bg-[#14161a] p-2.5 shadow-[0_24px_48px_rgb(10_25_49/0.28)]">
+          <picture>
+            <source srcset="/images/nearby-dark.webp" media="(prefers-color-scheme: dark)">
+            <img src="/images/nearby.webp" alt="The Nearby screen: a map of central London and 18 postboxes nearby, worth 2 to 9 points" width="666" height="1480" loading="lazy" decoding="async" class="h-auto w-full rounded-[2.5rem]">
+          </picture>
+        </div>
+      </div>
+      <div class="flex min-w-0 flex-[1_1_26.25rem] flex-col gap-4.5">
+        <p class="text-sm leading-5 font-bold text-accent">What's the game?</p>
+        <h2 id="pitch-title" class="font-display text-[clamp(1.875rem,3.6vw,2.75rem)] leading-[1.1] font-bold text-heading">Turn every walk into a treasure hunt.</h2>
+        <div class="h-1 w-14 rounded-full bg-postal-gold" aria-hidden="true"></div>
+        <p class="text-[1.0625rem] leading-[1.625rem] text-muted">Britain's red postboxes carry the royal cypher of the monarch who reigned when they were installed. Spot them on your walks, claim one a day for points, and chase the rare Victorian and Edward VII boxes up the leaderboards.</p>
+        <ul class="flex flex-wrap items-center gap-3" aria-label="Points for some of the rarer cyphers">
+          <li class="size-19 rounded-full bg-postal-gold p-1.25 text-royal-navy"><span class="flex size-full flex-col items-center justify-center gap-0.75 rounded-full border-2 border-dashed border-royal-navy/45"><span class="text-[0.8125rem] leading-none font-extrabold">EVIIIR</span><span class="text-[0.6875rem] leading-none font-bold">12 pts</span></span></li>
+          <li class="size-19 rounded-full bg-cypher-eviir p-1.25 text-white"><span class="flex size-full flex-col items-center justify-center gap-0.75 rounded-full border-2 border-dashed border-white/60"><span class="text-[0.9375rem] leading-none font-extrabold">EVIIR</span><span class="text-[0.6875rem] leading-none font-bold">9 pts</span></span></li>
+          <li class="size-19 rounded-full bg-cypher-vr p-1.25 text-royal-navy"><span class="flex size-full flex-col items-center justify-center gap-0.75 rounded-full border-2 border-dashed border-royal-navy/45"><span class="text-lg leading-none font-extrabold">VR</span><span class="text-[0.6875rem] leading-none font-bold">7 pts</span></span></li>
+          <li class="size-19 rounded-full border-3 border-postal-red bg-white p-1.25 text-postal-red"><span class="flex size-full flex-col items-center justify-center gap-0.75 rounded-full border-2 border-dashed border-postal-red/45"><span class="text-base leading-none font-extrabold">EIIR</span><span class="text-[0.6875rem] leading-none font-bold">2 pts</span></span></li>
+        </ul>
+        <a href="/get" class="inline-flex min-h-11 items-center gap-1.5 self-start font-semibold text-accent hover:underline">See how it works<svg class="icon size-5" aria-hidden="true"><use href="/icons.svg#arrow-forward"/></svg></a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="border-t border-line">
+  <div class="mx-auto flex max-w-page flex-wrap items-center justify-between gap-x-6 gap-y-1 px-6 py-3 text-sm leading-5 text-muted">
+    <p>&copy; The Postbox Game</p>
+    <nav aria-label="Footer">
+      <ul class="flex flex-wrap items-center gap-x-5">
+        <li><a href="/support" class="link inline-block py-3">Support</a></li>
+        <li><a href="/privacy-policy" class="link inline-block py-3">Privacy policy</a></li>
+        <li><a href="/data-safety" class="link inline-block py-3">Data safety</a></li>
+        <li class="py-3">Postbox data &copy; <a href="https://www.openstreetmap.org/copyright" class="link">OpenStreetMap contributors</a>, ODbL</li>
+      </ul>
+    </nav>
+  </div>
+</footer>
+
+<script>
+  // App Store campaign provider token (App Store Connect > Analytics > Campaigns).
+  // It identifies the developer account, is the same for every campaign and is
+  // public in every campaign link. Empty = plain store links with no `ct`.
+  const APPLE_PROVIDER_TOKEN = '129562838';
+  // Keep the storefront: apps.apple.com 404s on desktop without one.
+  const APP_STORE_URL = 'https://apps.apple.com/gb/app/the-postbox-game/id6819213888';
+  const PLAY_PACKAGE = 'com.code418.postbox_game';
+  // Pinned literal: keep identical in lib/deep_links.dart and
+  // functions/src/_postboxPublic.ts (test/cross_language_sync_test.dart).
+  const CODE_PATTERN = /^[0-9A-HJKMNP-TV-Z]{10}$/;
+  const OUTLINE_PATTERN = /^[MZ0-9 .\-]*$/;
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  const FETCH_TIMEOUT_MS = 15000;
+
+  // Must match the server's normalisePostboxLinkCode: Crockford base32, 10 chars.
+  function normaliseCode(raw) {
+    if (typeof raw !== 'string') return null;
+    const code = raw.trim().toUpperCase()
+      .replace(/[\s-]/g, '')
+      .replace(/[IL]/g, '1')
+      .replace(/O/g, '0');
+    return CODE_PATTERN.test(code) ? code : null;
+  }
+
+  function codeFromPath() {
+    const match = location.pathname.match(/^\/postbox\/([^/?#]+)\/?$/);
+    if (!match) return null;
+    try {
+      return normaliseCode(decodeURIComponent(match[1]));
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Shared links carry ?src=<channel> so the store consoles can attribute
+  // installs to the channel. Same cleaning as /get.
+  function sourceParam() {
+    const raw = new URLSearchParams(location.search).get('src') || '';
+    const clean = raw.toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 40);
+    return clean || 'postbox_page';
+  }
+
+  function appStoreUrl(campaign) {
+    if (!APPLE_PROVIDER_TOKEN) return APP_STORE_URL;
+    return APP_STORE_URL +
+      '?pt=' + encodeURIComponent(APPLE_PROVIDER_TOKEN) +
+      '&ct=' + encodeURIComponent(campaign) + '&mt=8';
+  }
+
+  function playUrl(referrer) {
+    return 'https://play.google.com/store/apps/details?id=' + PLAY_PACKAGE +
+      '&referrer=' + encodeURIComponent(referrer);
+  }
+
+  function platform() {
+    const ua = navigator.userAgent || '';
+    if (/android/i.test(ua)) return 'android';
+    const iPadOs = navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+    if (/iphone|ipad|ipod/i.test(ua) || iPadOs) return 'ios';
+    return 'other';
+  }
+
+  // Cypher stamps, coloured as on /get (lib/monarch_info.dart). The class
+  // names must appear in full here for the Tailwind build to find them.
+  const RED_OUTLINE = { fill: 'border-3 border-postal-red bg-white text-postal-red', ring: 'border-postal-red/45' };
+  const GEORGE = { fill: 'bg-cypher-george text-white', ring: 'border-white/60' };
+  const STAMPS = {
+    EVIIIR: { text: 'EVIIIR', fill: 'bg-postal-gold text-royal-navy', ring: 'border-royal-navy/45' },
+    CIIIR: { text: 'CIIIR', fill: 'bg-postal-red text-white', ring: 'border-white/60' },
+    EVIIR: { text: 'EVIIR', fill: 'bg-cypher-eviir text-white', ring: 'border-white/60' },
+    VR: { text: 'VR', fill: 'bg-cypher-vr text-royal-navy', ring: 'border-royal-navy/45' },
+    GR: { text: 'GR', fill: GEORGE.fill, ring: GEORGE.ring },
+    GVR: { text: 'GVR', fill: GEORGE.fill, ring: GEORGE.ring },
+    GVIR: { text: 'GVIR', fill: GEORGE.fill, ring: GEORGE.ring },
+    SCOTTISH_CROWN: { text: 'Crown', spoken: 'The Scottish Crown', fill: GEORGE.fill, ring: GEORGE.ring },
+    EIIR: { text: 'EIIR', fill: RED_OUTLINE.fill, ring: RED_OUTLINE.ring },
+  };
+  // By the length of the stamp's text, so longer cyphers still fit the ring.
+  const STAMP_TEXT_SIZES = {
+    2: 'text-[2.25rem]',
+    3: 'text-[1.875rem]',
+    4: 'text-[1.6875rem]',
+    5: 'text-[1.5rem]',
+    6: 'text-[1.375rem]',
+  };
+
+  const els = {
+    chip: document.getElementById('chip'),
+    headline: document.getElementById('headline'),
+    subhead: document.getElementById('subhead'),
+    card: document.getElementById('postbox-card'),
+    status: document.getElementById('status'),
+    skeleton: document.getElementById('skeleton'),
+    details: document.getElementById('details'),
+    medallion: document.getElementById('medallion'),
+    medallionRing: document.getElementById('medallion-ring'),
+    medallionCypher: document.getElementById('medallion-cypher'),
+    medallionPoints: document.getElementById('medallion-points'),
+    label: document.getElementById('label'),
+    claims: document.getElementById('claims'),
+    errorPanel: document.getElementById('error-panel'),
+    retry: document.getElementById('retry'),
+    openAppWrap: document.getElementById('open-app-wrap'),
+    openApp: document.getElementById('open-app'),
+    installedHint: document.getElementById('installed-hint'),
+    mapSection: document.getElementById('map-section'),
+    map: document.getElementById('map'),
+    steps: document.getElementById('steps'),
+  };
+
+  const code = codeFromPath();
+  const source = sourceParam();
+  const os = platform();
+  const play = playUrl('utm_source=' + source + '&utm_medium=postbox_page');
+
+  document.getElementById('apple-badge').href = appStoreUrl(source);
+  document.getElementById('google-badge').href = play;
+
+  // List the visitor's own store first.
+  if (os === 'android') {
+    const badges = document.getElementById('badges');
+    badges.insertBefore(document.getElementById('google-badge'), badges.firstChild);
+  }
+
+  // Phones only: there is no app to open anywhere else.
+  let openAppHref = null;
+  if (code) {
+    const query = '?src=' + encodeURIComponent(source);
+    if (os === 'ios') {
+      openAppHref = 'postboxgame://postbox/' + code + query;
+    } else if (os === 'android') {
+      openAppHref = 'intent://postbox/' + code + query +
+        '#Intent;scheme=postboxgame;package=' + PLAY_PACKAGE +
+        ';S.browser_fallback_url=' + encodeURIComponent(play) + ';end';
+    }
+    if (openAppHref) els.openApp.href = openAppHref;
+  }
+
+  function isFiniteNumber(value) {
+    return typeof value === 'number' && Number.isFinite(value);
+  }
+
+  function shortString(value, max) {
+    return typeof value === 'string' && value.length > 0 && value.length <= max ? value : null;
+  }
+
+  // The map is drawn from server data, so every field is checked before it
+  // reaches an attribute; anything off drops the map, not the page.
+  function parseMap(map) {
+    if (!map || typeof map !== 'object') return null;
+    const circle = map.circle;
+    if (!isFiniteNumber(map.width) || map.width <= 0) return null;
+    if (!isFiniteNumber(map.height) || map.height <= 0) return null;
+    if (typeof map.outline !== 'string' || map.outline.length === 0) return null;
+    if (!OUTLINE_PATTERN.test(map.outline)) return null;
+    if (!circle || typeof circle !== 'object') return null;
+    if (!isFiniteNumber(circle.cx) || !isFiniteNumber(circle.cy)) return null;
+    if (!isFiniteNumber(circle.r) || circle.r <= 0) return null;
+    return {
+      width: map.width,
+      height: map.height,
+      outline: map.outline,
+      cx: circle.cx,
+      cy: circle.cy,
+      r: circle.r,
+    };
+  }
+
+  // Null for a response the page can't show, which reads as an error.
+  function parseInfo(json) {
+    if (!json || typeof json !== 'object') return null;
+    if (!isFiniteNumber(json.points) || json.points < 0) return null;
+    const claims = json.claims;
+    const total = claims && typeof claims === 'object' && isFiniteNumber(claims.total) &&
+      claims.total >= 0 ? Math.floor(claims.total) : null;
+    return {
+      monarch: shortString(json.monarch, 40),
+      label: shortString(json.label, 120),
+      phrase: shortString(json.phrase, 60) || 'a',
+      points: json.points,
+      county: shortString(json.county, 100),
+      claims: total,
+      map: parseMap(json.map),
+    };
+  }
+
+  function pointsText(points) {
+    return points.toLocaleString('en-GB') + (points === 1 ? ' point' : ' points');
+  }
+
+  function stampFor(monarch) {
+    if (monarch && Object.prototype.hasOwnProperty.call(STAMPS, monarch)) return STAMPS[monarch];
+    // An unrecognised code is shown as itself if it fits, in the plain style.
+    const text = monarch && /^[A-Z0-9]{1,6}$/.test(monarch) ? monarch : 'Plain';
+    return { text: text, plain: !monarch, fill: RED_OUTLINE.fill, ring: RED_OUTLINE.ring };
+  }
+
+  function renderMedallion(info) {
+    const stamp = stampFor(info.monarch);
+    els.medallion.className = 'size-32 rounded-full p-2 ' + stamp.fill;
+    els.medallionRing.className =
+      'flex size-full flex-col items-center justify-center gap-1.5 rounded-full border-2 border-dashed ' + stamp.ring;
+    els.medallionCypher.className = 'leading-none font-extrabold tracking-[0.02em] ' +
+      (STAMP_TEXT_SIZES[Math.min(Math.max(stamp.text.length, 2), 6)]);
+    els.medallionCypher.textContent = stamp.text;
+    els.medallionPoints.textContent = info.points.toLocaleString('en-GB') + ' pts';
+    const name = stamp.plain ? 'No royal cypher' : (stamp.spoken || 'Royal cypher ' + stamp.text);
+    els.medallion.setAttribute('aria-label', name + ', ' + pointsText(info.points));
+  }
+
+  function renderClaims(total) {
+    const pill = els.claims;
+    pill.replaceChildren();
+    if (total === null) {
+      pill.hidden = true;
+      return;
+    }
+    if (total === 0) {
+      pill.className = 'inline-flex items-center gap-1.5 rounded-full bg-postal-gold px-3 py-1.5 ' +
+        'text-[0.8125rem] leading-[1.125rem] font-bold text-royal-navy';
+      const icon = document.createElementNS(SVG_NS, 'svg');
+      icon.setAttribute('class', 'icon size-4');
+      icon.setAttribute('aria-hidden', 'true');
+      const use = document.createElementNS(SVG_NS, 'use');
+      use.setAttribute('href', '/icons.svg#flag');
+      icon.appendChild(use);
+      pill.append(icon, 'Never claimed. Be the first!');
+    } else {
+      pill.className = 'inline-flex items-center rounded-full bg-chip px-3 py-1.5 ' +
+        'text-[0.8125rem] leading-[1.125rem] font-semibold text-chip-ink';
+      pill.textContent = total === 1
+        ? 'Claimed once before'
+        : 'Claimed ' + total.toLocaleString('en-GB') + ' times before';
+    }
+    pill.hidden = false;
+  }
+
+  // The county outline with the rough-area circle on it. No marker: the
+  // circle is all there is to know.
+  function renderMap(map, county) {
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 ' + map.width + ' ' + map.height);
+    svg.setAttribute('width', String(map.width));
+    svg.setAttribute('height', String(map.height));
+    svg.setAttribute('role', 'img');
+    svg.setAttribute('aria-label', county
+      ? 'Map of ' + county + ' showing roughly where the postbox is'
+      : 'Map showing roughly where the postbox is');
+    svg.setAttribute('class', 'mx-auto block h-auto max-h-105 w-full');
+
+    const outline = document.createElementNS(SVG_NS, 'path');
+    outline.setAttribute('d', map.outline);
+    outline.setAttribute('fill-rule', 'evenodd');
+    outline.setAttribute('class', 'fill-muted/15 stroke-muted/60');
+    outline.setAttribute('stroke-width', '1.25');
+    outline.setAttribute('stroke-linejoin', 'round');
+    outline.setAttribute('vector-effect', 'non-scaling-stroke');
+
+    // The real circle is about 1.2 km across, a speck at county scale.
+    const circle = document.createElementNS(SVG_NS, 'circle');
+    circle.setAttribute('cx', String(map.cx));
+    circle.setAttribute('cy', String(map.cy));
+    circle.setAttribute('r', String(Math.max(map.r, map.width * 0.016)));
+    // accent is postal red in light mode and a lighter red in dark mode,
+    // where postal red would sink into the navy land.
+    circle.setAttribute('class', 'fill-accent/30 stroke-accent');
+    circle.setAttribute('stroke-width', '2');
+    circle.setAttribute('vector-effect', 'non-scaling-stroke');
+
+    svg.append(outline, circle);
+    els.map.replaceChildren(svg);
+  }
+
+  function capitalise(text) {
+    return text.charAt(0).toUpperCase() + text.slice(1);
+  }
+
+  // "Elizabeth II", not "Elizabeth" at the end of one line and "II" on the next.
+  function keepNumeralsTogether(text) {
+    return text.replace(/ (?=[IVX]+\b)/g, '\u00a0');
+  }
+
+  function setHero(headline, subhead, showChip) {
+    els.headline.textContent = headline;
+    els.subhead.textContent = subhead;
+    els.chip.hidden = !showChip;
+  }
+
+  // state: 'loading' | 'loaded' | 'notfound' | 'error'
+  function render(state, info) {
+    const loaded = state === 'loaded';
+    els.skeleton.hidden = state !== 'loading';
+    els.details.hidden = !loaded;
+    els.errorPanel.hidden = state !== 'error';
+    els.openAppWrap.hidden = !(loaded && openAppHref);
+    els.installedHint.hidden = !loaded;
+    els.steps.hidden = !loaded;
+    els.mapSection.hidden = !(loaded && info.map);
+    els.card.setAttribute('aria-busy', state === 'loading' ? 'true' : 'false');
+
+    if (state === 'loading') {
+      setHero('Looking up this postbox…', 'One moment.', true);
+      els.status.textContent = '';
+      return;
+    }
+    if (state === 'notfound') {
+      setHero("We can't find that postbox",
+        'The link may be mistyped, or the postbox has been taken off the map.', false);
+    } else if (state === 'error') {
+      setHero("We couldn't load this postbox", 'Check your connection, then try again.', false);
+    } else {
+      setHero(capitalise(keepNumeralsTogether(info.phrase)) + ' postbox worth ' +
+        pointsText(info.points).replace(' ', '\u00a0'),
+        'Somewhere in ' + (info.county || 'the UK') + '.', true);
+      renderMedallion(info);
+      els.label.textContent = info.label || '';
+      els.label.hidden = !info.label;
+      renderClaims(info.claims);
+      if (info.map) renderMap(info.map, info.county);
+    }
+    els.status.textContent = els.headline.textContent;
+  }
+
+  async function load(fromRetry) {
+    render('loading');
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
+    const timer = controller ? setTimeout(function () { controller.abort(); }, FETCH_TIMEOUT_MS) : null;
+    let state = 'error';
+    let info = null;
+    try {
+      // The canonical code only, never ?src, so the CDN keeps one copy per box.
+      const res = await fetch('/api/postbox/' + code, controller ? { signal: controller.signal } : {});
+      if (res.status === 400 || res.status === 404) {
+        state = 'notfound';
+      } else if (res.status === 200) {
+        info = parseInfo(await res.json());
+        if (info) state = 'loaded';
+      }
+    } catch (e) {
+      state = 'error';
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+    render(state, info);
+    // Retry hid itself while loading, so put focus back somewhere useful.
+    if (fromRetry) {
+      if (state === 'error') {
+        els.retry.focus();
+      } else {
+        els.headline.setAttribute('tabindex', '-1');
+        els.headline.focus();
+      }
+    }
+  }
+
+  els.retry.addEventListener('click', function () { load(true); });
+
+  if (code) {
+    load(false);
+  } else {
+    render('notfound');
+  }
+</script>
+</body>
+</html>

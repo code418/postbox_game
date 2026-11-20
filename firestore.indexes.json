@@ -21,6 +21,14 @@
       "collectionGroup": "claims",
       "queryScope": "COLLECTION",
       "fields": [
+        { "fieldPath": "postboxes", "order": "ASCENDING" },
+        { "fieldPath": "dailyDate", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "claims",
+      "queryScope": "COLLECTION",
+      "fields": [
         { "fieldPath": "userid", "order": "ASCENDING" },
         { "fieldPath": "timestamp", "order": "ASCENDING" }
       ]
