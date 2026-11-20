@@ -2,20 +2,31 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
-/// Pins the hosted marketing and legal pages in web/ (not the Flutter shell,
-/// web/index.html). They are styled by web/site.css, which Tailwind builds
-/// from web_styles/; see web_styles/README.md.
+/// Pins every hosted page in web/ except the Flutter shell (web/index.html).
+/// They are styled by web/site.css, which Tailwind builds from web_styles/
+/// by scanning the same set of files; see web_styles/README.md. A new page
+/// is picked up here, and by the CSS build, with no list to update.
 void main() {
-  const pageNames = [
-    'get.html',
-    'invite.html',
-    'support.html',
-    'privacy-policy.html',
-    'data-safety.html',
-  ];
   final pages = {
-    for (final name in pageNames) name: File('web/$name').readAsStringSync(),
+    for (final file in Directory('web')
+        .listSync()
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.html'))
+        .where((f) => f.uri.pathSegments.last != 'index.html'))
+      file.uri.pathSegments.last: file.readAsStringSync(),
   };
+
+  test('finds the hosted pages', () {
+    expect(
+        pages.keys,
+        containsAll([
+          'get.html',
+          'invite.html',
+          'support.html',
+          'privacy-policy.html',
+          'data-safety.html',
+        ]));
+  });
 
   Iterable<String> attributeValues(String html, String attribute) =>
       RegExp('$attribute="([^"]*)"')

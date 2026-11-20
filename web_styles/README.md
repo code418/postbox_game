@@ -12,6 +12,8 @@ Tailwind CSS 4 build for the hosted pages in `web/`:
 
 `web/index.html` is the Flutter app shell and is not styled from here.
 
+**Adding a page:** create `web/<name>.html` with the same `<head>` lines as the others (`/site.css`, the font preloads) and run `npm run build`. Tailwind scans every `web/*.html` except `index.html`, and `test/web_pages_test.dart` checks the same set, so there is no list to update. Add a rewrite in `firebase.json` only if it needs one; `cleanUrls` already serves it at `/<name>`.
+
 ## Commands
 
 Run these in `web_styles/`:

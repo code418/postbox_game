@@ -9,13 +9,11 @@
  * #0A1931, parchment #FFF8F0.
  */
 
-/* Scan only the hosted pages, not the Flutter shell or anything else. */
+/* Scan every hosted page in web/, so a new page's classes are built with no
+   extra step, but not the Flutter shell or anything outside web/. */
 @import "tailwindcss" source(none);
-@source "../../web/get.html";
-@source "../../web/invite.html";
-@source "../../web/support.html";
-@source "../../web/privacy-policy.html";
-@source "../../web/data-safety.html";
+@source "../../web/*.html";
+@source not "../../web/index.html";
 
 /* Self-hosted (copied by `npm run fonts`), so a page view sends nothing to
    a font CDN. Latin subset only: anything outside it falls back per glyph. */
